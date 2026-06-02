@@ -1,0 +1,341 @@
+-- ============================================================
+-- Core/Network.lua
+-- Вся сетевая логика аддона (addon messages SB_RP).
+--
+-- Принцип:
+--   • Входящие сообщения → парсятся в ParseXxx() → вызывают Logic/Model
+--   • Исходящие сообщения → по подписке на события от Logic
+--   • Network не обращается к UI напрямую, только через события
+-- ============================================================
+local addonName, SB = ...
+SB.Net = SB.Net or {}
+
+C_ChatInfo.RegisterAddonMessagePrefix("SB_RP")
+
+-- ============================================================
+-- ВНУТРЕННИЕ ПОМОЩНИКИ
+-- ============================================================
+
+local function GroupChannel()
+    return IsInRaid() and "RAID" or "PARTY"
+end
+
+local function SendToGroup(msg)
+    if not IsInGroup() then return end
+    C_ChatInfo.SendAddonMessage("SB_RP", msg, GroupChannel())
+end
+
+-- ============================================================
+-- ПАРСЕРЫ ВХОДЯЩИХ ПАКЕТОВ
+-- Каждый парсер отвечает ровно за один тип сообщения.
+-- ============================================================
+
+local function ParseREQ(caster, spellID, slotLevel)
+    if not IsInGroup() or UnitIsGroupLeader("player") then
+        SB.Events.Fire("GM_REQUEST_RECEIVED", caster, spellID, slotLevel)
+    end
+end
+
+local function ParseRES(target, spellID, dc, slotLevel, scale)
+    if string.match(target, UnitName("player")) then
+        SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, scale == "SCALE")
+    end
+end
+
+local function ParseFORCE(target, spellID, outcomeIndex, slotLevel)
+    if target == UnitName("player") then
+        SB.Logic.ExecuteForcedOutcome(spellID, tonumber(outcomeIndex), tonumber(slotLevel))
+    end
+end
+
+local function ParseREST(restType)
+    if restType == "LONG" then
+        SB.Logic.LocalRest()
+        print("|cFFFFCC00[Spellbreaker]: Лидер группы объявил Долгий Отдых. Ресурсы восстановлены!|r")
+    elseif restType == "SHORT" then
+        SB.Logic.LocalShortRest()
+        print("|cFFFFCC00[Spellbreaker]: Лидер группы объявил Короткий Отдых. Рвение восстановлено.|r")
+    end
+end
+
+local function ParseGRANT(target, grantType, v1, v2, v3)
+    if target == UnitName("player") then
+        if SB.ResourceGrant and SB.ResourceGrant.Apply then
+            SB.ResourceGrant.Apply(grantType, v1, v2, v3)
+        end
+    end
+end
+
+local function ParseCUSTOM(action, payload, fullMsg, sender)
+    if action == "ADD" then
+        local raw = fullMsg:match("^CUSTOM%^ADD%^(.+)$")
+        if raw and SB.CustomSpells then
+            SB.CustomSpells.Receive(raw, sender)
+        end
+    elseif action == "DEL" then
+        if payload and SB.CustomSpells then
+            SB.CustomSpells.Delete(payload, true)
+        end
+    end
+end
+
+local function ParseSTATUS(msg, a1, a2, a3, a4, a5, a6, a7)
+    -- a1=name, a2=class, a3=mastery, a4=approach, a5=zealStr, a6=slotsStr, a7=spellsStr
+    local currZeal, maxZeal = strsplit("_", a5 or "0_1")
+    local s1, s2, s3        = strsplit("_", a6 or "0_0_0")
+
+    local spellsList = {}
+    if a7 and a7 ~= "" then
+        for spID in string.gmatch(a7, "[^,]+") do
+            table.insert(spellsList, spID)
+        end
+    end
+
+    SB.Data.PlayersStatus[a1] = {
+        class          = a2,
+        mastery        = a3,
+        approach       = a4,
+        zeal           = tonumber(currZeal) or 0,
+        maxZeal        = tonumber(maxZeal)  or SB.Data.Config.MaxZeal[a3] or 1,
+        slots          = { tonumber(s1) or 0, tonumber(s2) or 0, tonumber(s3) or 0 },
+        preparedSpells = spellsList,
+    }
+    SB.Events.Fire("PLAYERS_STATUS_UPDATED")
+end
+
+local function ParseADDEFF(target, contID, duration, isConc)
+    if target == UnitName("player") then
+        if SB.ActiveEffects and SB.ActiveEffects.Add then
+            SB.ActiveEffects.Add(contID, tonumber(duration) or 1, isConc == "1")
+        end
+    end
+end
+
+local function ParseAEFFECT(payload)
+    -- payload: "name|spID:uses:isConc|spID:uses:isConc|..."
+    local parts = { strsplit("|", payload) }
+    local senderName = parts[1]
+    if not senderName or senderName == "" then return end
+
+    local effectList = {}
+    for i = 2, #parts do
+        local p = parts[i]
+        if p and p ~= "" then
+            local spID, uses, isConc = strsplit(":", p)
+            if spID and spID ~= "" then
+                table.insert(effectList, {
+                    spellID = spID,
+                    uses    = tonumber(uses) or 1,
+                    isConc  = isConc == "1",
+                })
+            end
+        end
+    end
+
+    SB.Data.PlayersStatus[senderName] = SB.Data.PlayersStatus[senderName] or {}
+    SB.Data.PlayersStatus[senderName].activeEffects = effectList
+    SB.Events.Fire("PLAYERS_STATUS_UPDATED")
+end
+local netFrame = CreateFrame("Frame")
+netFrame:RegisterEvent("CHAT_MSG_ADDON")
+netFrame:SetScript("OnEvent", function(self, event, prefix, msg, channel, sender)
+    if prefix ~= "SB_RP" then return end
+
+    local shortSender = Ambiguate(sender, "none")
+    if shortSender == UnitName("player") then return end
+
+    local action, a1, a2, a3, a4, a5, a6, a7 = strsplit("^", msg)
+
+    if     action == "REQ"        then ParseREQ(a1, a2, a3)
+    elseif action == "RES"        then ParseRES(a1, a2, a3, a4, a5)
+    elseif action == "FORCE"      then ParseFORCE(a1, a2, a3, a4)
+    elseif action == "REQ_STATUS" then
+        SB.Net.BroadcastStatus()
+        SB.Net.BroadcastActiveEffects()
+    elseif action == "LOG"        then SB.Events.Fire("LOG_MESSAGE_RECEIVED", a1)
+    elseif action == "REST"       then ParseREST(a1)
+    elseif action == "GRANT"      then ParseGRANT(a1, a2, a3, a4, a5)
+    elseif action == "CUSTOM"     then ParseCUSTOM(a1, a2, msg, shortSender)
+    elseif action == "AEFFECT"    then ParseAEFFECT(a1)
+    elseif action == "ADDEFF"     then ParseADDEFF(a1, a2, a3, a4)
+    elseif action == "STATUS"     then ParseSTATUS(msg, a1, a2, a3, a4, a5, a6, a7)
+    end
+end)
+
+-- ============================================================
+-- ИСХОДЯЩИЕ ФУНКЦИИ (публичный API)
+-- ============================================================
+
+--- Отправить запрос на разрешение каста ГМу.
+function SB.Net.SendCastRequest(spellID, slotLevel)
+    if not IsInGroup() then
+        SB.Events.Fire("GM_REQUEST_RECEIVED", UnitName("player"), spellID, slotLevel)
+        return
+    end
+    if UnitIsGroupLeader("player") then
+        SB.Events.Fire("GM_REQUEST_RECEIVED", UnitName("player"), spellID, slotLevel)
+    end
+    SendToGroup("REQ^" .. UnitName("player") .. "^" .. spellID .. "^" .. slotLevel)
+    print("|cFF9933FF[Spellbreaker]|r: Ожидание решения ведущего...")
+end
+
+--- Отправить решение ГМа игроку.
+function SB.Net.SendGMApproval(targetPlayer, spellID, dc, slotLevel, scaleDamage)
+    if not IsInGroup() and targetPlayer == UnitName("player") then
+        SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, scaleDamage == "SCALE")
+        return
+    end
+    SendToGroup("RES^" .. targetPlayer .. "^" .. spellID .. "^" ..
+                dc .. "^" .. slotLevel .. "^" .. scaleDamage)
+end
+
+--- Рассылка сообщения в лог (себе и группе).
+function SB.Net.BroadcastLog(msg)
+    SB.Events.Fire("LOG_MESSAGE_RECEIVED", msg)
+    SendToGroup("LOG^" .. msg)
+end
+
+--- Синоним BroadcastLog для совместимости.
+function SB.Net.BroadcastMessage(msg)
+    SB.Net.BroadcastLog(msg)
+end
+
+--- Команда отдыха всей группе.
+function SB.Net.BroadcastRest(restType)
+    SendToGroup("REST^" .. restType)
+end
+
+--- Синхронизация статуса персонажа с группой.
+function SB.Net.BroadcastStatus()
+    if not IsInGroup() then return end
+
+    local snap     = SB.PlayerModel.GetStatusSnapshot()
+    local zealStr  = snap.zeal .. "_" .. snap.maxZeal
+    local sl       = snap.slots
+    local slotsStr = (sl[1] or 0) .. "_" .. (sl[2] or 0) .. "_" .. (sl[3] or 0)
+    local spellStr = table.concat(snap.preparedSpells or {}, ",")
+
+    SendToGroup(string.format("STATUS^%s^%s^%s^%s^%s^%s^%s",
+        snap.name, snap.class, snap.mastery, snap.approach,
+        zealStr, slotsStr, spellStr))
+
+    -- Отложенная рассылка кастомных заклинаний
+    C_Timer.After(0.3, function()
+        if not SpellbreakerCharDB or not SB.CustomSpells then return end
+        for _, spellID in ipairs(SpellbreakerCharDB.preparedSpells or {}) do
+            local spell = SB.Data.Spells[spellID]
+            if spell and spell.isCustom then
+                SB.CustomSpells.Broadcast(spell)
+                if spell.container and SB.Data.Spells[spell.container] then
+                    SB.CustomSpells.Broadcast(SB.Data.Spells[spell.container])
+                end
+            end
+        end
+    end)
+end
+
+--- Форсировать исход заклинания у конкретного игрока.
+--- Рассылает список активных эффектов группе (#10).
+function SB.Net.BroadcastActiveEffects()
+    if not IsInGroup() then return end
+    if not SB.ActiveEffects then return end
+    local effects = SB.ActiveEffects.GetAll()
+    local parts   = { UnitName("player") }
+    for _, eff in ipairs(effects) do
+        table.insert(parts, eff.spellID .. ":" .. eff.uses .. ":" .. (eff.isConc and "1" or "0"))
+    end
+    local payload = table.concat(parts, "|")
+    SendToGroup("AEFFECT^" .. payload)
+end
+
+function SB.Net.SendForceOutcome(targetName, spellID, outcomeIndex, slotLevel)
+    if not IsInGroup() or targetName == UnitName("player") then
+        if SB.Logic.ExecuteForcedOutcome then
+            SB.Logic.ExecuteForcedOutcome(spellID, outcomeIndex, slotLevel)
+        end
+        return
+    end
+    SendToGroup(string.format("FORCE^%s^%s^%d^%d",
+        targetName, spellID, outcomeIndex, slotLevel))
+end
+
+-- ============================================================
+-- ПОДПИСКИ НА СОБЫТИЯ ОТ LOGIC
+-- ============================================================
+SB.Events.On("SB_INIT", function()
+
+    -- CAST_REQUEST → отправить запрос ГМу
+    SB.Events.On("CAST_REQUEST", function(spellID, slotLevel)
+        SB.Net.SendCastRequest(spellID, slotLevel)
+    end)
+
+    -- STATUS_CHANGED → синхронизировать с группой
+    SB.Events.On("STATUS_CHANGED", function()
+        SB.Net.BroadcastStatus()
+    end)
+
+    -- ACTIVE_EFFECTS_CHANGED → рассылать эффекты группе (#10)
+    SB.Events.On("ACTIVE_EFFECTS_CHANGED", function()
+        SB.Net.BroadcastActiveEffects()
+    end)
+
+    -- BROADCAST_LOG → рассылка лога
+    SB.Events.On("BROADCAST_LOG", function(msg)
+        SB.Net.BroadcastLog(msg)
+    end)
+
+    -- BROADCAST_REST → рассылка команды отдыха
+    SB.Events.On("BROADCAST_REST", function(restType)
+        SB.Net.BroadcastRest(restType)
+    end)
+
+end)
+
+-- ============================================================
+-- СМЕНА ЛИДЕРА / ОБНОВЛЕНИЕ СОСТАВА ГРУППЫ
+-- ============================================================
+local leaderFrame = CreateFrame("Frame")
+leaderFrame:RegisterEvent("PARTY_LEADER_CHANGED")
+leaderFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
+leaderFrame:SetScript("OnEvent", function()
+    -- Скрываем GM-панель если игрок больше не лидер
+    if SpellbreakerGMFrame and SpellbreakerGMFrame:IsShown() then
+        if IsInGroup() and not UnitIsGroupLeader("player") then
+            SpellbreakerGMFrame:Hide()
+            if SpellbreakerAccountDB and SpellbreakerAccountDB.requestQueue then
+                table.wipe(SpellbreakerAccountDB.requestQueue)
+            end
+        end
+    end
+
+    -- Удаляем статусы игроков, покинувших группу
+    local myName  = UnitName("player")
+    local changed = false
+    for name in pairs(SB.Data.PlayersStatus) do
+        if name ~= myName and not UnitInParty(name) and not UnitInRaid(name) then
+            SB.Data.PlayersStatus[name] = nil
+            changed = true
+        end
+    end
+    if changed then SB.Events.Fire("PLAYERS_STATUS_UPDATED") end
+
+    SB.Events.Fire("PLAYER_MODEL_CHANGED")
+
+    C_Timer.After(0.5, function()
+        if IsInGroup() then SB.Net.BroadcastStatus() end
+    end)
+end)
+
+-- Запросить статусы при входе в мир или обновлении группы
+local statusReqFrame = CreateFrame("Frame")
+statusReqFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+statusReqFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
+statusReqFrame:SetScript("OnEvent", function()
+    if IsInGroup() then
+        C_Timer.After(1, function()
+            if IsInGroup() then
+                SendToGroup("REQ_STATUS")
+            end
+        end)
+    end
+end)

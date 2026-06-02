@@ -1,0 +1,47 @@
+## Interface: 100200
+## Title: Spellbreaker
+## Notes: Модульная RP-система заклинаний
+## Version: 0.7
+## SavedVariables: SpellbreakerDB SpellbreakerCustomDB
+
+Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+Libs\AceAddon-3.0\AceAddon-3.0.xml
+Libs\AceDB-3.0\AceDB-3.0.xml
+Libs\AceEvent-3.0\AceEvent-3.0.xml
+Libs\AceTimer-3.0\AceTimer-3.0.xml
+Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua
+Libs\LibDBIcon-1.0\lib.xml
+Libs\LibRPMedia\LibRPMedia-1.0.xml
+Libs\UTF8\lib.xml
+
+Core\Init.lua
+Core\Events.lua
+Core\Database.lua
+
+Spells\Warrior.lua
+Spells\Hunter.lua
+Spells\Mage.lua
+Spells\Rogue.lua
+Spells\Priest.lua
+Spells\Warlock.lua
+Spells\Paladin.lua
+Spells\Druid.lua
+Spells\Shaman.lua
+Spells\Monk.lua
+Spells\DemonHunter.lua
+Spells\DeathKnight.lua
+
+Core\Theme.lua
+Core\PlayerModel.lua
+Core\Logic.lua
+Core\Network.lua
+Core\CustomSpells.lua
+Core\ResourceGrant.lua
+Core\ActiveEffects.lua
+
+UI\MainFrame.lua
+UI\GMPanel.lua
+UI\Library.lua
+UI\Logs.lua
+MinimapButton.lua
