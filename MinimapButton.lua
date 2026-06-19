@@ -41,15 +41,13 @@ local sbLDB = LDB:NewDataObject("SpellbreakerMinimap", {
     OnTooltipShow = function(tooltip)
         if not tooltip or not tooltip.AddLine then return end
         tooltip:SetText("Spellbreaker", 0.6, 0.2, 1)
-        tooltip:AddLine(" ")
-        tooltip:AddLine("[ЛКМ]:",              1, 0.82, 0, true)
-        tooltip:AddLine("  Главная панель",   1, 1,    1, true)
-        tooltip:AddLine(" ")
-        tooltip:AddLine("[ПКМ]:",              1, 0.82, 0, true)
-        tooltip:AddLine("  Панель ведущего",  1, 1,    1, true)
-        tooltip:AddLine(" ")
-        tooltip:AddLine("[Shift + ЛКМ]:",               1, 0.82, 0, true)
-        tooltip:AddLine("  Библиотека заклинаний",      1, 1,    1, true)
+    
+        -- Красим отдельные кусочки текста внутри одной строки
+        local text = "|cffffd100[ЛКМ]:|r |cffffffffГлавная панель|r\n" ..
+                 "|cffffd100[ПКМ]:|r |cffffffffПанель ведущего|r\n" ..
+                 "|cffffd100[Shift + ЛКМ]:|r |cffffffffБиблиотека|r"
+    
+        tooltip:AddLine(text, 1, 1, 1, true)
     end,
 })
  
@@ -61,7 +59,6 @@ initFrame:SetScript("OnEvent", function(self, event, loaded)
  
     -- SpellbreakerAccountDB уже инициализирован в Init.lua через AceDB
     -- db.global.minimap используется LibDBIcon для сохранения позиции кнопки
-    if not SpellbreakerAccountDB then SpellbreakerAccountDB = {} end
     if not SpellbreakerAccountDB.minimap then
         SpellbreakerAccountDB.minimap = { hide = false, minimapPos = 225 }
     end
