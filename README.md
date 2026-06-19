@@ -12,16 +12,10 @@ Spellbook AddOn for World of Warcraft: Aviana RP. Что сейчас импле
 📜 Журнал системы с возможностью скрыть системные сообщения в чате игры.
 🔘 Кнопка миникарты (LDB) с тултипом и тремя режимами клика.
 
-🧹Защита от спама: лимит 40 кастомных заклинаний на отправителя.
+🧹Защита от спама: лимит 50 кастомных заклинаний на отправителя.
 🔧Поддержка .caura toggle для Авианы.
 
-Установка
-Из исходников (текущая версия):
-
-git clone https://github.com/<owner>/Spellbreaker.git
-cp -r Spellbreaker/Spellbreaker  /path/to/WoW/_retail_/Interface/AddOns/
-
-Из архива:
+Установка из архива:
 1.Скачайте последний релиз со страницы Releases.
 2.Распакуйте Spellbreaker-vX.Y.Z.zip в <каталог WoW>/Interface/AddOns/.
 
@@ -49,6 +43,6 @@ LibDBIcon-1.0 — MIT
 LibRPMedia-1.0 — MIT
 Благодарности
 Ace3 — NeoftGames, Ammo, Nevcairiel и контрибьюторы.
-LibRPMedia — Ravendwyr за феноменальный каталог иконок.
+LibRPMedia — Ravendwyr за каталог иконок.
 Custom-spell-концепт вдохновлён D&D 5e SRD (OGL).
 TRP3 за идею пикера иконок через popup-API.
