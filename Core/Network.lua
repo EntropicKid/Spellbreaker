@@ -26,29 +26,70 @@ local function SendToGroup(msg)
 end
 
 -- ============================================================
+-- ЕДИНАЯ ПРОВЕРКА ОТПРАВИТЕЛЯ
+-- Возвращает true, если sender — лидер группы (или мы в соло,
+-- и sender — мы сами). Все доверенные команды (RES/FORCE/REJECT/
+-- REST/GRANT/ADDEFF/RTDECR) должны проходить только от лидера.
+-- ============================================================
+local function IsFromLeader(sender)
+    if not IsInGroup() then
+        -- В соло доверяем только себе
+        return sender == UnitName("player")
+    end
+    local short = Ambiguate(sender or "", "none")
+    -- Проходим по составу группы/рейда — надёжнее, чем
+    -- UnitIsGroupLeader(name), который работает не на всех клиентах.
+    local prefix = IsInRaid() and "raid" or "party"
+    local n = IsInRaid() and MAX_RAID_MEMBERS or 5
+    for i = 1, n do
+        local unit = prefix .. i
+        if UnitExists(unit) then
+            local name = Ambiguate(UnitName(unit) or "", "none")
+            if name == short then
+                return UnitIsGroupLeader(unit)
+            end
+        end
+    end
+    -- "player" в группе не входит в party1..5, проверяем отдельно
+    return short == Ambiguate(UnitName("player"), "none")
+        and UnitIsGroupLeader("player")
+end
+-- ============================================================
 -- ПАРСЕРЫ ВХОДЯЩИХ ПАКЕТОВ
 -- Каждый парсер отвечает ровно за один тип сообщения.
 -- ============================================================
 
 local function ParseREQ(caster, spellID, slotLevel)
-    if not IsInGroup() or UnitIsGroupLeader("player") then
+    -- Я получаю REQ если: я лидер группы, ИЛИ я не в группе (тестирую соло).
+    -- Я НЕ получаю REQ, если я обычный участник группы.
+    if UnitIsGroupLeader("player") or not IsInGroup() then
         SB.Events.Fire("GM_REQUEST_RECEIVED", caster, spellID, slotLevel)
     end
 end
 
-local function ParseRES(target, spellID, dc, slotLevel, scale)
-    if string.match(target, UnitName("player")) then
+local function ParseRES(sender, target, spellID, dc, slotLevel, scale)
+    if not IsFromLeader(sender) then return end
+    if target == UnitName("player") then
         SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, scale == "SCALE")
     end
 end
 
-local function ParseFORCE(target, spellID, outcomeIndex, slotLevel)
+local function ParseFORCE(sender, target, spellID, outcomeIndex, slotLevel)
+    if not IsFromLeader(sender) then return end
     if target == UnitName("player") then
         SB.Logic.ExecuteForcedOutcome(spellID, tonumber(outcomeIndex), tonumber(slotLevel))
     end
 end
 
-local function ParseREST(restType)
+local function ParseREJECT(sender, target, spellID)
+    if not IsFromLeader(sender) then return end
+    if target == UnitName("player") then
+        SB.Events.Fire("CAST_REJECTED", spellID)
+    end
+end
+
+local function ParseREST(sender, restType)
+    if not IsFromLeader(sender) then return end
     if restType == "LONG" then
         SB.Logic.LocalRest()
         print("|cFFFFCC00[Spellbreaker]: Лидер группы объявил Долгий Отдых. Ресурсы восстановлены!|r")
@@ -58,10 +99,20 @@ local function ParseREST(restType)
     end
 end
 
-local function ParseGRANT(target, grantType, v1, v2, v3)
+local function ParseGRANT(sender, target, grantType, v1, v2, v3)
+    if not IsFromLeader(sender) then return end
     if target == UnitName("player") then
         if SB.ResourceGrant and SB.ResourceGrant.Apply then
             SB.ResourceGrant.Apply(grantType, v1, v2, v3)
+        end
+    end
+end
+
+local function ParseADDEFF(sender, target, contID, duration, isConc)
+    if not IsFromLeader(sender) then return end
+    if target == UnitName("player") then
+        if SB.ActiveEffects and SB.ActiveEffects.Add then
+            SB.ActiveEffects.Add(contID, tonumber(duration) or 1, isConc == "1")
         end
     end
 end
@@ -71,6 +122,13 @@ local function ParseCUSTOM(action, payload, fullMsg, sender)
         local raw = fullMsg:match("^CUSTOM%^ADD%^(.+)$")
         if raw and SB.CustomSpells then
             SB.CustomSpells.Receive(raw, sender)
+        end
+    elseif action == "ADDP" then
+        local spellId, partIdx, totalParts, data =
+            fullMsg:match("^CUSTOM%^ADDP^(.-)^(%d+)^(%d+)^(.+)$")
+        if spellId and data and SB.CustomSpells and SB.CustomSpells.ReceivePart then
+            SB.CustomSpells.ReceivePart(spellId, tonumber(partIdx),
+                tonumber(totalParts), data, sender)
         end
     elseif action == "DEL" then
         if payload and SB.CustomSpells then
@@ -91,6 +149,7 @@ local function ParseSTATUS(msg, a1, a2, a3, a4, a5, a6, a7)
         end
     end
 
+    local existing = SB.Data.PlayersStatus[a1] or {}
     SB.Data.PlayersStatus[a1] = {
         class          = a2,
         mastery        = a3,
@@ -99,16 +158,9 @@ local function ParseSTATUS(msg, a1, a2, a3, a4, a5, a6, a7)
         maxZeal        = tonumber(maxZeal)  or SB.Data.Config.MaxZeal[a3] or 1,
         slots          = { tonumber(s1) or 0, tonumber(s2) or 0, tonumber(s3) or 0 },
         preparedSpells = spellsList,
+        activeEffects  = existing.activeEffects or {},
     }
     SB.Events.Fire("PLAYERS_STATUS_UPDATED")
-end
-
-local function ParseADDEFF(target, contID, duration, isConc)
-    if target == UnitName("player") then
-        if SB.ActiveEffects and SB.ActiveEffects.Add then
-            SB.ActiveEffects.Add(contID, tonumber(duration) or 1, isConc == "1")
-        end
-    end
 end
 
 local function ParseAEFFECT(payload)
@@ -147,18 +199,50 @@ netFrame:SetScript("OnEvent", function(self, event, prefix, msg, channel, sender
     local action, a1, a2, a3, a4, a5, a6, a7 = strsplit("^", msg)
 
     if     action == "REQ"        then ParseREQ(a1, a2, a3)
-    elseif action == "RES"        then ParseRES(a1, a2, a3, a4, a5)
-    elseif action == "FORCE"      then ParseFORCE(a1, a2, a3, a4)
+    elseif action == "RES"        then ParseRES(shortSender, a1, a2, a3, a4, a5)
+    elseif action == "FORCE"      then ParseFORCE(shortSender, a1, a2, a3, a4)
+    elseif action == "REJECT"     then ParseREJECT(shortSender, a1, a2)
     elseif action == "REQ_STATUS" then
         SB.Net.BroadcastStatus()
         SB.Net.BroadcastActiveEffects()
-    elseif action == "LOG"        then SB.Events.Fire("LOG_MESSAGE_RECEIVED", a1)
-    elseif action == "REST"       then ParseREST(a1)
-    elseif action == "GRANT"      then ParseGRANT(a1, a2, a3, a4, a5)
+    elseif action == "LOG" then
+        -- Санитизация: обрезаем длину и экранируем цветовые маркеры
+        -- от чужих аддонов. Свои сообщения мы формируем сами — для них
+        -- экранирование не страшно (хотя бы обрезка длины).
+        local safe = a1
+        if safe then
+            if #safe > 512 then safe = safe:sub(1, 512) .. "…" end
+            -- Экранируем чужие |H...|h-гиперссылки, кроме наших spellbreaker:
+            safe = safe:gsub("|H([^|]+)|h", function(link)
+                if link:find("^spellbreaker:") then return "|H" .. link .. "|h" end
+                return "|Hdisabled:" .. link .. "|h"  -- неактивная ссылка
+            end)
+        end
+    SB.Events.Fire("LOG_MESSAGE_RECEIVED", safe)
+    elseif action == "REST"       then ParseREST(shortSender, a1)
+    elseif action == "GRANT"      then ParseGRANT(shortSender, a1, a2, a3, a4, a5)
     elseif action == "CUSTOM"     then ParseCUSTOM(a1, a2, msg, shortSender)
     elseif action == "AEFFECT"    then ParseAEFFECT(a1)
-    elseif action == "ADDEFF"     then ParseADDEFF(a1, a2, a3, a4)
+    elseif action == "ADDEFF"     then ParseADDEFF(shortSender, a1, a2, a3, a4)
     elseif action == "STATUS"     then ParseSTATUS(msg, a1, a2, a3, a4, a5, a6, a7)
+    elseif action == "RTDECR" then
+        -- Получена команда уменьшить все эффекты на 1 (только от лидера)
+        if IsFromLeader(shortSender) and SB.ActiveEffects then
+            for _, eff in ipairs(SB.ActiveEffects.GetAll()) do
+                SB.ActiveEffects.DecrementOne(eff.spellID)
+            end
+        end
+    elseif action == "RTSYNC" then
+        -- Лидер меняет состояние реалтайм-режима
+        if UnitIsGroupLeader(Ambiguate(sender, "none")) then
+            local enabled = (a1 == "1")
+            if SpellbreakerAccountDB then
+                SpellbreakerAccountDB.realtimeEffects = enabled
+            end
+            if SBRealtimeEffectChk then
+                SBRealtimeEffectChk:SetChecked(enabled)
+            end
+        end
     end
 end)
 
@@ -174,6 +258,7 @@ function SB.Net.SendCastRequest(spellID, slotLevel)
     end
     if UnitIsGroupLeader("player") then
         SB.Events.Fire("GM_REQUEST_RECEIVED", UnitName("player"), spellID, slotLevel)
+		return
     end
     SendToGroup("REQ^" .. UnitName("player") .. "^" .. spellID .. "^" .. slotLevel)
     print("|cFF9933FF[Spellbreaker]|r: Ожидание решения ведущего...")
@@ -181,7 +266,7 @@ end
 
 --- Отправить решение ГМа игроку.
 function SB.Net.SendGMApproval(targetPlayer, spellID, dc, slotLevel, scaleDamage)
-    if not IsInGroup() and targetPlayer == UnitName("player") then
+    if not IsInGroup() or targetPlayer == UnitName("player") then
         SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, scaleDamage == "SCALE")
         return
     end
@@ -220,17 +305,26 @@ function SB.Net.BroadcastStatus()
         zealStr, slotsStr, spellStr))
 
     -- Отложенная рассылка кастомных заклинаний
-    C_Timer.After(0.3, function()
-        if not SpellbreakerCharDB or not SB.CustomSpells then return end
-        for _, spellID in ipairs(SpellbreakerCharDB.preparedSpells or {}) do
-            local spell = SB.Data.Spells[spellID]
-            if spell and spell.isCustom then
-                SB.CustomSpells.Broadcast(spell)
-                if spell.container and SB.Data.Spells[spell.container] then
-                    SB.CustomSpells.Broadcast(SB.Data.Spells[spell.container])
-                end
-            end
-        end
+    if SB.CustomSpells and SB.CustomSpells.BroadcastPrepared then
+        SB.CustomSpells.BroadcastPrepared()
+    end
+end
+
+-- ============================================================
+-- ДЕБАУНС ДЛЯ STATUS_CHANGED
+-- Быстрая серия изменений модели (класс+ранг+подход) не должна
+-- порождать по одному пакету STATUS на каждое изменение —
+-- рассылаем только после 0.3с тишины.
+-- ============================================================
+local statusDebounceTimer = nil
+
+local function ScheduleStatusBroadcast()
+    if statusDebounceTimer then
+        statusDebounceTimer:Cancel()
+    end
+    statusDebounceTimer = C_Timer.NewTimer(0.3, function()
+        statusDebounceTimer = nil
+        SB.Net.BroadcastStatus()
     end)
 end
 
@@ -238,9 +332,12 @@ end
 --- Рассылает список активных эффектов группе (#10).
 function SB.Net.BroadcastActiveEffects()
     if not IsInGroup() then return end
-    if not SB.ActiveEffects then return end
+    if not SB.ActiveEffects or not SB.ActiveEffects.GetAll then return end
+    
     local effects = SB.ActiveEffects.GetAll()
-    local parts   = { UnitName("player") }
+    if not effects then return end
+    
+    local parts = { UnitName("player") }
     for _, eff in ipairs(effects) do
         table.insert(parts, eff.spellID .. ":" .. eff.uses .. ":" .. (eff.isConc and "1" or "0"))
     end
@@ -259,6 +356,14 @@ function SB.Net.SendForceOutcome(targetName, spellID, outcomeIndex, slotLevel)
         targetName, spellID, outcomeIndex, slotLevel))
 end
 
+function SB.Net.SendReject(targetPlayer, spellID)
+    if not IsInGroup() or targetPlayer == UnitName("player") then
+        SB.Events.Fire("CAST_REJECTED", spellID)
+        return
+    end
+    SendToGroup("REJECT^" .. targetPlayer .. "^" .. spellID)
+end
+
 -- ============================================================
 -- ПОДПИСКИ НА СОБЫТИЯ ОТ LOGIC
 -- ============================================================
@@ -269,9 +374,9 @@ SB.Events.On("SB_INIT", function()
         SB.Net.SendCastRequest(spellID, slotLevel)
     end)
 
-    -- STATUS_CHANGED → синхронизировать с группой
+    -- STATUS_CHANGED → синхронизировать с группой (с дебаунсом 0.3с)
     SB.Events.On("STATUS_CHANGED", function()
-        SB.Net.BroadcastStatus()
+        ScheduleStatusBroadcast()
     end)
 
     -- ACTIVE_EFFECTS_CHANGED → рассылать эффекты группе (#10)

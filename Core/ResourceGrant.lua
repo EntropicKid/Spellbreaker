@@ -110,7 +110,7 @@ end
 local function BuildFrame()
     local C = SB.Theme.C
 
-    grantFrame = SB.Theme.Frame("SpellbreakerGrantFrame", UIParent, "Выдача ресурсов", 265, 240)
+    grantFrame = SB.Theme.Frame("SpellbreakerGrantFrame", UIParent, "Выдача ресурсов", 265, 207)
     SB.Theme.AttachPositionMemory(grantFrame, "grantFramePos", 0, 0)
 
     nameLabel = grantFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -171,6 +171,13 @@ end
 function SB.ResourceGrant.ShowFor(name, data)
     if not UnitIsGroupLeader("player") and IsInGroup() then return end
     if not grantFrame then BuildFrame() end
+	
+	-- Повторный клик по тому же игроку, когда панель уже открыта,
+    -- закрывает её (toggle). Клик по другому игроку обновляет содержимое.
+    if grantFrame:IsShown() and currentTarget and currentTarget.name == name then
+        grantFrame:Hide()
+        return
+    end
 
     currentTarget = {
         name     = name,

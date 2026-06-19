@@ -40,13 +40,24 @@ end
 function SB.Events.Fire(event, ...)
     local list = handlers[event]
     if not list then return end
-    -- Копируем, чтобы безопасно обрабатывать On/Off внутри обработчика
-    local copy = { unpack(list) }
-    for _, fn in ipairs(copy) do
+    -- Идем по индексу с версией списка: если обработчик внутри
+    -- подписывает/отписывает кого-то, мы это замечаем и начинаем
+    -- заново. Избегаем unpack() — нет копии и нет лимита в ~8000 элементов.
+    list._version = (list._version or 0) + 1
+    local startVersion = list._version
+    local i = 1
+    while i <= #list do
+        local fn = list[i]
         local ok, err = pcall(fn, ...)
         if not ok then
-            -- Не глушим ошибку, но не ломаем весь цикл
             print("|cFFFF0000[Spellbreaker Events] " .. tostring(err) .. "|r")
+        end
+        if list._version ~= startVersion then
+            -- Список модифицирован внутри обработчика.
+            -- Продолжаем с того же индекса (он мог стать валидным).
+            startVersion = list._version
+        else
+            i = i + 1
         end
     end
 end

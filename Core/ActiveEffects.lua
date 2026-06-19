@@ -21,7 +21,18 @@ local GAP     = 6
 local PAD     = 10
 local HEADER_H = 30
 
+local SaveEffects  -- forward declaration
+--- Возвращает true если эффект является пассивным баффом
+--- (ни одного outcome не задано — кастовать нечего).
+local function IsPassiveEffect(spellID)
+    local sp = SB.Data.Spells[spellID]
+    if not sp then return false end
+    return not sp.outcome1 and not sp.outcome2
+        and not sp.outcome3 and not sp.outcome4
+end
+
 local function FireChanged()
+    SaveEffects()
     SB.Events.Fire("ACTIVE_EFFECTS_CHANGED")
 end
 
@@ -58,7 +69,7 @@ local function BuildPanel()
 
     local titleFS = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     titleFS:SetPoint("CENTER", headerBar, "CENTER", -10, 0)
-    titleFS:SetText("Активные Эффекты")
+    titleFS:SetText("Эффекты")
     titleFS:SetTextColor(C.titleText[1], C.titleText[2], C.titleText[3])
 
     local closeBtn = SB.Theme.Button(panel, "X", 22, 22, "danger")
@@ -76,7 +87,7 @@ local function BuildPanel()
     panel._emptyFS = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     panel._emptyFS:SetPoint("CENTER", panel, "CENTER", 0, -10)
     panel._emptyFS:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
-    panel._emptyFS:SetText("Нет активных эффектов")
+    panel._emptyFS:SetText("Отсутствуют")
     panel._emptyFS:Hide()
 
     panel:Hide()
@@ -140,8 +151,12 @@ local function MakeSlot(i)
                 GameTooltip:AddLine("|cFF22BFFFКонцентрация|r", 1,1,1)
             end
             GameTooltip:AddLine(" ")
-            GameTooltip:AddLine("|cFFFFFFFFЛКМ|r — Применить (бесплатно)", 0.8,0.8,0.8)
-            GameTooltip:AddLine("|cFFFFFFFFПКМ|r — Снять эффект",           0.8,0.8,0.8)
+            if IsPassiveEffect(self._spID) then
+                GameTooltip:AddLine("|cFF888888Пассивный эффект|r", 0.7, 0.7, 0.7)
+            else
+                GameTooltip:AddLine("|cFFFFFFFFЛКМ|r — Применить (бесплатно)", 0.8,0.8,0.8)
+            end
+            GameTooltip:AddLine("|cFFFFFFFFПКМ|r — Снять эффект", 0.8,0.8,0.8)
             GameTooltip:Show()
         end
     end)
@@ -153,8 +168,15 @@ local function MakeSlot(i)
 
     s:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     s:SetScript("OnClick", function(self, btn)
-        if btn == "LeftButton"  then SB.ActiveEffects.Use(self._spID)
-        elseif btn == "RightButton" then SB.ActiveEffects.Remove(self._spID)
+        if btn == "LeftButton" then
+            if IsPassiveEffect(self._spID) then
+                -- Пассивный эффект — ЛКМ ничего не делает, показываем подсказку
+                print("|cFFFFCC00[Spellbreaker]|r: Это пассивный эффект — его нельзя активировать вручную.")
+            else
+                SB.ActiveEffects.Use(self._spID)
+            end
+        elseif btn == "RightButton" then
+            SB.ActiveEffects.Remove(self._spID)
         end
     end)
     return s
@@ -197,6 +219,12 @@ local function Redraw()
         if #shortName > 9 then shortName = shortName:sub(1,8) .. "…" end
         s.nameFS:SetText(shortName)--]]
         s.concBorder:SetShown(eff.isConc or false)
+        -- Пассивные эффекты чуть затемнены
+        if IsPassiveEffect(eff.spellID) then
+            s.iconTex:SetVertexColor(0.6, 0.6, 0.8)
+        else
+            s.iconTex:SetVertexColor(1, 1, 1)
+        end
 
         s:ClearAllPoints()
         s:SetPoint("TOPLEFT", panel, "TOPLEFT",
@@ -210,14 +238,6 @@ end
 -- ============================================================
 -- PUBLIC API
 -- ============================================================
-
-function SB.ActiveEffects.GetAll()
-    local copy = {}
-    for i, eff in ipairs(effects) do
-        copy[i] = { spellID = eff.spellID, uses = eff.uses, isConc = eff.isConc }
-    end
-    return copy
-end
 
 function SB.ActiveEffects.Add(containerSpellID, duration, isConc)
     if not containerSpellID then return end
@@ -238,8 +258,8 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc)
         end
     end
 
-    if #effects >= 8 then
-        print("|cFFFFCC00[Spellbreaker]|r: Панель заполнена (макс. 8).")
+    if #effects >= 14 then
+        print("|cFFFFCC00[Spellbreaker]|r: Панель заполнена (макс. 14).")
         return
     end
 
@@ -299,14 +319,62 @@ end
 
 function SB.ActiveEffects.Clear()
     effects = {}
+    if SpellbreakerCharDB then SpellbreakerCharDB.activeEffects = {} end
     if panel then panel:Hide() end
-    FireChanged()
+    SB.Events.Fire("ACTIVE_EFFECTS_CHANGED")
+end
+
+--- Сохранить текущие эффекты в SavedVariables.
+function SaveEffects()
+    if not SpellbreakerCharDB then return end
+    local t = {}
+    for _, eff in ipairs(effects) do
+        table.insert(t, {
+            spellID = eff.spellID,
+            uses    = eff.uses,
+            isConc  = eff.isConc,
+        })
+    end
+    SpellbreakerCharDB.activeEffects = t
+end
+
+--- Восстановить эффекты из SavedVariables.
+function SB.ActiveEffects.LoadFromDB()
+    if not SpellbreakerCharDB or not SpellbreakerCharDB.activeEffects then return end
+    effects = {}
+    for _, entry in ipairs(SpellbreakerCharDB.activeEffects) do
+        -- Проверяем что заклинание ещё существует
+        if SB.Data.Spells[entry.spellID] then
+            table.insert(effects, {
+                spellID = entry.spellID,
+                uses    = entry.uses or 1,
+                isConc  = entry.isConc or false,
+            })
+        end
+    end
+    if #effects > 0 then
+        Redraw()
+        FireChanged()
+    end
 end
 
 function SB.ActiveEffects.Show()
     if not panel then BuildPanel() end
     Redraw()
     panel:Show()
+end
+
+--- Вернуть массив всех активных эффектов (используется для сетевой рассылки).
+function SB.ActiveEffects.GetAll()
+    local copy = {}
+    for i, eff in ipairs(effects) do
+        copy[i] = {
+            spellID = eff.spellID,
+            uses    = eff.uses,
+            isConc  = eff.isConc,
+        }
+    end
+    return copy
 end
 
 -- ============================================================
@@ -328,4 +396,9 @@ SB.Events.On("SB_INIT", function()
             end
         end
     end)
+	
+	C_Timer.After(0.1, function()
+        SB.ActiveEffects.LoadFromDB()
+    end)
+	
 end)

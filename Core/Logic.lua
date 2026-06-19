@@ -86,8 +86,9 @@ function SB.Logic.ConfirmCast(spellID, slotLevel)
 
     PM.SetLocked(true)
 
-    -- Аура (команда серверному эмулятору)
-    if spell.caura then
+    -- Аура (команда серверному эмулятору). Игнорируется, если ГМ включил
+    -- чекбокс «Игнорировать .caura» в библиотеке.
+    if spell.caura and not (SpellbreakerAccountDB and SpellbreakerAccountDB.ignoreCaura) then
         SendChatMessage(".caura toggle " .. spell.caura, "SAY")
     end
 
@@ -96,7 +97,7 @@ function SB.Logic.ConfirmCast(spellID, slotLevel)
         local approach = PM.GetApproach()
         if approach == "Мистический" then
             if not PM.SpendSlot(slotLevel) then
-                print("|cFFFF0000[Spellbreaker]: Нет ячеек этого круга!|r")
+                print("|cFFFF0000[Spellbreaker]: Нет ячеек этого порядка!|r")
                 PM.SetLocked(false)
                 return
             end
@@ -116,6 +117,7 @@ function SB.Logic.ConfirmCast(spellID, slotLevel)
         SB.Logic.ProcessRollAndCast(spellID, 0, slotLevel, slotLevel > (spell.level or 0))
     else
         -- С сопротивлением → отправляем запрос ГМу
+        SB.Events.Fire("CAST_PENDING", spellID)
         SB.Events.Fire("CAST_REQUEST", spellID, slotLevel)
     end
 end
@@ -146,15 +148,18 @@ function SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, totalScaling)
         succeeded     = true
     else
         if roll == 20 and spell.canCrit then
-            outcomeText = critMsg;   resultStatus = "|cFF00FF00КРИТ. УСПЕХ!|r"; succeeded = true
+            outcomeText = critMsg;   resultStatus = "|cFF00FF00Критический успех!|r"; succeeded = true
         elseif roll == 1 and spell.canCrit then
-            outcomeText = fumbleMsg; resultStatus = "|cFFFF0000КРИТ. ПРОВАЛ!|r"; succeeded = false
+            outcomeText = fumbleMsg; resultStatus = "|cFFFF0000Критический провал...|r"; succeeded = false
         elseif success then
-            outcomeText = successMsg; resultStatus = "|cFF00FF00УСПЕХ|r"; succeeded = true
+            outcomeText = successMsg; resultStatus = "|cFF00FF00Успех.|r"; succeeded = true
         else
-            outcomeText = failMsg;    resultStatus = "|cFFFF0000ПРОВАЛ|r"; succeeded = false
+            outcomeText = failMsg;    resultStatus = "|cFFFF0000Провал.|r"; succeeded = false
         end
     end
+
+    -- Уведомить UI о вердикте (для фрейма ожидания каста)
+    SB.Events.Fire("CAST_RESOLVED", spellID, succeeded, resultStatus)
 
     -- Активный эффект (контейнер)
     if spell.container and succeeded then
@@ -163,23 +168,33 @@ function SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, totalScaling)
         end
     end
 	
-	if SB.ActiveEffects then
+	 -- Уменьшить счётчик всех активных эффектов на 1 при любом касте.
+    -- Исключаем контейнер текущего заклинания — он только что добавлен/обновлён,
+    -- уменьшать его не нужно. Также исключаем isContainer-спеллы (Use уже уменьшил).
+    if SB.ActiveEffects then
+        local castSpell    = SB.Data.Spells[spellID]
+        local newContainerID = castSpell and castSpell.container or nil
         for _, eff in ipairs(SB.ActiveEffects.GetAll()) do
-            SB.ActiveEffects.DecrementOne(eff.spellID)
+            local isNewEffect = (newContainerID and eff.spellID == newContainerID)
+            local isSelfCast  = (castSpell and castSpell.isContainer and eff.spellID == spellID)
+            if not isNewEffect and not isSelfCast then
+                SB.ActiveEffects.DecrementOne(eff.spellID)
+            end
         end
     end
 
     -- Системный лог
     local bonusInfo = totalScaling and " (+Урон)" or ""
+    local link = SB.UI.MakeSpellLink(spell)
     local sysMsg
     if spell.resistable == false then
-        local t = (slotLevel == 0) and "заговор" or "заклинание"
+        local t = (slotLevel == 0) and "способность" or "заклинание"
         sysMsg = "[Spellbreaker]: " .. UnitName("player") ..
-                 " применяет " .. t .. " [" .. spell.name .. "]."
+                 " применяет " .. t .. " " .. link .. "."
     else
-        local t = (slotLevel == 0) and "заговор" or ("заклинание (Круг: " .. slotLevel .. ")")
+        local t = (slotLevel == 0) and "способность" or ("заклинание (Порядок:: " .. slotLevel .. ")")
         sysMsg = "[Spellbreaker]: " .. UnitName("player") ..
-                 " применяет " .. t .. " [" .. spell.name .. "]" .. bonusInfo ..
+                 " применяет " .. t .. " " .. link .. bonusInfo ..
                  "! Бросок: " .. roll .. " + " .. mod ..
                  " (Итог: " .. total .. ") против СЛ " .. dcNum ..
                  ". Результат: " .. resultStatus
@@ -189,7 +204,9 @@ function SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, totalScaling)
     -- RP-эмоут
     local nameGen = SB.PlayerModel.GetGenitiveName()
     local rpMsg   = string.gsub(outcomeText or "применяет заклинание.", "{name_gen}", nameGen)
-    SendChatMessage(rpMsg, "EMOTE")
+    if not SpellbreakerAccountDB or SpellbreakerAccountDB.sendEmotes ~= false then
+        SendChatMessage(rpMsg, "EMOTE")
+    end
 end
 
 -- ============================================================
@@ -200,17 +217,33 @@ function SB.Logic.ExecuteForcedOutcome(spellID, outcomeIndex, slotLevel)
     if not spell then return end
 
     SB.PlayerModel.SetLocked(true)
-    if spell.caura then SendChatMessage(".caura toggle " .. spell.caura, "SAY") end
+    if spell.caura and not (SpellbreakerAccountDB and SpellbreakerAccountDB.ignoreCaura)
+       then SendChatMessage(".caura toggle " .. spell.caura, "SAY") end
 
     local texts  = { spell.outcome1, spell.outcome2, spell.outcome3, spell.outcome4 }
-    local labels = { "УСПЕХ", "ПРОВАЛ", "КРИТ. УСПЕХ", "КРИТ. ПРОВАЛ" }
+    local labels = { "Успех.", "Провал.", "Критический успех!", "Критический провал..." }
     local outcomeText = texts[outcomeIndex] or texts[1] or "применяет заклинание."
 
-    local sysMsg = string.format("[Spellbreaker]: %s применяет [%s]. Форсировано ГМом: %s",
-        UnitName("player"), spell.name, labels[outcomeIndex] or "УСПЕХ")
+    local succeeded   = (outcomeIndex == 1 or outcomeIndex == 3)
+    local colorCode    = succeeded and "|cFF00FF00" or "|cFFFF0000"
+    local resultStatus = colorCode .. (labels[outcomeIndex] or "Успех.") .. "|r"
+    SB.Events.Fire("CAST_RESOLVED", spellID, succeeded, resultStatus)
+
+    local t = (tonumber(slotLevel) or 0) == 0 and "способность" or ("заклинание (Порядок: " .. (tonumber(slotLevel) or 0) .. ")")
+    local link = SB.UI.MakeSpellLink(spell)
+    local sysMsg = "[Spellbreaker]: " .. UnitName("player") ..
+        " применяет " .. t .. " " .. link ..
+        ". Форсировано ГМом: " .. resultStatus
 
     local nameGen = SB.PlayerModel.GetGenitiveName()
     local rpMsg   = string.gsub(outcomeText, "{name_gen}", nameGen)
+
+    	-- Уменьшает счетчик на 1 для все спеллов
+    if SB.ActiveEffects then
+        for _, eff in ipairs(SB.ActiveEffects.GetAll()) do
+            SB.ActiveEffects.DecrementOne(eff.spellID)
+        end
+    end
 
     if spell.container then
         if SB.ActiveEffects and SB.ActiveEffects.Add then
@@ -219,7 +252,9 @@ function SB.Logic.ExecuteForcedOutcome(spellID, outcomeIndex, slotLevel)
     end
 
     SB.Events.Fire("BROADCAST_LOG", sysMsg)
-    SendChatMessage(rpMsg, "EMOTE")
+    if not SpellbreakerAccountDB or SpellbreakerAccountDB.sendEmotes ~= false then
+        SendChatMessage(rpMsg, "EMOTE")
+    end
     SB.Events.Fire("STATUS_CHANGED")
 end
 

@@ -30,6 +30,7 @@ local CHAR_DEFAULTS = {
     preparedSpells = {},
     configLocked   = false,
     genitiveName   = "",
+	activeEffects  = {},
     -- slots и zeal инициализируются динамически ниже
 }
 
@@ -42,9 +43,14 @@ local ACCOUNT_DEFAULTS = {
     libFramePos        = { x = -200, y = 0 },
     gmFramePos         = { x = 400,  y = 0 },
     detailFramePos     = { x = 800,  y = 0 },
-        grantFramePos      = { x = 0,    y = 0 },
-        contFramePos       = { x = 0,    y = 0 },
-        sbCreateFramePos   = { x = 0,    y = 0 },
+    grantFramePos      = { x = 0,    y = 0 },
+    contFramePos       = { x = 0,    y = 0 },
+    sbCreateFramePos   = { x = 0,    y = 0 },
+	iconPickerPos      = { x = 0,    y = 0 },
+	realtimeEffects    = false,
+    sendEmotes         = true,
+	myCharacters       = {},
+	ignoreCaura        = false,
 }
 
 -- ============================================================
@@ -67,6 +73,27 @@ initFrame:SetScript("OnEvent", function(self, event, loadedAddon)
     -- Глобальные шорткаты (совместимость со старыми фрагментами кода)
     SpellbreakerCharDB    = db.char
     SpellbreakerAccountDB = db.global
+	
+    local charName = UnitName("player")
+    if charName then
+        SpellbreakerAccountDB.myCharacters = SpellbreakerAccountDB.myCharacters or {}
+        -- Переподтверждаем текущего чара (с защитой от подмены через чужой пакет).
+        SpellbreakerAccountDB.myCharacters[charName] = time()  -- храним timestamp
+
+        -- Раз в 30 дней чистим тех, кто не заходил > 30 дней.
+        -- Это защищает IsMyCharacter от ложных срабатываний на
+        -- давно удалённых персонажах.
+        local now = time()
+        local month = 30 * 24 * 3600
+        for name, ts in pairs(SpellbreakerAccountDB.myCharacters) do
+            if type(ts) == "number" and (now - ts) > month then
+                SpellbreakerAccountDB.myCharacters[name] = nil
+            elseif type(ts) ~= "number" then
+                -- старый формат (true/false) — перезаписываем timestamp'ом
+                SpellbreakerAccountDB.myCharacters[name] = now
+            end
+        end
+    end
 
     -- --------------------------------------------------------
     -- Динамические дефолты (зависят от mastery)

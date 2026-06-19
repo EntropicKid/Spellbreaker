@@ -34,6 +34,12 @@ local C = {
     inputBg={0.03,0.03,0.06,.97},inputBd={0.30,0.24,0.08,.80},
 }
 SB.Theme.C = C
+C.surface       = C.cardBg
+C.accent        = C.textGold
+C.textSecondary = C.textDim
+
+SB.Theme.Font = SB.Theme.Font or {}
+SB.Theme.Font.h2 = "GameFontNormal"
 
 local BD = {
     frame  = { bgFile= "Interface\\DialogFrame\\UI-DialogBox-Background",
@@ -62,6 +68,31 @@ local VARIANTS = {
 }
 
 -- ============================================================
+-- PlaySound - единая точка воспроизведения UI-звуков
+-- variant: "click" | "open" | "close" | "danger" | "card_open" | "card_close"
+--          | "success" | "fail" | "reject"
+-- Канал SFX (не Master) — звук регулируется ползунком "Звуковые
+-- эффекты" в настройках звука вместе с остальной игровой озвучкой.
+-- ============================================================
+local SOUNDS = {
+    click      = SOUNDKIT and SOUNDKIT.U_CHAT_SCROLL_BUTTON       or 857,
+    open       = SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPEN           or 850,
+    close      = SOUNDKIT and SOUNDKIT.IG_MAINMENU_CLOSE          or 851,
+    -- Открытие/закрытие карточки заклинания — как вкладка достижений
+    card_open  = SOUNDKIT and SOUNDKIT.IG_CHARACTER_INFO_TAB      or 841,
+    card_close = SOUNDKIT and SOUNDKIT.IG_CHARACTER_INFO_TAB      or 841,
+    -- Вердикт ГМа по заявке на каст (#15-18)
+    success    = SOUNDKIT and SOUNDKIT.LEVEL_UP                   or 888,
+    fail       = SOUNDKIT and SOUNDKIT.IG_QUEST_FAILED            or 847,
+    reject     = SOUNDKIT and SOUNDKIT.IG_PLAYER_INVITE_DECLINE   or 882,
+}
+ 
+function SB.Theme.PlaySound(variant)
+    PlaySound(SOUNDS[variant] or SOUNDS.click, "SFX")
+end
+
+
+-- ============================================================
 -- Button
 -- ============================================================
 function SB.Theme.Button(parent, text, w, h, variant)
@@ -77,6 +108,7 @@ function SB.Theme.Button(parent, text, w, h, variant)
     btn:SetText(text or " ")
     fs:SetTextColor(v.text[1], v.text[2], v.text[3])
     btn._fs, btn._v = fs, v
+    btn._soundVariant = (variant == "danger") and "danger" or "click"
 
     btn:SetScript("OnEnter", function(self)
         if self:IsEnabled() then
@@ -96,9 +128,12 @@ function SB.Theme.Button(parent, text, w, h, variant)
             self._fs:SetPoint("CENTER", 0, -1)
         end
     end)
-    btn:SetScript("OnMouseUp", function(self)
+    btn:SetScript("OnMouseUp", function(self, mouseBtn)
         if self:IsEnabled() then
             self:SetBackdropColor(self._v.bg[1], self._v.bg[2], self._v.bg[3], self._v.bg[4])
+            if mouseBtn == "LeftButton" then
+                SB.Theme.PlaySound(self._soundVariant or "click")
+            end
         end
         self._fs:SetPoint("CENTER", 0, 0)
     end)
@@ -118,6 +153,37 @@ function SB.Theme.Button(parent, text, w, h, variant)
     end
 
     return btn
+end
+
+-- ============================================================
+-- Tab — кнопка-таб с подчёркиванием активного состояния
+-- ============================================================
+function SB.Theme.Tab(parent, text, w, h, isActive)
+    local tab = CreateFrame("Button", nil, parent)
+    tab:SetSize(w or 100, h or 28)
+
+    tab.bg = tab:CreateTexture(nil, "BACKGROUND")
+    tab.bg:SetAllPoints()
+    tab.bg:SetColorTexture(C.surface[1], C.surface[2], C.surface[3], 1)
+
+    tab.underline = tab:CreateTexture(nil, "ARTWORK")
+    tab.underline:SetHeight(2)
+    tab.underline:SetPoint("BOTTOMLEFT", tab, "BOTTOMLEFT", 0, 0)
+    tab.underline:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", 0, 0)
+    tab.underline:SetColorTexture(C.accent[1], C.accent[2], C.accent[3], 1)
+
+    tab.text = tab:CreateFontString(nil, "OVERLAY", SB.Theme.Font.h2)
+    tab.text:SetAllPoints()
+    tab.text:SetText(text)
+
+    function tab:SetActive(active)
+        tab.bg:SetAlpha(active and 0.9 or 0)
+        tab.underline:SetAlpha(active and 1 or 0)
+        tab.text:SetTextColor(unpack(active and C.accent or C.textSecondary))
+    end
+
+    tab:SetActive(isActive)
+    return tab
 end
 
 -- ============================================================
@@ -168,7 +234,22 @@ function SB.Theme.Frame(name, parent, title, w, h)
     div:SetColorTexture(C.divider[1], C.divider[2], C.divider[3], C.divider[4])
 
     f.contentY = -34
+    -- Звук при открытии фрейма
+    local _origShow = f.Show
+    f.Show = function(self)
+        SB.Theme.PlaySound("open")
+        _origShow(self)
+    end
+	
+	f:SetScript("OnHide", function(self)
+        if not self._suppressCloseSound then
+            SB.Theme.PlaySound("close")
+        end
+    end)
+
     f:Hide()
+	f._suppressCloseSound = true
+    C_Timer.After(0, function() f._suppressCloseSound = nil end)
     return f
 end
 
@@ -192,13 +273,17 @@ function SB.Theme.AttachPositionMemory(frame, dbKey, defaultX, defaultY)
         frame:SetPoint("CENTER", UIParent, "CENTER", defaultX or 0, defaultY or 0)
     end
     frame:SetUserPlaced(true)
-
+    
     -- Сохранять позицию при перетаскивании
     frame:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
         local x, y = self:GetCenter()
         if x and y and SpellbreakerAccountDB then
-            SpellbreakerAccountDB[dbKey] = { x = x, y = y }
+            -- Вычисляем смещение относительно центра UIParent
+            local uiWidth, uiHeight = UIParent:GetSize()
+            local offsetX = x - (uiWidth / 2)
+            local offsetY = y - (uiHeight / 2)
+            SpellbreakerAccountDB[dbKey] = { x = offsetX, y = offsetY }
         end
         self:SetUserPlaced(true)
     end)

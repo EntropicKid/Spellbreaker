@@ -63,8 +63,15 @@ end
 -- ============================================================
 -- § 3. СЕРИАЛИЗАЦИЯ / ДЕСЕРИАЛИЗАЦИЯ
 -- ============================================================
-local function Esc(s)  return (s or ""):gsub(SEP, "{SEP}") end
-local function Unesc(s) return (s or ""):gsub("{SEP}", SEP) end
+local function Esc(s)
+    local result = (s or ""):gsub(SEP, "{SEP}")
+    return result
+end
+
+local function Unesc(s)
+    local result = (s or ""):gsub("{SEP}", SEP)
+    return result
+end
 
 local function Serialize(sp)
     return table.concat({
@@ -79,6 +86,9 @@ local function Serialize(sp)
         sp.isConcentration and "1" or "0",
         sp.resistable == false and "0" or "1",
         sp.isContainer and "1" or "0",
+        Esc(sp.createdBy or ""),
+        tostring(sp.version or 1),
+        sp.caura and tostring(sp.caura) or "",
     }, SEP)
 end
 
@@ -88,12 +98,28 @@ local function Deserialize(s)
         table.insert(f, Unesc(part))
     end
     if #f < 8 then return nil end
+
+    -- Валидация icon: только путь к файлу или числовой FileID.
+    -- Защищает от инъекции произвольных строк в SetTexture.
+    local icon = f[7] ~= "" and f[7] or nil
+    if icon and not icon:match("^Interface\\") and not icon:match("^interface\\")
+              and not icon:match("^%d+$") then
+        icon = "Interface\\Icons\\INV_Misc_QuestionMark"
+    end
+
+    -- Валидация caura: только 1-4 цифры. Защищает от инъекции команд
+    -- в SAY-канал через ".caura toggle <caura>".
+    local caura
+    if f[21] and f[21] ~= "" then
+        caura = f[21]:match("^%d{1,4}$") and tonumber(f[21]) or nil
+    end
+
     return {
         id          = f[1], name = f[2], class = f[3],
         level       = tonumber(f[4]) or 0,
-        key         = f[5], description = f[6], icon = f[7] ~= "" and f[7] or nil,
+        key         = f[5], description = f[6], icon = icon,
         canCrit     = f[8] == "1",
-        outcome1    = f[9] ~= "" and f[9] or nil,
+        outcome1    = f[9]  ~= "" and f[9]  or nil,
         outcome2    = f[10] ~= "" and f[10] or nil,
         outcome3    = f[11] ~= "" and f[11] or nil,
         outcome4    = f[12] ~= "" and f[12] or nil,
@@ -103,15 +129,31 @@ local function Deserialize(s)
         isConcentration = f[16] == "1",
         resistable  = f[17] ~= "0",
         isContainer = f[18] == "1",
-        isCustom    = true,
+        createdBy   = f[19] ~= "" and f[19] or nil,
+        version     = tonumber(f[20]) or 1,
+        caura       = caura,
     }
 end
-
 -- ============================================================
 -- § 4. ВНУТРЕННЯЯ ЗАГРУЗКА В БАЗУ
 -- ============================================================
+
+--- Проверяет, нужно ли принять входящее заклинание по правилам версионирования.
+--- Возвращает true если нужно записать входящий sp поверх local.
+local function IsMyCharacter(name)
+    if not name then return false end
+    if name == UnitName("player") then return true end
+    -- Проверяем все персонажи аккаунта. После фикса в Init.lua
+    -- значениями являются timestamps (числа), а не boolean true.
+    local chars = SpellbreakerAccountDB and SpellbreakerAccountDB.myCharacters
+    return chars and chars[name] ~= nil and chars[name] ~= false or false
+end
+
 local function InjectSpell(sp)
     if not sp or not sp.id then return end
+    if sp.id:match("^custom_") then
+        sp.isCustom = true
+    end
     SB.Data.Spells[sp.id] = sp
     if SpellbreakerCustomDB and SpellbreakerCustomDB.spells then
         SpellbreakerCustomDB.spells[sp.id] = sp
@@ -176,8 +218,8 @@ local function BuildIconPicker()
     local frameH = gridH + 34 + 32 + 20
     
     iconPickerFrame = SB.Theme.Frame("SBIconPickerFrame", UIParent,
-        "Icon Picker", frameW, frameH)
-    iconPickerFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+        "Выбор иконки", frameW, frameH)
+    SB.Theme.AttachPositionMemory(iconPickerFrame, "iconPickerPos", 0, 0)
     iconPickerFrame:SetFrameStrata("DIALOG")
     
     pickerCountFS = iconPickerFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -585,7 +627,7 @@ local function BuildCreateFrame()
     cancelBtn:SetScript("OnClick", function() createFrame:Hide() end)
 
     createFrame.deleteBtn = SB.Theme.Button(createFrame, "Удалить", 100, 28, "danger")
-    createFrame.deleteBtn:SetPoint("RIGHT", createFrame, "BOTTOMRIGHT", -14, 14)
+    createFrame.deleteBtn:SetPoint("BOTTOMRIGHT", createFrame, "BOTTOMRIGHT", -14, 14)
     createFrame.deleteBtn:Hide()
     createFrame.deleteBtn:SetScript("OnClick", function()
         if currentEditID then
@@ -740,7 +782,7 @@ local function BuildContainerFrame()
     cancelBtn:SetScript("OnClick", function() contFrame:Hide() end)
 
     contFrame.deleteBtn = SB.Theme.Button(contFrame, "Удалить", 100, 28, "danger")
-    contFrame.deleteBtn:SetPoint("RIGHT", contFrame, "BOTTOMRIGHT", -14, 14)
+    contFrame.deleteBtn:SetPoint("BOTTOMRIGHT", contFrame, "BOTTOMRIGHT", -14, 14)
     contFrame.deleteBtn:Hide()
     contFrame.deleteBtn:SetScript("OnClick", function()
         if contEditID then
@@ -845,6 +887,8 @@ function SB.CustomSpells.SaveContainer()
         resistable      = false,
         isCustom        = true,
         isContainer     = true,
+		createdBy       = UnitName("player"),
+		version   = (SB.Data.Spells[id] and (SB.Data.Spells[id].version or 1) + 1) or 1,
         duration        = dur,
         isConcentration = isConc,
     }
@@ -855,7 +899,9 @@ function SB.CustomSpells.SaveContainer()
     if contSpell.outcome4 == "" then contSpell.outcome4 = nil end
 
     InjectSpell(contSpell)
-    SB.CustomSpells.Broadcast(contSpell)
+    if IsBroadcastRelevant(nil, contSpell.id) then
+        SB.CustomSpells.Broadcast(contSpell)
+    end
 
     fContID     = id
     fContDur    = dur
@@ -910,6 +956,11 @@ function SB.CustomSpells.OpenEdit(spellID)
     end
     local sp = SB.Data.Spells[spellID]
     if not sp or not sp.isCustom then return end
+    -- Редактировать может только создатель (проверка по аккаунту)
+    if not IsMyCharacter(sp.createdBy) then
+        print("|cFFFF0000[Spellbreaker]: Только создатель заклинания может его редактировать.|r")
+        return
+    end
     if not createFrame then BuildCreateFrame() end
     currentEditID = spellID
 
@@ -1003,6 +1054,8 @@ function SB.CustomSpells.SaveForm(silent)
         caura           = cauraVal,
         resistable      = true,
         isCustom        = true,
+		createdBy       = UnitName("player"),
+		version   = (SB.Data.Spells[id] and (SB.Data.Spells[id].version or 1) + 1) or 1,
     }
 
     if sp.outcome1 == "" then sp.outcome1 = nil end
@@ -1010,8 +1063,14 @@ function SB.CustomSpells.SaveForm(silent)
     if sp.outcome3 == "" then sp.outcome3 = nil end
     if sp.outcome4 == "" then sp.outcome4 = nil end
 
-    InjectSpell(sp)
-    SB.CustomSpells.Broadcast(sp)
+     InjectSpell(sp)
+    -- Рассылка подготовленных заклинаний
+    if IsBroadcastRelevant(sp.id, nil) then
+        SB.CustomSpells.Broadcast(sp)
+        if sp.container and SB.Data.Spells[sp.container] then
+            SB.CustomSpells.Broadcast(SB.Data.Spells[sp.container])
+        end
+    end
 
     currentEditID = id
 
@@ -1030,18 +1089,18 @@ end
 -- § 9. УДАЛЕНИЕ (с проверкой подготовки)
 -- ============================================================
 function SB.CustomSpells.Delete(spellID, silent)
-	local sp = SB.Data.Spells[spellID]
+    -- silent = true → не рассылать DEL по сети (используется при
+    -- получении DEL от другого игрока, чтобы не было бесконечного эха)
+    local sp = SB.Data.Spells[spellID]
     if sp and sp.container then
         local contID = sp.container
         if SB.ActiveEffects then SB.ActiveEffects.Remove(contID) end
         SB.Data.Spells[contID] = nil
-        -- Удалить из SavedVariables
         local db = SpellbreakerCustomDB and SpellbreakerCustomDB.spells
         if db then db[contID] = nil end
-        if not noRetransmit and IsInGroup() then
+        if not silent and IsInGroup() then
             local ch = IsInRaid() and "RAID" or "PARTY"
-            C_ChatInfo.SendAddonMessage("SB_RP", "CUSTOM^DEL^" .. contID,
-                IsInRaid() and "RAID" or "PARTY")
+            C_ChatInfo.SendAddonMessage("SB_RP", "CUSTOM^DEL^" .. contID, ch)
         end
     end
     -- ПРОВЕРКА: если спелл подготовлен — сначала разучиваем
@@ -1095,48 +1154,239 @@ end
 -- § 10. СЕТЕВОЙ BROADCAST
 -- ============================================================
 
--- #7: защита от спама — макс. кастомных заклинаний на одного отправителя
-local CUSTOM_SPELL_PER_SENDER_LIMIT = 40
-local receivedFrom = {}   -- { [senderName] = count }
+-- Возвращает true, если spellID (или любой спелл со ссылкой на
+-- контейнер containerID) находится в списке подготовленных.
+local function IsBroadcastRelevant(spellID, containerID)
+    if not (SB.PlayerModel and SB.PlayerModel.IsPrepared) then return false end
+    if spellID and SB.PlayerModel.IsPrepared(spellID) then return true end
+    if containerID then
+        for _, id in ipairs(SpellbreakerCharDB.preparedSpells or {}) do
+            local sp = SB.Data.Spells[id]
+            if sp and sp.container == containerID then return true end
+        end
+    end
+    return false
+end
 
-local function SendMsg(msg)
+local CUSTOM_SPELL_PER_SENDER_LIMIT = 40
+local receivedFrom = {}  -- { [senderName] = count }
+local incomingParts = {} -- { [sender+spellId] = { total, parts, count, ts } }
+
+local MAX_ADDON_MSG = 255
+local CHUNK_PAYLOAD = 200  -- запас под заголовок CUSTOM^ADDP^id^i^n^
+
+-- Анти-DoS: максимум частей на одно заклинание и максимум одновременных
+-- заклинаний в очереди от одного отправителя. TTL — 30 сек на сборку.
+local MAX_PARTS_PER_SPELL = 32
+local MAX_INCOMING_PER_SENDER = 8
+local INCOMING_TTL_SEC = 30
+
+-- #region agent log
+local function DbgLog(hypothesisId, location, message, data)
+    local extra = ""
+    if data then
+        for k, v in pairs(data) do
+            extra = extra .. k .. "=" .. tostring(v) .. " "
+        end
+    end
+    print(string.format("|cFF00FF00[SB-DEBUG f0f99a]|r %s @ %s %s (hyp=%s)",
+        message, location, extra, hypothesisId))
+end
+-- #endregion
+
+local function SendMsgRaw(msg)
     if not IsInGroup() then return end
     local ch = IsInRaid() and "RAID" or "PARTY"
-    C_ChatInfo.SendAddonMessage("SB_RP", msg, ch)
+    local ok, err = pcall(C_ChatInfo.SendAddonMessage, "SB_RP", msg, ch)
+    return ok
+end
+
+--- Отправляет сериализованное заклинание, разбивая на части при необходимости.
+local function SendCustomAdd(spellId, raw)
+    local single = "CUSTOM^ADD^" .. raw
+    if #single <= MAX_ADDON_MSG then
+        SendMsgRaw(single)
+        return
+    end
+
+    local totalParts = math.ceil(#raw / CHUNK_PAYLOAD)
+    -- #region agent log
+    --[[DbgLog("A", "CustomSpells.lua:SendCustomAdd", "chunked_send", {
+        spellId = spellId, rawLen = #raw, totalParts = totalParts,
+    })--]]
+    -- #endregion
+
+    for i = 1, totalParts do
+        local startPos = (i - 1) * CHUNK_PAYLOAD + 1
+        local chunk = raw:sub(startPos, startPos + CHUNK_PAYLOAD - 1)
+        local partMsg = string.format("CUSTOM^ADDP^%s^%d^%d^%s",
+            spellId, i, totalParts, chunk)
+        if #partMsg > MAX_ADDON_MSG then
+            --[[DbgLog("A", "CustomSpells.lua:SendCustomAdd", "chunk_too_large", {
+                part = i, partLen = #partMsg,
+            })
+            return--]]
+        end
+        C_Timer.After((i - 1) * 0.05, function()
+            SendMsgRaw(partMsg)
+        end)
+    end
+end
+
+local function ShouldAccept(existing, incoming, senderName)
+    if not existing then return true end
+
+    local incomingIsOwner = (incoming.createdBy == senderName)
+    local iAmOwner        = IsMyCharacter(existing.createdBy)
+
+    -- Создатель всегда имеет приоритет над не-создателем
+    if incomingIsOwner and not iAmOwner then return true end
+    if iAmOwner and not incomingIsOwner then return false end
+
+    -- Оба создатели (один и тот же спелл от оригинального автора дважды) — берём новее
+    -- Оба не создатели — берём с большей версией
+    local inVer = incoming.version or 1
+    local exVer = existing.version or 1
+    return inVer > exVer
 end
 
 function SB.CustomSpells.Broadcast(sp)
-    SendMsg("CUSTOM^ADD^" .. Serialize(sp))
+    local raw = Serialize(sp)
+    SendCustomAdd(sp.id, raw)
 end
 
 function SB.CustomSpells.BroadcastDelete(spellID)
-    SendMsg("CUSTOM^DEL^" .. spellID)
+    SendMsgRaw("CUSTOM^DEL^" .. spellID)
+end
+
+--- Поделиться всеми подготовленными кастомными заклинаниями с группой.
+--- Вызывается при входе в группу, на REQ_STATUS и при подготовке.
+function SB.CustomSpells.BroadcastPrepared()
+    if not IsInGroup() then return end
+    
+    -- Собираем подготовленные заклинания из обоих источников
+    local prepared = {}
+    if SpellbreakerCharDB and SpellbreakerCharDB.preparedSpells then
+        for _, id in ipairs(SpellbreakerCharDB.preparedSpells) do
+            prepared[id] = true
+        end
+    end
+    if SB.PlayerModel and SB.PlayerModel.GetPreparedSpells then
+        for _, id in ipairs(SB.PlayerModel.GetPreparedSpells() or {}) do
+            prepared[id] = true
+        end
+    end
+    
+    C_Timer.After(0.5, function()
+        local sent = 0
+        for spellID in pairs(prepared) do
+            local spell = SB.Data.Spells[spellID]
+            if spell and spell.isCustom then
+                SB.CustomSpells.Broadcast(spell)
+                sent = sent + 1
+                -- Отправить и контейнер если есть
+                if spell.container and SB.Data.Spells[spell.container] then
+                    SB.CustomSpells.Broadcast(SB.Data.Spells[spell.container])
+                    sent = sent + 1
+                end
+            end
+        end
+    end)
+end
+
+function SB.CustomSpells.ReceivePart(spellId, partIdx, totalParts, data, senderName)
+    if not spellId or not partIdx or not totalParts or not data then return end
+    if not spellId:match("^custom_") then return end
+
+    -- Анти-DoS: отбрасывать явно нелегитимные значения
+    totalParts = tonumber(totalParts) or 0
+    partIdx    = tonumber(partIdx)    or 0
+    if totalParts < 1 or totalParts > MAX_PARTS_PER_SPELL then return end
+    if partIdx    < 1 or partIdx    > totalParts        then return end
+
+    local key = (senderName or "?") .. SEP .. spellId
+    local buf = incomingParts[key]
+
+    -- Подсчёт одновременных заклинаний от одного отправителя
+    if not buf then
+        local perSender = 0
+        for k, _ in pairs(incomingParts) do
+            if k:sub(1, #(senderName or "?") + #SEP) == (senderName or "?") .. SEP then
+                perSender = perSender + 1
+            end
+        end
+        if perSender >= MAX_INCOMING_PER_SENDER then return end
+    end
+
+    if not buf or buf.total ~= totalParts then
+        buf = { total = totalParts, parts = {}, count = 0, ts = time() }
+        incomingParts[key] = buf
+        -- TTL: автоматически очистить запись через 30 сек
+        C_Timer.After(INCOMING_TTL_SEC, function()
+            if incomingParts[key] == buf then
+                incomingParts[key] = nil
+            end
+        end)
+    end
+    if not buf.parts[partIdx] then
+        buf.parts[partIdx] = data
+        buf.count = buf.count + 1
+    end
+
+    -- (старый закомментированный DbgLog можно оставить)
+    if buf.count < totalParts then return end
+
+    local raw = ""
+    for i = 1, totalParts do
+        if not buf.parts[i] then return end
+        raw = raw .. buf.parts[i]
+    end
+    incomingParts[key] = nil
+    SB.CustomSpells.Receive(raw, senderName)
 end
 
 function SB.CustomSpells.Receive(raw, senderName)
     local sp = Deserialize(raw)
+    -- #region agent log
+    --[[DbgLog("C", "CustomSpells.lua:Receive", "deserialize", {
+        rawLen = raw and #raw or 0,
+        fieldCount = sp and 20 or 0,
+        spellId = sp and sp.id or "nil",
+        descLen = sp and sp.description and #sp.description or 0,
+        ok = sp ~= nil,
+    })--]]
+    -- #endregion
     if not sp or not sp.id then return end
     if not sp.id:match("^custom_") then return end
 
-    -- #7: лимит на отправителя
+    -- Защита от спама: считаем только новые (неизвестные) заклинания
     if senderName and senderName ~= "" then
-        local cnt = receivedFrom[senderName] or 0
-        -- Если заклинание уже известно — это обновление, не новый спелл
-        local isUpdate = SB.Data.Spells[sp.id] ~= nil
-        if not isUpdate then
-            if cnt >= CUSTOM_SPELL_PER_SENDER_LIMIT then
-                -- Молчаливо игнорируем — не печатаем спам в чат
-                return
-            end
+        local existing = SB.Data.Spells[sp.id]
+        if not existing then
+            local cnt = receivedFrom[senderName] or 0
+            if cnt >= CUSTOM_SPELL_PER_SENDER_LIMIT then return end
             receivedFrom[senderName] = cnt + 1
         end
     end
 
+    local existing = SB.Data.Spells[sp.id]
+    if not ShouldAccept(existing, sp, senderName) then return end
+
     InjectSpell(sp)
+    -- #region agent log
+    --[[DbgLog("D", "CustomSpells.lua:Receive", "injected", {
+        spellId = sp.id, isCustom = sp.isCustom,
+        createdBy = sp.createdBy or "nil",
+    })--]]
+    -- #endregion
     if SB.Library and SB.Library.UpdateList then
         C_Timer.After(0, SB.Library.UpdateList)
     end
-    print(string.format("|cFFFFD100[Spellbreaker]|r: Received spell '%s'.", sp.name or sp.id))
+    if SB.Library and SB.Library.ShowDetail
+        and SpellbreakerDetailFrame and SpellbreakerDetailFrame:IsShown()
+        and SpellbreakerDetailFrame._spellID == sp.id then
+        SB.Library.ShowDetail(SB.Data.Spells[sp.id])
+    end
 end
 
 -- ============================================================
@@ -1185,3 +1435,11 @@ function SB.CustomSpells.ValidateCustomSpells()
         end
     end
 end
+-- ============================================================
+-- § 13. ПОДПИСКА НА SB_INIT — Core сам вызывает инициализацию,
+-- не полагаясь на UI-слой.
+-- ============================================================
+SB.Events.On("SB_INIT", function()
+    SB.CustomSpells.Init()
+    SB.CustomSpells.ValidateCustomSpells()
+end)
