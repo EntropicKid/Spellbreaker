@@ -26,7 +26,7 @@ function SB.Logs.BuildFrame()
     local C = SB.Theme.C
 
     logFrame = SB.Theme.Frame("SpellbreakerLogFrame", UIParent,
-        "Логи системы Spellbreaker", 430, 510)
+        "Окно логов", 430, 510)
     logFrame:SetPoint("CENTER", 0, 0)
     -- #9: явно разрешаем перетаскивание и фиксируем OnDragStop
     logFrame:SetMovable(true)
@@ -52,6 +52,17 @@ function SB.Logs.BuildFrame()
     logsEB:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
     logsEB:SetWidth(400)
     logsEB:SetAutoFocus(false)
+	logsEB:SetHyperlinksEnabled(true)
+	logsEB:SetScript("OnHyperlinkClick", function(self, link, text, button)
+        if not link then return end
+        local spellID = link:match("^spellbreaker:(.+)$")
+        if spellID then
+            local spell = SB.Data.Spells[spellID]
+            if spell and SB.Library and SB.Library.ShowDetail then
+                 SB.Library.ShowDetail(spell)
+            end
+        end
+    end)
     logsEB:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     logsEB:SetScript("OnTextChanged", function(self, userInput)
         if userInput then self:SetText(lastValidText) end
@@ -59,14 +70,14 @@ function SB.Logs.BuildFrame()
     sf:SetScrollChild(logsEB)
 
     -- ── Нижняя панель ─────────────────────────────────────────
-    local clearBtn = SB.Theme.Button(logFrame, "Очистить", 80, 24, "danger")
-    clearBtn:SetPoint("BOTTOMLEFT", logFrame, "BOTTOMLEFT", 10, 10)
+    local clearBtn = SB.Theme.Button(logFrame, "Очистить", 65, 24, "danger")
+    clearBtn:SetPoint("BOTTOMLEFT", logFrame, "BOTTOMLEFT", 12, 10)
     clearBtn:SetScript("OnClick", function()
         lastValidText = ""; logsEB:SetText("")
     end)
 
     local checkBg = CreateFrame("Frame", nil, logFrame, "BackdropTemplate")
-    checkBg:SetSize(260, 26)
+    checkBg:SetSize(205, 26)
     checkBg:SetPoint("BOTTOMRIGHT", logFrame, "BOTTOMRIGHT", -10, 10)
     checkBg:SetBackdrop(SB.Theme.BD.card)
     checkBg:SetBackdropColor(0.05, 0.04, 0.08, 0.80)
@@ -89,6 +100,29 @@ function SB.Logs.BuildFrame()
             SpellbreakerAccountDB.hideSystemMessages = self:GetChecked()
         end
     end)
+	
+	local emoteBg = CreateFrame("Frame", nil, logFrame, "BackdropTemplate")
+    emoteBg:SetSize(132, 26)
+    emoteBg:SetPoint("BOTTOMRIGHT", checkBg, "BOTTOMLEFT", -3, 0)
+    emoteBg:SetBackdrop(SB.Theme.BD.card)
+    emoteBg:SetBackdropColor(0.05, 0.04, 0.08, 0.80)
+    emoteBg:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
+
+    local emoteChk = CreateFrame("CheckButton", "SBSendEmoteChk", emoteBg, "UICheckButtonTemplate")
+    emoteChk:SetSize(20, 20)
+    emoteChk:SetPoint("LEFT", emoteBg, "LEFT", 6, 0)
+    emoteChk:SetChecked(SpellbreakerAccountDB and SpellbreakerAccountDB.sendEmotes ~= false)
+
+    local emoteLbl = emoteBg:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    emoteLbl:SetPoint("LEFT", emoteChk, "RIGHT", 4, 0)
+    emoteLbl:SetText("Отправлять отписи")
+    emoteLbl:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
+
+    emoteChk:SetScript("OnClick", function(self)
+        if SpellbreakerAccountDB then
+            SpellbreakerAccountDB.sendEmotes = self:GetChecked()
+        end
+    end)
 
     -- Синхронизировать чекбокс после инициализации AceDB
     SB.Events.On("SB_INIT", function()
@@ -105,11 +139,10 @@ function SB.Logs.Add(message)
     if not logsEB then return end
 
     -- Очистка цветовых кодов WoW
-    local clean = string.gsub(message, "|c%x%x%x%x%x%x%x%x", "")
-    clean = string.gsub(clean, "|r", "")
+	local clean = message
     clean = string.gsub(clean, "%[Система Spellbreaker%]:%s*", "")
     clean = string.gsub(clean, "%[Spellbreaker%]:%s*", "")
-    clean = string.gsub(clean, "^[^:]+:%s*", "")
+    clean = string.gsub(clean, "^%[Spellbreaker%]:%s*", "")
 
     local stamp = date("[%H:%M:%S] ")
     lastValidText = logsEB:GetText() .. stamp .. clean .. "\n"

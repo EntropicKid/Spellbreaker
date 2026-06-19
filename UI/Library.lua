@@ -7,9 +7,9 @@ local addonName, SB = ...
 SB.Library = SB.Library or {}
 
 -- Константы разметки
-local SPELL_ROW_W   = 195
-local SPELL_COL_GAP = 10
-local SPELL_ROW_H   = 45
+local SPELL_ROW_W   = 203
+local SPELL_COL_GAP = 0
+local SPELL_ROW_H   = 42
 
 local libFrame, detailFrame, scrollChild
 local classBtn, classMenu, searchEB
@@ -24,8 +24,8 @@ local filterBtn  = nil
 
 local FILTER_LABELS = {
     all     = "Все заклинания",
-    custom  = "Только кастомные",
-    builtin = "Только вшитые",
+    custom  = "Кастомные",
+    builtin = "Базовые",
 }
 local FILTER_CYCLE = { "all", "custom", "builtin" }
 
@@ -34,9 +34,12 @@ local FILTER_CYCLE = { "all", "custom", "builtin" }
 -- ============================================================
 function SB.Library.UpdateList()
     if not classBtn then return end
+	if libFrame and libFrame._scrollFrame then
+        libFrame._scrollFrame:SetVerticalScroll(0)
+    end
     local C = SB.Theme.C
     local selectedClass = SB.Data.Classes[currentClassIndex]
-    classBtn:SetText("Класс: " .. selectedClass)
+    classBtn:SetText(selectedClass)
 
     -- Фильтрация
     local filtered = {}
@@ -171,11 +174,11 @@ function SB.Library.UpdateList()
         row.icon:SetTexture(row._iconPath)
         row.name:SetText(spell.name or "Неизвестно")
         local descText = spell.key or "—"
-        if spell.isCustom then descText = "|cFF88CCFFКастом.|r  " .. descText end
+        if spell.isCustom then descText = descText .. "  |cFF88CCFFКастом!|r" end
         row.desc:SetText(descText)
 
         -- Две колонки
-        local xOff = (col == 1) and 5 or (5 + SPELL_ROW_W + SPELL_COL_GAP)
+        local xOff = (col == 1) and 0.2 or (0.2 + SPELL_ROW_W + SPELL_COL_GAP)
         row:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", xOff, -yOff)
         row:Show()
 
@@ -187,10 +190,13 @@ function SB.Library.UpdateList()
 end
 
 -- ============================================================
--- ShowDetail — карточка заклинания
+-- ShowDetail — обновлённая карточка заклинания
 -- ============================================================
 function SB.Library.ShowDetail(spell)
     if not spell then return end
+    if spell.id and SB.Data.Spells[spell.id] then
+        spell = SB.Data.Spells[spell.id]
+    end
     if not SpellbreakerDetailFrame and SB.Library.BuildFrame then
         SB.Library.BuildFrame()
     end
@@ -203,13 +209,16 @@ function SB.Library.ShowDetail(spell)
     f.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
     local C = SB.Theme.C
-    f.meta:SetText(string.format(
+
+    -- Левая часть: класс, порядок, дескриптор
+    local leftText = string.format(
         "|cFFFFD100Класс:|r %s\n|cFFFFD100Порядок:|r %s\n|cFFFFD100Дескриптор:|r %s",
         spell.class or "—",
         (spell.level == 0) and "Заговор" or (spell.level .. "-й"),
-        spell.key or "—"))
+        spell.key or "—")
+    f.metaLeft:SetText(leftText)
 
-    -- Дальность
+    -- Правая часть: только дальность
     local distStr
     local dist = spell.distance
     if not dist or dist == 0 then
@@ -219,20 +228,38 @@ function SB.Library.ShowDetail(spell)
     else
         distStr = dist .. "м"
     end
-    -- Длительность
-    local durStr
+    f.metaDistance:SetText("|cFFFFD100Дальность:|r " .. distStr)
+
+    -- Длительность (левая колонка, под дескриптором)
     local dur = spell.duration
-    if dur and dur > 0 then
-        durStr = "×" .. dur .. " применений"
+    local durStr
+    if dur == -1 then
+        durStr = "Отсутствует"
+    elseif dur and dur > 0 then
+        durStr = dur .. " ход."
     else
         durStr = "Мгновенно"
     end
+    f.metaDuration:SetText("|cFFFFD100Длительность:|r " .. durStr)
 
+    -- Концентрация (зеркально справа)
+    if spell.isConcentration then
+        f.metaConcentration:SetText("|cFF22BFFFКонцентрация|r")
+        f.metaConcentration:Show()
+    else
+        f.metaConcentration:Hide()
+    end
+
+    -- Создатель (если есть)
+    if spell.createdBy and spell.createdBy ~= "" then
+        f.metaCreator:SetText("|cFFFFD100Создатель:|r " .. spell.createdBy)
+        f.metaCreator:Show()
+    else
+        f.metaCreator:Hide()
+    end
+
+    -- Описание и исходы
     local txt = "|cFFFFFFFF" .. (spell.description or "Описание отсутствует.") .. "|r\n\n"
-    txt = txt .. "|cFFFFD100Дальность:|r " .. distStr .. "\n"
-    txt = txt .. "|cFFFFD100Длительность:|r " .. durStr
-    if spell.isConcentration then txt = txt .. "  |cFF22BFFFКонцентрация|r" end
-    txt = txt .. "\n\n"
     if spell.outcome1 then txt = txt .. "|cFF00FF00[Успех]:|r "       .. spell.outcome1 .. "\n" end
     if spell.outcome2 then txt = txt .. "|cFFFF4444[Провал]:|r "      .. spell.outcome2 .. "\n" end
     if spell.outcome3 then txt = txt .. "|cFF00FFFF[Крит. Успех]:|r " .. spell.outcome3 .. "\n" end
@@ -243,8 +270,33 @@ function SB.Library.ShowDetail(spell)
         if SB.UI and SB.UI.PrepareSpell then SB.UI.PrepareSpell(spell) end
     end)
 
-    local th = f.desc:GetStringHeight()
-    f:SetHeight(math.max(200, 120 + th + 50))
+    -- Кнопка удаления — только для кастомных заклинаний
+    if spell.isCustom then
+        f.deleteBtn:Show()
+        f.deleteBtn:SetScript("OnClick", function()
+            SB.CustomSpells.Delete(f._spellID)
+        end)
+        f.prepareBtn:ClearAllPoints()
+        f.prepareBtn:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -4, 12)
+        f.deleteBtn:ClearAllPoints()
+        f.deleteBtn:SetPoint("BOTTOMLEFT", f, "BOTTOM", 4, 12)
+    else
+        f.deleteBtn:Hide()
+        f.prepareBtn:ClearAllPoints()
+        f.prepareBtn:SetPoint("BOTTOM", f, "BOTTOM", 0, 12)
+    end
+
+    -- Расчёт высоты фрейма
+    local leftH = f.metaLeft:GetStringHeight() or 0
+    local rightH = f.metaDistance:GetStringHeight() or 0
+    local durationH = f.metaDuration:GetStringHeight() or 0
+    local creatorH = f.metaCreator:IsShown() and (f.metaCreator:GetStringHeight() or 0) or 0
+    local headerH = math.max(leftH, rightH) + durationH + creatorH + 8
+    headerH = math.max(headerH, 52) -- высота иконки
+
+    local th = f.desc:GetStringHeight() or 0
+    f:SetHeight(math.max(200, headerH + th + 86)) -- отступ под кнопку
+
     f:SetFrameStrata("DIALOG")
     f:Show()
 end
@@ -261,7 +313,7 @@ function SB.Library.BuildFrame()
     SB.Theme.AttachPositionMemory(libFrame, "libFramePos", -200, 0)
 
     -- Кнопка класса
-    classBtn = SB.Theme.Button(libFrame, "Класс: Маг", 145, 24, "secondary")
+    classBtn = SB.Theme.Button(libFrame, "Маг", 145, 24, "secondary")
     classBtn:SetPoint("TOPLEFT", libFrame, "TOPLEFT", 10, libFrame.contentY)
     classBtn:SetScript("OnClick", function()
         if classMenu:IsShown() then classMenu:Hide() else classMenu:Show() end
@@ -270,7 +322,7 @@ function SB.Library.BuildFrame()
     -- Выпадающее меню классов
     classMenu = CreateFrame("Frame", "SBClassMenu", libFrame, "BackdropTemplate")
     classMenu:SetSize(155, #SB.Data.Classes * 22 + 12)
-    classMenu:SetPoint("TOPLEFT", classBtn, "BOTTOMLEFT", 0, -2)
+    classMenu:SetPoint("TOPLEFT", classBtn, "BOTTOMLEFT", -5, -2)
     classMenu:SetFrameStrata("DIALOG")
     classMenu:SetBackdrop(SB.Theme.BD.frame)
     classMenu:SetBackdropColor(C.frameBg[1], C.frameBg[2], C.frameBg[3], 0.98)
@@ -295,15 +347,138 @@ function SB.Library.BuildFrame()
     end)
 
     -- Кнопка «Создать»
-    local createSpellBtn = SB.Theme.Button(libFrame, "Создать", 60, 24, "primary")
-    createSpellBtn:SetPoint("TOPRIGHT", libFrame, "TOPRIGHT", -14, libFrame.contentY)
+    local createSpellBtn = SB.Theme.Button(libFrame, "Создать", 66, 24, "primary")
+    createSpellBtn:SetPoint("TOPRIGHT", libFrame, "TOPRIGHT", -10, libFrame.contentY)
     createSpellBtn:SetScript("OnClick", function()
         if SB.CustomSpells then SB.CustomSpells.OpenCreate() end
     end)
+	
+    local purgeBtn = SB.Theme.Button(libFrame, "Очистить кастом", 145, 24, "danger")
+    purgeBtn:SetPoint("BOTTOMLEFT", libFrame, "BOTTOMLEFT", 10, 10)
+
+    -- Диалог создаётся один раз и переиспользуется (toggle)
+    local purgeDialog = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+    purgeDialog:SetSize(155, 115)
+    purgeDialog:SetPoint("BOTTOMLEFT", purgeBtn, "TOPLEFT", -5, 2)
+    purgeDialog:SetFrameStrata("DIALOG")
+    purgeDialog:SetBackdrop(SB.Theme.BD.frame)
+    purgeDialog:SetBackdropColor(C.frameBg[1], C.frameBg[2], C.frameBg[3], C.frameBg[4])
+    purgeDialog:SetBackdropBorderColor(C.frameBorder[1], C.frameBorder[2], C.frameBorder[3], 1)
+    purgeDialog:Hide()
+
+    -- Закрыть при клике вне меню
+    purgeDialog:SetScript("OnHide", function(self)
+        self:SetScript("OnUpdate", nil)
+    end)
+
+    local lbl = purgeDialog:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    lbl:SetPoint("TOP", purgeDialog, "TOP", 0, -14)
+    lbl:SetText("Очистить от:")
+    lbl:SetTextColor(C.titleText[1], C.titleText[2], C.titleText[3])
+
+    local function doPurge(onlyOthers)
+        local myName = UnitName("player")
+        local db = SpellbreakerCustomDB and SpellbreakerCustomDB.spells
+        for id, sp in pairs(SB.Data.Spells) do
+            if sp.isCustom then
+                local skip = onlyOthers and (sp.createdBy == myName or not sp.createdBy)
+                if not skip then
+                    SB.Data.Spells[id] = nil
+                    if db then db[id] = nil end
+                    if SB.ActiveEffects then SB.ActiveEffects.Remove(id) end
+                end
+            end
+        end
+        SB.Library.UpdateList()
+        if SB.UI and SB.UI.UpdateAll then SB.UI.UpdateAll() end
+        purgeDialog:Hide()
+    end
+
+    local allBtn = SB.Theme.Button(purgeDialog, "Всех заклинаний", 135, 22, "danger")
+    allBtn:SetPoint("TOP", lbl, "BOTTOM", 0, -5)
+    allBtn:SetScript("OnClick", function() doPurge(false) end)
+
+    local othersBtn = SB.Theme.Button(purgeDialog, "Чужих заклинаний", 135, 22, "secondary")
+    othersBtn:SetPoint("TOP", allBtn, "BOTTOM", 0, -4)
+    othersBtn:SetScript("OnClick", function() doPurge(true) end)
+
+    local mineBtn = SB.Theme.Button(purgeDialog, "Моих заклинаний", 135, 22, "secondary")
+    mineBtn:SetPoint("TOP", othersBtn, "BOTTOM", 0, -4)
+    mineBtn:SetScript("OnClick", function()
+        local chars = SpellbreakerAccountDB and SpellbreakerAccountDB.myCharacters
+        local myName = UnitName("player")
+        local db = SpellbreakerCustomDB and SpellbreakerCustomDB.spells
+        for id, sp in pairs(SB.Data.Spells) do
+            if sp.isCustom then
+                local isOwner = (sp.createdBy == myName)
+                    or (chars and chars[sp.createdBy] == true)
+                if isOwner then
+                    SB.Data.Spells[id] = nil
+                    if db then db[id] = nil end
+                    if SB.ActiveEffects then SB.ActiveEffects.Remove(id) end
+                end
+            end
+        end
+        SB.Library.UpdateList()
+        if SB.UI and SB.UI.UpdateAll then SB.UI.UpdateAll() end
+        purgeDialog:Hide()
+    end)
+
+    purgeBtn:SetScript("OnClick", function()
+        if purgeDialog:IsShown() then
+            purgeDialog:Hide()
+        else
+            purgeDialog:Show()
+            -- Активируем авто-закрытие при клике вне
+            purgeDialog:SetScript("OnUpdate", function(self)
+                if not self:IsMouseOver() and not purgeBtn:IsMouseOver() then
+                    if IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton") then
+                        self:Hide()
+                    end
+                end
+            end)
+        end
+    end)
+	
+	    -- ── Чекбокс «Игнорировать .caura» ────────────────────────
+    -- Справа от кнопки «Очистить кастом». Хранится в
+    -- SpellbreakerAccountDB.ignoreCaura — учитывается в Logic.lua
+    -- при ConfirmCast и ExecuteForcedOutcome.
+    local cauraBg = CreateFrame("Frame", nil, libFrame, "BackdropTemplate")
+    cauraBg:SetSize(143, 26)
+    cauraBg:SetPoint("LEFT", purgeBtn, "RIGHT", 4, 0)
+    cauraBg:SetBackdrop(SB.Theme.BD.card)
+    cauraBg:SetBackdropColor(0.05, 0.04, 0.08, 0.80)
+    cauraBg:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
+
+    local cauraChk = CreateFrame("CheckButton", "SBIgnoreCauraChk",
+        cauraBg, "UICheckButtonTemplate")
+    cauraChk:SetSize(20, 20)
+    cauraChk:SetPoint("LEFT", cauraBg, "LEFT", 6, 0)
+    cauraChk:SetChecked(SpellbreakerAccountDB and SpellbreakerAccountDB.ignoreCaura or false)
+
+    local cauraLbl = cauraBg:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    cauraLbl:SetPoint("LEFT", cauraChk, "RIGHT", 4, 0)
+    cauraLbl:SetText("Игнорировать .caura")
+    cauraLbl:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
+
+    cauraChk:SetScript("OnClick", function(self)
+        if SpellbreakerAccountDB then
+            SpellbreakerAccountDB.ignoreCaura = self:GetChecked()
+        end
+    end)
+
+    -- Синхронизировать чекбокс после инициализации AceDB
+    SB.Events.On("SB_INIT", function()
+        if SBIgnoreCauraChk then
+            SBIgnoreCauraChk:SetChecked(
+                SpellbreakerAccountDB and SpellbreakerAccountDB.ignoreCaura or false)
+        end
+    end)
 
     -- #6: Переключатель фильтра (все / кастом / вшитые)
-    filterBtn = SB.Theme.Button(libFrame, FILTER_LABELS[filterMode], 160, 24, "secondary")
-    filterBtn:SetPoint("RIGHT", createSpellBtn, "LEFT", -4, 0)
+    filterBtn = SB.Theme.Button(libFrame, FILTER_LABELS[filterMode], 110, 24, "secondary")
+    filterBtn:SetPoint("BOTTOMRIGHT", libFrame, "BOTTOMRIGHT", -10, 10)
     filterBtn:SetScript("OnClick", function()
         local cur = filterMode
         local next
@@ -317,7 +492,8 @@ function SB.Library.BuildFrame()
 
     -- Скролл
     local sf
-    sf, scrollChild = SB.Theme.Scroll(libFrame, 10, libFrame.contentY - 30, -10, 10)
+    sf, scrollChild = SB.Theme.Scroll(libFrame, 10, libFrame.contentY - 30, -10, 36)
+    libFrame._scrollFrame = sf
 
     -- ── Карточка детального просмотра ────────────────────────
     detailFrame = SB.Theme.Frame("SpellbreakerDetailFrame", UIParent, "Заклинание", 380, 200)
@@ -328,7 +504,6 @@ function SB.Library.BuildFrame()
     detailFrame.icon:SetSize(52, 52)
     detailFrame.icon:SetPoint("TOPLEFT", detailFrame, "TOPLEFT", 14, detailFrame.contentY - 4)
 
-    -- Рамка иконки
     local ib = CreateFrame("Frame", nil, detailFrame, "BackdropTemplate")
     ib:SetPoint("TOPLEFT",     detailFrame.icon, "TOPLEFT",     -2,  2)
     ib:SetPoint("BOTTOMRIGHT", detailFrame.icon, "BOTTOMRIGHT",  2, -2)
@@ -336,20 +511,54 @@ function SB.Library.BuildFrame()
                     insets={left=2, right=2, top=2, bottom=2}})
     ib:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.9)
 
-    detailFrame.meta = detailFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    detailFrame.meta:SetPoint("LEFT",  detailFrame.icon, "RIGHT",  12, 0)
-    detailFrame.meta:SetPoint("RIGHT", detailFrame,      "RIGHT", -12, 0)
-    detailFrame.meta:SetJustifyH("LEFT")
-    detailFrame.meta:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+    -- Левая мета-информация (класс, порядок, дескриптор)
+    detailFrame.metaLeft = detailFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    detailFrame.metaLeft:SetPoint("TOPLEFT", detailFrame.icon, "TOPRIGHT", 12, 0)
+    detailFrame.metaLeft:SetJustifyH("LEFT")
+    detailFrame.metaLeft:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+
+    -- Правая часть: только дальность
+    detailFrame.metaDistance = detailFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    detailFrame.metaDistance:SetPoint("TOPRIGHT", detailFrame, "TOPRIGHT", -12, 0)
+    detailFrame.metaDistance:SetPoint("TOP", detailFrame.metaLeft, "TOP", 0, 0)
+    detailFrame.metaDistance:SetJustifyH("RIGHT")
+    detailFrame.metaDistance:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+
+    -- Длительность + концентрация (под дескриптором)
+    detailFrame.metaDuration = detailFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    detailFrame.metaDuration:SetPoint("TOPLEFT", detailFrame.metaLeft, "BOTTOMLEFT", 0, 0)
+    detailFrame.metaDuration:SetPoint("RIGHT", detailFrame.metaDistance, "RIGHT", 0, 0)
+    detailFrame.metaDuration:SetJustifyH("LEFT")
+    detailFrame.metaDuration:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+
+    detailFrame.metaConcentration = detailFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    detailFrame.metaConcentration:SetPoint("TOPRIGHT", detailFrame, "TOPRIGHT", -12, 0)
+    detailFrame.metaConcentration:SetPoint("TOP", detailFrame.metaDuration, "TOP", 0, 0)
+    detailFrame.metaConcentration:SetJustifyH("RIGHT")
+    detailFrame.metaConcentration:SetTextColor(0.15, 0.75, 1.0, 1)
+
+    -- Создатель под длительностью
+    detailFrame.metaCreator = detailFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    detailFrame.metaCreator:SetPoint("TOPLEFT", detailFrame.metaDuration, "BOTTOMLEFT", 0, 0)
+    detailFrame.metaCreator:SetPoint("RIGHT", detailFrame.metaDistance, "RIGHT", 0, 0)
+    detailFrame.metaCreator:SetJustifyH("LEFT")
+    detailFrame.metaCreator:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
+    detailFrame.metaCreator:Hide()
 
     detailFrame.desc = detailFrame:CreateFontString(nil, "OVERLAY", "ChatFontNormal")
-    detailFrame.desc:SetWidth(350)
-    detailFrame.desc:SetPoint("TOPLEFT", detailFrame, "TOPLEFT", 14, detailFrame.contentY - 68)
-    detailFrame.desc:SetJustifyH("LEFT"); detailFrame.desc:SetJustifyV("TOP")
+    detailFrame.desc:SetPoint("TOPLEFT", detailFrame.icon, "BOTTOMLEFT", 0, -10)
+    detailFrame.desc:SetPoint("TOPRIGHT", detailFrame, "TOPRIGHT", -12, -10)
+    detailFrame.desc:SetJustifyH("LEFT")
+    detailFrame.desc:SetJustifyV("TOP")
     detailFrame.desc:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+    detailFrame.desc:SetWordWrap(true)
 
-    detailFrame.prepareBtn = SB.Theme.Button(detailFrame, "Подготовить", 140, 26, "primary")
+    detailFrame.prepareBtn = SB.Theme.Button(detailFrame, "Подготовить", 110, 26, "primary")
     detailFrame.prepareBtn:SetPoint("BOTTOM", detailFrame, "BOTTOM", 0, 12)
+	
+	detailFrame.deleteBtn = SB.Theme.Button(detailFrame, "Удалить", 110, 26, "danger")
+    detailFrame.deleteBtn:SetPoint("BOTTOMLEFT", detailFrame, "BOTTOM", 4, 12)
+    detailFrame.deleteBtn:Hide()
 
     C_Timer.After(0, SB.Library.UpdateList)
 end
