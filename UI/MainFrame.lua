@@ -462,7 +462,7 @@ local function BuildMainFrame()
         end
     end)
 
-    aeBtn = SB.Theme.Button(sbFrame, "Эффекты", 62, 24, "secondary")
+    --[[aeBtn = SB.Theme.Button(sbFrame, "Эффекты", 62, 24, "secondary")
     aeBtn:SetPoint("LEFT", logsBtn, "RIGHT", 4, 0)
     aeBtn:SetScript("OnClick", function()
         if not SB.ActiveEffects then return end
@@ -478,7 +478,7 @@ local function BuildMainFrame()
                 aef2:SetPoint("TOPLEFT", sbFrame, "TOPRIGHT", 4, 0)
             end
         end
-    end)
+    end)--]]
 
     -- Переприкреплять при перемещении главного окна
     sbFrame:HookScript("OnDragStop", function(self)
