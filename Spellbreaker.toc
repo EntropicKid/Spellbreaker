@@ -1,7 +1,7 @@
-## Interface: 100200
+## Interface: 90207
 ## Title: Spellbreaker
 ## Notes: Модульная RP-система заклинаний
-## Version: 0.7
+## Version: 1.0
 ## SavedVariables: SpellbreakerDB SpellbreakerCustomDB
 
 Libs\LibStub\LibStub.lua
@@ -14,6 +14,9 @@ Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua
 Libs\LibDBIcon-1.0\lib.xml
 Libs\LibRPMedia\LibRPMedia-1.0.xml
 Libs\UTF8\lib.xml
+Libs\AceComm-3.0\AceComm-3.0.xml
+Libs\AceSerializer-3.0\AceSerializer-3.0.xml
+
 
 Core\Init.lua
 Core\Events.lua
@@ -31,6 +34,7 @@ Spells\Shaman.lua
 Spells\Monk.lua
 Spells\DemonHunter.lua
 Spells\DeathKnight.lua
+Spells\Effects.lua
 
 Core\Theme.lua
 Core\PlayerModel.lua
