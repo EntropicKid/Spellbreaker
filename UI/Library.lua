@@ -260,10 +260,20 @@ function SB.Library.ShowDetail(spell)
 
     -- Описание и исходы
     local txt = "|cFFFFFFFF" .. (spell.description or "Описание отсутствует.") .. "|r\n\n"
-    if spell.outcome1 then txt = txt .. "|cFF00FF00[Успех]:|r "       .. spell.outcome1 .. "\n" end
-    if spell.outcome2 then txt = txt .. "|cFFFF4444[Провал]:|r "      .. spell.outcome2 .. "\n" end
-    if spell.outcome3 then txt = txt .. "|cFF00FFFF[Крит. Успех]:|r " .. spell.outcome3 .. "\n" end
-    if spell.outcome4 then txt = txt .. "|cFFAA44FF[Крит. Провал]:|r ".. spell.outcome4 .. "\n" end
+    local function cleanOutcome(s)
+        s = s:gsub("{target_nom}", "цель")
+        s = s:gsub("{target_gen}", "цели")
+        s = s:gsub("{target_dat}", "цели")
+        s = s:gsub("{target_acc}", "цель")
+        s = s:gsub("{target_ins}", "целью")
+        s = s:gsub("{target_pre}", "цели")
+        s = s:gsub("{target}",     "цель")
+        return s
+    end
+    if spell.outcome1 then txt = txt .. "|cFF00FF00[Успех]:|r "       .. cleanOutcome(spell.outcome1) .. "\n" end
+    if spell.outcome2 then txt = txt .. "|cFFFF4444[Провал]:|r "      .. cleanOutcome(spell.outcome2) .. "\n" end
+    if spell.outcome3 then txt = txt .. "|cFF00FFFF[Крит. Успех]:|r " .. cleanOutcome(spell.outcome3) .. "\n" end
+    if spell.outcome4 then txt = txt .. "|cFFAA44FF[Крит. Провал]:|r ".. cleanOutcome(spell.outcome4) .. "\n" end
     f.desc:SetText(txt)
 
     f.prepareBtn:SetScript("OnClick", function()
