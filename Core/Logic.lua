@@ -7,6 +7,68 @@
 local addonName, SB = ...
 SB.Logic = SB.Logic or {}
 
+-- Цель, зафиксированная в момент нажатия «Каст».
+-- Хранится до момента формирования эмоута (включая форсированный).
+local pendingTargetName   = ""
+local pendingTargetGender = 1
+
+-- ============================================================
+-- Склонение имени цели (ruRU)
+-- Возвращает таблицу всех шести падежей.
+-- На enUS или если для имени нет данных — все падежи = оригинал.
+-- ============================================================
+local function DeclineUnitName(name, gender)
+    local f = { gen=name, dat=name, acc=name, ins=name, pre=name, nom=name }
+    if DeclineName and GetNumDeclensionSets then
+        local sets = GetNumDeclensionSets(name, gender)
+        if sets and sets > 0 then
+            local gen,dat,acc,ins,pre,nom = DeclineName(name, gender, 1)
+            f.gen = gen or name
+            f.dat = dat or name
+            f.acc = acc or name
+            f.ins = ins or name
+            f.pre = pre or name
+            f.nom = nom or name
+        end
+    end
+    return f
+end
+ 
+-- ============================================================
+-- Подстановка плейсхолдеров цели в текст отписи. (Работает странно)
+--
+--   {target} / {target_nom} — именительный  (кто?)   «Горный Тролль»
+--   {target_gen}            — родительный   (кого?)  «Горного Тролля»
+--   {target_dat}            — дательный     (кому?)  «Горному Троллю»
+--   {target_acc}            — винительный   (кого?)  «Горного Тролля»
+--   {target_ins}            — творительный  (кем?)   «Горным Троллем»
+--   {target_pre}            — предложный    (о ком?) «Горном Тролле»
+--
+-- Если цели нет — все плейсхолдеры заменяются на «цель».
+-- ============================================================
+local function ApplyTemplates(text)
+    if not text then return "" end
+    if pendingTargetName == "" then
+        text = text:gsub("{target_nom}", "цель")
+        text = text:gsub("{target_gen}", "цели")
+        text = text:gsub("{target_dat}", "цели")
+        text = text:gsub("{target_acc}", "цель")
+        text = text:gsub("{target_ins}", "целью")
+        text = text:gsub("{target_pre}", "цели")
+        text = text:gsub("{target}",     "цель")
+        return text
+    end
+    local f = DeclineUnitName(pendingTargetName, pendingTargetGender)
+    text = text:gsub("{target_nom}", f.nom)
+    text = text:gsub("{target_gen}", f.gen)
+    text = text:gsub("{target_dat}", f.dat)
+    text = text:gsub("{target_acc}", f.acc)
+    text = text:gsub("{target_ins}", f.ins)
+    text = text:gsub("{target_pre}", f.pre)
+    text = text:gsub("{target}",     f.nom)
+    return text
+end
+
 -- ============================================================
 -- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 -- ============================================================
@@ -74,6 +136,11 @@ end
 -- ============================================================
 function SB.Logic.ConfirmCast(spellID, slotLevel)
     local PM = SB.PlayerModel
+
+    -- Фиксируем цель до любых задержек (ГМ может рассмотреть заявку
+    -- спустя время, когда игрок уже сменил таргет)
+    pendingTargetName   = (UnitExists("target") and UnitName("target")) or ""
+    pendingTargetGender = (UnitExists("target") and UnitSex("target"))  or 1
 
     -- Проверка подготовки
     local spell = SB.Data.Spells[spellID]
@@ -202,8 +269,7 @@ function SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, totalScaling)
     SB.Events.Fire("BROADCAST_LOG", sysMsg)
 
     -- RP-эмоут
-    local nameGen = SB.PlayerModel.GetGenitiveName()
-    local rpMsg   = string.gsub(outcomeText or "применяет заклинание.", "{name_gen}", nameGen)
+    local rpMsg = ApplyTemplates(outcomeText or "применяет заклинание.")
     if not SpellbreakerAccountDB or SpellbreakerAccountDB.sendEmotes ~= false then
         SendChatMessage(rpMsg, "EMOTE")
     end
@@ -235,8 +301,7 @@ function SB.Logic.ExecuteForcedOutcome(spellID, outcomeIndex, slotLevel)
         " применяет " .. t .. " " .. link ..
         ". Форсировано ГМом: " .. resultStatus
 
-    local nameGen = SB.PlayerModel.GetGenitiveName()
-    local rpMsg   = string.gsub(outcomeText, "{name_gen}", nameGen)
+    local rpMsg = ApplyTemplates(outcomeText)
 
     	-- Уменьшает счетчик на 1 для все спеллов
     if SB.ActiveEffects then
