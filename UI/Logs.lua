@@ -63,6 +63,13 @@ function SB.Logs.BuildFrame()
             end
         end
     end)
+    logsEB:SetScript("OnHyperlinkEnter", function(self, link, text)
+        local data = link and link:match("^sbmod:(.+)$")
+        if data then SB.UI.ShowModTooltip(self, data) end
+    end)
+    logsEB:SetScript("OnHyperlinkLeave", function(self)
+        GameTooltip:Hide()
+    end)
     logsEB:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     logsEB:SetScript("OnTextChanged", function(self, userInput)
         if userInput then self:SetText(lastValidText) end
@@ -135,6 +142,13 @@ end
 -- ============================================================
 -- Add — добавить строку в лог
 -- ============================================================
+
+-- Небольшая история последних сообщений для подавления дублей —
+-- одно и то же сообщение может прийти дважды разными путями
+-- (например, у ПвП: локально сразу + позже отдельным LOG-пакетом).
+local recentMessages = {}   -- [cleanedText] = timeAdded
+local RECENT_WINDOW   = 4   -- секунд
+
 function SB.Logs.Add(message)
     if not logsEB then return end
 
@@ -144,6 +158,13 @@ function SB.Logs.Add(message)
     clean = string.gsub(clean, "%[Spellbreaker%]:%s*", "")
     clean = string.gsub(clean, "^%[Spellbreaker%]:%s*", "")
 
+    local now = GetTime()
+    local lastSeen = recentMessages[clean]
+    if lastSeen and (now - lastSeen) < RECENT_WINDOW then
+        return  -- дубликат — пропускаем
+    end
+    recentMessages[clean] = now
+
     local stamp = date("[%H:%M:%S] ")
     lastValidText = logsEB:GetText() .. stamp .. clean .. "\n"
     logsEB:SetText(lastValidText)
@@ -151,9 +172,16 @@ function SB.Logs.Add(message)
 end
 
 -- ============================================================
--- Перехватчик входящих сообщений чата (только Spellbreaker)
+-- Перехватчик входящих сообщений чата — ОТКЛЮЧЁН.
+-- Раньше он дублировал в лог сообщения, которые аддон и так
+-- доставляет через свой явный сетевой канал (BROADCAST_LOG/
+-- LOG_MESSAGE_RECEIVED). Проблема: реальное SAY-сообщение и
+-- версия для лога форматируются немного по-разному (цвета/ссылки),
+-- поэтому текстовый дедуп в SB.Logs.Add их не ловил, и в логе
+-- появлялись почти-дубли одного и того же события.
 -- ============================================================
 local logListener = CreateFrame("Frame")
+--[[
 for _, ev in ipairs({
     "CHAT_MSG_EMOTE", "CHAT_MSG_TEXT_EMOTE",
     "CHAT_MSG_SAY",
@@ -171,6 +199,7 @@ logListener:SetScript("OnEvent", function(self, event, msg, sender)
         end
     end
 end)
+]]--
 
 -- ============================================================
 -- Фильтр видимого чата (подавляем системные сообщения)
@@ -187,6 +216,27 @@ C_Timer.After(1, function()
                 end
                 return orig(frame, text, ...)
             end
+
+            -- Тултип по наводке на ссылку модификатора (sbmod:...).
+            -- Цепляемся к существующему обработчику, а не подменяем его,
+            -- чтобы не сломать наводку на обычные ссылки (предметы,
+            -- достижения и т.д.).
+            local origEnter = cf:GetScript("OnHyperlinkEnter")
+            cf:SetScript("OnHyperlinkEnter", function(self, link, text, ...)
+                local data = link and link:match("^sbmod:(.+)$")
+                if data then
+                    SB.UI.ShowModTooltip(self, data)
+                    return
+                end
+                if origEnter then origEnter(self, link, text, ...) end
+            end)
+
+            local origLeave = cf:GetScript("OnHyperlinkLeave")
+            cf:SetScript("OnHyperlinkLeave", function(self, ...)
+                GameTooltip:Hide()
+                if origLeave then origLeave(self, ...) end
+            end)
+
             cf.SBHooked = true
         end
     end

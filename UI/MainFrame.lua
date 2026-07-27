@@ -9,9 +9,10 @@ SB.UI = SB.UI or {}
 -- ── Локальные переменные ─────────────────────────────────────
 local sbFrame
 local scrollFrame, scrollChild
-local classBtn, masteryBtn, approachBtn
+local masteryLabel
 local restBtn, shortRestBtn, gmPanelBtn, libBtn, logsBtn, aeBtn
-local resourceText, prepText
+local prepText, modBadge
+local healthBar, manaBar
 local spellCards = {}
 local slotFrame
 local C  -- shortcut к палитре
@@ -365,66 +366,44 @@ local function BuildMainFrame()
     C = SB.Theme.C
 
     sbFrame = SB.Theme.Frame("SpellbreakerMainFrame", UIParent,
-        "Spellbreaker — Книга заклинаний", 380, 560)
+        "Aviana Spellbreaker v1.1(alpha)", 380, 602)
     SB.Theme.AttachPositionMemory(sbFrame, "sbFramePos", -300, 0)
     sbFrame:SetClampedToScreen(true)
 
-    -- ── Строка настроек ───────────────────────────────────────
-    classBtn = SB.Theme.Button(sbFrame, "Маг",         115, 24, "secondary")
-    classBtn:SetPoint("TOPLEFT", sbFrame, "TOPLEFT", 10, sbFrame.contentY)
+-- ── Портрет персонажа + полоски здоровья/маны (рвения) ────
+    local portFrame = CreateFrame("Frame", nil, sbFrame, "BackdropTemplate")
+    portFrame:SetSize(42, 42)
+    portFrame:SetPoint("TOPLEFT", sbFrame, "TOPLEFT", 12, sbFrame.contentY -2)
+    portFrame:SetBackdrop({
+        bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 12,
+        insets = { left = 3, right = 3, top = 3, bottom = 3 }
+    })
+    portFrame:SetBackdropColor(0.05, 0.05, 0.05, 0.9)
+    portFrame:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.8)
 
-    masteryBtn = SB.Theme.Button(sbFrame, "Неофит",    115, 24, "secondary")
-    masteryBtn:SetPoint("LEFT", classBtn, "RIGHT", 4, 0)
+    local portTex = portFrame:CreateTexture(nil, "ARTWORK")
+    portTex:SetAllPoints()
+    portTex:SetTexCoord(0.1, 0.9, 0.1, 0.9)
+    SetPortraitTexture(portTex, "player")
 
-    approachBtn = SB.Theme.Button(sbFrame, "Мистический", 115, 24, "secondary")
-    approachBtn:SetPoint("LEFT", masteryBtn, "RIGHT", 4, 0)
-
-    classBtn:SetScript("OnClick", function()
-        local PM = SB.PlayerModel
-        if PM.IsLocked() then return end
-        PM.SetClass(SB.Logic.GetNextInTable(SB.Data.Classes, PM.GetClass()))
-        SB.Events.Fire("STATUS_CHANGED")
+    local portEvFrame = CreateFrame("Frame")
+    portEvFrame:RegisterEvent("UNIT_PORTRAIT_UPDATE")
+    portEvFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    portEvFrame:SetScript("OnEvent", function(_, _, unit)
+        if not unit or unit == "player" then SetPortraitTexture(portTex, "player") end
     end)
 
-    masteryBtn:SetScript("OnClick", function()
-        local PM = SB.PlayerModel
-        if PM.IsLocked() then return end
-        local newMastery = SB.Logic.GetNextInTable(SB.Data.Masteries, PM.GetMastery())
-        local maxPrep    = SB.Data.Config.MaxPrepared[newMastery] or 5
-        local curPrep    = #PM.GetPreparedSpells()
-        if curPrep > maxPrep then
-            print(string.format(
-                "|cFFFF0000[Spellbreaker]: Нельзя сменить ранг! У вас %d подготовленных заклинаний, "
-                .. "а для ранга '%s' лимит %d. Разучите лишние.|r",
-                curPrep, newMastery, maxPrep))
-            return
-        end
-        PM.SetMastery(newMastery)
-        PM.RestoreSlots()
-        PM.RestoreZeal()
-        SB.Events.Fire("STATUS_CHANGED")
-    end)
+    healthBar = SB.Theme.Bar(sbFrame, 140, 15, "health")
+    healthBar:SetPoint("TOPLEFT", portFrame, "TOPRIGHT", 0, -6)
 
-    approachBtn:SetScript("OnClick", function()
-        local PM = SB.PlayerModel
-        if PM.IsLocked() then return end
-        PM.SetApproach(SB.Logic.GetNextInTable(SB.Data.Approaches, PM.GetApproach()))
-        SB.Events.Fire("STATUS_CHANGED")
-    end)
+    manaBar = SB.Theme.Bar(sbFrame, 140, 15, "mana")
+    manaBar:SetPoint("TOPLEFT", healthBar, "BOTTOMLEFT", 0, 0)
 
-    -- ── Строка ресурсов ───────────────────────────────────────
-    resourceText = sbFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    resourceText:SetPoint("TOPLEFT", classBtn, "BOTTOMLEFT", 0, -4)
-    resourceText:SetText("Ячейки: —")
-    resourceText:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
-
-    prepText = sbFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    prepText:SetPoint("LEFT", resourceText, "RIGHT", 12, 0)
-    prepText:SetText("Подготовлено: 0/5")
-
-    -- ── Библиотека ────────────────────────────────────────────
-    libBtn = SB.Theme.Button(sbFrame, "Библиотека", 115, 24, "secondary")
-    libBtn:SetPoint("TOPLEFT", approachBtn, "BOTTOMLEFT", 0, 0)
+    -- ── Библиотека — верхний правый угол ───────────────────────
+    libBtn = SB.Theme.Button(sbFrame, "Библиотека", 100, 24, "secondary")
+    libBtn:SetPoint("TOPRIGHT", sbFrame, "TOPRIGHT", -10, sbFrame.contentY)
     libBtn:SetScript("OnClick", function()
         if SpellbreakerLibraryFrame then
             if SpellbreakerLibraryFrame:IsShown() then SpellbreakerLibraryFrame:Hide()
@@ -432,8 +411,75 @@ local function BuildMainFrame()
         end
     end)
 
+    -- ── Строка настроек ───────────────────────────────────────
+    -- Кнопка выбора класса убрана — класс теперь механический
+    -- (определяется автоматически через PM.GetClass()).
+    -- Кнопка подхода (Мистический/Сакральный) убрана — система
+    -- ячеек упразднена, остаётся только рвение.
+    local masteryBg = CreateFrame("Frame", nil, sbFrame, "BackdropTemplate")
+    masteryBg:SetSize(100, 24)
+    masteryBg:SetPoint("TOPRIGHT", libBtn, "BOTTOMRIGHT", 0, -6)
+    masteryBg:SetBackdrop(SB.Theme.BD.card)
+    masteryBg:SetBackdropColor(0.07, 0.09, 0.13, 0.90)
+    masteryBg:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.85)
+
+    masteryLabel = masteryBg:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    masteryLabel:SetPoint("CENTER")
+    masteryLabel:SetText("Неофит")
+    masteryLabel:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+	
+	    -- ── Бейдж модификатора броска (наводка — разбивка по источникам) ──
+    modBadge = CreateFrame("Button", nil, sbFrame, "BackdropTemplate")
+    modBadge:SetSize(60, 24)
+    modBadge:SetPoint("RIGHT", libBtn, "LEFT", -6, 0)
+    modBadge:SetBackdrop(SB.Theme.BD.card)
+    modBadge:SetBackdropColor(0.07, 0.09, 0.13, 0.90)
+    modBadge:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.85)
+
+    modBadge.text = modBadge:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    modBadge.text:SetPoint("CENTER")
+    modBadge.text:SetText("+0")
+    modBadge.text:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+
+    modBadge:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText("Модификатор броска", 1, 1, 1)
+        local total, parts = SB.Logic.GetModifierBreakdown()
+        if #parts == 0 then
+            GameTooltip:AddLine("Нет активных источников.", 0.7, 0.7, 0.7)
+        else
+            for _, p in ipairs(parts) do
+                local sign = (p.value >= 0) and "+" or ""
+                GameTooltip:AddDoubleLine(p.label, sign .. p.value, 0.9, 0.9, 0.9, 1, 1, 1)
+            end
+        end
+        GameTooltip:AddLine(" ")
+        local totalSign = (total >= 0) and "+" or ""
+        GameTooltip:AddDoubleLine("Итого", totalSign .. total, 1, 0.82, 0, 1, 0.82, 0)
+        GameTooltip:Show()
+    end)
+    modBadge:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    prepText = sbFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    prepText:SetPoint("TOP", sbFrame, "TOP", 0, sbFrame.contentY - 60)
+    prepText:SetJustifyH("CENTER")
+    prepText:SetText("Подготовлено: 0/5")
+    prepText:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+	
+	-- ── Очистить подготовленные заклинания ────────────────────
+    local clearPrepBtn = SB.Theme.Button(sbFrame, "Очистить", 90, 24, "danger")
+    clearPrepBtn:SetPoint("RIGHT", prepText, "LEFT", -10, 0)
+    clearPrepBtn:SetScript("OnClick", function()
+        local PM = SB.PlayerModel
+        if PM.IsLocked() then
+            print("|cFFFF0000[Spellbreaker]: Нельзя менять подготовку после применения заклинания. Отдохни.|r")
+            return
+        end
+        PM.ClearPreparedSpells()
+    end)
+
     -- ── Скролл для карточек ───────────────────────────────────
-    scrollFrame, scrollChild = SB.Theme.Scroll(sbFrame, 10, -80, -10, 50)
+    scrollFrame, scrollChild = SB.Theme.Scroll(sbFrame, 10, -112, -10, 50)
 
     -- ── Нижние кнопки ─────────────────────────────────────────
     restBtn = SB.Theme.Button(sbFrame, "Долгий Отдых",    110, 24, "secondary")
@@ -494,7 +540,8 @@ local function BuildMainFrame()
     SB.Theme.AttachPositionMemory(slotFrame, "slotFramePos", 0, 0)
 
     -- ── Хук на клик по ссылке заклинания ─────────────────────
-    hooksecurefunc("SetItemRef", function(link)
+    local origSetItemRef = SetItemRef
+    SetItemRef = function(link, text, button, chatFrame)
         if link then
             local spellID = link:match("^spellbreaker:(.+)$")
             if spellID then
@@ -502,9 +549,17 @@ local function BuildMainFrame()
                 if spell and SB.Library and SB.Library.ShowDetail then
                     SB.Library.ShowDetail(spell)
                 end
+                return
+            end
+            if link:match("^sbmod:") then
+                -- Ссылка на модификатор — по клику ничего не делаем
+                -- (разбивка уже видна по наводке), просто гасим клик,
+                -- чтобы Blizzard не пыталась сама её разобрать.
+                return
             end
         end
-    end)
+        return origSetItemRef(link, text, button, chatFrame)
+    end
 
     -- ── Призрак перетаскивания ────────────────────────────────
     SB.UI.DragGhost = (function()
@@ -538,29 +593,28 @@ function SB.UI.UpdateAll()
 
     local PM = SB.PlayerModel
 
-    classBtn:SetText(PM.GetClass())
-    masteryBtn:SetText(PM.GetMastery())
-    approachBtn:SetText(PM.GetApproach())
+    if masteryLabel then masteryLabel:SetText(PM.GetMastery()) end
 
-    if PM.IsLocked() then
-        classBtn:Disable(); masteryBtn:Disable(); approachBtn:Disable()
-    else
-        classBtn:Enable();  masteryBtn:Enable();  approachBtn:Enable()
+    if modBadge then
+        local total = SB.Logic.GetModifierBreakdown()
+        modBadge.text:SetText((total >= 0 and "+" or "") .. total)
     end
 
     local canRest = not IsInGroup() or UnitIsGroupLeader("player")
     if canRest then restBtn:Enable(); shortRestBtn:Enable()
     else             restBtn:Disable(); shortRestBtn:Disable() end
 
-    -- Ресурсы
-    local approach = PM.GetApproach()
-    if approach == "Мистический" then
-        local s = PM.GetSlots()
-        resourceText:SetText(string.format("|cFF00FFFFЯчейки: %d/%d/%d|r", s[1], s[2], s[3]))
-    else
-        local zeal = PM.GetZeal()
-        local maxZ = PM.GetMaxZeal()
-        resourceText:SetText(string.format("|cFFFF6666Рвение: %d/%d|r", zeal, maxZ))
+    -- Ресурсы (только рвение)
+    local zeal = PM.GetZeal()
+    local maxZ = PM.GetMaxZeal()
+    --resourceText:SetText(string.format("|cFFFF6666Рвение: %d/%d|r", zeal, maxZ))
+
+    -- Полоски здоровья / маны (рвения)
+    if healthBar then healthBar:SetValue(PM.GetHealth(), PM.GetMaxHealth()) end
+    if manaBar then
+        manaBar:SetValue(PM.GetZeal(), PM.GetMaxZeal())
+        local r, g, b = SB.Logic.GetResourceBarColor(PM.GetClass())
+        manaBar:SetColor(r, g, b)
     end
 
     -- Счётчик подготовки
@@ -624,7 +678,7 @@ function SB.UI.UpdateSpellCards()
           
                 card.concLabel:SetJustifyH("RIGHT")
 
-                card.castBtn = SB.Theme.Button(card, "Каст",    82, 24, "primary")
+                card.castBtn = SB.Theme.Button(card, "Применить",    82, 24, "primary")
                 card.castBtn:SetPoint("TOPRIGHT", card, "TOPRIGHT", -4, -6)
 
                 card.unlearnBtn = SB.Theme.Button(card, "Разучить", 82, 24, "danger")
@@ -749,6 +803,12 @@ function SB.UI.PrepareSpell(spell)
     if result == "locked" then
         print("|cFFFF0000[Spellbreaker]: Нельзя менять подготовку после применения заклинания. Отдохни.|r")
         return
+    elseif result == "order_too_high" then
+        local maxOrder = SB.Data.Config.MaxOrder[SB.PlayerModel.GetMastery()] or 3
+        print(string.format(
+            "|cFFFF0000[Spellbreaker]: Ваш ранг (%s) не может подготавливать заклинания выше %d-го порядка!|r",
+            SB.PlayerModel.GetMastery(), maxOrder))
+        return
     elseif result == "full" then
         local maxPrep = SB.Data.Config.MaxPrepared[SB.PlayerModel.GetMastery()] or 5
         print(string.format("|cFFFF0000[Spellbreaker]: Лимит подготовки (%d) достигнут!|r", maxPrep))
@@ -787,14 +847,14 @@ end
 function SB.UI.ShowSlotPicker(spellID)
     local spell = GetSpellData(spellID)
     if not spell then return end
-
+ 
     if slotFrame._slotBtns then
         for _, b in ipairs(slotFrame._slotBtns) do b:Hide() end
     end
     slotFrame._slotBtns = {}
-
+ 
     local PM       = SB.PlayerModel
-    local approach = PM.GetApproach()
+    local maxOrder = SB.Data.Config.MaxOrder[PM.GetMastery()] or 3
     local yBase    = slotFrame.contentY - 4
     local btnH, gap = 30, 4
     local idx = 0
@@ -821,24 +881,14 @@ function SB.UI.ShowSlotPicker(spellID)
         makeSlotBtn("Заговор", 0, true)
     end
 
-    if approach == "Мистический" then
-        local slots  = PM.GetSlots()
-        local labels = {"I Порядок", "II Порядок", "III Порядок"}
-        for lvl = 1, 3 do
-            local have   = slots[lvl] or 0
-            local ok     = (have > 0) and (lvl >= (spell.level or 0))
-            local upcast = (lvl > (spell.level or 0)) and " (+Эффект)" or ""
-            makeSlotBtn(labels[lvl] .. upcast .. "  [" .. have .. " ост.]", lvl, ok)
-        end
-    else
-        local zeal    = PM.GetZeal()
-        for lvl = 1, 3 do
-            local ok     = (zeal >= lvl) and (lvl >= (spell.level or 0))
-            local upcast = (lvl > (spell.level or 0)) and " (+Эффект)" or ""
-            makeSlotBtn("Рвение × " .. lvl .. upcast, lvl, ok)
-        end
+    local zeal = PM.GetZeal()
+    for lvl = 1, 3 do
+        local ok     = (zeal >= lvl) and (lvl >= (spell.level or 0)) and (lvl <= maxOrder)
+        local upcast = (lvl > (spell.level or 0)) and " (+Эффект)" or ""
+        local capTag = (lvl > maxOrder) and " (недоступно рангу)" or ""
+        makeSlotBtn("Мана × " .. lvl .. upcast .. capTag, lvl, ok)
     end
-
+ 
     slotFrame:SetHeight(slotFrame.contentY * -1 + idx * (btnH + gap) + 20)
     slotFrame:Show()
 end
@@ -863,6 +913,58 @@ function SB.UI.MakeSpellLink(spell)
     return "|cFF9933FF|Hspellbreaker:" .. spell.id .. "|h[" .. spell.name .. "]|h|r"
 end
 
+--- Строит кликабельную/наводимую ссылку на модификатор броска.
+--- Разбивка по источникам "зашита" прямо в ссылку — так у другого
+--- игрока при наводке видна ЕГО разбивка (мастерство/уровень/...),
+--- а не пересчитанная локально (у нас нет доступа к чужим данным).
+function SB.UI.MakeModLink(total, parts)
+    local segs = {}
+    for _, p in ipairs(parts or {}) do
+        table.insert(segs, (p.key or "?") .. "=" .. p.value)
+    end
+    local data = tostring(total)
+    if #segs > 0 then
+        data = data .. "~" .. table.concat(segs, "~")
+    end
+    local sign = (total >= 0) and "+" or ""
+    return "|cFF66CCFF|Hsbmod:" .. data .. "|h[" .. sign .. total .. "]|h|r"
+end
+
+--- Разбирает данные из sbmod-ссылки обратно в (total, parts).
+function SB.UI.ParseModLink(data)
+    local segs = { strsplit("~", data) }
+    local total = tonumber(segs[1]) or 0
+    local parts = {}
+    for i = 2, #segs do
+        local key, value = strsplit("=", segs[i])
+        if key and value then
+            table.insert(parts, { key = key, value = tonumber(value) or 0 })
+        end
+    end
+    return total, parts
+end
+
+--- Показывает GameTooltip с разбивкой для sbmod-ссылки — общий код
+--- для наводки и в реальном чате, и в окне логов.
+function SB.UI.ShowModTooltip(owner, data)
+    local total, parts = SB.UI.ParseModLink(data)
+    GameTooltip:SetOwner(owner, "ANCHOR_CURSOR")
+    GameTooltip:SetText("Модификатор броска", 1, 1, 1)
+    if #parts == 0 then
+        GameTooltip:AddLine("Нет данных о разбивке.", 0.7, 0.7, 0.7)
+    else
+        for _, p in ipairs(parts) do
+            local src   = SB.Logic.ModifierSources[p.key]
+            local label = (src and src.label) or p.key
+            local sign  = (p.value >= 0) and "+" or ""
+            GameTooltip:AddDoubleLine(label, sign .. p.value, 0.9, 0.9, 0.9, 1, 1, 1)
+        end
+    end
+    GameTooltip:AddLine(" ")
+    local totalSign = (total >= 0) and "+" or ""
+    GameTooltip:AddDoubleLine("Итого", totalSign .. total, 1, 0.82, 0, 1, 0.82, 0)
+    GameTooltip:Show()
+end
 -- ============================================================
 -- ПОСТРОЕНИЕ (вызывается из Init через SB_INIT)
 -- ============================================================
@@ -884,9 +986,14 @@ SB.Events.On("SB_INIT", function()
     SB.Events.On("PLAYER_MODEL_CHANGED",  function() SB.UI.UpdateAll() end)
     SB.Events.On("PREPARED_SPELLS_CHANGED", function() SB.UI.UpdateAll() end)
 
-    -- Лог-сообщения из сети
+    -- Лог-сообщения из сети — идут и в окно логов, и локальным
+    -- системным сообщением в чат (никуда не отправляются по сети,
+    -- только печатаются в твоём собственном чате).
     SB.Events.On("LOG_MESSAGE_RECEIVED", function(msg)
         if SB.Logs and SB.Logs.Add then SB.Logs.Add(msg) end
+        if msg and DEFAULT_CHAT_FRAME then
+            DEFAULT_CHAT_FRAME:AddMessage(msg)
+        end
     end)
 
     -- GM-запрос из сети

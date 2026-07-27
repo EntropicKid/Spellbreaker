@@ -343,35 +343,36 @@ function SB.UI.UpdateGMPlayers()
     end
 
     local myName = UnitName("player")
-    local myClass, myMastery, myApproach = "?", "?", "?"
-    local myZeal, myMaxZeal, mySlots = 0, 1, {0,0,0}
+    local myClass, myMastery = "?", "?"
+    local myZeal, myMaxZeal = 0, 1
+    local myHealth, myMaxHealth = 20, 20
 
     if SB.PlayerModel then
         local PM = SB.PlayerModel
-        if PM.GetClass    then myClass    = PM.GetClass()    or "?" end
-        if PM.GetMastery  then myMastery  = PM.GetMastery()  or "?" end
-        if PM.GetApproach then myApproach = PM.GetApproach() or "?" end
-        if PM.GetZeal     then myZeal     = PM.GetZeal()     or 0 end
-        if PM.GetMaxZeal  then myMaxZeal  = PM.GetMaxZeal()  or 1 end
-        if PM.GetSlots    then mySlots    = PM.GetSlots()    or {0,0,0} end
+        if PM.GetClass     then myClass     = PM.GetClass()     or "?" end
+        if PM.GetMastery   then myMastery   = PM.GetMastery()   or "?" end
+        if PM.GetZeal      then myZeal      = PM.GetZeal()      or 0 end
+        if PM.GetMaxZeal   then myMaxZeal   = PM.GetMaxZeal()   or 1 end
+        if PM.GetHealth    then myHealth    = PM.GetHealth()    or 20 end
+        if PM.GetMaxHealth then myMaxHealth = PM.GetMaxHealth() or 20 end
     elseif SpellbreakerCharDB then
         local db = SpellbreakerCharDB
-        myClass    = db.class    or "?"
-        myMastery  = db.mastery  or "?"
-        myApproach = db.approach or "?"
-        myZeal     = db.zeal     or 0
-        myMaxZeal  = SB.Data.Config.MaxZeal[db.mastery] or 1
-        mySlots    = db.slots    or {0,0,0}
+        myClass     = db.class    or "?"
+        myMastery   = db.mastery  or "?"
+        myZeal      = db.zeal     or 0
+        myMaxZeal   = SB.Data.Config.MaxZeal[db.mastery] or 1
+        myHealth    = db.health    or 20
+        myMaxHealth = db.maxHealth or 20
     end
 
     table.insert(allPlayers, {
         name           = myName,
         class          = myClass,
         mastery        = myMastery,
-        approach       = myApproach,
         zeal           = myZeal,
         maxZeal        = myMaxZeal,
-        slots          = mySlots,
+        health         = myHealth,
+        maxHealth      = myMaxHealth,
         preparedSpells = myPrepared,
         activeEffects  = myEffects,
 })
@@ -380,10 +381,10 @@ function SB.UI.UpdateGMPlayers()
             name           = name,
             class          = data.class,
             mastery        = data.mastery,
-            approach       = data.approach,
             zeal           = data.zeal,
             maxZeal        = data.maxZeal,
-            slots          = data.slots,
+            health         = data.health    or 20,
+            maxHealth      = data.maxHealth or 20,
             preparedSpells = data.preparedSpells or {},
             activeEffects  = data.activeEffects  or {},
         })
@@ -445,6 +446,13 @@ function SB.UI.UpdateGMPlayers()
             row.resLabel:SetPoint("TOPRIGHT", row, "TOPRIGHT", -5, -8)
             row.resLabel:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
 
+            row.hpBar = SB.Theme.Bar(row, 90, 14, "health")
+            row.hpBar:SetPoint("TOPRIGHT", row, "TOPRIGHT", -5, -5)
+
+            row.zealBar = SB.Theme.Bar(row, 90, 14, "mana")
+            row.zealBar:SetPoint("TOPRIGHT", row, "TOPRIGHT", -5, -18)
+            row.zealBar:Hide()
+
             -- ВНИМАНИЕ: пул row.spellIcons больше не создаём —
             row.effectIcons = {}
 
@@ -456,14 +464,15 @@ function SB.UI.UpdateGMPlayers()
 		
 		row.infoLabel:SetText((p.class or "?") .. " • " .. (p.mastery or "?"))
 
-        local sl = p.slots or {0,0,0}
-        if p.approach == "Сакральный" then
-            row.resLabel:SetText("|cFFFFD100Рвение: " ..
-                (p.zeal or 0) .. "/" .. (p.maxZeal or 1) .. "")
-        else
-            row.resLabel:SetText("|cFF00FFFFЯчейки: " ..
-                (sl[1] or 0) .. " • " .. (sl[2] or 0) .. " • " .. (sl[3] or 0) .. "")
+        row.resLabel:Hide()
+        row.zealBar:Show()
+        row.zealBar:SetValue(p.zeal or 0, p.maxZeal or 1)
+        do
+            local r, g, b = SB.Logic.GetResourceBarColor(p.class)
+            row.zealBar:SetColor(r, g, b)
         end
+
+        row.hpBar:SetValue(p.health or 20, p.maxHealth or 20)
 
         -- Портрет (без изменений)
         if not next(nameToUnit) then RebuildNameToUnit() end
