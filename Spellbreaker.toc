@@ -1,7 +1,7 @@
 ## Interface: 90207
-## Title: Spellbreaker
+## Title: |cff865BF2Spellbreaker|r
 ## Notes: Модульная RP-система заклинаний
-## Version: 1.0
+## Version: 1.0.9
 ## SavedVariables: SpellbreakerDB SpellbreakerCustomDB
 
 Libs\LibStub\LibStub.lua
@@ -16,7 +16,9 @@ Libs\LibRPMedia\LibRPMedia-1.0.xml
 Libs\UTF8\lib.xml
 Libs\AceComm-3.0\AceComm-3.0.xml
 Libs\AceSerializer-3.0\AceSerializer-3.0.xml
-
+Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+Libs\LibRangeCheck-2.0\LibRangeCheck-2.0.lua
 
 Core\Init.lua
 Core\Events.lua
@@ -48,4 +50,5 @@ UI\MainFrame.lua
 UI\GMPanel.lua
 UI\Library.lua
 UI\Logs.lua
+UI\Options.lua
 MinimapButton.lua
