@@ -160,6 +160,11 @@ local function InjectSpell(sp)
     end
 end
 
+-- Forward declaration: IsBroadcastRelevant используется в SaveForm (стр. ~1068)
+-- и SaveContainer (стр. ~902), но определена ниже, в секции § 10.
+-- Без forward declaration Lua искал бы глобальную и падал с nil.
+local IsBroadcastRelevant
+
 -- ============================================================
 -- § 5. ПИКЕР ИКОНОК (через LibRPMedia)
 -- ============================================================
@@ -1156,7 +1161,9 @@ end
 
 -- Возвращает true, если spellID (или любой спелл со ссылкой на
 -- контейнер containerID) находится в списке подготовленных.
-local function IsBroadcastRelevant(spellID, containerID)
+-- ВНИМАНИЕ: должна быть forward-declared выше (после InjectSpell),
+-- иначе вызовы из SaveForm/SaveContainer упадут в nil.
+function IsBroadcastRelevant(spellID, containerID)
     if not (SB.PlayerModel and SB.PlayerModel.IsPrepared) then return false end
     if spellID and SB.PlayerModel.IsPrepared(spellID) then return true end
     if containerID then

@@ -13,25 +13,25 @@ local addonName, SB = ...
 SB.Theme = SB.Theme or {}
 
 local C = {
-    frameBg        = { 0.05, 0.05, 0.09, 0.97 },
-    frameBorder    = { 0.35, 0.28, 0.07, 1.00 },
-    titleBg        = { 0.10, 0.08, 0.02, 1.00 },
-    titleText      = { 1.00, 0.82, 0.00, 1.00 },
-    divider        = { 0.45, 0.36, 0.06, 0.90 },
-    cardBg         = { 0.07, 0.06, 0.12, 0.90 },
-    cardBorder     = { 0.40, 0.32, 0.08, 0.85 },
-    cardHoverBg    = { 0.14, 0.11, 0.22, 0.95 },
-    cardHoverBorder= { 0.72, 0.58, 0.12, 1.00 },
-    pBg=  {0.14,0.11,0.03,1}, pBorder={0.55,0.44,0.09,1}, pText={1,0.82,0,1},
-    pHBg= {0.22,0.18,0.04,1}, pHBd=   {0.82,0.66,0.13,1}, pPress={0.06,0.05,0.01,1},
-    sBg=  {0.12,0.10,0.08,1}, sBorder={0.30,0.27,0.18,.8}, sText={0.92,0.88,0.80,1},
-    sHBg= {0.20,0.17,0.12,1}, sHBd=   {0.50,0.45,0.28,1}, sPress={0.06,0.05,0.04,1},
-    dBg=  {0.25,0.05,0.04,1}, dBorder={0.55,0.10,0.08,1}, dText={1,0.60,0.55,1},
-    dHBg= {0.40,0.08,0.06,1}, dHBd=   {0.80,0.16,0.12,1}, dPress={0.14,0.02,0.02,1},
-    disBg={0.08,0.07,0.06,.7},disBd=  {0.22,0.20,0.14,.5}, disText={0.40,0.38,0.33,1},
-    textMain={0.92,0.88,0.80,1}, textDim={0.60,0.57,0.50,1},
-    textGold={1,0.82,0,1},       textDanger={1,0.40,0.30,1},
-    inputBg={0.03,0.03,0.06,.97},inputBd={0.30,0.24,0.08,.80},
+    frameBg        = { 0.05, 0.06, 0.09, 0.97 },
+    frameBorder    = { 0.16, 0.32, 0.42, 1.00 },
+    titleBg        = { 0.04, 0.09, 0.13, 1.00 },
+    titleText      = { 0.55, 0.85, 1.00, 1.00 },
+    divider        = { 0.22, 0.42, 0.52, 0.90 },
+    cardBg         = { 0.07, 0.09, 0.13, 0.90 },
+    cardBorder     = { 0.20, 0.38, 0.48, 0.85 },
+    cardHoverBg    = { 0.11, 0.17, 0.24, 0.95 },
+    cardHoverBorder= { 0.30, 0.62, 0.78, 1.00 },
+    pBg=  {0.06,0.14,0.20,1}, pBorder={0.20,0.48,0.62,1}, pText={0.65,0.90,1,1},
+    pHBg= {0.09,0.20,0.28,1}, pHBd=   {0.32,0.68,0.86,1}, pPress={0.03,0.07,0.10,1},
+    sBg=  {0.09,0.11,0.13,1}, sBorder={0.24,0.30,0.35,.8}, sText={0.82,0.88,0.92,1},
+    sHBg= {0.14,0.17,0.20,1}, sHBd=   {0.38,0.48,0.55,1}, sPress={0.05,0.06,0.07,1},
+    dBg=  {0.22,0.07,0.06,1}, dBorder={0.52,0.14,0.11,1}, dText={1,0.62,0.55,1},
+    dHBg= {0.36,0.10,0.08,1}, dHBd=   {0.76,0.20,0.15,1}, dPress={0.12,0.03,0.02,1},
+    disBg={0.07,0.08,0.09,.7},disBd=  {0.20,0.24,0.27,.5}, disText={0.42,0.46,0.50,1},
+    textMain={0.85,0.90,0.94,1}, textDim={0.55,0.62,0.68,1},
+    textGold={0.55,0.85,1.00,1}, textDanger={1,0.40,0.30,1},
+    inputBg={0.03,0.04,0.06,.97},inputBd={0.18,0.30,0.38,.80},
 }
 SB.Theme.C = C
 C.surface       = C.cardBg
@@ -337,6 +337,67 @@ function SB.Theme.Card(parent, w, h)
     end)
 
     return card
+end
+
+-- ============================================================
+-- Bar — полоска здоровья/маны (рвения)
+-- kind: "health" (красная) | "mana" (синяя)
+-- Использование:
+--   local hpBar = SB.Theme.Bar(parent, 170, 14, "health")
+--   hpBar:SetValue(cur, max)
+-- ============================================================
+local BAR_COLORS = {
+    health = { bg = {0.20,0.04,0.04,1}, fill = {0.75,0.14,0.14,1}, border = {0.45,0.10,0.10,1} },
+    mana   = { bg = {0.04,0.08,0.20,1}, fill = {0.20,0.48,0.88,1}, border = {0.15,0.28,0.52,1} },
+}
+ 
+function SB.Theme.Bar(parent, w, h, kind)
+    local col = BAR_COLORS[kind] or BAR_COLORS.mana
+    w, h = w or 150, h or 14
+ 
+    local bar = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    bar:SetSize(w, h)
+    bar:SetBackdrop({
+        bgFile   = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+    })
+    bar:SetBackdropColor(col.bg[1], col.bg[2], col.bg[3], 1)
+    bar:SetBackdropBorderColor(0, 0, 0, 1)
+ 
+    local fill = bar:CreateTexture(nil, "ARTWORK")
+    fill:SetTexture("Interface\\TargetingFrame\\UI-StatusBar")
+    fill:SetVertexColor(col.fill[1], col.fill[2], col.fill[3], 1)
+    fill:SetPoint("TOPLEFT", bar, "TOPLEFT", 2, -2)
+    fill:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", 2, 2)
+    fill:SetWidth(1)
+    bar._fill  = fill
+    bar._maxW  = w - 4
+ 
+    local text = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    text:SetPoint("CENTER", bar, "CENTER", 0, 0)
+    text:SetTextColor(1, 1, 1, 1)
+    text:SetShadowColor(0, 0, 0, 1)
+    text:SetShadowOffset(2, -1)
+    bar._text = text
+ 
+    --- Обновляет заполнение и подпись "cur / max".
+    function bar:SetValue(cur, max)
+        cur = tonumber(cur) or 0
+        max = math.max(tonumber(max) or 1, 1)
+        local pct = math.max(0, math.min(1, cur / max))
+        self._fill:SetWidth(math.max(1, self._maxW * pct))
+        self._text:SetText(cur .. " / " .. max)
+    end
+
+    --- Перекрашивает заполнение полоски (например, в цвет класса
+    --- для некастеров). Фон/рамка не трогаются — они нейтральные.
+    function bar:SetColor(r, g, b)
+        self._fill:SetVertexColor(r, g, b, 1)
+    end
+
+    bar:SetValue(0, 1)
+    return bar
 end
 
 -- ============================================================

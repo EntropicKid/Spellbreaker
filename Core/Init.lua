@@ -24,14 +24,31 @@ SB.ActiveEffects = SB.ActiveEffects or {}
 -- AceDB defaults
 -- ============================================================
 local CHAR_DEFAULTS = {
-    class          = "Маг",
+    firstRunDone = false,
     mastery        = "Неофит",
-    approach       = "Мистический",
     preparedSpells = {},
     configLocked   = false,
     genitiveName   = "",
 	activeEffects  = {},
-    -- slots и zeal инициализируются динамически ниже
+    -- zeal инициализируются динамически ниже
+}
+
+-- Стартовый набор из 3 заклинаний по механическому классу
+-- (см. PM.GetClass — реальный WoW-класс). Выдаётся один раз,
+-- при самом первом запуске аддона на персонаже.
+local STARTER_SPELLS = {
+    ["Воин"]              = { "disarm", "battle_shout", "mortal_strike" },
+    ["Охотник"]           = { "serpent_sting", "raptor_strike", "overpower" },
+    ["Маг"]               = { "mage_shield", "ghost_sound", "fire_bolt" },
+    ["Разбойник"]         = { "stealth", "backstab", "sprint" },
+    ["Жрец"]              = { "inner_fire", "lesser_heal", "smite" },
+    ["Чернокнижник"]      = { "corruption", "demonic_swarm", "shadow_bolt" },
+    ["Паладин"]           = { "devotionaura", "devine_protection", "holy_light_paladin" },
+    ["Друид"]             = { "druid_wrath", "circle_of_fang", "circle_of_paw" },
+    ["Шаман"]             = { "create_water", "earth_sculpting", "riptide" },
+    ["Охотник на демонов"] = { "chaos_strike", "blade_dance", "eye_beam" },
+    ["Рыцарь смерти"]     = { "death_strike", "blood_boil", "blood_tap" },
+    ["Монах"]             = {},
 }
 
 local ACCOUNT_DEFAULTS = {
@@ -48,9 +65,11 @@ local ACCOUNT_DEFAULTS = {
     sbCreateFramePos   = { x = 0,    y = 0 },
 	iconPickerPos      = { x = 0,    y = 0 },
 	realtimeEffects    = false,
-    sendEmotes         = true,
+    sendEmotes         = false,
 	myCharacters       = {},
-	ignoreCaura        = false,
+	ignoreCaura        = true,
+	rollMin = 1,
+    rollMax = 20,
 }
 
 -- ============================================================
@@ -101,11 +120,6 @@ initFrame:SetScript("OnEvent", function(self, event, loadedAddon)
     local cfg = SB.Data.Config
     local mastery = SpellbreakerCharDB.mastery
 
-    if not SpellbreakerCharDB.slots then
-        local base = cfg.MysticSlots[mastery]
-        SpellbreakerCharDB.slots = { [1] = base[1], [2] = base[2], [3] = base[3] }
-    end
-
     if SpellbreakerCharDB.zeal == nil then
         SpellbreakerCharDB.zeal = cfg.MaxZeal[mastery] or 1
     end
@@ -120,9 +134,34 @@ initFrame:SetScript("OnEvent", function(self, event, loadedAddon)
     end
 
     -- --------------------------------------------------------
+    -- Первый запуск: стартовый набор заклинаний + открыть фрейм
+    -- --------------------------------------------------------
+    local isFirstRun = not SpellbreakerCharDB.firstRunDone
+    if isFirstRun then
+        local locClass = UnitClass("player")
+        local starters = STARTER_SPELLS[locClass] or {}
+        local prepared = SpellbreakerCharDB.preparedSpells or {}
+        for _, spellID in ipairs(starters) do
+            if SB.Data.Spells[spellID] then
+                local already = false
+                for _, existing in ipairs(prepared) do
+                    if existing == spellID then already = true break end
+                end
+                if not already then table.insert(prepared, spellID) end
+            end
+        end
+        SpellbreakerCharDB.preparedSpells = prepared
+        SpellbreakerCharDB.firstRunDone = true
+    end
+ 
+    -- --------------------------------------------------------
     -- Запуск всех подсистем через событийную шину
     -- --------------------------------------------------------
     SB.Events.Fire("SB_INIT")
+ 
+    if isFirstRun and SB.UI and SB.UI.ToggleMainFrame then
+        SB.UI.ToggleMainFrame()
+    end
 
     -- Slash-команда
     SLASH_SPELLBREAKER1 = "/sb"

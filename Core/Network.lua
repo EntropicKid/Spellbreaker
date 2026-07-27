@@ -9,22 +9,22 @@
 -- ============================================================
 local addonName, SB = ...
 SB.Net = SB.Net or {}
-
+ 
 C_ChatInfo.RegisterAddonMessagePrefix("SB_RP")
-
+ 
 -- ============================================================
 -- ВНУТРЕННИЕ ПОМОЩНИКИ
 -- ============================================================
-
+ 
 local function GroupChannel()
     return IsInRaid() and "RAID" or "PARTY"
 end
-
+ 
 local function SendToGroup(msg)
     if not IsInGroup() then return end
     C_ChatInfo.SendAddonMessage("SB_RP", msg, GroupChannel())
 end
-
+ 
 -- ============================================================
 -- ЕДИНАЯ ПРОВЕРКА ОТПРАВИТЕЛЯ
 -- Возвращает true, если sender — лидер группы (или мы в соло,
@@ -58,7 +58,7 @@ end
 -- ПАРСЕРЫ ВХОДЯЩИХ ПАКЕТОВ
 -- Каждый парсер отвечает ровно за один тип сообщения.
 -- ============================================================
-
+ 
 local function ParseREQ(caster, spellID, slotLevel)
     -- Я получаю REQ если: я лидер группы, ИЛИ я не в группе (тестирую соло).
     -- Я НЕ получаю REQ, если я обычный участник группы.
@@ -66,28 +66,28 @@ local function ParseREQ(caster, spellID, slotLevel)
         SB.Events.Fire("GM_REQUEST_RECEIVED", caster, spellID, slotLevel)
     end
 end
-
+ 
 local function ParseRES(sender, target, spellID, dc, slotLevel, scale)
     if not IsFromLeader(sender) then return end
     if target == UnitName("player") then
         SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, scale == "SCALE")
     end
 end
-
+ 
 local function ParseFORCE(sender, target, spellID, outcomeIndex, slotLevel)
     if not IsFromLeader(sender) then return end
     if target == UnitName("player") then
         SB.Logic.ExecuteForcedOutcome(spellID, tonumber(outcomeIndex), tonumber(slotLevel))
     end
 end
-
+ 
 local function ParseREJECT(sender, target, spellID)
     if not IsFromLeader(sender) then return end
     if target == UnitName("player") then
         SB.Events.Fire("CAST_REJECTED", spellID)
     end
 end
-
+ 
 local function ParseREST(sender, restType)
     if not IsFromLeader(sender) then return end
     if restType == "LONG" then
@@ -98,7 +98,7 @@ local function ParseREST(sender, restType)
         print("|cFFFFCC00[Spellbreaker]: Лидер группы объявил Короткий Отдых. Рвение восстановлено.|r")
     end
 end
-
+ 
 local function ParseGRANT(sender, target, grantType, v1, v2, v3)
     if not IsFromLeader(sender) then return end
     if target == UnitName("player") then
@@ -107,7 +107,33 @@ local function ParseGRANT(sender, target, grantType, v1, v2, v3)
         end
     end
 end
-
+ 
+-- ПвП и лечение — peer-to-peer, без проверки на лидера группы
+local function ParsePVPATK(a1, a2, a3, a4, a5, a6, a7, a8)
+    -- a1=attacker, a2=target, a3=spellID, a4=roll, a5=mod, a6=total, a7=critFlag, a8=attackMsgText
+    if a2 ~= UnitName("player") then return end
+    if SB.Logic and SB.Logic.HandlePvpAttackReceived then
+        SB.Logic.HandlePvpAttackReceived(a1, a3, tonumber(a4), tonumber(a5), tonumber(a6), a7 == "1", a8)
+    end
+end
+ 
+local function ParsePVPRES(a1, a2, a3, a4, a5, a6, a7, a8)
+    -- a1=attacker, a2=target, a3=defRoll, a4=defMod, a5=defTotal, a6=dmg, a7=newHealth, a8=maxHealth
+    if a1 ~= UnitName("player") then return end
+    if SB.Logic and SB.Logic.HandlePvpResultReceived then
+        SB.Logic.HandlePvpResultReceived(a2, tonumber(a3), tonumber(a4), tonumber(a5),
+            tonumber(a6), tonumber(a7), tonumber(a8))
+    end
+end
+ 
+local function ParseHEAL(a1, a2, a3, a4, a5)
+    -- a1=healer, a2=target, a3=spellID, a4=successFlag, a5=amount
+    if a2 ~= UnitName("player") then return end
+    if SB.Logic and SB.Logic.HandleHealReceived then
+        SB.Logic.HandleHealReceived(a1, a3, a4 == "1", tonumber(a5) or 0)
+    end
+end
+ 
 local function ParseADDEFF(sender, target, contID, duration, isConc)
     if not IsFromLeader(sender) then return end
     if target == UnitName("player") then
@@ -116,7 +142,7 @@ local function ParseADDEFF(sender, target, contID, duration, isConc)
         end
     end
 end
-
+ 
 local function ParseCUSTOM(action, payload, fullMsg, sender)
     if action == "ADD" then
         local raw = fullMsg:match("^CUSTOM%^ADD%^(.+)$")
@@ -136,39 +162,40 @@ local function ParseCUSTOM(action, payload, fullMsg, sender)
         end
     end
 end
-
-local function ParseSTATUS(msg, a1, a2, a3, a4, a5, a6, a7)
-    -- a1=name, a2=class, a3=mastery, a4=approach, a5=zealStr, a6=slotsStr, a7=spellsStr
-    local currZeal, maxZeal = strsplit("_", a5 or "0_1")
-    local s1, s2, s3        = strsplit("_", a6 or "0_0_0")
-
+ 
+local function ParseSTATUS(msg, a1, a2, a3, a4, a5, a6)
+    -- a1=name, a2=class, a3=mastery, a4=zealStr, a5=spellsStr,
+    -- a6=healthStr ("cur_max")
+    local currZeal, maxZeal = strsplit("_", a4 or "0_1")
+    local currHP, maxHP     = strsplit("_", a6 or "20_20")
+ 
     local spellsList = {}
-    if a7 and a7 ~= "" then
-        for spID in string.gmatch(a7, "[^,]+") do
+    if a5 and a5 ~= "" then
+        for spID in string.gmatch(a5, "[^,]+") do
             table.insert(spellsList, spID)
         end
     end
-
+ 
     local existing = SB.Data.PlayersStatus[a1] or {}
     SB.Data.PlayersStatus[a1] = {
         class          = a2,
         mastery        = a3,
-        approach       = a4,
         zeal           = tonumber(currZeal) or 0,
         maxZeal        = tonumber(maxZeal)  or SB.Data.Config.MaxZeal[a3] or 1,
-        slots          = { tonumber(s1) or 0, tonumber(s2) or 0, tonumber(s3) or 0 },
+        health         = tonumber(currHP) or 20,
+        maxHealth      = tonumber(maxHP)  or 20,
         preparedSpells = spellsList,
         activeEffects  = existing.activeEffects or {},
     }
     SB.Events.Fire("PLAYERS_STATUS_UPDATED")
 end
-
+ 
 local function ParseAEFFECT(payload)
     -- payload: "name|spID:uses:isConc|spID:uses:isConc|..."
     local parts = { strsplit("|", payload) }
     local senderName = parts[1]
     if not senderName or senderName == "" then return end
-
+ 
     local effectList = {}
     for i = 2, #parts do
         local p = parts[i]
@@ -183,21 +210,157 @@ local function ParseAEFFECT(payload)
             end
         end
     end
-
+ 
     SB.Data.PlayersStatus[senderName] = SB.Data.PlayersStatus[senderName] or {}
     SB.Data.PlayersStatus[senderName].activeEffects = effectList
     SB.Events.Fire("PLAYERS_STATUS_UPDATED")
 end
+ 
+-- ============================================================
+-- ЧАНКОВАНИЕ ДЛИННЫХ LOG-СООБЩЕНИЙ
+-- Аддон-сообщения по сети режутся сервером примерно на 255 байт;
+-- кириллица в UTF-8 — по 2 байта на символ, так что сообщение с
+-- гиперссылками (заклинание + модификатор) легко перелезает лимит
+-- и обрывается прямо посреди байта — отсюда и "кракозябры"/квадратик
+-- в чате. Чтобы НЕ терять тултипы (гиперссылки), длинные сообщения
+-- режем на несколько пакетов и собираем обратно на приёме.
+--
+-- ВАЖНО: этот блок должен идти ДО определения диспетчера
+-- (netFrame:SetScript("OnEvent", ...) ниже) — он ссылается на
+-- локальные функции/переменные отсюда, а в Lua замыкание видит
+-- только те локальные, что объявлены ВЫШЕ него по тексту файла.
+-- ============================================================
+ 
+local CHUNK_PAYLOAD_SIZE = 200  -- байт полезной нагрузки на пакет
+local nextMsgID          = 0
+local chunkBuffers        = {}  -- ["sender:msgID"] = { total, parts, startedAt }
+ 
+local function IsUtf8Continuation(byte)
+    return byte and byte >= 0x80 and byte < 0xC0
+end
+ 
+--- Режет строку на куски по maxBytes байт, никогда не разрывая
+--- многобайтовый UTF-8 символ пополам.
+local function SplitUtf8Safe(text, maxBytes)
+    local chunks = {}
+    local len = #text
+    local pos = 1
+    while pos <= len do
+        local endPos = math.min(pos + maxBytes - 1, len)
+        while endPos > pos and IsUtf8Continuation(text:byte(endPos + 1)) do
+            endPos = endPos - 1
+        end
+        table.insert(chunks, text:sub(pos, endPos))
+        pos = endPos + 1
+    end
+    return chunks
+end
+ 
+--- Общая санитизация текста лога (один и тот же код что для
+--- одиночного пакета LOG, что для собранного из чанков).
+local function SanitizeIncomingLog(text)
+    if not text then return text end
+    if #text > 2000 then text = text:sub(1, 2000) .. "…" end
+    text = text:gsub("|H([^|]+)|h", function(link)
+        if link:find("^spellbreaker:") or link:find("^sbmod:") then
+            return "|H" .. link .. "|h"
+        end
+        return "|Hdisabled:" .. link .. "|h"
+    end)
+    return text
+end
+ 
+--- Удаляет протухшие (незавершённые дольше 15 сек) буферы чанков —
+--- защита от утечки памяти, если часть пакетов потерялась.
+local function PurgeStaleChunkBuffers()
+    local now = GetTime()
+    for id, buf in pairs(chunkBuffers) do
+        if now - buf.startedAt > 15 then
+            chunkBuffers[id] = nil
+        end
+    end
+end
+
+--- Копит кусок чанкованного сообщения любого типа (kind — префикс
+--- ключа буфера, чтобы разные типы пакетов не путались друг с
+--- другом). Возвращает собранную строку целиком, когда пришли ВСЕ
+--- куски, иначе nil (ждём остальные).
+local function CollectChunk(kind, sender, msgID, index, total)
+    PurgeStaleChunkBuffers()
+    index, total = tonumber(index), tonumber(total)
+    if not index or not total then return nil end
+
+    local key = kind .. ":" .. sender .. ":" .. msgID
+    local buf = chunkBuffers[key]
+    if not buf then
+        buf = { total = total, parts = {}, startedAt = GetTime() }
+        chunkBuffers[key] = buf
+    end
+    return buf, key
+end
+ 
+--- Отправляет payload одним пакетом "<actionPrefix>^payload", если
+--- он короткий, иначе режет на несколько "<actionPrefix>CHUNK^..."
+--- и собирается обратно у получателя тем же общим механизмом.
+local function SendMaybeChunked(actionPrefix, payload)
+    if #payload <= CHUNK_PAYLOAD_SIZE then
+        SendToGroup(actionPrefix .. "^" .. payload)
+        return
+    end
+    nextMsgID = (nextMsgID + 1) % 100000
+    local msgID = tostring(nextMsgID)
+    local pieces = SplitUtf8Safe(payload, CHUNK_PAYLOAD_SIZE)
+    for i, piece in ipairs(pieces) do
+        SendToGroup(string.format("%sCHUNK^%s^%d^%d^%s", actionPrefix, msgID, i, #pieces, piece))
+    end
+end
+ 
+--- Обрабатывает входящий кусок чанкованного LOG-сообщения.
+local function ParseLOGCHUNK(sender, msgID, index, total, payload)
+    local buf, key = CollectChunk("LOG", sender, msgID, index, total)
+    if not buf then return end
+    buf.parts[index] = payload or ""
+
+    for i = 1, buf.total do
+        if buf.parts[i] == nil then return end
+    end
+
+    local full = table.concat(buf.parts, "", 1, buf.total)
+    chunkBuffers[key] = nil
+    SB.Events.Fire("LOG_MESSAGE_RECEIVED", SanitizeIncomingLog(full))
+end
+
+--- Обрабатывает входящий кусок чанкованного PVPATK-пакета (когда
+--- встроенный текст атаки не влез в один пакет).
+local function ParsePVPATKCHUNK(sender, msgID, index, total, payload)
+    local buf, key = CollectChunk("PVPATK", sender, msgID, index, total)
+    if not buf then return end
+    buf.parts[index] = payload or ""
+
+    for i = 1, buf.total do
+        if buf.parts[i] == nil then return end
+    end
+
+    local full = table.concat(buf.parts, "", 1, buf.total)
+    chunkBuffers[key] = nil
+
+    local a1, a2, a3, a4, a5, a6, a7, a8 = strsplit("^", full)
+    if a2 ~= UnitName("player") then return end
+    if SB.Logic and SB.Logic.HandlePvpAttackReceived then
+        SB.Logic.HandlePvpAttackReceived(a1, a3, tonumber(a4), tonumber(a5), tonumber(a6), a7 == "1", a8)
+    end
+end
+ 
 local netFrame = CreateFrame("Frame")
 netFrame:RegisterEvent("CHAT_MSG_ADDON")
 netFrame:SetScript("OnEvent", function(self, event, prefix, msg, channel, sender)
     if prefix ~= "SB_RP" then return end
-
+ 
     local shortSender = Ambiguate(sender, "none")
     if shortSender == UnitName("player") then return end
-
-    local action, a1, a2, a3, a4, a5, a6, a7 = strsplit("^", msg)
-
+ 
+    local action, a1, a2, a3, a4, a5, a6, a7, a8 = strsplit("^", msg)
+ 
     if     action == "REQ"        then ParseREQ(a1, a2, a3)
     elseif action == "RES"        then ParseRES(shortSender, a1, a2, a3, a4, a5)
     elseif action == "FORCE"      then ParseFORCE(shortSender, a1, a2, a3, a4)
@@ -209,22 +372,18 @@ netFrame:SetScript("OnEvent", function(self, event, prefix, msg, channel, sender
         -- Санитизация: обрезаем длину и экранируем цветовые маркеры
         -- от чужих аддонов. Свои сообщения мы формируем сами — для них
         -- экранирование не страшно (хотя бы обрезка длины).
-        local safe = a1
-        if safe then
-            if #safe > 512 then safe = safe:sub(1, 512) .. "…" end
-            -- Экранируем чужие |H...|h-гиперссылки, кроме наших spellbreaker:
-            safe = safe:gsub("|H([^|]+)|h", function(link)
-                if link:find("^spellbreaker:") then return "|H" .. link .. "|h" end
-                return "|Hdisabled:" .. link .. "|h"  -- неактивная ссылка
-            end)
-        end
-    SB.Events.Fire("LOG_MESSAGE_RECEIVED", safe)
+        SB.Events.Fire("LOG_MESSAGE_RECEIVED", SanitizeIncomingLog(a1))
+    elseif action == "LOGCHUNK"   then ParseLOGCHUNK(shortSender, a1, a2, a3, a4)
     elseif action == "REST"       then ParseREST(shortSender, a1)
     elseif action == "GRANT"      then ParseGRANT(shortSender, a1, a2, a3, a4, a5)
+    elseif action == "PVPATK"     then ParsePVPATK(a1, a2, a3, a4, a5, a6, a7, a8)
+    elseif action == "PVPATKCHUNK" then ParsePVPATKCHUNK(shortSender, a1, a2, a3, a4)
+    elseif action == "PVPRES"     then ParsePVPRES(a1, a2, a3, a4, a5, a6, a7, a8)
+    elseif action == "HEAL"       then ParseHEAL(a1, a2, a3, a4, a5)
     elseif action == "CUSTOM"     then ParseCUSTOM(a1, a2, msg, shortSender)
     elseif action == "AEFFECT"    then ParseAEFFECT(a1)
     elseif action == "ADDEFF"     then ParseADDEFF(shortSender, a1, a2, a3, a4)
-    elseif action == "STATUS"     then ParseSTATUS(msg, a1, a2, a3, a4, a5, a6, a7)
+    elseif action == "STATUS"     then ParseSTATUS(msg, a1, a2, a3, a4, a5, a6)
     elseif action == "RTDECR" then
         -- Получена команда уменьшить все эффекты на 1 (только от лидера)
         if IsFromLeader(shortSender) and SB.ActiveEffects then
@@ -245,11 +404,11 @@ netFrame:SetScript("OnEvent", function(self, event, prefix, msg, channel, sender
         end
     end
 end)
-
+ 
 -- ============================================================
 -- ИСХОДЯЩИЕ ФУНКЦИИ (публичный API)
 -- ============================================================
-
+ 
 --- Отправить запрос на разрешение каста ГМу.
 function SB.Net.SendCastRequest(spellID, slotLevel)
     if not IsInGroup() then
@@ -263,7 +422,7 @@ function SB.Net.SendCastRequest(spellID, slotLevel)
     SendToGroup("REQ^" .. UnitName("player") .. "^" .. spellID .. "^" .. slotLevel)
     print("|cFF9933FF[Spellbreaker]|r: Ожидание решения ведущего...")
 end
-
+ 
 --- Отправить решение ГМа игроку.
 function SB.Net.SendGMApproval(targetPlayer, spellID, dc, slotLevel, scaleDamage)
     if not IsInGroup() or targetPlayer == UnitName("player") then
@@ -273,43 +432,73 @@ function SB.Net.SendGMApproval(targetPlayer, spellID, dc, slotLevel, scaleDamage
     SendToGroup("RES^" .. targetPlayer .. "^" .. spellID .. "^" ..
                 dc .. "^" .. slotLevel .. "^" .. scaleDamage)
 end
-
+ 
 --- Рассылка сообщения в лог (себе и группе).
 function SB.Net.BroadcastLog(msg)
     SB.Events.Fire("LOG_MESSAGE_RECEIVED", msg)
-    SendToGroup("LOG^" .. msg)
+    SendMaybeChunked("LOG", msg)
 end
-
+ 
 --- Синоним BroadcastLog для совместимости.
 function SB.Net.BroadcastMessage(msg)
     SB.Net.BroadcastLog(msg)
 end
-
+ 
 --- Команда отдыха всей группе.
 function SB.Net.BroadcastRest(restType)
     SendToGroup("REST^" .. restType)
 end
-
+ 
+--- Атакующий сообщает защищающемуся (и группе) о ПвП-броске.
+--- @param targetName  string  Имя цели
+--- @param spellID     string
+--- @param roll number  @param mod number  @param total number
+--- @param isCrit boolean
+function SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, attackMsgText)
+    if not IsInGroup() then return end
+    local payload = string.format("%s^%s^%s^%d^%d^%d^%s^%s",
+        UnitName("player"), targetName, spellID, roll, mod, total,
+        isCrit and "1" or "0", attackMsgText or "")
+    SendMaybeChunked("PVPATK", payload)
+end
+ 
+--- Защищающийся отвечает атакующему (и группе) итогом ПвП-броска.
+function SB.Net.SendPvpResult(attackerName, targetName, defRoll, defMod, defTotal, dmg, newHealth, maxHealth)
+    if not IsInGroup() then return end
+    SendToGroup(string.format("PVPRES^%s^%s^%d^%d^%d^%d^%d^%d",
+        attackerName, targetName, defRoll, defMod, defTotal, dmg, newHealth, maxHealth))
+end
+ 
+--- Целитель сообщает исцеляемому (и группе) результат лечения.
+function SB.Net.SendHealResult(targetName, spellID, success, amount)
+    if not IsInGroup() then
+        if targetName == UnitName("player") then
+            SB.Logic.HandleHealReceived(UnitName("player"), spellID, success, amount)
+        end
+        return
+    end
+    SendToGroup(string.format("HEAL^%s^%s^%s^%s^%d",
+        UnitName("player"), targetName, spellID, success and "1" or "0", amount))
+end
+ 
 --- Синхронизация статуса персонажа с группой.
 function SB.Net.BroadcastStatus()
     if not IsInGroup() then return end
-
-    local snap     = SB.PlayerModel.GetStatusSnapshot()
-    local zealStr  = snap.zeal .. "_" .. snap.maxZeal
-    local sl       = snap.slots
-    local slotsStr = (sl[1] or 0) .. "_" .. (sl[2] or 0) .. "_" .. (sl[3] or 0)
-    local spellStr = table.concat(snap.preparedSpells or {}, ",")
-
-    SendToGroup(string.format("STATUS^%s^%s^%s^%s^%s^%s^%s",
-        snap.name, snap.class, snap.mastery, snap.approach,
-        zealStr, slotsStr, spellStr))
-
+ 
+    local snap      = SB.PlayerModel.GetStatusSnapshot()
+    local zealStr   = snap.zeal .. "_" .. snap.maxZeal
+    local spellStr  = table.concat(snap.preparedSpells or {}, ",")
+    local healthStr = (snap.health or 0) .. "_" .. (snap.maxHealth or 20)
+ 
+    SendToGroup(string.format("STATUS^%s^%s^%s^%s^%s^%s",
+        snap.name, snap.class, snap.mastery, zealStr, spellStr, healthStr))
+ 
     -- Отложенная рассылка кастомных заклинаний
     if SB.CustomSpells and SB.CustomSpells.BroadcastPrepared then
         SB.CustomSpells.BroadcastPrepared()
     end
 end
-
+ 
 -- ============================================================
 -- ДЕБАУНС ДЛЯ STATUS_CHANGED
 -- Быстрая серия изменений модели (класс+ранг+подход) не должна
@@ -317,7 +506,7 @@ end
 -- рассылаем только после 0.3с тишины.
 -- ============================================================
 local statusDebounceTimer = nil
-
+ 
 local function ScheduleStatusBroadcast()
     if statusDebounceTimer then
         statusDebounceTimer:Cancel()
@@ -327,7 +516,7 @@ local function ScheduleStatusBroadcast()
         SB.Net.BroadcastStatus()
     end)
 end
-
+ 
 --- Форсировать исход заклинания у конкретного игрока.
 --- Рассылает список активных эффектов группе (#10).
 function SB.Net.BroadcastActiveEffects()
@@ -344,7 +533,7 @@ function SB.Net.BroadcastActiveEffects()
     local payload = table.concat(parts, "|")
     SendToGroup("AEFFECT^" .. payload)
 end
-
+ 
 function SB.Net.SendForceOutcome(targetName, spellID, outcomeIndex, slotLevel)
     if not IsInGroup() or targetName == UnitName("player") then
         if SB.Logic.ExecuteForcedOutcome then
@@ -355,7 +544,7 @@ function SB.Net.SendForceOutcome(targetName, spellID, outcomeIndex, slotLevel)
     SendToGroup(string.format("FORCE^%s^%s^%d^%d",
         targetName, spellID, outcomeIndex, slotLevel))
 end
-
+ 
 function SB.Net.SendReject(targetPlayer, spellID)
     if not IsInGroup() or targetPlayer == UnitName("player") then
         SB.Events.Fire("CAST_REJECTED", spellID)
@@ -363,39 +552,39 @@ function SB.Net.SendReject(targetPlayer, spellID)
     end
     SendToGroup("REJECT^" .. targetPlayer .. "^" .. spellID)
 end
-
+ 
 -- ============================================================
 -- ПОДПИСКИ НА СОБЫТИЯ ОТ LOGIC
 -- ============================================================
 SB.Events.On("SB_INIT", function()
-
+ 
     -- CAST_REQUEST → отправить запрос ГМу
     SB.Events.On("CAST_REQUEST", function(spellID, slotLevel)
         SB.Net.SendCastRequest(spellID, slotLevel)
     end)
-
+ 
     -- STATUS_CHANGED → синхронизировать с группой (с дебаунсом 0.3с)
     SB.Events.On("STATUS_CHANGED", function()
         ScheduleStatusBroadcast()
     end)
-
+ 
     -- ACTIVE_EFFECTS_CHANGED → рассылать эффекты группе (#10)
     SB.Events.On("ACTIVE_EFFECTS_CHANGED", function()
         SB.Net.BroadcastActiveEffects()
     end)
-
+ 
     -- BROADCAST_LOG → рассылка лога
     SB.Events.On("BROADCAST_LOG", function(msg)
         SB.Net.BroadcastLog(msg)
     end)
-
+ 
     -- BROADCAST_REST → рассылка команды отдыха
     SB.Events.On("BROADCAST_REST", function(restType)
         SB.Net.BroadcastRest(restType)
     end)
-
+ 
 end)
-
+ 
 -- ============================================================
 -- СМЕНА ЛИДЕРА / ОБНОВЛЕНИЕ СОСТАВА ГРУППЫ
 -- ============================================================
@@ -412,7 +601,7 @@ leaderFrame:SetScript("OnEvent", function()
             end
         end
     end
-
+ 
     -- Удаляем статусы игроков, покинувших группу
     local myName  = UnitName("player")
     local changed = false
@@ -423,14 +612,14 @@ leaderFrame:SetScript("OnEvent", function()
         end
     end
     if changed then SB.Events.Fire("PLAYERS_STATUS_UPDATED") end
-
+ 
     SB.Events.Fire("PLAYER_MODEL_CHANGED")
-
+ 
     C_Timer.After(0.5, function()
         if IsInGroup() then SB.Net.BroadcastStatus() end
     end)
 end)
-
+ 
 -- Запросить статусы при входе в мир или обновлении группы
 local statusReqFrame = CreateFrame("Frame")
 statusReqFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
