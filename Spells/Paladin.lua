@@ -123,7 +123,7 @@ Add({
 })
 
 Add({
-    id = "devine_protection",
+    id = "divine_protection",
     name = "Божественная защита",
     key = "Защита",
     icon = "Interface\\Icons\\Spell_holy_restoration",

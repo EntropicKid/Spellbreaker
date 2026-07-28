@@ -111,7 +111,7 @@ local function Deserialize(s)
     -- в SAY-канал через ".caura toggle <caura>".
     local caura
     if f[21] and f[21] ~= "" then
-        caura = f[21]:match("^%d{1,4}$") and tonumber(f[21]) or nil
+        caura = f[21]:match("^%d%d?%d?%d?$") and tonumber(f[21]) or nil
     end
 
     return {

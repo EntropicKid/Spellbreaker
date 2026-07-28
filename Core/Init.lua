@@ -69,7 +69,7 @@ local ACCOUNT_DEFAULTS = {
 	myCharacters       = {},
 	ignoreCaura        = true,
 	rollMin = 1,
-    rollMax = 20,
+    rollMax = 100,
 }
 
 -- ============================================================

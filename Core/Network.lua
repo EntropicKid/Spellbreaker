@@ -109,11 +109,11 @@ local function ParseGRANT(sender, target, grantType, v1, v2, v3)
 end
  
 -- ПвП и лечение — peer-to-peer, без проверки на лидера группы
-local function ParsePVPATK(a1, a2, a3, a4, a5, a6, a7, a8)
-    -- a1=attacker, a2=target, a3=spellID, a4=roll, a5=mod, a6=total, a7=critFlag, a8=attackMsgText
+local function ParsePVPATK(a1, a2, a3, a4, a5, a6, a7)
+    -- a1=attacker, a2=target, a3=spellID, a4=roll, a5=mod, a6=total, a7=critFlag
     if a2 ~= UnitName("player") then return end
     if SB.Logic and SB.Logic.HandlePvpAttackReceived then
-        SB.Logic.HandlePvpAttackReceived(a1, a3, tonumber(a4), tonumber(a5), tonumber(a6), a7 == "1", a8)
+        SB.Logic.HandlePvpAttackReceived(a1, a3, tonumber(a4), tonumber(a5), tonumber(a6), a7 == "1")
     end
 end
  
@@ -280,75 +280,29 @@ local function PurgeStaleChunkBuffers()
         end
     end
 end
-
---- Копит кусок чанкованного сообщения любого типа (kind — префикс
---- ключа буфера, чтобы разные типы пакетов не путались друг с
---- другом). Возвращает собранную строку целиком, когда пришли ВСЕ
---- куски, иначе nil (ждём остальные).
-local function CollectChunk(kind, sender, msgID, index, total)
+ 
+--- Обрабатывает входящий кусок чанкованного сообщения.
+local function ParseLOGCHUNK(sender, msgID, index, total, payload)
     PurgeStaleChunkBuffers()
     index, total = tonumber(index), tonumber(total)
-    if not index or not total then return nil end
-
-    local key = kind .. ":" .. sender .. ":" .. msgID
+    if not index or not total then return end
+ 
+    local key = sender .. ":" .. msgID
     local buf = chunkBuffers[key]
     if not buf then
         buf = { total = total, parts = {}, startedAt = GetTime() }
         chunkBuffers[key] = buf
     end
-    return buf, key
-end
- 
---- Отправляет payload одним пакетом "<actionPrefix>^payload", если
---- он короткий, иначе режет на несколько "<actionPrefix>CHUNK^..."
---- и собирается обратно у получателя тем же общим механизмом.
-local function SendMaybeChunked(actionPrefix, payload)
-    if #payload <= CHUNK_PAYLOAD_SIZE then
-        SendToGroup(actionPrefix .. "^" .. payload)
-        return
-    end
-    nextMsgID = (nextMsgID + 1) % 100000
-    local msgID = tostring(nextMsgID)
-    local pieces = SplitUtf8Safe(payload, CHUNK_PAYLOAD_SIZE)
-    for i, piece in ipairs(pieces) do
-        SendToGroup(string.format("%sCHUNK^%s^%d^%d^%s", actionPrefix, msgID, i, #pieces, piece))
-    end
-end
- 
---- Обрабатывает входящий кусок чанкованного LOG-сообщения.
-local function ParseLOGCHUNK(sender, msgID, index, total, payload)
-    local buf, key = CollectChunk("LOG", sender, msgID, index, total)
-    if not buf then return end
     buf.parts[index] = payload or ""
-
+ 
+    -- Проверяем, все ли куски на месте
     for i = 1, buf.total do
         if buf.parts[i] == nil then return end
     end
-
+ 
     local full = table.concat(buf.parts, "", 1, buf.total)
     chunkBuffers[key] = nil
     SB.Events.Fire("LOG_MESSAGE_RECEIVED", SanitizeIncomingLog(full))
-end
-
---- Обрабатывает входящий кусок чанкованного PVPATK-пакета (когда
---- встроенный текст атаки не влез в один пакет).
-local function ParsePVPATKCHUNK(sender, msgID, index, total, payload)
-    local buf, key = CollectChunk("PVPATK", sender, msgID, index, total)
-    if not buf then return end
-    buf.parts[index] = payload or ""
-
-    for i = 1, buf.total do
-        if buf.parts[i] == nil then return end
-    end
-
-    local full = table.concat(buf.parts, "", 1, buf.total)
-    chunkBuffers[key] = nil
-
-    local a1, a2, a3, a4, a5, a6, a7, a8 = strsplit("^", full)
-    if a2 ~= UnitName("player") then return end
-    if SB.Logic and SB.Logic.HandlePvpAttackReceived then
-        SB.Logic.HandlePvpAttackReceived(a1, a3, tonumber(a4), tonumber(a5), tonumber(a6), a7 == "1", a8)
-    end
 end
  
 local netFrame = CreateFrame("Frame")
@@ -376,8 +330,7 @@ netFrame:SetScript("OnEvent", function(self, event, prefix, msg, channel, sender
     elseif action == "LOGCHUNK"   then ParseLOGCHUNK(shortSender, a1, a2, a3, a4)
     elseif action == "REST"       then ParseREST(shortSender, a1)
     elseif action == "GRANT"      then ParseGRANT(shortSender, a1, a2, a3, a4, a5)
-    elseif action == "PVPATK"     then ParsePVPATK(a1, a2, a3, a4, a5, a6, a7, a8)
-    elseif action == "PVPATKCHUNK" then ParsePVPATKCHUNK(shortSender, a1, a2, a3, a4)
+    elseif action == "PVPATK"     then ParsePVPATK(a1, a2, a3, a4, a5, a6, a7)
     elseif action == "PVPRES"     then ParsePVPRES(a1, a2, a3, a4, a5, a6, a7, a8)
     elseif action == "HEAL"       then ParseHEAL(a1, a2, a3, a4, a5)
     elseif action == "CUSTOM"     then ParseCUSTOM(a1, a2, msg, shortSender)
@@ -434,9 +387,24 @@ function SB.Net.SendGMApproval(targetPlayer, spellID, dc, slotLevel, scaleDamage
 end
  
 --- Рассылка сообщения в лог (себе и группе).
+--- У себя всегда используется полный текст (с кликабельными
+--- ссылками). По сети — если сообщение короткое, уходит одним
+--- пакетом как раньше; если длинное — режется на чанки и
+--- собирается обратно у получателя, БЕЗ потери гиперссылок/тултипов.
 function SB.Net.BroadcastLog(msg)
     SB.Events.Fire("LOG_MESSAGE_RECEIVED", msg)
-    SendMaybeChunked("LOG", msg)
+ 
+    if #msg <= CHUNK_PAYLOAD_SIZE then
+        SendToGroup("LOG^" .. msg)
+        return
+    end
+ 
+    nextMsgID = (nextMsgID + 1) % 100000
+    local msgID = tostring(nextMsgID)
+    local chunks = SplitUtf8Safe(msg, CHUNK_PAYLOAD_SIZE)
+    for i, chunk in ipairs(chunks) do
+        SendToGroup(string.format("LOGCHUNK^%s^%d^%d^%s", msgID, i, #chunks, chunk))
+    end
 end
  
 --- Синоним BroadcastLog для совместимости.
@@ -454,12 +422,10 @@ end
 --- @param spellID     string
 --- @param roll number  @param mod number  @param total number
 --- @param isCrit boolean
-function SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, attackMsgText)
+function SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit)
     if not IsInGroup() then return end
-    local payload = string.format("%s^%s^%s^%d^%d^%d^%s^%s",
-        UnitName("player"), targetName, spellID, roll, mod, total,
-        isCrit and "1" or "0", attackMsgText or "")
-    SendMaybeChunked("PVPATK", payload)
+    SendToGroup(string.format("PVPATK^%s^%s^%s^%d^%d^%d^%s",
+        UnitName("player"), targetName, spellID, roll, mod, total, isCrit and "1" or "0"))
 end
  
 --- Защищающийся отвечает атакующему (и группе) итогом ПвП-броска.
@@ -471,12 +437,7 @@ end
  
 --- Целитель сообщает исцеляемому (и группе) результат лечения.
 function SB.Net.SendHealResult(targetName, spellID, success, amount)
-    if not IsInGroup() then
-        if targetName == UnitName("player") then
-            SB.Logic.HandleHealReceived(UnitName("player"), spellID, success, amount)
-        end
-        return
-    end
+    if not IsInGroup() then return end
     SendToGroup(string.format("HEAL^%s^%s^%s^%s^%d",
         UnitName("player"), targetName, spellID, success and "1" or "0", amount))
 end

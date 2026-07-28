@@ -238,7 +238,7 @@ Add({
     outcome2 = "пытается сгустить влагу, но внезапный порыв ветра или сухость воздуха мгновенно рассеивают едва зародившиеся клочья пара. Заклинание развеивается без всякого эффекта."
 })
 Add({
-    id = "swamp_mist",
+    id = "tree_wrath",
     name = "Гнев деревьев",
 	key = "Сила Баланса",
 	icon = "Interface\\Icons\\Spell_nature_stranglevines",
@@ -451,7 +451,7 @@ Add({
 	outcome2 = "пытается нанести на чело {target_gen} священную метку духов, но знак смывается прикосновением ветра. Органы чувств цели остаются в своем обычном состоянии."
 })
 Add({
-    id = "wildlife_sign",
+    id = "clean_posion_druid",
     name = "Устранение яда",
 	key = "Сила Природы",
 	icon = "Interface\\Icons\\Spell_nature_nullifypoison_02",

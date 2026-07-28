@@ -14,6 +14,7 @@ local SPELL_ROW_H   = 42
 local libFrame, detailFrame, scrollChild
 local classBtn, classMenu, searchEB
 local currentClassIndex = 1
+local visibleClasses = {}
 local searchText        = ""
 local spellRows  = {}
 local headerRows = {}
@@ -38,7 +39,7 @@ function SB.Library.UpdateList()
         libFrame._scrollFrame:SetVerticalScroll(0)
     end
     local C = SB.Theme.C
-    local selectedClass = SB.Data.Classes[currentClassIndex]
+    local selectedClass = visibleClasses[currentClassIndex]   -- было: SB.Data.Classes[currentClassIndex]
     classBtn:SetText(selectedClass)
 
     -- Фильтрация
@@ -330,8 +331,9 @@ function SB.Library.BuildFrame()
     end)
 
     -- Выпадающее меню классов
+    visibleClasses = SB.Data.GetVisibleClasses()
     classMenu = CreateFrame("Frame", "SBClassMenu", libFrame, "BackdropTemplate")
-    classMenu:SetSize(155, #SB.Data.Classes * 22 + 12)
+    classMenu:SetSize(155, #visibleClasses * 22 + 12)
     classMenu:SetPoint("TOPLEFT", classBtn, "BOTTOMLEFT", -5, -2)
     classMenu:SetFrameStrata("DIALOG")
     classMenu:SetBackdrop(SB.Theme.BD.frame)
@@ -339,7 +341,7 @@ function SB.Library.BuildFrame()
     classMenu:SetBackdropBorderColor(C.frameBorder[1], C.frameBorder[2], C.frameBorder[3], 1)
     classMenu:Hide()
 
-    for i, cn in ipairs(SB.Data.Classes) do
+    for i, cn in ipairs(visibleClasses) do
         local mb = SB.Theme.Button(classMenu, cn, 143, 20, "secondary")
         mb:SetPoint("TOPLEFT", classMenu, "TOPLEFT", 6, -(i-1)*22 - 6)
         mb:SetScript("OnClick", function()

@@ -398,7 +398,7 @@ function SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, totalScaling)
 end
 
 -- ============================================================
--- ПРИНУДИТЕЛЬНЫЙ РЕЗУЛЬТАТ (без броска d100, от ГМа)
+-- ПРИНУДИТЕЛЬНЫЙ РЕЗУЛЬТАТ (без броска d20, от ГМа)
 -- ============================================================
 function SB.Logic.ExecuteForcedOutcome(spellID, outcomeIndex, slotLevel)
     local spell = SB.Data.Spells[spellID]
@@ -485,7 +485,9 @@ function SB.Logic.InitiatePvpAttack(spellID, slotLevel)
     -- гонка: локальная обработка защиты происходит мгновенно, а отдельный
     -- LOG-пакет с текстом атаки может прийти позже).
     SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, sysMsg)
+
     SB.Events.Fire("BROADCAST_LOG", sysMsg)
+    -- SendChatMessage(chatMsg, "SAY")
 end
 
 --- Защищающаяся сторона: получает бросок атакующего, считает свой,
@@ -497,7 +499,7 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
     -- Сначала — сообщение об атаке (пришло вместе с пакетом атаки),
     -- потом — наше о защите. Порядок в логе гарантирован, т.к. оба
     -- добавляются локально синхронно, один за другим.
-    if attackMsgText and attackMsgText ~= "" then
+    if attackMsgText then
         SB.Events.Fire("LOG_MESSAGE_RECEIVED", attackMsgText)
     end
 

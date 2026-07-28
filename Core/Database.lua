@@ -7,8 +7,66 @@ local addonName, SB = ...
 SB.Database = SB.Database or {}
 
 -- ── Списки выбора ────────────────────────────────────────────
-SB.Data.Classes   = { "Маг", "Жрец", "Паладин", "Чернокнижник", "Шаман", "Воин", "Охотник", "Разбойник" }
+SB.Data.Classes   = {
+    "Маг", "Жрец", "Паладин", "Чернокнижник", "Шаман",
+    "Воин", "Охотник", "Разбойник",
+    "Друид", "Монах", "Охотник на демонов", "Рыцарь смерти",
+}
 SB.Data.Masteries = { "Неофит", "Адепт", "Эксперт" }
+
+-- ── Ограничение классов по серверу ───────────────────────────
+-- На сервере Origins классы Друид/Монах/Охотник на демонов/Рыцарь
+-- смерти отсутствуют как игровые — для остальных персонажей они
+-- скрываются из библиотеки и недоступны для подготовки. Игрок,
+-- который механически играет за один из этих классов, продолжает
+-- видеть и готовить заклинания своего класса как обычно.
+--
+-- Впишите сюда ВСЕ реалмы, относящиеся к проекту Origins (сейчас
+-- известен только "Aviana" — добавьте остальные при необходимости).
+SB.Data.OriginsRealms = { "Aviana" }
+
+SB.Data.HiddenClassesOnOrigins = {
+    ["Друид"]              = true,
+    ["Монах"]              = true,
+    ["Охотник на демонов"] = true,
+    ["Рыцарь смерти"]      = true,
+}
+
+--- true, если текущий реалм относится к проекту Origins.
+function SB.Data.IsOriginsRealm()
+    local realm = GetRealmName()
+    for _, r in ipairs(SB.Data.OriginsRealms) do
+        if r == realm then return true end
+    end
+    return false
+end
+
+--- true, если className нужно скрыть/заблокировать для ТЕКУЩЕГО
+--- игрока на текущем сервере (т.е. это ограниченный класс на
+--- Origins, и играем не за него).
+function SB.Data.IsClassHiddenForPlayer(className)
+    if not className or not SB.Data.HiddenClassesOnOrigins[className] then
+        return false
+    end
+    if not SB.Data.IsOriginsRealm() then
+        return false
+    end
+    local playerClass = UnitClass("player")
+    return playerClass ~= className
+end
+
+--- Список классов, видимых текущему игроку (с учётом ограничения
+--- Origins). Используется везде, где раньше перебирали SB.Data.Classes
+--- напрямую для построения меню выбора класса.
+function SB.Data.GetVisibleClasses()
+    local result = {}
+    for _, cn in ipairs(SB.Data.Classes) do
+        if not SB.Data.IsClassHiddenForPlayer(cn) then
+            table.insert(result, cn)
+        end
+    end
+    return result
+end
 
 -- Классы без каста от рук магии — их ранг растёт с уровнем
 -- персонажа, а не от предмета в сумке (см. PM.RefreshMastery),

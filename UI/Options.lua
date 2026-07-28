@@ -68,7 +68,7 @@ applyBtn:SetPoint("TOPLEFT", previewLabel, "BOTTOMLEFT", 0, -14)
 applyBtn:SetText("Применить")
 applyBtn:SetScript("OnClick", function()
     local lo = tonumber(minEB:GetText()) or 1
-    local hi = tonumber(maxEB:GetText()) or 20
+    local hi = tonumber(maxEB:GetText()) or 100
     if lo < 1 then lo = 1 end
     if hi < lo then hi = lo end
     minEB:SetText(tostring(lo))
@@ -167,7 +167,7 @@ maxEB:SetScript("OnEnterPressed", OnEnter)
 -- Заполнять при открытии панели
 optPanel:SetScript("OnShow", function()
     local lo = (SpellbreakerAccountDB and SpellbreakerAccountDB.rollMin) or 1
-    local hi = (SpellbreakerAccountDB and SpellbreakerAccountDB.rollMax) or 20
+    local hi = (SpellbreakerAccountDB and SpellbreakerAccountDB.rollMax) or 100
     minEB:SetText(tostring(lo))
     maxEB:SetText(tostring(hi))
     RefreshPreview()

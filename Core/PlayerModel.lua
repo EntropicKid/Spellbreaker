@@ -30,7 +30,6 @@ function PM.GetGenitiveName() return db().genitiveName or UnitName("player") end
 
 function PM.SetMastery(v)
     db().mastery = v
-    db().zeal = SB.Data.Config.MaxZeal[v] or db().zeal
     SB.Events.Fire("PLAYER_MODEL_CHANGED")
 end
 
