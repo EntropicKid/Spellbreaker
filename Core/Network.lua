@@ -54,16 +54,44 @@ local function IsFromLeader(sender)
     return short == Ambiguate(UnitName("player"), "none")
         and UnitIsGroupLeader("player")
 end
+
+-- ============================================================
+-- Как IsFromLeader, но также пропускает ассистентов рейда.
+-- Используется ТОЛЬКО для GRANT (выдача ресурсов) — помощник
+-- рейд-лидера получил право выдавать ресурсы, но НЕ право на
+-- остальные доверенные команды (RES/FORCE/REJECT/REST/ADDEFF/
+-- RTDECR), которые по-прежнему только от лидера.
+-- ============================================================
+local function IsFromLeaderOrAssist(sender)
+    if not IsInGroup() then
+        return sender == UnitName("player")
+    end
+    local short = Ambiguate(sender or "", "none")
+    local prefix = IsInRaid() and "raid" or "party"
+    local n = IsInRaid() and MAX_RAID_MEMBERS or 5
+    for i = 1, n do
+        local unit = prefix .. i
+        if UnitExists(unit) then
+            local name = Ambiguate(UnitName(unit) or "", "none")
+            if name == short then
+                return UnitIsGroupLeader(unit) or UnitIsGroupAssistant(unit)
+            end
+        end
+    end
+    return short == Ambiguate(UnitName("player"), "none")
+        and (UnitIsGroupLeader("player") or UnitIsGroupAssistant("player"))
+end
+
 -- ============================================================
 -- ПАРСЕРЫ ВХОДЯЩИХ ПАКЕТОВ
 -- Каждый парсер отвечает ровно за один тип сообщения.
 -- ============================================================
  
-local function ParseREQ(caster, spellID, slotLevel)
+local function ParseREQ(caster, spellID, slotLevel, targetLabel)
     -- Я получаю REQ если: я лидер группы, ИЛИ я не в группе (тестирую соло).
     -- Я НЕ получаю REQ, если я обычный участник группы.
     if UnitIsGroupLeader("player") or not IsInGroup() then
-        SB.Events.Fire("GM_REQUEST_RECEIVED", caster, spellID, slotLevel)
+        SB.Events.Fire("GM_REQUEST_RECEIVED", caster, spellID, slotLevel, targetLabel)
     end
 end
  
@@ -100,20 +128,20 @@ local function ParseREST(sender, restType)
 end
  
 local function ParseGRANT(sender, target, grantType, v1, v2, v3)
-    if not IsFromLeader(sender) then return end
+    if not IsFromLeaderOrAssist(sender) then return end
     if target == UnitName("player") then
         if SB.ResourceGrant and SB.ResourceGrant.Apply then
-            SB.ResourceGrant.Apply(grantType, v1, v2, v3)
+            SB.ResourceGrant.Apply(grantType, v1, v2, v3, sender)
         end
     end
 end
  
 -- ПвП и лечение — peer-to-peer, без проверки на лидера группы
-local function ParsePVPATK(a1, a2, a3, a4, a5, a6, a7)
-    -- a1=attacker, a2=target, a3=spellID, a4=roll, a5=mod, a6=total, a7=critFlag
+local function ParsePVPATK(a1, a2, a3, a4, a5, a6, a7, a8)
+    -- a1=attacker, a2=target, a3=spellID, a4=roll, a5=mod, a6=total, a7=critFlag, a8=dmgBonus
     if a2 ~= UnitName("player") then return end
     if SB.Logic and SB.Logic.HandlePvpAttackReceived then
-        SB.Logic.HandlePvpAttackReceived(a1, a3, tonumber(a4), tonumber(a5), tonumber(a6), a7 == "1")
+        SB.Logic.HandlePvpAttackReceived(a1, a3, tonumber(a4), tonumber(a5), tonumber(a6), a7 == "1", tonumber(a8) or 0)
     end
 end
  
@@ -163,9 +191,9 @@ local function ParseCUSTOM(action, payload, fullMsg, sender)
     end
 end
  
-local function ParseSTATUS(msg, a1, a2, a3, a4, a5, a6)
+local function ParseSTATUS(msg, a1, a2, a3, a4, a5, a6, a7)
     -- a1=name, a2=class, a3=mastery, a4=zealStr, a5=spellsStr,
-    -- a6=healthStr ("cur_max")
+    -- a6=healthStr ("cur_max"), a7=attrsStr ("v1_v2_v3_v4_v5_v6")
     local currZeal, maxZeal = strsplit("_", a4 or "0_1")
     local currHP, maxHP     = strsplit("_", a6 or "20_20")
  
@@ -173,6 +201,14 @@ local function ParseSTATUS(msg, a1, a2, a3, a4, a5, a6)
     if a5 and a5 ~= "" then
         for spID in string.gmatch(a5, "[^,]+") do
             table.insert(spellsList, spID)
+        end
+    end
+
+    local attributes = {}
+    if a7 and a7 ~= "" and SB.Data.Attributes then
+        local vals = { strsplit("_", a7) }
+        for i, def in ipairs(SB.Data.Attributes) do
+            attributes[def.key] = tonumber(vals[i]) or 1
         end
     end
  
@@ -186,6 +222,7 @@ local function ParseSTATUS(msg, a1, a2, a3, a4, a5, a6)
         maxHealth      = tonumber(maxHP)  or 20,
         preparedSpells = spellsList,
         activeEffects  = existing.activeEffects or {},
+        attributes     = attributes,
     }
     SB.Events.Fire("PLAYERS_STATUS_UPDATED")
 end
@@ -262,7 +299,7 @@ local function SanitizeIncomingLog(text)
     if not text then return text end
     if #text > 2000 then text = text:sub(1, 2000) .. "…" end
     text = text:gsub("|H([^|]+)|h", function(link)
-        if link:find("^spellbreaker:") or link:find("^sbmod:") then
+        if link:find("^spellbreaker:") or link:find("^sbmod:") or link:find("^sbroll:") then
             return "|H" .. link .. "|h"
         end
         return "|Hdisabled:" .. link .. "|h"
@@ -315,7 +352,7 @@ netFrame:SetScript("OnEvent", function(self, event, prefix, msg, channel, sender
  
     local action, a1, a2, a3, a4, a5, a6, a7, a8 = strsplit("^", msg)
  
-    if     action == "REQ"        then ParseREQ(a1, a2, a3)
+    if     action == "REQ"        then ParseREQ(a1, a2, a3, a4)
     elseif action == "RES"        then ParseRES(shortSender, a1, a2, a3, a4, a5)
     elseif action == "FORCE"      then ParseFORCE(shortSender, a1, a2, a3, a4)
     elseif action == "REJECT"     then ParseREJECT(shortSender, a1, a2)
@@ -330,13 +367,13 @@ netFrame:SetScript("OnEvent", function(self, event, prefix, msg, channel, sender
     elseif action == "LOGCHUNK"   then ParseLOGCHUNK(shortSender, a1, a2, a3, a4)
     elseif action == "REST"       then ParseREST(shortSender, a1)
     elseif action == "GRANT"      then ParseGRANT(shortSender, a1, a2, a3, a4, a5)
-    elseif action == "PVPATK"     then ParsePVPATK(a1, a2, a3, a4, a5, a6, a7)
+    elseif action == "PVPATK"     then ParsePVPATK(a1, a2, a3, a4, a5, a6, a7, a8)
     elseif action == "PVPRES"     then ParsePVPRES(a1, a2, a3, a4, a5, a6, a7, a8)
     elseif action == "HEAL"       then ParseHEAL(a1, a2, a3, a4, a5)
     elseif action == "CUSTOM"     then ParseCUSTOM(a1, a2, msg, shortSender)
     elseif action == "AEFFECT"    then ParseAEFFECT(a1)
     elseif action == "ADDEFF"     then ParseADDEFF(shortSender, a1, a2, a3, a4)
-    elseif action == "STATUS"     then ParseSTATUS(msg, a1, a2, a3, a4, a5, a6)
+    elseif action == "STATUS"     then ParseSTATUS(msg, a1, a2, a3, a4, a5, a6, a7)
     elseif action == "RTDECR" then
         -- Получена команда уменьшить все эффекты на 1 (только от лидера)
         if IsFromLeader(shortSender) and SB.ActiveEffects then
@@ -363,16 +400,16 @@ end)
 -- ============================================================
  
 --- Отправить запрос на разрешение каста ГМу.
-function SB.Net.SendCastRequest(spellID, slotLevel)
+function SB.Net.SendCastRequest(spellID, slotLevel, targetLabel)
     if not IsInGroup() then
-        SB.Events.Fire("GM_REQUEST_RECEIVED", UnitName("player"), spellID, slotLevel)
+        SB.Events.Fire("GM_REQUEST_RECEIVED", UnitName("player"), spellID, slotLevel, targetLabel)
         return
     end
     if UnitIsGroupLeader("player") then
-        SB.Events.Fire("GM_REQUEST_RECEIVED", UnitName("player"), spellID, slotLevel)
+        SB.Events.Fire("GM_REQUEST_RECEIVED", UnitName("player"), spellID, slotLevel, targetLabel)
 		return
     end
-    SendToGroup("REQ^" .. UnitName("player") .. "^" .. spellID .. "^" .. slotLevel)
+    SendToGroup("REQ^" .. UnitName("player") .. "^" .. spellID .. "^" .. slotLevel .. "^" .. (targetLabel or ""))
     print("|cFF9933FF[Spellbreaker]|r: Ожидание решения ведущего...")
 end
  
@@ -421,11 +458,11 @@ end
 --- @param targetName  string  Имя цели
 --- @param spellID     string
 --- @param roll number  @param mod number  @param total number
---- @param isCrit boolean
-function SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit)
+--- @param isCrit boolean  @param dmgBonus number  Бонус к урону от атрибута атакующего
+function SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, dmgBonus)
     if not IsInGroup() then return end
-    SendToGroup(string.format("PVPATK^%s^%s^%s^%d^%d^%d^%s",
-        UnitName("player"), targetName, spellID, roll, mod, total, isCrit and "1" or "0"))
+    SendToGroup(string.format("PVPATK^%s^%s^%s^%d^%d^%d^%s^%d",
+        UnitName("player"), targetName, spellID, roll, mod, total, isCrit and "1" or "0", dmgBonus or 0))
 end
  
 --- Защищающийся отвечает атакующему (и группе) итогом ПвП-броска.
@@ -450,9 +487,18 @@ function SB.Net.BroadcastStatus()
     local zealStr   = snap.zeal .. "_" .. snap.maxZeal
     local spellStr  = table.concat(snap.preparedSpells or {}, ",")
     local healthStr = (snap.health or 0) .. "_" .. (snap.maxHealth or 20)
+
+    local attrStr = ""
+    if snap.attributes and SB.Data.Attributes then
+        local parts = {}
+        for _, def in ipairs(SB.Data.Attributes) do
+            table.insert(parts, tostring(snap.attributes[def.key] or 1))
+        end
+        attrStr = table.concat(parts, "_")
+    end
  
-    SendToGroup(string.format("STATUS^%s^%s^%s^%s^%s^%s",
-        snap.name, snap.class, snap.mastery, zealStr, spellStr, healthStr))
+    SendToGroup(string.format("STATUS^%s^%s^%s^%s^%s^%s^%s",
+        snap.name, snap.class, snap.mastery, zealStr, spellStr, healthStr, attrStr))
  
     -- Отложенная рассылка кастомных заклинаний
     if SB.CustomSpells and SB.CustomSpells.BroadcastPrepared then
@@ -520,8 +566,8 @@ end
 SB.Events.On("SB_INIT", function()
  
     -- CAST_REQUEST → отправить запрос ГМу
-    SB.Events.On("CAST_REQUEST", function(spellID, slotLevel)
-        SB.Net.SendCastRequest(spellID, slotLevel)
+    SB.Events.On("CAST_REQUEST", function(spellID, slotLevel, targetLabel)
+        SB.Net.SendCastRequest(spellID, slotLevel, targetLabel)
     end)
  
     -- STATUS_CHANGED → синхронизировать с группой (с дебаунсом 0.3с)

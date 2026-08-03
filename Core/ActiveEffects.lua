@@ -140,24 +140,21 @@ local function MakeSlot(i)
         self:SetBackdropBorderColor(C.cardHoverBorder[1], C.cardHoverBorder[2], C.cardHoverBorder[3], 1)
         local sp = SB.Data.Spells[self._spID]
         if sp then
-            GameTooltip:SetOwner(self, "ANCHOR_TOP")
-            GameTooltip:SetText(sp.name or "?", 1, 0.82, 0, true)
-            if sp.description and sp.description ~= "" then
-                GameTooltip:AddLine(sp.description, 0.85, 0.85, 0.85, true)
+            if SB.UI.StartSpellTooltip(self, sp, "ANCHOR_TOP") then
+                GameTooltip:AddLine(" ")
+                GameTooltip:AddLine("Осталось применений: |cFFFFD100" .. (self._uses or 0) .. "|r", 1,1,1)
+                if self._isConc then
+                    GameTooltip:AddLine("|cFF22BFFFКонцентрация|r", 1,1,1)
+                end
+                GameTooltip:AddLine(" ")
+                if IsPassiveEffect(self._spID) then
+                    GameTooltip:AddLine("|cFF888888Пассивный эффект|r", 0.7, 0.7, 0.7)
+                else
+                    GameTooltip:AddLine("|cFFFFFFFFЛКМ|r — Применить (бесплатно)", 0.8,0.8,0.8)
+                end
+                GameTooltip:AddLine("|cFFFFFFFFПКМ|r — Снять эффект", 0.8,0.8,0.8)
+                GameTooltip:Show()
             end
-            GameTooltip:AddLine(" ")
-            GameTooltip:AddLine("Осталось применений: |cFFFFD100" .. (self._uses or 0) .. "|r", 1,1,1)
-            if self._isConc then
-                GameTooltip:AddLine("|cFF22BFFFКонцентрация|r", 1,1,1)
-            end
-            GameTooltip:AddLine(" ")
-            if IsPassiveEffect(self._spID) then
-                GameTooltip:AddLine("|cFF888888Пассивный эффект|r", 0.7, 0.7, 0.7)
-            else
-                GameTooltip:AddLine("|cFFFFFFFFЛКМ|r — Применить (бесплатно)", 0.8,0.8,0.8)
-            end
-            GameTooltip:AddLine("|cFFFFFFFFПКМ|r — Снять эффект", 0.8,0.8,0.8)
-            GameTooltip:Show()
         end
     end)
     s:SetScript("OnLeave", function(self)
@@ -171,7 +168,7 @@ local function MakeSlot(i)
         if btn == "LeftButton" then
             if IsPassiveEffect(self._spID) then
                 -- Пассивный эффект — ЛКМ ничего не делает, показываем подсказку
-                print("|cFFFFCC00[Spellbreaker]|r: Это пассивный эффект — его нельзя активировать вручную.")
+                SB.UI.PrintMsg("passiveCantActivate")
             else
                 SB.ActiveEffects.Use(self._spID)
             end
@@ -259,7 +256,7 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc)
     end
 
     if #effects >= 14 then
-        print("|cFFFFCC00[Spellbreaker]|r: Панель заполнена (макс. 14).")
+        SB.UI.PrintMsg("panelFull")
         return
     end
 

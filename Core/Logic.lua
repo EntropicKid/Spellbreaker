@@ -86,6 +86,13 @@ local function DeclineUnitName(name, gender)
     end
     return f
 end
+
+-- Публичная обёртка — тем же алгоритмом склонения пользуются и другие
+-- файлы (например ResourceGrant.lua для сообщения «кому выдали ресурс»),
+-- не дублируя логику работы с DeclineName/GetNumDeclensionSets.
+function SB.Logic.DeclineName(name, gender)
+    return DeclineUnitName(name, gender)
+end
  
 -- ============================================================
 -- Подстановка плейсхолдеров цели в текст отписи. (Работает странно)
@@ -209,12 +216,12 @@ end
 -- ============================================================
 function SB.Logic.Rest()
     if IsInGroup() and not UnitIsGroupLeader("player") then
-        print("|cFFFF0000[Spellbreaker]: Только лидер группы может объявлять Долгий Отдых.|r")
+        SB.UI.PrintMsg("leaderOnlyLongRest")
         return
     end
     SB.Logic.LocalRest()
-    local sysMsg = "[Spellbreaker]: " .. UnitName("player") ..
-                   " объявляет Долгий Отдых. Силы и ячейки восстановлены у всех!"
+    local sysMsg = "|cFF9933FF[Spellbreaker]:|r " .. UnitName("player") ..
+                   " объявляет Долгий Отдых. Ресурсы и здоровье восстановлены у всех!"
     SB.Events.Fire("BROADCAST_LOG", sysMsg)
     SB.Events.Fire("BROADCAST_REST", "LONG")
 end
@@ -224,12 +231,12 @@ end
 -- ============================================================
 function SB.Logic.ShortRest()
     if IsInGroup() and not UnitIsGroupLeader("player") then
-        print("|cFFFF0000[Spellbreaker]: Только лидер группы может объявлять Короткий Отдых.|r")
+        SB.UI.PrintMsg("leaderOnlyShortRest")
         return
     end
     SB.Logic.LocalShortRest()
-    local sysMsg = "[Spellbreaker]: " .. UnitName("player") ..
-                   " объявляет Короткий Отдых. Рвение восстановлено у всех."
+    local sysMsg = "|cFF9933FF[Spellbreaker]:|r " .. UnitName("player") ..
+                   " объявляет Короткий Отдых. Ресурсы восстановлены у всех."
     SB.Events.Fire("BROADCAST_LOG", sysMsg)
     SB.Events.Fire("BROADCAST_REST", "SHORT")
 end
@@ -251,7 +258,7 @@ function SB.Logic.ConfirmCast(spellID, slotLevel)
     local spell = SB.Data.Spells[spellID]
     if not spell then return end
     if not spell.isContainer and not PM.IsPrepared(spellID) then
-        print("|cFFFF0000[Spellbreaker] Вы не подготовили это заклинание!|r")
+        SB.UI.PrintMsg("spellNotPrepared")
         PM.SetLocked(false)
         return
     end
@@ -275,7 +282,7 @@ function SB.Logic.ConfirmCast(spellID, slotLevel)
             return
         end
         if not PM.SpendZeal(slotLevel) then
-            print("|cFFFF0000[Spellbreaker]: Недостаточно рвения!|r")
+            SB.UI.PrintMsg("notEnoughZeal")
             PM.SetLocked(false)
             return
         end
@@ -318,37 +325,53 @@ function SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, totalScaling)
     local mod, modParts = SB.Logic.GetModifierBreakdown()
     local rollMin = (SpellbreakerAccountDB and SpellbreakerAccountDB.rollMin) or 1
     local rollMax = (SpellbreakerAccountDB and SpellbreakerAccountDB.rollMax) or 100
+ 
+    -- Бонусы от атрибутов, если заклинание их объявляет
+    -- (spell.attributes = {hit=..., crit=..., damage=...}).
+    local attrs      = spell.attributes or {}
+    local hitBonus   = attrs.hit    and SB.Attributes.GetModifier(attrs.hit)    or 0
+    local critBonus  = attrs.crit   and SB.Attributes.GetModifier(attrs.crit)  or 0
+    local dmgBonus   = attrs.damage and math.floor((SB.Attributes.Get(attrs.damage) - 1) / 2) or 0
+    local critThresh = 100 - critBonus
+ 
+    mod = mod + hitBonus
+ 
     local roll    = math.random(rollMin, rollMax)
     local total   = roll + mod
     local dcNum   = tonumber(dc) or 0
     local success = total >= dcNum
-
+ 
     local successMsg = spell.outcome1 or "Заклинание успешно применено!"
     local failMsg    = spell.outcome2 or "Заклинание провалилось."
     local critMsg    = spell.outcome3 or successMsg
     local fumbleMsg  = spell.outcome4 or failMsg
-
-    local outcomeText, resultStatus, succeeded
-
+ 
+    local outcomeText, resultStatus, succeeded, detail, isCrit, isFumble
+ 
     if spell.resistable == false and dcNum == 0 then
         outcomeText   = spell.outcome1 or "Заклинание успешно применено."
         resultStatus  = "|cFF00FF00УСПЕХ (Без сопротивления)|r"
         succeeded     = true
+        detail        = nil
     else
-        if total > 100 and spell.canCrit then
-            outcomeText = critMsg;   resultStatus = "|cFF00FF00Критический успех!|r"; succeeded = true
+        if total > critThresh and spell.canCrit then
+            outcomeText = critMsg;   resultStatus = "|cFF00FF00Критический успех!|r"; succeeded = true; isCrit = true
+            detail = string.format("%d + %d = %d — выше порога крита (%d)", roll, mod, total, critThresh)
         elseif roll == 1 and spell.canCrit then
-            outcomeText = fumbleMsg; resultStatus = "|cFFFF0000Критический провал...|r"; succeeded = false
+            outcomeText = fumbleMsg; resultStatus = "|cFFFF0000Критический провал...|r"; succeeded = false; isFumble = true
+            detail = "Натуральная 1 на кубике"
         elseif success then
             outcomeText = successMsg; resultStatus = "|cFF00FF00Успех.|r"; succeeded = true
+            detail = string.format("%d + %d = %d против СЛ %d", roll, mod, total, dcNum)
         else
             outcomeText = failMsg;    resultStatus = "|cFFFF0000Провал.|r"; succeeded = false
+            detail = string.format("%d + %d = %d против СЛ %d", roll, mod, total, dcNum)
         end
     end
-
+ 
     -- Уведомить UI о вердикте (для фрейма ожидания каста)
-    SB.Events.Fire("CAST_RESOLVED", spellID, succeeded, resultStatus)
-
+    SB.Events.Fire("CAST_RESOLVED", spellID, succeeded, resultStatus, detail)
+ 
     -- Активный эффект (контейнер)
     if spell.container and succeeded then
         if SB.ActiveEffects and SB.ActiveEffects.Add then
@@ -370,30 +393,52 @@ function SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, totalScaling)
             end
         end
     end
-
+ 
     -- Системный лог
     local bonusInfo = totalScaling and " (+Урон)" or ""
+    if succeeded and dmgBonus > 0 then
+        bonusInfo = bonusInfo .. string.format(" (+%d к урону/эффекту от %s — ГМ учитывает вручную)", dmgBonus, attrs.damage)
+    end
     local link = SB.UI.MakeSpellLink(spell)
+    local G    = SB.Theme.MSG_BODY -- тёплое золото вместо белого по умолчанию — читается лучше
     local sysMsg
     if spell.resistable == false then
         local t = (slotLevel == 0) and "способность" or "заклинание"
-        sysMsg = "[Spellbreaker]: " .. UnitName("player") ..
-                 " применяет " .. t .. " " .. link .. "."
+        sysMsg = SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. UnitName("player") ..
+                 " применяет " .. t .. " |r" .. link .. G .. ".|r"
     else
-        local t = (slotLevel == 0) and "способность" or ("заклинание (Порядок:: " .. slotLevel .. ")")
-		local modLink = SB.UI.MakeModLink(mod, modParts)
-        sysMsg = "[Spellbreaker]: " .. UnitName("player") ..
-                 " применяет " .. t .. " " .. link .. bonusInfo ..
-                 "! Бросок: " .. roll .. " + " .. modLink ..
-                 " (Итог: " .. total .. ") против СЛ " .. dcNum ..
-                 ". Результат: " .. resultStatus
+        local t = (slotLevel == 0) and "способность" or ("заклинание (Порядок: " .. slotLevel .. ")")
+        local modLink  = SB.UI.MakeModLink(mod, modParts)
+        local rollLink = SB.UI.MakeRollLink(roll, rollMin, rollMax)
+        sysMsg = SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. UnitName("player") ..
+                 " применяет " .. t .. " |r" .. link .. G .. bonusInfo ..
+                 "! Бросок: |r" .. rollLink .. G .. " + |r" .. modLink ..
+                 G .. " (Итог: " .. total .. ") против СЛ " .. dcNum ..
+                 ". Результат: |r" .. resultStatus
     end
     SB.Events.Fire("BROADCAST_LOG", sysMsg)
-
+ 
     -- RP-эмоут
     local rpMsg = ApplyTemplates(outcomeText or "применяет заклинание.")
     if not SpellbreakerAccountDB or SpellbreakerAccountDB.sendEmotes ~= false then
         SendChatMessage(rpMsg, "EMOTE")
+    end
+
+    -- Хук для будущих уникальных механик заклинаний, работающих через
+    -- код (spell.onResolve = function(ctx) ... end). Оборачиваем в
+    -- pcall — ошибка в чьей-то кастомной логике не должна ронять
+    -- остальной резолв.
+    if spell.onResolve then
+        local ok, err = pcall(spell.onResolve, {
+            spellID = spellID, spell = spell, roll = roll, mod = mod, total = total,
+            dc = dcNum, succeeded = succeeded, isCrit = isCrit, isFumble = isFumble,
+            slotLevel = slotLevel, hitBonus = hitBonus, critBonus = critBonus,
+            dmgBonus = dmgBonus, caster = UnitName("player"),
+        })
+        if not ok then
+            print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BAD ..
+                "Ошибка в onResolve заклинания " .. (spell.name or spellID) .. ": " .. tostring(err) .. "|r")
+        end
     end
 end
 
@@ -415,13 +460,14 @@ function SB.Logic.ExecuteForcedOutcome(spellID, outcomeIndex, slotLevel)
     local succeeded   = (outcomeIndex == 1 or outcomeIndex == 3)
     local colorCode    = succeeded and "|cFF00FF00" or "|cFFFF0000"
     local resultStatus = colorCode .. (labels[outcomeIndex] or "Успех.") .. "|r"
-    SB.Events.Fire("CAST_RESOLVED", spellID, succeeded, resultStatus)
+    SB.Events.Fire("CAST_RESOLVED", spellID, succeeded, resultStatus, "Форсировано ГМом")
 
     local t = (tonumber(slotLevel) or 0) == 0 and "способность" or ("заклинание (Порядок: " .. (tonumber(slotLevel) or 0) .. ")")
     local link = SB.UI.MakeSpellLink(spell)
-    local sysMsg = "[Spellbreaker]: " .. UnitName("player") ..
-        " применяет " .. t .. " " .. link ..
-        ". Форсировано ГМом: " .. resultStatus
+    local G    = "|cFFFFD100" -- тёплое золото вместо белого по умолчанию — читается лучше
+    local sysMsg = "|cFF9933FF[Spellbreaker]:|r " .. G .. UnitName("player") ..
+        " применяет " .. t .. " |r" .. link ..
+        G .. ". Форсировано ГМом: |r" .. resultStatus
 
     local rpMsg = ApplyTemplates(outcomeText)
 
@@ -463,53 +509,50 @@ function SB.Logic.InitiatePvpAttack(spellID, slotLevel)
 
     local targetName = UnitName("target")
     local mod, modParts = SB.Logic.GetModifierBreakdown()
+
+    -- Чем больше маны (рвения) вложено сверх базовой стоимости
+    -- заклинания — тем выше бонус к шансу попадания (к модификатору).
+    local manaBonus = math.max(0, (tonumber(slotLevel) or 0) - (spell.level or 0))
+    mod = mod + manaBonus
+
+    -- Бонусы от атрибутов, если заклинание их объявляет
+    -- (spell.attributes = {hit=..., crit=..., damage=...}).
+    local attrs      = spell.attributes or {}
+    local hitBonus   = attrs.hit    and SB.Attributes.GetModifier(attrs.hit)   or 0
+    local critBonus  = attrs.crit   and SB.Attributes.GetModifier(attrs.crit) or 0
+    local dmgBonus   = attrs.damage and math.floor((SB.Attributes.Get(attrs.damage) - 1) / 2) or 0
+    mod = mod + hitBonus
+
     local roll   = math.random(1, 100)
     local total  = roll + mod
-    local isCrit = total > 100
+    local isCrit = total > (100 - critBonus)
 
-    pendingPvpSpells[targetName] = spellID
+    pendingPvpSpells[targetName] = { spellID = spellID, isCrit = isCrit }
 
-    local link    = SB.UI.MakeSpellLink(spell)
-    local critTxt = isCrit and " |cFFFF0000(КРИТ!)|r" or ""
-	local modLink = SB.UI.MakeModLink(mod, modParts)
-    local sysMsg  = "[Spellbreaker]: " .. UnitName("player") .. " атакует " .. targetName ..
-        " заклинанием " .. link .. "! Бросок: " .. roll .. " + " .. modLink ..
-        " (Итог: " .. total .. ")" .. critTxt
-    local chatMsg = "[Spellbreaker]: " .. UnitName("player") .. " атакует " .. targetName ..
-        " заклинанием [" .. spell.name .. "]! Бросок: " .. roll .. " + " .. mod ..
-        " (Итог: " .. total .. ")" .. (isCrit and " (КРИТ!)" or "")
-
-    -- Передаём sysMsg вместе с самой атакой (а не отдельным LOG-пакетом) —
-    -- так у защищающегося сообщение об атаке гарантированно окажется
-    -- в логе РАНЬШЕ его собственного сообщения о защите (иначе выигрывает
-    -- гонка: локальная обработка защиты происходит мгновенно, а отдельный
-    -- LOG-пакет с текстом атаки может прийти позже).
-    SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, sysMsg)
-
-    SB.Events.Fire("BROADCAST_LOG", sysMsg)
-    -- SendChatMessage(chatMsg, "SAY")
+    -- Атака больше НЕ печатает своё отдельное сообщение в лог/чат.
+    -- Единое финальное сообщение (атака + защита + итог) собирает
+    -- и рассылает защищающаяся сторона — см. HandlePvpAttackReceived.
+    -- dmgBonus считаем здесь (наш собственный атрибут) и шлём по сети —
+    -- у защищающегося клиента нет доступа к нашим атрибутам локально.
+    SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, dmgBonus)
 end
 
 --- Защищающаяся сторона: получает бросок атакующего, считает свой,
 --- сравнивает и, если проиграл, теряет 1 ХП (2 при крите атакующего).
-function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod, atkTotal, atkCrit, attackMsgText)
+function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod, atkTotal, atkCrit, atkDmgBonus)
     local PM    = SB.PlayerModel
     local spell = SB.Data.Spells[spellID]
 
-    -- Сначала — сообщение об атаке (пришло вместе с пакетом атаки),
-    -- потом — наше о защите. Порядок в логе гарантирован, т.к. оба
-    -- добавляются локально синхронно, один за другим.
-    if attackMsgText then
-        SB.Events.Fire("LOG_MESSAGE_RECEIVED", attackMsgText)
-    end
-
     local defMod, defModParts = SB.Logic.GetModifierBreakdown()
+    -- Уворот — системный бонус от Ловкости защищающегося, не привязан
+    -- к конкретному заклинанию (у защиты нет "своего" заклинания).
+    defMod = defMod + SB.Attributes.GetModifier("Ловкость")
     local defRoll  = math.random(1, 100)
     local defTotal = defRoll + defMod
 
     local dmg = 0
     if atkTotal > defTotal then
-        dmg = atkCrit and 2 or 1
+        dmg = (atkCrit and 2 or 1) + (tonumber(atkDmgBonus) or 0)
         PM.GrantHealth(-dmg)
     end
 
@@ -517,37 +560,56 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
     local maxHealth = PM.GetMaxHealth()
     SB.Net.SendPvpResult(attackerName, UnitName("player"), defRoll, defMod, defTotal, dmg, newHealth, maxHealth)
 
-    local spellName  = spell and spell.name or "неизвестное заклинание"
+    -- ЕДИНОЕ ФИНАЛЬНОЕ СООБЩЕНИЕ (атака + защита + итог одной строкой).
+    -- G — основной цвет тела сообщения: тёплое золото вместо белого
+    -- по умолчанию, читается заметно лучше на фоне чат-окна.
+    local G          = SB.Theme.MSG_BODY
+    local link       = spell and SB.UI.MakeSpellLink(spell) or (G .. "неизвестное заклинание|r")
+    local critTxt    = atkCrit and (" " .. SB.Theme.MSG_BAD .. "(КРИТ!)|r") or ""
+    -- Разбивка модификатора атакующего по сети не передаётся (только итог),
+    -- поэтому у атакующего показываем просто число без подсказки-разбивки.
+    local atkModLink = SB.UI.MakeModLink(atkMod)
+    local defModLink = SB.UI.MakeModLink(defMod, defModParts)
+    local atkRollLink = SB.UI.MakeRollLink(atkRoll, 1, 100)
+    local defRollLink = SB.UI.MakeRollLink(defRoll, 1, 100)
     local outcomeTxt = (dmg > 0)
-        and string.format("|cFFFF0000Урон: %d ХП (%d/%d)|r", dmg, newHealth, maxHealth)
-        or "|cFF00FF00Атака отражена!|r"
-	local defModLink = SB.UI.MakeModLink(defMod, defModParts)
-    local msg = "[Spellbreaker]: " .. UnitName("player") .. " защищается от " .. attackerName ..
-        " (" .. spellName .. "). Бросок защиты: " .. defRoll .. " + " .. defModLink ..
-        " (Итог: " .. defTotal .. "). " .. outcomeTxt
+        and string.format(SB.Theme.MSG_BAD .. "Урон: %d ХП (%d/%d)|r", dmg, newHealth, maxHealth)
+        or (SB.Theme.MSG_GOOD .. "Атака отражена!|r")
+
+    local msg = SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " ..
+        G .. attackerName .. " атакует " .. UnitName("player") .. " заклинанием |r" .. link .. critTxt ..
+        G .. ". Атака: |r" .. atkRollLink .. G .. " + |r" .. atkModLink ..
+        G .. " (итог " .. atkTotal .. ") vs Защита: |r" .. defRollLink .. G .. " + |r" .. defModLink ..
+        G .. " (итог " .. defTotal .. "). |r" .. outcomeTxt
 
     SB.Events.Fire("BROADCAST_LOG", msg)
-    -- SendChatMessage(msg, "SAY")
     SB.Events.Fire("STATUS_CHANGED")
+
+    if spell and spell.onResolve then
+        local ok, err = pcall(spell.onResolve, {
+            spellID = spellID, spell = spell, roll = atkRoll, mod = atkMod, total = atkTotal,
+            defRoll = defRoll, defMod = defMod, defTotal = defTotal,
+            succeeded = (dmg > 0), isCrit = atkCrit, dmg = dmg,
+            attacker = attackerName, defender = UnitName("player"),
+        })
+        if not ok then
+            print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BAD ..
+                "Ошибка в onResolve заклинания " .. (spell.name or spellID) .. ": " .. tostring(err) .. "|r")
+        end
+    end
 end
 
---- Атакующая сторона: получает итог защиты — печатает результат и
---- шлёт РП-отпись (outcome) заклинания, соответствующую попаданию/промаху.
+--- Атакующая сторона: получает итог защиты — единое сообщение уже
+--- разослала защищающаяся сторона (см. HandlePvpAttackReceived), здесь
+--- только шлём РП-отпись (outcome) заклинания по факту попадания/промаха.
 function SB.Logic.HandlePvpResultReceived(targetName, defRoll, defMod, defTotal, dmg, newHealth, maxHealth)
-    if dmg > 0 then
-        print(string.format(
-            "|cFF9933FF[Spellbreaker]|r: %s получает %d урона (ХП: %d/%d).",
-            targetName, dmg, newHealth or 0, maxHealth or 0))
-    else
-        print("|cFF9933FF[Spellbreaker]|r: " .. targetName .. " защитился от атаки.")
-    end
-
-    local spellID = pendingPvpSpells[targetName]
+    local pending = pendingPvpSpells[targetName]
     pendingPvpSpells[targetName] = nil
+    local spellID = pending and pending.spellID
     local spell = spellID and SB.Data.Spells[spellID]
     if not spell then return end
 
-    local isCrit = (dmg == 2)
+    local isCrit = pending.isCrit
     local outcomeText
     if dmg > 0 then
         outcomeText = (isCrit and spell.outcome3) or spell.outcome1
@@ -578,33 +640,46 @@ function SB.Logic.ResolveHeal(spellID, slotLevel)
     local healName  = UnitName(healUnit)
     local healLevel = UnitLevel(healUnit) or 1
 
+    -- Бонусы от атрибутов, если заклинание их объявляет.
+    local attrs     = spell.attributes or {}
+    local hitBonus  = attrs.hit    and SB.Attributes.GetModifier(attrs.hit)   or 0
+    local dmgBonus  = attrs.damage and math.floor((SB.Attributes.Get(attrs.damage) - 1) / 2) or 0
+
     local mod, modParts = SB.Logic.GetModifierBreakdown()
+    mod = mod + hitBonus
     local roll      = math.random(1, 100)
     local total     = roll + mod
     local threshold = 60 + healLevel
     local success   = total >= threshold
 
+    -- Сила исцеления растёт с вложенной маной (рвением) — минимум 1 ХП,
+    -- плюс бонус от атрибута (только при успехе).
+    local healAmount = math.max(1, tonumber(slotLevel) or 1) + (success and dmgBonus or 0)
+
     -- Если лечим себя — применяем локально сразу (сетевое эхо от своих
     -- же сообщений игнорируется диспетчером, поэтому self-heal нужно
     -- обработать напрямую).
     if success and healName == UnitName("player") then
-        PM.Heal(1)
+        PM.Heal(healAmount)
         SB.Events.Fire("STATUS_CHANGED")
     end
-    SB.Net.SendHealResult(healName, spellID, success, 1)
+    SB.Net.SendHealResult(healName, spellID, success, healAmount)
 
-    local link       = SB.UI.MakeSpellLink(spell)
+    local link    = SB.UI.MakeSpellLink(spell)
+    local modLink = SB.UI.MakeModLink(mod, modParts)
+    local rollLink = SB.UI.MakeRollLink(roll, 1, 100)
+    local G       = SB.Theme.MSG_BODY -- тёплое золото вместо белого по умолчанию — читается лучше
     local outcomeTxt = success
-        and ("|cFF00FF00Исцеление удалось!|r " .. healName .. " восстанавливает 1 ХП.")
-        or  "|cFFFF0000Исцеление не подействовало.|r"
-	local modLink = SB.UI.MakeModLink(mod, modParts)
-    local sysMsg = "[Spellbreaker]: " .. UnitName("player") .. " лечит " .. healName ..
-        " заклинанием " .. link .. "! Бросок: " .. roll .. " + " .. modLink ..
-        " (Итог: " .. total .. ") против порога " .. threshold .. ". " .. outcomeTxt
+        and (SB.Theme.MSG_GOOD .. "Исцеление удалось!|r " .. G .. healName .. " восстанавливает " .. healAmount .. " ХП.|r")
+        or  (SB.Theme.MSG_BAD .. "Исцеление не подействовало.|r")
+    local sysMsg = SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " ..
+        G .. UnitName("player") .. " лечит " .. healName .. " заклинанием |r" .. link ..
+        G .. "! Бросок: |r" .. rollLink .. G .. " + |r" .. modLink ..
+        G .. " (Итог: " .. total .. ") против порога " .. threshold .. ". |r" .. outcomeTxt
     local chatMsg = "[Spellbreaker]: " .. UnitName("player") .. " лечит " .. healName ..
         " заклинанием [" .. spell.name .. "]! Бросок: " .. roll .. " + " .. mod ..
         " (Итог: " .. total .. ") против порога " .. threshold .. ". " ..
-        (success and (healName .. " восстанавливает 1 ХП.") or "Исцеление не подействовало.")
+        (success and (healName .. " восстанавливает " .. healAmount .. " ХП.") or "Исцеление не подействовало.")
 
     SB.Events.Fire("BROADCAST_LOG", sysMsg)
     -- SendChatMessage(chatMsg, "SAY")
@@ -615,6 +690,19 @@ function SB.Logic.ResolveHeal(spellID, slotLevel)
     local rpMsg = ApplyTemplates(emoteText)
     if not SpellbreakerAccountDB or SpellbreakerAccountDB.sendEmotes ~= false then
         SendChatMessage(rpMsg, "EMOTE")
+    end
+
+    if spell.onResolve then
+        local ok, err = pcall(spell.onResolve, {
+            spellID = spellID, spell = spell, roll = roll, mod = mod, total = total,
+            threshold = threshold, succeeded = success, healAmount = healAmount,
+            hitBonus = hitBonus, dmgBonus = dmgBonus,
+            caster = UnitName("player"), target = healName,
+        })
+        if not ok then
+            print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BAD ..
+                "Ошибка в onResolve заклинания " .. (spell.name or spellID) .. ": " .. tostring(err) .. "|r")
+        end
     end
 end
 

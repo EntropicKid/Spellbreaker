@@ -12,6 +12,7 @@ SB.Logs = SB.Logs or {}
 
 local logFrame
 local logsEB
+local updateLogScrollbar
 local lastValidText = ""
 
 -- Удобный геттер флага (с защитой от nil до инициализации AceDB)
@@ -66,6 +67,8 @@ function SB.Logs.BuildFrame()
     logsEB:SetScript("OnHyperlinkEnter", function(self, link, text)
         local data = link and link:match("^sbmod:(.+)$")
         if data then SB.UI.ShowModTooltip(self, data) end
+	    local rollData = link and link:match("^sbroll:(.+)$")
+        if rollData then SB.UI.ShowRollTooltip(self, rollData) end	
     end)
     logsEB:SetScript("OnHyperlinkLeave", function(self)
         GameTooltip:Hide()
@@ -75,12 +78,14 @@ function SB.Logs.BuildFrame()
         if userInput then self:SetText(lastValidText) end
     end)
     sf:SetScrollChild(logsEB)
+    updateLogScrollbar = select(3, SB.Theme.AttachScrollbar(sf, logsEB, logFrame, logFrame.contentY, 48))
 
     -- ── Нижняя панель ─────────────────────────────────────────
     local clearBtn = SB.Theme.Button(logFrame, "Очистить", 65, 24, "danger")
     clearBtn:SetPoint("BOTTOMLEFT", logFrame, "BOTTOMLEFT", 12, 10)
     clearBtn:SetScript("OnClick", function()
         lastValidText = ""; logsEB:SetText("")
+        if updateLogScrollbar then updateLogScrollbar() end
     end)
 
     local checkBg = CreateFrame("Frame", nil, logFrame, "BackdropTemplate")
@@ -169,6 +174,7 @@ function SB.Logs.Add(message)
     lastValidText = logsEB:GetText() .. stamp .. clean .. "\n"
     logsEB:SetText(lastValidText)
     logsEB:SetCursorPosition(logsEB:GetNumLetters())
+    if updateLogScrollbar then updateLogScrollbar() end
 end
 
 -- ============================================================
@@ -226,6 +232,11 @@ C_Timer.After(1, function()
                 local data = link and link:match("^sbmod:(.+)$")
                 if data then
                     SB.UI.ShowModTooltip(self, data)
+                    return
+                end
+				local rollData = link and link:match("^sbroll:(.+)$")
+                if rollData then
+                    SB.UI.ShowRollTooltip(self, rollData)
                     return
                 end
                 if origEnter then origEnter(self, link, text, ...) end

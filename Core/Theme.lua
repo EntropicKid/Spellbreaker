@@ -58,14 +58,62 @@ local BD = {
                edgeFile= "Interface\\Tooltips\\UI-Tooltip-Border",
                tile=true, tileSize=16, edgeSize=8,
                insets={left=2,right=2,top=2,bottom=2} },
+    tooltip= { bgFile= "Interface\\DialogFrame\\UI-DialogBox-Background",
+               edgeFile= "Interface\\DialogFrame\\UI-DialogBox-Border",
+               tile=true, tileSize=32, edgeSize=16,
+               insets={left=4,right=4,top=4,bottom=4} },
 }
 SB.Theme.BD = BD
+
+-- ============================================================
+-- Цвета системных сообщений ([Spellbreaker]: ... в чате/логе).
+-- Раньше эти hex-коды были вбиты вручную в каждом месте, где
+-- строится сообщение (Logic.lua/ResourceGrant.lua/Network.lua) —
+-- поменять оттенок означало искать и править в 5+ местах. Теперь
+-- единственный источник истины — тут.
+-- ============================================================
+SB.Theme.MSG_TAG  = "|cFF9933FF" -- тег [Spellbreaker]
+SB.Theme.MSG_BODY = "|cFFFFD100" -- основной текст сообщения (тёплое золото)
+SB.Theme.MSG_GOOD = "|cFF33FF99" -- успех/положительный исход
+SB.Theme.MSG_BAD  = "|cFFFF4444" -- урон/провал/предупреждение
 
 local VARIANTS = {
     primary   = {bg=C.pBg, border=C.pBorder, text=C.pText, hBg=C.pHBg, hBd=C.pHBd, press=C.pPress},
     secondary = {bg=C.sBg, border=C.sBorder, text=C.sText, hBg=C.sHBg, hBd=C.sHBd, press=C.sPress},
     danger    = {bg=C.dBg, border=C.dBorder, text=C.dText, hBg=C.dHBg, hBd=C.dHBd, press=C.dPress},
 }
+
+-- ============================================================
+-- StyleTooltip — уникальное оформление GameTooltip для тултипов
+-- аддона (тёмный фон + рамка в стиле главного окна, вместо
+-- стандартной золотой рамки Blizzard).
+--
+-- GameTooltip — ОБЩИЙ объект на весь интерфейс (юниты, предметы,
+-- другие аддоны), поэтому стиль применяется ТОЛЬКО непосредственно
+-- перед показом НАШЕГО тултипа (вызвать SB.Theme.StyleTooltip(GameTooltip)
+-- сразу после GameTooltip:SetOwner(...)), а при любом скрытии
+-- тултипа автоматически откатывается на оригинальный бэкдроп —
+-- иначе следующий тултип предмета/юнита показался бы с нашим стилем.
+-- ============================================================
+local defaultTooltipBackdrop
+if GameTooltip.GetBackdrop then
+    defaultTooltipBackdrop = GameTooltip:GetBackdrop()
+end
+if GameTooltip.HookScript then
+    GameTooltip:HookScript("OnHide", function(self)
+        if defaultTooltipBackdrop and self.SetBackdrop then
+            self:SetBackdrop(defaultTooltipBackdrop)
+        end
+    end)
+end
+
+function SB.Theme.StyleTooltip(tooltip)
+    tooltip = tooltip or GameTooltip
+    if not tooltip.SetBackdrop then return end
+    tooltip:SetBackdrop(BD.tooltip)
+    tooltip:SetBackdropColor(C.frameBg[1], C.frameBg[2], C.frameBg[3], 0.97)
+    tooltip:SetBackdropBorderColor(C.frameBorder[1], C.frameBorder[2], C.frameBorder[3], 1)
+end
 
 -- ============================================================
 -- PlaySound - единая точка воспроизведения UI-звуков
@@ -147,6 +195,13 @@ function SB.Theme.Button(parent, text, w, h, variant)
     end
     function btn:Disable()
         rD(self)
+        -- Стандартный Disable() у Button-виджета заодно выключает
+        -- мышь (EnableMouse(false)) — из-за этого OnEnter/OnLeave и
+        -- любые тултипы на отключённой кнопке просто переставали
+        -- срабатывать. Клики это не открывает: Blizzard сам проверяет
+        -- IsEnabled() перед вызовом OnClick, так что кнопка остаётся
+        -- нефункциональной, но наводка/тултип продолжают работать.
+        self:EnableMouse(true)
         self:SetBackdropColor(C.disBg[1], C.disBg[2], C.disBg[3], C.disBg[4])
         self:SetBackdropBorderColor(C.disBd[1], C.disBd[2], C.disBd[3], C.disBd[4])
         self._fs:SetTextColor(C.disText[1], C.disText[2], C.disText[3])
@@ -237,7 +292,9 @@ function SB.Theme.Frame(name, parent, title, w, h)
     -- Звук при открытии фрейма
     local _origShow = f.Show
     f.Show = function(self)
-        SB.Theme.PlaySound("open")
+        if not self:IsShown() then
+            SB.Theme.PlaySound("open")
+        end
         _origShow(self)
     end
 	
@@ -290,6 +347,188 @@ function SB.Theme.AttachPositionMemory(frame, dbKey, defaultX, defaultY)
 end
 
 -- ============================================================
+-- AttachScrollbar — минималистичный скроллбар для готового
+-- ScrollFrame. Общий код для SB.Theme.Scroll и для окна логов
+-- (там свой ScrollFrame поверх EditBox, собранный вручную).
+--
+-- Поведение:
+--   • появляется, ТОЛЬКО когда контент реально не помещается —
+--     не занимает место, когда прокручивать нечего;
+--   • рисуется СНАРУЖИ правого края parent (не откусывает ширину
+--     у контента, не делает панели ещё теснее);
+--   • тонкий трек + ползунок, можно тащить мышью — прокрутка без
+--     колеса мыши тоже работает.
+--
+-- @param sf      ScrollFrame  уже созданный и настроенный
+-- @param child   Frame|EditBox  его scroll-child
+-- @param parent  Frame        родитель, СНАРУЖИ которого рисуется бар
+-- @param top     number       верхний отступ (тот же, что у sf)
+-- @param bottom  number       нижний отступ (тот же, что у sf)
+-- @return track, thumb, UpdateThumb — UpdateThumb можно дёргать
+--         вручную, если контент меняется способом, не бьющим
+--         OnSizeChanged (например EditBox:SetText в окне логов).
+-- ============================================================
+function SB.Theme.AttachScrollbar(sf, child, parent, top, bottom)
+    local TRACK_W = 7
+
+    local track = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    track:SetPoint("TOPLEFT",    parent, "TOPRIGHT", 4, top or -34)
+    track:SetPoint("BOTTOMLEFT", parent, "BOTTOMRIGHT", 4, bottom or 10)
+    track:SetWidth(TRACK_W)
+    -- Тёмная подложка + тонкая рамка в цвете темы — иначе плоский
+    -- белый прямоугольник смотрится чужеродно на фоне карточек/рамок
+    -- с бордюром, которые есть у всего остального интерфейса.
+    track:SetBackdrop({
+        bgFile   = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+    })
+    track:SetBackdropColor(0, 0, 0, 0.30)
+    track:SetBackdropBorderColor(C.frameBorder[1], C.frameBorder[2], C.frameBorder[3], 0.55)
+    track:Hide()
+
+    local thumb = CreateFrame("Button", nil, track, "BackdropTemplate")
+    thumb:SetWidth(TRACK_W - 2)
+    thumb:SetPoint("TOP", track, "TOP", 0, -1)
+    thumb:SetBackdrop({
+        bgFile   = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+    })
+    thumb:SetBackdropColor(0, 0, 0, 0) -- заливка не нужна, цвет даёт градиент-текстура ниже
+    thumb:SetBackdropBorderColor(C.cardHoverBorder[1], C.cardHoverBorder[2], C.cardHoverBorder[3], 0.55)
+
+    -- Лёгкий вертикальный градиент вместо плоской заливки — от
+    -- акцентного цвета темы сверху к приглушённой рамке снизу.
+    -- SetGradientAlpha (не новый SetGradient) — старый вариант API,
+    -- надёжнее работает на нестандартных клиентах/серверах.
+    local grad = thumb:CreateTexture(nil, "ARTWORK")
+    grad:SetPoint("TOPLEFT", 1, -1)
+    grad:SetPoint("BOTTOMRIGHT", -1, 1)
+    grad:SetTexture("Interface\\Buttons\\WHITE8x8")
+    if grad.SetGradientAlpha then
+        grad:SetGradientAlpha("VERTICAL",
+            C.cardHoverBorder[1], C.cardHoverBorder[2], C.cardHoverBorder[3], 0.95,
+            C.frameBorder[1],     C.frameBorder[2],     C.frameBorder[3],     0.75)
+    else
+        grad:SetVertexColor(C.frameBorder[1], C.frameBorder[2], C.frameBorder[3], 0.85)
+    end
+
+    -- Белый блик поверх градиента при наводке/драге (плавно ярче,
+    -- а не резкая смена цвета).
+    local hi = thumb:CreateTexture(nil, "OVERLAY")
+    hi:SetPoint("TOPLEFT", 1, -1)
+    hi:SetPoint("BOTTOMRIGHT", -1, 1)
+    hi:SetTexture("Interface\\Buttons\\WHITE8x8")
+    hi:SetVertexColor(1, 1, 1, 0)
+    thumb.hi = hi
+
+    thumb:SetScript("OnEnter", function(self)
+        self.hi:SetVertexColor(1, 1, 1, 0.18)
+    end)
+    thumb:SetScript("OnLeave", function(self)
+        if not self._dragging then
+            self.hi:SetVertexColor(1, 1, 1, 0)
+        end
+    end)
+
+    local function UpdateThumb()
+        local viewH  = sf:GetHeight()
+        local childH = child:GetHeight()
+        local range  = sf:GetVerticalScrollRange()
+
+        if not viewH or not childH or range <= 1 or childH <= viewH then
+            track:Hide()
+            return
+        end
+        track:Show()
+
+        local trackH = track:GetHeight()
+        local thumbH = math.max(20, trackH * (viewH / childH))
+        thumb:SetHeight(thumbH)
+
+        local scroll = sf:GetVerticalScroll()
+        local maxOff = trackH - thumbH
+        local offset = (range > 0) and (scroll / range) * maxOff or 0
+        thumb:ClearAllPoints()
+        thumb:SetPoint("TOP", track, "TOP", 0, -offset)
+    end
+
+    -- Вспомогательный кадр, который выполнит UpdateThumb на следующий кадр.
+    -- Это безопаснее, чем вызывать UpdateThumb сразу в OnShow,
+    -- потому что размеры и scroll range могут ещё не быть финальными.
+    local updater = CreateFrame("Frame", nil, parent)
+    updater:Hide()
+
+    updater:SetScript("OnUpdate", function(self)
+        self:Hide()
+        UpdateThumb()
+    end)
+
+    local function RequestUpdate()
+        -- Если parent сейчас невидим, updater всё равно покажется
+        -- при следующем реальном показе и выполнит пересчёт.
+        updater:Show()
+    end
+
+    -- Обычная прокрутка колесом/ползунком
+    sf:SetScript("OnVerticalScroll", function(self, offset)
+        UpdateThumb()
+    end)
+
+    -- Самое важное: диапазон прокрутки может измениться уже после показа
+    if sf:HasScript("OnScrollRangeChanged") then
+        sf:HookScript("OnScrollRangeChanged", function(self, xRange, yRange)
+            RequestUpdate()
+        end)
+    end
+
+    -- Размеры scrollframe и контента
+    sf:HookScript("OnSizeChanged", RequestUpdate)
+    child:HookScript("OnSizeChanged", RequestUpdate)
+
+    -- Показы
+    sf:HookScript("OnShow", RequestUpdate)
+    child:HookScript("OnShow", RequestUpdate)
+    parent:HookScript("OnShow", RequestUpdate)
+
+    -- Первичный запрос.
+    -- Если окно уже открыто — пересчитаем на следующий кадр.
+    -- Если скрыто — пересчитаем при показе.
+    RequestUpdate()
+
+    -- Перетаскивание ползунка мышью — прокрутка без колеса.
+    thumb:SetScript("OnMouseDown", function(self)
+        self._dragging = true
+        self.hi:SetVertexColor(1, 1, 1, 0.30)
+    end)
+    thumb:SetScript("OnUpdate", function(self)
+        if not self._dragging then return end
+        -- Страховка от "залипания" драга, если кнопку мыши отпустили
+        -- не над ползунком (OnMouseUp тогда не сработает вовсе).
+        if not IsMouseButtonDown("LeftButton") then
+            self._dragging = false
+            self.hi:SetVertexColor(1, 1, 1, 0)
+            return
+        end
+        local trackH = track:GetHeight()
+        local thumbH = self:GetHeight()
+        local maxOff = trackH - thumbH
+        if maxOff <= 0 then return end
+
+        local _, cursorY = GetCursorPosition()
+        cursorY = cursorY / track:GetEffectiveScale()
+        local rel = math.max(0, math.min(maxOff, (track:GetTop() - cursorY) - thumbH / 2))
+
+        local range = sf:GetVerticalScrollRange()
+        if range > 0 then
+            sf:SetVerticalScroll((rel / maxOff) * range)
+        end
+    end)
+    return track, thumb, UpdateThumb
+end
+
+-- ============================================================
 -- Scroll
 -- ============================================================
 function SB.Theme.Scroll(parent, l, t, r, b)
@@ -308,7 +547,10 @@ function SB.Theme.Scroll(parent, l, t, r, b)
         local max = self:GetVerticalScrollRange()
         self:SetVerticalScroll(math.max(0, math.min(max, cur - delta * 30)))
     end)
-    return sf, child
+
+    local track, thumb, UpdateThumb = SB.Theme.AttachScrollbar(sf, child, parent, t, b)
+
+    return sf, child, UpdateThumb
 end
 
 -- ============================================================

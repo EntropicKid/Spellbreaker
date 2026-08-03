@@ -254,8 +254,7 @@ local function BuildIconPicker()
         hl:SetAllPoints(); hl:SetColorTexture(1, 1, 0, 0.22)
         btn:SetScript("OnEnter", function(self)
             if not self._data then return end
-            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            GameTooltip:SetText(self._data.name, 1, 1, 1, true)
+            SB.UI.StartSpellTooltip(self, self._data, "ANCHOR_RIGHT")
             GameTooltip:Show()
         end)
         btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -471,7 +470,7 @@ local function BuildCreateFrame()
     end)
     iconBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText("Click to choose icon", 1, 0.82, 0, true)
+		SB.UI.ShowInfoTooltip(self, "chooseIcon", "ANCHOR_RIGHT")
         GameTooltip:Show()
     end)
     iconBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -618,7 +617,7 @@ local function BuildCreateFrame()
             fContID = nil
             fContBtn:SetText("Создать эффект")
             fContDelBtn:Hide()
-            print("|cFFFFCC00[Spellbreaker]|r: Эффект удален.")
+            SB.UI.PrintMsg("effectDeleted")
         end
     end)
 
@@ -863,7 +862,7 @@ end
 function SB.CustomSpells.SaveContainer()
     local name = FormGetText(fC_Name):match("^%s*(.-)%s*$")
     if name == "" then
-        print("|cFFFF0000[Spellbreaker]:|r Введите название эффекта!")
+        SB.UI.PrintMsg("enterEffectName")
         return
     end
 
@@ -924,7 +923,7 @@ end
 function SB.CustomSpells.OpenCreate()
     -- #12: запрет редактирования после каста
     if SB.PlayerModel and SB.PlayerModel.IsLocked() then
-        print("|cFFFF0000[Spellbreaker]: Нельзя создавать заклинания после применения. Отдохни.|r")
+        SB.UI.PrintMsg("noCreateAfterCast")
         return
     end
     if not createFrame then BuildCreateFrame() end
@@ -956,14 +955,14 @@ end
 function SB.CustomSpells.OpenEdit(spellID)
     -- #12: запрет редактирования после каста
     if SB.PlayerModel and SB.PlayerModel.IsLocked() then
-        print("|cFFFF0000[Spellbreaker]: Нельзя редактировать заклинания после применения. Отдохни.|r")
+        SB.UI.PrintMsg("noEditAfterCast")
         return
     end
     local sp = SB.Data.Spells[spellID]
     if not sp or not sp.isCustom then return end
     -- Редактировать может только создатель (проверка по аккаунту)
     if not IsMyCharacter(sp.createdBy) then
-        print("|cFFFF0000[Spellbreaker]: Только создатель заклинания может его редактировать.|r")
+        SB.UI.PrintMsg("onlyCreatorCanEdit")
         return
     end
     if not createFrame then BuildCreateFrame() end
@@ -1028,7 +1027,7 @@ end
 function SB.CustomSpells.SaveForm(silent)
     local name = FormGetText(fName):match("^%s*(.-)%s*$")
     if name == "" then
-        print("|cFFFF0000[Spellbreaker]:|r Заполните название заклинания.")
+        SB.UI.PrintMsg("fillSpellName")
         return false
     end
 
@@ -1147,7 +1146,7 @@ function SB.CustomSpells.Delete(spellID, silent)
     
     if not silent then
         SB.CustomSpells.BroadcastDelete(spellID)
-        print("|cFFFFCC00[Spellbreaker]|r: Заклинание и эффект удалены.")
+        SB.UI.PrintMsg("spellAndEffectDeleted")
     end
     
     if SB.Library and SB.Library.UpdateList then

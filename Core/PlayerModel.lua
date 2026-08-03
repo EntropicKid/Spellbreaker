@@ -328,6 +328,7 @@ function PM.GetStatusSnapshot()
         health         = PM.GetHealth(),
         maxHealth      = PM.GetMaxHealth(),
         preparedSpells = PM.GetPreparedSpells(),
+        attributes     = SB.Attributes and SB.Attributes.GetAll() or nil,
     }
 end
 

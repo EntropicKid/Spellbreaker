@@ -22,29 +22,36 @@ local zealSection, healthSection, nameLabel, classLabel
 -- ============================================================
 local function SendGrant()
     if not currentTarget then return end
-    local isSelf = (currentTarget.name == UnitName("player"))
-    local ch = (IsInRaid() and "RAID") or (IsInGroup() and "PARTY") or nil
- 
-    if isSelf then
-        SB.ResourceGrant.Apply("ZEAL", deltas.zeal, 0, 0)
-    elseif ch then
-        C_ChatInfo.SendAddonMessage("SB_RP", string.format("GRANT^%s^ZEAL^%d^0^0",
-            currentTarget.name, deltas.zeal), ch)
+    local isSelf  = (currentTarget.name == UnitName("player"))
+    local ch      = (IsInRaid() and "RAID") or (IsInGroup() and "PARTY") or nil
+    local granter = UnitName("player")
+
+    -- Рвение — независимый ресурс, отправляется отдельным грантом.
+    -- ВАЖНО: раньше отправлялось БЕЗУСЛОВНО (в отличие от здоровья
+    -- ниже) — из-за этого при изменении только здоровья всё равно
+    -- прилетала лишняя запись «Рвение +0».
+    if deltas.zeal ~= 0 then
+        if isSelf then
+            SB.ResourceGrant.Apply("ZEAL", deltas.zeal, 0, 0, granter)
+        elseif ch then
+            C_ChatInfo.SendAddonMessage("SB_RP", string.format("GRANT^%s^ZEAL^%d^0^0",
+                currentTarget.name, deltas.zeal), ch)
+        end
     end
- 
+
     -- Здоровье — независимый ресурс, отправляется отдельным грантом
     if deltas.health ~= 0 then
         if isSelf then
-            SB.ResourceGrant.Apply("HEALTH", deltas.health, 0, 0)
+            SB.ResourceGrant.Apply("HEALTH", deltas.health, 0, 0, granter)
         elseif ch then
             C_ChatInfo.SendAddonMessage("SB_RP", string.format("GRANT^%s^HEALTH^%d^0^0",
                 currentTarget.name, deltas.health), ch)
         end
     end
- 
-    local logMsg = string.format("[Spellbreaker]: %s выдаёт ресурсы → %s.",
-        UnitName("player"), currentTarget.name)
-    SB.Events.Fire("LOG_MESSAGE_RECEIVED", logMsg)
+
+    -- Общей итоговой строки больше нет — за каждый реально изменённый
+    -- ресурс прилетает своё подробное сообщение (см. Apply ниже),
+    -- транслируемое всей группе через BROADCAST_LOG.
     grantFrame:Hide()
 end
  
@@ -153,11 +160,18 @@ end
 -- ПУБЛИЧНЫЙ API
 -- ============================================================
  
+--- Может ли текущий игрок выдавать ресурсы другим — лидер группы
+--- ИЛИ ассистент рейда (вне группы — всегда true, соло).
+function SB.ResourceGrant.CanGrant()
+    if not IsInGroup() then return true end
+    return UnitIsGroupLeader("player") or UnitIsGroupAssistant("player")
+end
+
 --- Открыть диалог выдачи ресурсов конкретному игроку.
 --- @param name  string  Имя игрока
 --- @param data  table   Данные из PlayersStatus или CharDB
 function SB.ResourceGrant.ShowFor(name, data)
-    if not UnitIsGroupLeader("player") and IsInGroup() then return end
+    if not SB.ResourceGrant.CanGrant() then return end
     if not grantFrame then BuildFrame() end
 	
 	-- Повторный клик по тому же игроку, когда панель уже открыта,
@@ -189,24 +203,95 @@ function SB.ResourceGrant.ShowFor(name, data)
 end
  
 --- Применить выданные ресурсы (вызывается на стороне получателя).
---- @param grantType  string  "ZEAL" | "HEALTH"
---- @param v1  number  Дельта 1
-function SB.ResourceGrant.Apply(grantType, v1, v2, v3)
+--- @param grantType    string  "ZEAL" | "HEALTH"
+--- @param v1           number  Дельта 1
+--- @param granterName  string  Имя того, кто выдал (ГМ) — для сообщения
+function SB.ResourceGrant.Apply(grantType, v1, v2, v3, granterName)
     local PM = SB.PlayerModel
     if not PM then return end
- 
+
+    granterName = granterName or UnitName("player")
+
+    local resourceName, delta, newVal, maxVal
+
     if grantType == "ZEAL" then
-        local delta   = tonumber(v1) or 0
+        delta = tonumber(v1) or 0
+        if delta == 0 then return end
         -- ГМ может намеренно выдать больше максимума
-        local newZeal = math.max(0, PM.GetZeal() + delta)
-        SpellbreakerCharDB.zeal = newZeal  -- прямая запись чтобы обойти cap
+        newVal = math.max(0, PM.GetZeal() + delta)
+        SpellbreakerCharDB.zeal = newVal  -- прямая запись чтобы обойти cap
+        maxVal = PM.GetMaxZeal()
+        resourceName = "Рвение"
         SB.Events.Fire("PLAYER_MODEL_CHANGED")
     elseif grantType == "HEALTH" then
+        delta = tonumber(v1) or 0
+        if delta == 0 then return end
         -- ГМ может выдать здоровье сверх максимума (как с рвением) —
         -- используем GrantHealth, а не SetHealth.
-        PM.GrantHealth(tonumber(v1) or 0)
+        PM.GrantHealth(delta)
+        newVal = PM.GetHealth()
+        maxVal = PM.GetMaxHealth()
+        resourceName = "Здоровье"
+    else
+        return
     end
- 
+
     SB.Events.Fire("STATUS_CHANGED")
-    print("|cFFFFD100[Spellbreaker]|r: Ведущий обновил ваши ресурсы.")
+
+    -- Единое системное сообщение — кто, что, кому (в дательном падеже),
+    -- на сколько и до какого значения. Рассылается всей группе через
+    -- BROADCAST_LOG (а не локальный print только у получателя).
+    local sign       = (delta >= 0) and "+" or ""
+    local deltaColor = (delta >= 0) and "|cFF33FF99" or "|cFFFF4444"
+    local myName     = UnitName("player")
+    local dat        = myName
+    if SB.Logic and SB.Logic.DeclineName then
+        dat = SB.Logic.DeclineName(myName, UnitSex("player")).dat
+    end
+
+    local msg = "|cFF9933FF[Spellbreaker]:|r |cFFFFD100" .. granterName ..
+        " поменял ресурс " .. resourceName .. " " .. dat .. " " ..
+        deltaColor .. sign .. delta .. "|r" ..
+        " |cFFFFD100(сейчас: " .. newVal .. "/" .. maxVal .. ")|r"
+
+    SB.Events.Fire("BROADCAST_LOG", msg)
 end
+-- ============================================================
+-- Клик по фрейму группы/рейда (лидером) → сразу открыть панель
+-- выдачи ресурсов для этого игрока, если у него стоит аддон.
+--
+-- "Аддон установлен" проверяем через SB.Data.PlayersStatus[name] —
+-- эта таблица заполняется только для игроков, реально рассылающих
+-- свой статус по сети (см. Network.lua), так что её наличие уже
+-- само по себе надёжный признак присутствия аддона; отдельную
+-- систему детекта изобретать не пришлось.
+--
+-- Работает через стандартные CompactUnitFrame (Blizzard raid/party
+-- frames) — если используется другой аддон юнит-фреймов (Grid,
+-- VuhDo, ElvUI и т.п. со своими фреймами), этот хук их не увидит.
+--
+-- Используем HookScript (не SetScript) — он ДОБАВЛЯЕТ обработчик,
+-- не заменяя secure-обработчик Blizzard, поэтому обычное поведение
+-- клика (таргет юнита) не ломается и не тайнтится: клик по фрейму
+-- и таргетит юнита, и открывает нашу панель одновременно.
+-- ============================================================
+local hookedGroupFrames = {}
+
+local function OnGroupFrameClick(frame)
+    if not SB.ResourceGrant.CanGrant() then return end
+    local unit = frame.unit or frame.displayedUnit
+    if not unit or not UnitExists(unit) then return end
+    local name = UnitName(unit)
+    if not name or name == UnitName("player") then return end
+
+    local data = SB.Data.PlayersStatus and SB.Data.PlayersStatus[name]
+    if not data then return end -- аддона у игрока нет — ничего не делаем
+
+    SB.ResourceGrant.ShowFor(name, data)
+end
+
+hooksecurefunc("CompactUnitFrame_SetUnit", function(frame)
+    if hookedGroupFrames[frame] then return end
+    hookedGroupFrames[frame] = true
+    frame:HookScript("OnClick", OnGroupFrameClick)
+end)

@@ -1,3 +1,5 @@
+local addonName, SB = ...
+
 -- ============================================================
 -- ПАНЕЛЬ НАСТРОЕК: Interface → Модификации → Spellbreaker
 -- ============================================================
@@ -144,17 +146,36 @@ local hideOptChk = MakeCheckRow(optPanel, emoteOptChk, -8,
         if SpellbreakerHideChatCheck then SpellbreakerHideChatCheck:SetChecked(val) end
     end)
 
--- Синхронизировать все галочки при открытии панели
-local origOnShow = optPanel:GetScript("OnShow")
-optPanel:SetScript("OnShow", function(self)
-    if origOnShow then origOnShow(self) end
+-- Синхронизировать все галочки и поля мин/макс с сохранённым
+-- состоянием. Вызывается ДВАЖДЫ намеренно: на SB_INIT (гарантированно
+-- один раз за сессию, сразу как AceDB реально прогрузит SavedVariables —
+-- так же, как уже сделано для остальных галочек в GMPanel.lua/
+-- Library.lua/Logs.lua) и на OnShow (на случай, если панель показывают
+-- позже — просто подстраховка, лишним не будет).
+local function SyncOptionsFromDB()
     local db = SpellbreakerAccountDB
+    local lo = (db and db.rollMin) or 1
+    local hi = (db and db.rollMax) or 100
+    minEB:SetText(tostring(lo))
+    maxEB:SetText(tostring(hi))
+    RefreshPreview()
+
     if not db then return end
     rtOptChk:SetChecked(db.realtimeEffects or false)
     cauraOptChk:SetChecked(db.ignoreCaura or false)
     emoteOptChk:SetChecked(db.sendEmotes ~= false)
     hideOptChk:SetChecked(db.hideSystemMessages or false)
+end
+
+local origOnShow = optPanel:GetScript("OnShow")
+optPanel:SetScript("OnShow", function(self)
+    if origOnShow then origOnShow(self) end
+    SyncOptionsFromDB()
 end)
+
+if SB.Events then
+    SB.Events.On("SB_INIT", SyncOptionsFromDB)
+end
 
 -- Enter в поле → применить
 local function OnEnter(self)
@@ -163,12 +184,3 @@ local function OnEnter(self)
 end
 minEB:SetScript("OnEnterPressed", OnEnter)
 maxEB:SetScript("OnEnterPressed", OnEnter)
-
--- Заполнять при открытии панели
-optPanel:SetScript("OnShow", function()
-    local lo = (SpellbreakerAccountDB and SpellbreakerAccountDB.rollMin) or 1
-    local hi = (SpellbreakerAccountDB and SpellbreakerAccountDB.rollMax) or 100
-    minEB:SetText(tostring(lo))
-    maxEB:SetText(tostring(hi))
-    RefreshPreview()
-end)

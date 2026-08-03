@@ -200,7 +200,7 @@ function SB.UI.UpdateGMQueue()
 
     local queue = SpellbreakerAccountDB and SpellbreakerAccountDB.requestQueue or {}
     local yOff  = 0
-    local rowH  = 60
+    local rowH  = 74
 
     for i, req in ipairs(queue) do
         local row = queueRows[i]
@@ -219,6 +219,27 @@ function SB.UI.UpdateGMQueue()
             row.spellLabel:SetPoint("TOPLEFT", row.casterLabel, "BOTTOMLEFT", 0, -2)
             row.spellLabel:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
 
+            -- FontString сама не принимает клики/наводку — накладываем
+            -- прозрачную Button поверх неё для тултипа и клика.
+            row.spellLabelBtn = CreateFrame("Button", nil, row)
+            row.spellLabelBtn:SetAllPoints(row.spellLabel)
+            row.spellLabelBtn:SetScript("OnEnter", function(self)
+                if self._spell then
+                    SB.UI.StartSpellTooltip(self, self._spell, "ANCHOR_RIGHT")
+                    GameTooltip:Show()
+                end
+            end)
+            row.spellLabelBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+            row.spellLabelBtn:SetScript("OnClick", function(self)
+                if self._spell and SB.Library and SB.Library.ShowDetail then
+                    SB.Library.ShowDetail(self._spell)
+                end
+            end)
+
+            row.targetLabel = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            row.targetLabel:SetPoint("TOPLEFT", row.spellLabel, "BOTTOMLEFT", 0, -2)
+            row.targetLabel:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
+
             local dcWrap, dcEB = SB.Theme.Input(row, "СЛ", 42, 20)
             dcWrap:SetPoint("TOPRIGHT", row, "TOPRIGHT", -90, -6)
             row.dcInput = dcEB
@@ -233,7 +254,7 @@ function SB.UI.UpdateGMQueue()
 
             -- Кнопки форсирования
             row.forceSucc  = SB.Theme.Button(row, "Успех",        60, 20, "primary")
-            row.forceSucc:SetPoint("TOPLEFT", row, "TOPLEFT", 8, -32)
+            row.forceSucc:SetPoint("TOPLEFT", row, "TOPLEFT", 8, -46)
 
             row.forceFail  = SB.Theme.Button(row, "Провал",       60, 20, "danger")
             row.forceFail:SetPoint("LEFT", row.forceSucc, "RIGHT", 4, 0)
@@ -253,9 +274,20 @@ function SB.UI.UpdateGMQueue()
 
         row.casterLabel:SetText(req.caster)
         if spell and spell.isCustom then
-            row.spellLabel:SetText("|cFF88CCFF[" .. spName .. "]|r |cFF88CCFF(Кастом.)|r")
+            row.spellLabel:SetText("|cFF9933FF[" .. spName .. "]|r |cFF88CCFF(Кастом.)|r")
+        elseif spell then
+            row.spellLabel:SetText("|cFF9933FF[" .. spName .. "]|r — " .. lvlTxt)
         else
             row.spellLabel:SetText("[" .. spName .. "] — " .. lvlTxt)
+        end
+        row.spellLabelBtn._spell = spell
+        row.spellLabelBtn:EnableMouse(spell ~= nil)
+
+        if req.target and req.target ~= "" then
+            row.targetLabel:SetText("Цель: " .. req.target)
+            row.targetLabel:Show()
+        else
+            row.targetLabel:Hide()
         end
 
         local hasCrit = spell and spell.canCrit == true
@@ -529,6 +561,7 @@ function SB.UI.UpdateGMPlayers()
                 ic:SetScript("OnEnter", function(self)
                     local sp = SB.Data.Spells[self._spID]
                     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+					SB.Theme.StyleTooltip(GameTooltip)
                     if sp then
                         GameTooltip:SetText(sp.name or self._spID, 1, 0.82, 0, true)
                         if sp.description and sp.description ~= "" then
@@ -572,8 +605,8 @@ function SB.UI.UpdateGMPlayers()
         row:EnableMouse(true)
         row:SetScript("OnMouseUp", function(self, btn)
             if btn == "LeftButton" then
-                if (UnitIsGroupLeader("player") or not IsInGroup()) and
-                   SB.ResourceGrant and SB.ResourceGrant.ShowFor then
+                if SB.ResourceGrant and SB.ResourceGrant.CanGrant and SB.ResourceGrant.CanGrant() and
+                   SB.ResourceGrant.ShowFor then
                     SB.ResourceGrant.ShowFor(capturedName, p)
                 end
             elseif btn == "RightButton" then
@@ -588,7 +621,8 @@ function SB.UI.UpdateGMPlayers()
         row:SetScript("OnEnter", function(self)
             self:SetBackdropColor(C.cardHoverBg[1], C.cardHoverBg[2], C.cardHoverBg[3], C.cardHoverBg[4])
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-            if UnitIsGroupLeader("player") or not IsInGroup() then
+			SB.Theme.StyleTooltip(GameTooltip)
+            if SB.ResourceGrant and SB.ResourceGrant.CanGrant and SB.ResourceGrant.CanGrant() then
                 GameTooltip:SetText("ЛКМ — Выдать ресурсы", 1, 0.82, 0, true)
             end
             local visible = playerSpellsVisible[capturedName] == true
@@ -655,6 +689,7 @@ function SB.UI.UpdateGMPlayers()
                     ic:SetScript("OnEnter", function(self)
                         local sp = SB.Data.Spells[self._spID]
                         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+						SB.Theme.StyleTooltip(GameTooltip)
                         GameTooltip:SetText(sp and sp.name or self._spID, 1, 0.82, 0, true)
                         if sp and sp.key then GameTooltip:AddLine(sp.key, 0.8,0.8,0.8) end
                         GameTooltip:Show()
@@ -772,7 +807,7 @@ end
 -- ============================================================
 local MAX_REQUEST_QUEUE = 50  -- защита от переполнения
 
-function SB.UI.ShowGMRequest(caster, spellID, slotLevel)
+function SB.UI.ShowGMRequest(caster, spellID, slotLevel, targetLabel)
     if not SpellbreakerAccountDB.requestQueue then
         SpellbreakerAccountDB.requestQueue = {}
     end
@@ -786,12 +821,13 @@ function SB.UI.ShowGMRequest(caster, spellID, slotLevel)
     -- Лимит очереди — отбрасываем самые старые при переполнении.
     if #SpellbreakerAccountDB.requestQueue >= MAX_REQUEST_QUEUE then
         table.remove(SpellbreakerAccountDB.requestQueue, 1)
-        print("|cFFFFCC00[Spellbreaker]:|r Очередь заявок переполнена — удалена самая старая.")
+        SB.UI.PrintMsg("queueOverflow")
     end
     table.insert(SpellbreakerAccountDB.requestQueue, {
         caster    = caster,
         spellID   = spellID,
         slotLevel = tonumber(slotLevel) or 0,
+        target    = targetLabel,
         ts        = time(),  -- для диагностики / авто-чистки
     })
     -- Авто-открытие панели ГМа на вкладке «Очередь заявок».

@@ -30,6 +30,8 @@ local CHAR_DEFAULTS = {
     configLocked   = false,
     genitiveName   = "",
 	activeEffects  = {},
+    attributes     = { ["Сила"] = 1, ["Ловкость"] = 1, ["Выносливость"] = 1,
+                       ["Интеллект"] = 1, ["Эмпатия"] = 1, ["Дух"] = 1 },
     -- zeal инициализируются динамически ниже
 }
 
@@ -61,6 +63,7 @@ local ACCOUNT_DEFAULTS = {
     gmFramePos         = { x = 400,  y = 0 },
     detailFramePos     = { x = 800,  y = 0 },
     grantFramePos      = { x = 0,    y = 0 },
+    attrFramePos       = { x = 0,    y = 0 },
     contFramePos       = { x = 0,    y = 0 },
     sbCreateFramePos   = { x = 0,    y = 0 },
 	iconPickerPos      = { x = 0,    y = 0 },
@@ -163,9 +166,11 @@ initFrame:SetScript("OnEvent", function(self, event, loadedAddon)
         SB.UI.ToggleMainFrame()
     end
 
-    -- Slash-команда
-    SLASH_SPELLBREAKER1 = "/sb"
-    SlashCmdList["SPELLBREAKER"] = function()
+    -- Слэш-команда через AceConsole-3.0
+    -- регистрация чат-команды из коробки вместо ручного SlashCmdList.
+    local AceConsole = LibStub("AceConsole-3.0")
+    AceConsole:Embed(SB)
+    SB:RegisterChatCommand("sb", function()
         SB.UI.ToggleMainFrame()
-    end
+    end)
 end)
