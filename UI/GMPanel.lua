@@ -133,9 +133,8 @@ function SB.UI.BuildGMPanel()
                     end
                 end
                 -- Разослать команду группе
-                if IsInGroup() then
-                    local ch = IsInRaid() and "RAID" or "PARTY"
-                    C_ChatInfo.SendAddonMessage("SB_RP", "RTDECR", ch)
+                if IsInGroup() and SB.Net and SB.Net.SendRealtimeDecrement then
+                    SB.Net.SendRealtimeDecrement()
                 end
                 C_Timer.After(6, tick)
             end
@@ -151,9 +150,8 @@ function SB.UI.BuildGMPanel()
                     SB.ActiveEffects.DecrementOne(eff.spellID)
                 end
             end
-            if IsInGroup() then
-                local ch = IsInRaid() and "RAID" or "PARTY"
-                C_ChatInfo.SendAddonMessage("SB_RP", "RTDECR", ch)
+            if IsInGroup() and SB.Net and SB.Net.SendRealtimeDecrement then
+                SB.Net.SendRealtimeDecrement()
             end
         end, 6)
     end
@@ -169,10 +167,8 @@ function SB.UI.BuildGMPanel()
             StopRealtimeTimer()
         end
         -- Уведомить группу о смене параметра
-        if IsInGroup() then
-            local ch = IsInRaid() and "RAID" or "PARTY"
-            local val = enabled and "1" or "0"
-            C_ChatInfo.SendAddonMessage("SB_RP", "RTSYNC^" .. val, ch)
+        if IsInGroup() and SB.Net and SB.Net.SendRealtimeSync then
+            SB.Net.SendRealtimeSync(enabled)
         end
     end)
 

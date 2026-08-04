@@ -370,7 +370,7 @@ local function BuildMainFrame()
     C = SB.Theme.C
 
     sbFrame = SB.Theme.Frame("SpellbreakerMainFrame", UIParent,
-        "Aviana Spellbreaker v1.1(beta)", 380, 546)
+        "Aviana Spellbreaker v1.17(beta)", 380, 546)
     SB.Theme.AttachPositionMemory(sbFrame, "sbFramePos", -300, 0)
     sbFrame:SetClampedToScreen(true)
 

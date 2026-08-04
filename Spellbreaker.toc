@@ -1,7 +1,7 @@
 ## Interface: 90207
 ## Title: |cff865BF2Spellbreaker|r
 ## Notes: Модульная RP-система заклинаний
-## Version: 1.1
+## Version: 1.17
 ## SavedVariables: SpellbreakerDB SpellbreakerCustomDB
 
 Libs\LibStub\LibStub.lua

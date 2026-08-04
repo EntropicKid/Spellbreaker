@@ -33,9 +33,8 @@ local function SendGrant()
     if deltas.zeal ~= 0 then
         if isSelf then
             SB.ResourceGrant.Apply("ZEAL", deltas.zeal, 0, 0, granter)
-        elseif ch then
-            C_ChatInfo.SendAddonMessage("SB_RP", string.format("GRANT^%s^ZEAL^%d^0^0",
-                currentTarget.name, deltas.zeal), ch)
+        elseif ch and SB.Net and SB.Net.SendGrant then
+            SB.Net.SendGrant(currentTarget.name, "ZEAL", deltas.zeal, 0, 0)
         end
     end
 
@@ -43,9 +42,8 @@ local function SendGrant()
     if deltas.health ~= 0 then
         if isSelf then
             SB.ResourceGrant.Apply("HEALTH", deltas.health, 0, 0, granter)
-        elseif ch then
-            C_ChatInfo.SendAddonMessage("SB_RP", string.format("GRANT^%s^HEALTH^%d^0^0",
-                currentTarget.name, deltas.health), ch)
+        elseif ch and SB.Net and SB.Net.SendGrant then
+            SB.Net.SendGrant(currentTarget.name, "HEALTH", deltas.health, 0, 0)
         end
     end
 
