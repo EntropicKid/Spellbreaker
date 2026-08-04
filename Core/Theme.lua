@@ -42,27 +42,42 @@ SB.Theme.Font = SB.Theme.Font or {}
 SB.Theme.Font.h2 = "GameFontNormal"
 
 local BD = {
-    frame  = { bgFile= "Interface\\DialogFrame\\UI-DialogBox-Background",
-               edgeFile= "Interface\\DialogFrame\\UI-DialogBox-Border",
-               tile=true, tileSize=32, edgeSize=22,
-               insets={left=6,right=6,top=6,bottom=6} },
-    card   = { bgFile= "Interface\\ChatFrame\\ChatFrameBackground",
-               edgeFile= "Interface\\Tooltips\\UI-Tooltip-Border",
-               tile=true, tileSize=16, edgeSize=12,
-               insets={left=3,right=3,top=3,bottom=3} },
-    button = { bgFile= "Interface\\ChatFrame\\ChatFrameBackground",
-               edgeFile= "Interface\\Tooltips\\UI-Tooltip-Border",
-               tile=true, tileSize=16, edgeSize=10,
-               insets={left=2,right=2,top=2,bottom=2} },
-    input  = { bgFile= "Interface\\ChatFrame\\ChatFrameBackground",
-               edgeFile= "Interface\\Tooltips\\UI-Tooltip-Border",
-               tile=true, tileSize=16, edgeSize=8,
-               insets={left=2,right=2,top=2,bottom=2} },
-    tooltip= { bgFile= "Interface\\DialogFrame\\UI-DialogBox-Background",
-               edgeFile= "Interface\\DialogFrame\\UI-DialogBox-Border",
-               tile=true, tileSize=32, edgeSize=16,
-               insets={left=4,right=4,top=4,bottom=4} },
+    frame = {
+        bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true, tileSize = 32, edgeSize = 22,
+        insets = { left = 6, right = 6, top = 6, bottom = 6 },
+    },
+
+    card = {
+        bgFile   = "Interface\\ChatFrame\\ChatFrameBackground",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 12,
+        insets = { left = 3, right = 3, top = 3, bottom = 3 },
+    },
+
+    button = {
+        bgFile   = "Interface\\ChatFrame\\ChatFrameBackground",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 10,
+        insets = { left = 2, right = 2, top = 2, bottom = 2 },
+    },
+
+    input = {
+        bgFile   = "Interface\\ChatFrame\\ChatFrameBackground",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 8,
+        insets = { left = 2, right = 2, top = 2, bottom = 2 },
+    },
+
+    tooltip = {
+        bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true, tileSize = 32, edgeSize = 16,
+        insets = { left = 4, right = 4, top = 4, bottom = 4 },
+    },
 }
+
 SB.Theme.BD = BD
 
 -- ============================================================
@@ -123,16 +138,18 @@ end
 -- эффекты" в настройках звука вместе с остальной игровой озвучкой.
 -- ============================================================
 local SOUNDS = {
-    click      = SOUNDKIT and SOUNDKIT.U_CHAT_SCROLL_BUTTON       or 857,
-    open       = SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPEN           or 850,
-    close      = SOUNDKIT and SOUNDKIT.IG_MAINMENU_CLOSE          or 851,
+    click      = SOUNDKIT and SOUNDKIT.U_CHAT_SCROLL_BUTTON     or 857,
+    open       = SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPEN         or 850,
+    close      = SOUNDKIT and SOUNDKIT.IG_MAINMENU_CLOSE        or 851,
+
     -- Открытие/закрытие карточки заклинания — как вкладка достижений
-    card_open  = SOUNDKIT and SOUNDKIT.IG_CHARACTER_INFO_TAB      or 841,
-    card_close = SOUNDKIT and SOUNDKIT.IG_CHARACTER_INFO_TAB      or 841,
+    card_open  = SOUNDKIT and SOUNDKIT.IG_CHARACTER_INFO_TAB    or 841,
+    card_close = SOUNDKIT and SOUNDKIT.IG_CHARACTER_INFO_TAB    or 841,
+
     -- Вердикт ГМа по заявке на каст (#15-18)
-    success    = SOUNDKIT and SOUNDKIT.LEVEL_UP                   or 888,
-    fail       = SOUNDKIT and SOUNDKIT.IG_QUEST_FAILED            or 847,
-    reject     = SOUNDKIT and SOUNDKIT.IG_PLAYER_INVITE_DECLINE   or 882,
+    success    = SOUNDKIT and SOUNDKIT.LEVEL_UP                 or 888,
+    fail       = SOUNDKIT and SOUNDKIT.IG_QUEST_FAILED          or 847,
+    reject     = SOUNDKIT and SOUNDKIT.IG_PLAYER_INVITE_DECLINE or 882,
 }
  
 function SB.Theme.PlaySound(variant)
@@ -145,16 +162,19 @@ end
 -- ============================================================
 function SB.Theme.Button(parent, text, w, h, variant)
     local v = VARIANTS[variant] or VARIANTS.secondary
+
     local btn = CreateFrame("Button", nil, parent, "BackdropTemplate")
     btn:SetSize(w or 100, h or 24)
     btn:SetBackdrop(BD.button)
     btn:SetBackdropColor(v.bg[1], v.bg[2], v.bg[3], v.bg[4])
     btn:SetBackdropBorderColor(v.border[1], v.border[2], v.border[3], v.border[4])
+
     local fs = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     fs:SetAllPoints()
     btn:SetFontString(fs)
-    btn:SetText(text or " ")
+    btn:SetText(text or "")
     fs:SetTextColor(v.text[1], v.text[2], v.text[3])
+
     btn._fs, btn._v = fs, v
     btn._soundVariant = (variant == "danger") and "danger" or "click"
 
@@ -169,6 +189,7 @@ function SB.Theme.Button(parent, text, w, h, variant)
             self:SetBackdropColor(self._v.bg[1], self._v.bg[2], self._v.bg[3], self._v.bg[4])
             self:SetBackdropBorderColor(self._v.border[1], self._v.border[2], self._v.border[3], self._v.border[4])
         end
+        self._fs:SetPoint("CENTER", 0, 0)
     end)
     btn:SetScript("OnMouseDown", function(self)
         if self:IsEnabled() then
@@ -304,8 +325,8 @@ function SB.Theme.Frame(name, parent, title, w, h)
         end
     end)
 
+    f._suppressCloseSound = true
     f:Hide()
-	f._suppressCloseSound = true
     C_Timer.After(0, function() f._suppressCloseSound = nil end)
     return f
 end
@@ -533,15 +554,18 @@ end
 -- ============================================================
 function SB.Theme.Scroll(parent, l, t, r, b)
     local sf = CreateFrame("ScrollFrame", nil, parent)
-    sf:SetPoint("TOPLEFT",     parent, "TOPLEFT",     l or 10,  t or -34)
+    sf:SetPoint("TOPLEFT", parent, "TOPLEFT", l or 10, t or -34)
     sf:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", r or -10, b or 10)
+
     local child = CreateFrame("Frame", nil, sf)
     child:SetWidth(300)
     child:SetHeight(1)
     sf:SetScrollChild(child)
+
     sf:SetScript("OnSizeChanged", function(self)
         child:SetWidth(self:GetWidth())
     end)
+
     sf:SetScript("OnMouseWheel", function(self, delta)
         local cur = self:GetVerticalScroll()
         local max = self:GetVerticalScrollRange()
@@ -549,7 +573,6 @@ function SB.Theme.Scroll(parent, l, t, r, b)
     end)
 
     local track, thumb, UpdateThumb = SB.Theme.AttachScrollbar(sf, child, parent, t, b)
-
     return sf, child, UpdateThumb
 end
 
@@ -655,12 +678,12 @@ function SB.Theme.Input(parent, placeholder, w, h)
     local eb = CreateFrame("EditBox", nil, wrap)
     eb:SetPoint("TOPLEFT",     wrap, "TOPLEFT",     4,  -3)
     eb:SetPoint("BOTTOMRIGHT", wrap, "BOTTOMRIGHT", -4,  3)
-    eb:SetFontObject(ChatFontNormal)
+    eb:SetFontObject("ChatFontNormal")
     eb:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
     eb:SetAutoFocus(false)
     eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 
-    if placeholder and placeholder ~= " " then
+    if placeholder and placeholder ~= "" then
         local ph = wrap:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
         ph:SetPoint("LEFT", eb, "LEFT", 0, 0)
         ph:SetText(placeholder)
@@ -676,14 +699,195 @@ function SB.Theme.Input(parent, placeholder, w, h)
 end
 
 -- ============================================================
+-- DockableColumn — колонка, которая может быть встроена в другой
+-- фрейм (MainFrame) ИЛИ откреплена в самостоятельное плавающее
+-- окно со своей рамкой, перетаскиваемое и запоминающее позицию.
+--
+-- Использование:
+--   local col = SB.Theme.DockableColumn(hostFrame, "colAttrPos", "Атрибуты", 260)
+--   col:SetDockLayout(xOffset, topY, bottomY)  -- вызывать при каждом релэйауте, пока colDocked
+--   col.OnDockChanged = function(isDocked) ... end  -- хост пересчитывает раскладку
+--
+-- Открепление — потянуть за заголовок колонки (пока она в
+-- состоянии docked). Возврат — кнопка "⇲" в заголовке плавающего
+-- окна, либо повторный drag заголовка в сторону хоста (не
+-- реализовано — возврат только по кнопке, это надёжнее).
+-- ============================================================
+function SB.Theme.DockableColumn(hostFrame, dbKey, title, width)
+    local col = CreateFrame("Frame", nil, hostFrame, "BackdropTemplate")
+    col:SetWidth(width)
+    col:SetBackdrop(BD.card)
+    col:SetBackdropColor(C.cardBg[1], C.cardBg[2], C.cardBg[3], C.cardBg[4] * 0.6)
+    col:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.6)
+    col:SetClampedToScreen(true)
+ 
+    col.isDocked   = true
+    col._hostFrame = hostFrame
+    col._dbKey     = dbKey
+    col._width     = width
+ 
+    -- ── Заголовок (общий для обоих состояний) ──────────────────
+    local titleBar = CreateFrame("Frame", nil, col)
+    titleBar:SetPoint("TOPLEFT",  col, "TOPLEFT",  4, -4)
+    titleBar:SetPoint("TOPRIGHT", col, "TOPRIGHT", -4, -4)
+    titleBar:SetHeight(20)
+    titleBar:EnableMouse(true)
+ 
+    local titleBg = titleBar:CreateTexture(nil, "ARTWORK")
+    titleBg:SetAllPoints()
+    titleBg:SetColorTexture(C.titleBg[1], C.titleBg[2], C.titleBg[3], C.titleBg[4])
+ 
+    local titleFS = titleBar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    titleFS:SetPoint("LEFT", titleBar, "LEFT", 6, 0)
+    titleFS:SetText(title)
+    titleFS:SetTextColor(C.titleText[1], C.titleText[2], C.titleText[3])
+    col.titleFS = titleFS
+ 
+    -- Кнопка "вернуть на место" — видна только когда откреплена
+    local dockBtn = SB.Theme.Button(titleBar, "⇲", 18, 18, "secondary")
+    dockBtn:SetPoint("RIGHT", titleBar, "RIGHT", -2, 0)
+    dockBtn:Hide()
+ 
+    -- ── Контентная область — общий контейнер для содержимого
+    -- колонки (скролл со способностями/атрибутами/сетка эффектов).
+    -- Строится вызывающим кодом ПОСЛЕ DockableColumn через col.body.
+    local body = CreateFrame("Frame", nil, col)
+    body:SetPoint("TOPLEFT",     col, "TOPLEFT",     0, -28)
+    body:SetPoint("BOTTOMRIGHT", col, "BOTTOMRIGHT", 0, 0)
+    col.body = body
+ 
+    -- ============================================================
+    -- ОТКРЕПЛЕНИЕ / ПРИКРЕПЛЕНИЕ
+    -- ============================================================
+    local FLOAT_W, FLOAT_H = width, 420
+	
+	local function ApplyDockedVisual()
+        col:SetBackdrop(BD.card)
+        col:SetBackdropColor(C.cardBg[1], C.cardBg[2], C.cardBg[3], C.cardBg[4] * 0.6)
+        col:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.6)
+    end
+ 
+    local function Undock()
+        if not col.isDocked then return end
+
+        -- Запоминаем текущие размеры и позицию ДО того, как колонка будет откреплена
+        local curW, curH = col:GetWidth(), col:GetHeight()
+        local x, y = col:GetCenter()
+        local uiW, uiH = UIParent:GetSize()
+
+        col.isDocked = false
+
+        col:ClearAllPoints()
+        col:SetParent(UIParent)
+        col:SetFrameStrata("HIGH")
+        col:SetToplevel(true)
+        col:SetMovable(true)
+        col:EnableMouse(true)
+        col:SetClampedToScreen(true)
+
+        -- Оставляем тот же визуальный стиль, что был внутри MainFrame
+        ApplyDockedVisual()
+
+        -- По возможности оставляем колонку там же, где она была на экране
+        if x and y and uiW and uiH then
+            col:SetPoint("CENTER", UIParent, "CENTER", x - uiW / 2, y - uiH / 2)
+        else
+            col:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+        end
+
+        -- Сохраняем текущую высоту/ширину, а не принудительные 420px
+        col:SetSize(curW or FLOAT_W, curH or FLOAT_H)
+        col:SetUserPlaced(true)
+
+        dockBtn:Show()
+
+        SB.Theme.PlaySound("open")
+
+        if col.OnDockChanged then col.OnDockChanged(false) end
+    end
+ 
+    local function Redock()
+        if col.isDocked then return end
+
+		col.isDocked = true
+		col:StopMovingOrSizing()
+
+		col:SetParent(hostFrame)
+		col:SetFrameStrata("MEDIUM")
+		col:SetToplevel(false)
+		col:SetMovable(false)
+
+		-- Если ты ранее добавлял фикс, чтобы пристыкнутая колонка не перехватывала мышь:
+		col:EnableMouse(false)
+
+		-- Возвращаем тот же визуальный стиль
+		ApplyDockedVisual()
+
+		col:SetWidth(width)
+
+		dockBtn:Hide()
+
+		SB.Theme.PlaySound("close")
+
+		if col.OnDockChanged then col.OnDockChanged(true) end
+	end
+ 
+    -- Перетаскивание заголовка: пока докнута — первый drag сразу
+    -- откручивает колонку из раскладки и продолжает таскать её как
+    -- свободное окно (не нужно сначала жать отдельную кнопку).
+    titleBar:RegisterForDrag("LeftButton")
+    titleBar:SetScript("OnDragStart", function()
+        if col.isDocked then Undock() end
+        col:StartMoving()
+    end)
+    titleBar:SetScript("OnDragStop", function()
+        col:StopMovingOrSizing()
+        if not col.isDocked and SpellbreakerAccountDB then
+            local x, y = col:GetCenter()
+            if x and y then
+                local uiW, uiH = UIParent:GetSize()
+                SpellbreakerAccountDB[dbKey] = { x = x - uiW / 2, y = y - uiH / 2 }
+            end
+        end
+    end)
+ 
+    dockBtn:SetScript("OnClick", Redock)
+ 
+    col.Undock = Undock
+    col.Redock = Redock
+ 
+    --- Вызывается хостом при каждом релэйауте, пока колонка docked —
+    --- обновляет позицию/ширину внутри хоста. Не действует, если
+    --- колонка сейчас откреплена (её позиция уже под контролем
+    --- пользователя).
+    function col:SetDockLayout(xOffset, topY, bottomY, colWidth)
+        if not self.isDocked then return end
+        self:ClearAllPoints()
+        self:SetPoint("TOPLEFT",    self._hostFrame, "TOPLEFT", xOffset, topY)
+        self:SetPoint("BOTTOMLEFT", self._hostFrame, "TOPLEFT", xOffset, bottomY)
+        if colWidth then
+            self._width = colWidth
+            self:SetWidth(colWidth)
+        end
+    end
+ 
+    return col
+end
+
+-- ============================================================
 -- IconBorder — декоративная рамка вокруг иконки заклинания
 -- ============================================================
 function SB.Theme.IconBorder(card, iconWidget)
     local ib = CreateFrame("Frame", nil, card, "BackdropTemplate")
-    ib:SetPoint("TOPLEFT",     iconWidget, "TOPLEFT",     -2,  2)
-    ib:SetPoint("BOTTOMRIGHT", iconWidget, "BOTTOMRIGHT",  2, -2)
-    ib:SetBackdrop({edgeFile="Interface\\Tooltips\\UI-Tooltip-Border", edgeSize=7,
-                   insets={left=2, right=2, top=2, bottom=2}})
+    ib:SetPoint("TOPLEFT", iconWidget, "TOPLEFT", -2, 2)
+    ib:SetPoint("BOTTOMRIGHT", iconWidget, "BOTTOMRIGHT", 2, -2)
+
+    ib:SetBackdrop({
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        edgeSize = 7,
+        insets = { left = 2, right = 2, top = 2, bottom = 2 },
+    })
+
     ib:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.85)
     card._ib = ib
     return ib
