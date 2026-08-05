@@ -30,12 +30,13 @@ local emptyFS = nil
  
 local SaveEffects  -- forward declaration
 --- Возвращает true если эффект является пассивным баффом
---- (ни одного outcome не задано — кастовать нечего).
+--- (spell.isPassive = true — задаётся статически в Spells/Effects.lua
+--- или через чекбокс "Пассивный эффект" в редакторе кастомного
+--- контейнера, см. Core/CustomSpells.lua).
 local function IsPassiveEffect(spellID)
     local sp = SB.Data.Spells[spellID]
     if not sp then return false end
-    return not sp.outcome1 and not sp.outcome2
-        and not sp.outcome3 and not sp.outcome4
+    return sp.isPassive == true
 end
  
 local function FireChanged()

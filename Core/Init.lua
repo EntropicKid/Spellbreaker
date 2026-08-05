@@ -10,6 +10,8 @@ local addonName, SB = ...
 -- чтобы каждый мог безопасно писать SB.X = SB.X or {}
 SB.Events        = SB.Events        or {}
 SB.Data          = SB.Data          or {}
+SB.Attributes    = SB.Attributes    or {}
+SB.Skills        = SB.Skills        or {}
 SB.PlayerModel   = SB.PlayerModel   or {}
 SB.Logic         = SB.Logic         or {}
 SB.Net           = SB.Net           or {}
@@ -31,7 +33,9 @@ local CHAR_DEFAULTS = {
     genitiveName   = "",
 	activeEffects  = {},
     attributes     = { ["Сила"] = 1, ["Ловкость"] = 1, ["Выносливость"] = 1,
-                       ["Интеллект"] = 1, ["Эмпатия"] = 1, ["Дух"] = 1 },
+                       ["Интеллект"] = 1, ["Характер"] = 1, ["Дух"] = 1 },
+    skills         = {},
+	spellOutcomes  = {},
     -- zeal инициализируются динамически ниже
 }
 

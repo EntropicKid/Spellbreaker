@@ -180,7 +180,8 @@ function PM.GetHealth()
     return db().health or PM.GetMaxHealth()
 end
 
---- Максимум здоровья, вычисленный по текущему уровню персонажа.
+--- Максимум здоровья, вычисленный по текущему уровню персонажа
+--- + бонус от навыка "Живучесть" (+1 ХП за каждую точку сверх 1).
 function PM.GetMaxHealth()
     local lvl = UnitLevel("player") or 1
     local val = HP_PROGRESSION[1][2]
@@ -190,6 +191,9 @@ function PM.GetMaxHealth()
         else
             break
         end
+    end
+    if SB.Skills and SB.Skills.GetVitalityBonus then
+        val = val + SB.Skills.GetVitalityBonus()
     end
     return val
 end

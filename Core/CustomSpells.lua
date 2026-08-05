@@ -275,7 +275,7 @@ local currentEditID = nil
 
 -- Виджеты формы
 local fIconTex, fName, fClass, fLevel, fKey, fDesc
-local fCanCrit, fO1, fO2, fO3, fO4, fO3Wrap, fO4Wrap
+local fCanCrit
 local fDist, fDistIdx = nil, 1
 local fClassIdx, fLevelVal = 1, 0
 local fIconPath = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -291,10 +291,9 @@ local DIST_VALS   = { 0, 1.5, 5, 10, 20, 30, 40 }
 local DIST_LABELS = { "На себя", "Ближний бой", "5м", "10м", "20м", "30м", "40м" }
 
 -- ── Лимиты символов (UTF-8) (#2) ─────────────────────────────
-local LIMIT_NAME    = 17
-local LIMIT_KEY     = 17
+local LIMIT_NAME    = 20
+local LIMIT_KEY     = 20
 local LIMIT_DESC    = 1550
-local LIMIT_OUTCOME = 250
 
 local function Utf8Len(s)
     if string.utf8len then
@@ -350,15 +349,6 @@ end
 
 local function FormGetText(eb) return eb and eb:GetText() or "" end
 
-local function UpdateOutcomeSensitivity()
-    C = C or SB.Theme.C
-    local checked = fCanCrit:GetChecked()
-    if fO3Wrap then fO3Wrap:SetAlpha(checked and 1 or 0.35) end
-    if fO4Wrap then fO4Wrap:SetAlpha(checked and 1 or 0.35) end
-    if fO3 then fO3:SetEnabled(checked) end
-    if fO4 then fO4:SetEnabled(checked) end
-end
-
 local function MakeMLInput(parent, w, h)
     C = C or SB.Theme.C
     local bg = CreateFrame("Frame", nil, parent, "BackdropTemplate")
@@ -386,22 +376,14 @@ local function MakeMLInput(parent, w, h)
     return bg, eb
 end
 
-local function MakeOutcomeRow(parent, anchor, anchorPoint, yOff, label)
-    local lbl = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    lbl:SetPoint("TOPLEFT", anchor, anchorPoint, 0, yOff)
-    lbl:SetText(label)
-    lbl:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
-    local wrap, eb = MakeMLInput(parent, 400 - 28, 46)
-    wrap:SetPoint("TOPLEFT", lbl, "BOTTOMLEFT", 0, -2)
-    return wrap, eb, lbl
-end
-
 local function BuildCreateFrame()
     C = C or SB.Theme.C
     local fw = 400
     -- #4: концентрация + длительность добавляют высоту (+60)
+    -- Высота уменьшена (было 740) — outcome-поля переехали в
+    -- детальную карточку заклинания (UI/Library.lua).
     createFrame = SB.Theme.Frame("SBCustomSpellCreateFrame", UIParent,
-        "Создать заклинание", fw, 740)
+        "Создать заклинание", fw, 480)
     createFrame:SetPoint("CENTER")
     createFrame:SetFrameStrata("DIALOG")
     SB.Theme.AttachPositionMemory(createFrame, "sbCreateFramePos", 0, 0)
@@ -536,23 +518,15 @@ local function BuildCreateFrame()
     ccLabel:SetPoint("LEFT", fCanCrit, "RIGHT", 4, 0)
     ccLabel:SetText("Способно ли заклинание критовать?")
     ccLabel:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
-    fCanCrit:SetScript("OnClick", function() UpdateOutcomeSensitivity() end)
 
-    -- Outcomes (#2: лимит 250)
-    local o1Wrap, o1EB = MakeOutcomeRow(createFrame, ccBg, "BOTTOMLEFT", -6, "|cFF00FF00Успех:|r")
-    fO1 = o1EB; AttachCharLimit(fO1, LIMIT_OUTCOME, o1Wrap)
-    local o2Wrap, o2EB = MakeOutcomeRow(createFrame, o1Wrap, "BOTTOMLEFT", -6, "|cFFFF4444Провал:|r")
-    fO2 = o2EB; AttachCharLimit(fO2, LIMIT_OUTCOME, o2Wrap)
-    fO3Wrap, fO3 = MakeOutcomeRow(createFrame, o2Wrap, "BOTTOMLEFT", -6, "|cFF00FFFFКритический успех:|r")
-    AttachCharLimit(fO3, LIMIT_OUTCOME, fO3Wrap)
-    fO4Wrap, fO4 = MakeOutcomeRow(createFrame, fO3Wrap, "BOTTOMLEFT", -6, "|cFFAA44FFКритический провал:|r")
-    AttachCharLimit(fO4, LIMIT_OUTCOME, fO4Wrap)
-
-    UpdateOutcomeSensitivity()
+    -- Отписи (успех/провал/крит) больше не задаются здесь — игрок
+    -- вписывает единственную отпись (успех/крит-успех) прямо в
+    -- детальной карточке заклинания (UI/Library.lua), она хранится
+    -- per-character в SB.SpellOutcomes.
 
     -- Create / Edit Container button
     fContBtn = SB.Theme.Button(createFrame, "Создать эффект", fw-28, 26, "primary")
-    fContBtn:SetPoint("TOPLEFT", fO4Wrap, "BOTTOMLEFT", 0, -8)
+    fContBtn:SetPoint("TOPLEFT", ccBg, "BOTTOMLEFT", 0, -8)
     fContBtn:SetScript("OnClick", function()
         if not currentEditID then
             if not SB.CustomSpells.SaveForm(true) then return end
@@ -602,25 +576,15 @@ end
 -- ============================================================
 local contFrame
 local fC_Name, fC_Icon, fC_IconPath, fC_Desc, fC_Dur, fC_IsConc
-local fC_Level, fC_Dist, fC_CanCrit
-local fC_O1, fC_O2, fC_O3Wrap, fC_O3, fC_O4Wrap, fC_O4
+local fC_Level, fC_Dist, fC_CanCrit, fC_IsPassive
 local fC_LevelVal, fC_DistIdx, fC_ClassIdx
 local contParentID, contEditID
-
-local function UpdateContOutcomeSensitivity()
-    if not fC_CanCrit then return end
-    local checked = fC_CanCrit:GetChecked()
-    if fC_O3Wrap then fC_O3Wrap:SetAlpha(checked and 1 or 0.35) end
-    if fC_O4Wrap then fC_O4Wrap:SetAlpha(checked and 1 or 0.35) end
-    if fC_O3 then fC_O3:SetEnabled(checked) end
-    if fC_O4 then fC_O4:SetEnabled(checked) end
-end
 
 local function BuildContainerFrame()
     C = C or SB.Theme.C
     local fw = 400
     contFrame = SB.Theme.Frame("SBCustomSpellContFrame", UIParent,
-        "Effect Container", fw, 600)
+        "Effect Container", fw, 340)
     contFrame:SetFrameStrata("DIALOG")
     SB.Theme.AttachPositionMemory(contFrame, "contFramePos", 0, 0)
     local cY = contFrame.contentY - 4
@@ -711,30 +675,33 @@ local function BuildContainerFrame()
     ccLabel:SetPoint("LEFT", fC_CanCrit, "RIGHT", 4, 0)
     ccLabel:SetText("Способно ли заклинание критовать?")
     ccLabel:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
-    fC_CanCrit:SetScript("OnClick", function() UpdateContOutcomeSensitivity() end)
 
-    -- Outcomes (#2: лимит 250)
-    local o1Wrap, o1EB = MakeOutcomeRow(contFrame, ccBg, "BOTTOMLEFT", -6,
-        "|cFF00FF00Успех:|r")
-    fC_O1 = o1EB; AttachCharLimit(fC_O1, LIMIT_OUTCOME, o1Wrap)
+    -- Пассивный эффект — нельзя "юзнуть" повторно, пока действие не
+    -- закончится (см. Core/ActiveEffects.lua IsPassiveEffect).
+    -- Независим от canCrit — canCrit лишь про способность наносить
+    -- урон/критовать, isPassive про повторное применение.
+    local ipBg = CreateFrame("Frame", nil, contFrame, "BackdropTemplate")
+    ipBg:SetSize(fw-28, 26)
+    ipBg:SetPoint("TOPLEFT", ccBg, "BOTTOMLEFT", 0, -6)
+    ipBg:SetBackdrop(SB.Theme.BD.card)
+    ipBg:SetBackdropColor(0.06, 0.05, 0.10, 0.80)
+    ipBg:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
 
-    local o2Wrap, o2EB = MakeOutcomeRow(contFrame, o1Wrap, "BOTTOMLEFT", -6,
-        "|cFFFF4444Провал:|r")
-    fC_O2 = o2EB; AttachCharLimit(fC_O2, LIMIT_OUTCOME, o2Wrap)
+    fC_IsPassive = CreateFrame("CheckButton", nil, ipBg, "UICheckButtonTemplate")
+    fC_IsPassive:SetSize(20, 20)
+    fC_IsPassive:SetPoint("LEFT", ipBg, "LEFT", 6, 0)
+    local ipLabel = ipBg:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    ipLabel:SetPoint("LEFT", fC_IsPassive, "RIGHT", 4, 0)
+    ipLabel:SetText("Пассивный эффект (нельзя применить повторно)")
+    ipLabel:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
 
-    fC_O3Wrap, fC_O3 = MakeOutcomeRow(contFrame, o2Wrap, "BOTTOMLEFT", -6,
-        "|cFF00FFFFКритический успех:|r")
-    AttachCharLimit(fC_O3, LIMIT_OUTCOME, fC_O3Wrap)
-
-    fC_O4Wrap, fC_O4 = MakeOutcomeRow(contFrame, fC_O3Wrap, "BOTTOMLEFT", -6,
-        "|cFFAA44FFКритический провал:|r")
-    AttachCharLimit(fC_O4, LIMIT_OUTCOME, fC_O4Wrap)
-
-    UpdateContOutcomeSensitivity()
+    -- Отписи (успех/провал/крит) больше не задаются здесь — единственная
+    -- отпись (успех/крит-успех) вводится в детальной карточке этого
+    -- эффекта (UI/Library.lua), хранится per-character в SB.SpellOutcomes.
 
     -- Buttons
     local saveBtn = SB.Theme.Button(contFrame, "Сохранить эффект", 150, 28, "primary")
-    saveBtn:SetPoint("BOTTOMLEFT", contFrame, "BOTTOMLEFT", 14, 14)
+    saveBtn:SetPoint("TOPLEFT", ipBg, "BOTTOMLEFT", 0, -14)
     saveBtn:SetScript("OnClick", function() SB.CustomSpells.SaveContainer() end)
 
     local cancelBtn = SB.Theme.Button(contFrame, "Отмена", 100, 28, "secondary")
@@ -742,7 +709,7 @@ local function BuildContainerFrame()
     cancelBtn:SetScript("OnClick", function() contFrame:Hide() end)
 
     contFrame.deleteBtn = SB.Theme.Button(contFrame, "Удалить", 100, 28, "danger")
-    contFrame.deleteBtn:SetPoint("BOTTOMRIGHT", contFrame, "BOTTOMRIGHT", -14, 14)
+    contFrame.deleteBtn:SetPoint("LEFT", cancelBtn, "RIGHT", 8, 0)
     contFrame.deleteBtn:Hide()
     contFrame.deleteBtn:SetScript("OnClick", function()
         if contEditID then
@@ -771,8 +738,8 @@ function SB.CustomSpells.OpenContainerFrame(parentID, existingContID)
             fC_Desc:SetText(sp.description or "")
             fC_Dur:SetText(tostring(sp.duration or 1))
             -- fC_IsConc:SetChecked(sp.isConcentration or false)
-            if fC_CanCrit then fC_CanCrit:SetChecked(sp.canCrit or false) end
-            UpdateContOutcomeSensitivity()
+            if fC_CanCrit    then fC_CanCrit:SetChecked(sp.canCrit or false) end
+            if fC_IsPassive  then fC_IsPassive:SetChecked(sp.isPassive or false) end
 
             fC_LevelVal = sp.level or 0
             fC_Level:SetText(fC_LevelVal == 0 and "Порядок: Заговор" or ("Порядок: " .. fC_LevelVal))
@@ -781,10 +748,6 @@ function SB.CustomSpells.OpenContainerFrame(parentID, existingContID)
                 if v == (sp.distance or 0) then fC_DistIdx = i; break end
             end
             fC_Dist:SetText("Дальность: " .. DIST_LABELS[fC_DistIdx])
-            if fC_O1 then fC_O1:SetText(sp.outcome1 or "") end
-            if fC_O2 then fC_O2:SetText(sp.outcome2 or "") end
-            if fC_O3 then fC_O3:SetText(sp.outcome3 or "") end
-            if fC_O4 then fC_O4:SetText(sp.outcome4 or "") end
 
             contFrame.title:SetText("Редактировать эффект: " .. (sp.name or ""))
             contFrame.deleteBtn:Show()
@@ -799,16 +762,12 @@ function SB.CustomSpells.OpenContainerFrame(parentID, existingContID)
     fC_Icon:SetTexture(fC_IconPath)
     fC_Desc:SetText("")
     fC_Dur:SetText("1")
-    if fC_CanCrit then fC_CanCrit:SetChecked(false) end
-    UpdateContOutcomeSensitivity()
+    if fC_CanCrit   then fC_CanCrit:SetChecked(false) end
+    if fC_IsPassive then fC_IsPassive:SetChecked(false) end
     fC_LevelVal = 0
     fC_Level:SetText("Порядок: Заговор")
     fC_DistIdx = 1
     fC_Dist:SetText("Дальность: На себя")
-    if fC_O1 then fC_O1:SetText("") end
-    if fC_O2 then fC_O2:SetText("") end
-    if fC_O3 then fC_O3:SetText("") end
-    if fC_O4 then fC_O4:SetText("") end
 
     contFrame.title:SetText("Новый эффект")
     contFrame.deleteBtn:Hide()
@@ -825,7 +784,8 @@ function SB.CustomSpells.SaveContainer()
     local id     = contEditID or GenerateID("custom_cont_")
     local dur    = tonumber(FormGetText(fC_Dur)) or 1
     local isConc = false
-    local canCrit = fC_CanCrit and fC_CanCrit:GetChecked() or false
+    local canCrit   = fC_CanCrit   and fC_CanCrit:GetChecked()   or false
+    local isPassive = fC_IsPassive and fC_IsPassive:GetChecked() or false
 
     local contSpell = {
         id              = id,
@@ -837,12 +797,7 @@ function SB.CustomSpells.SaveContainer()
         description     = FormGetText(fC_Desc):match("^%s*(.-)%s*$") or "",
         icon            = fC_IconPath,
         canCrit         = canCrit,
-        outcome1        = canCrit and FormGetText(fC_O1):match("^%s*(.-)%s*$") or
-                          FormGetText(fC_O1):match("^%s*(.-)%s*$"),
-        outcome2        = canCrit and FormGetText(fC_O2):match("^%s*(.-)%s*$") or
-                          FormGetText(fC_O2):match("^%s*(.-)%s*$"),
-        outcome3        = canCrit and FormGetText(fC_O3):match("^%s*(.-)%s*$") or nil,
-        outcome4        = canCrit and FormGetText(fC_O4):match("^%s*(.-)%s*$") or nil,
+        isPassive       = isPassive,
         distance        = DIST_VALS[fC_DistIdx or 1] or 0,
         resistable      = false,
         isCustom        = true,
@@ -852,11 +807,6 @@ function SB.CustomSpells.SaveContainer()
         duration        = dur,
         isConcentration = isConc,
     }
-
-    if contSpell.outcome1 == "" then contSpell.outcome1 = nil end
-    if contSpell.outcome2 == "" then contSpell.outcome2 = nil end
-    if contSpell.outcome3 == "" then contSpell.outcome3 = nil end
-    if contSpell.outcome4 == "" then contSpell.outcome4 = nil end
 
     InjectSpell(contSpell)
     if IsBroadcastRelevant(nil, contSpell.id) then
@@ -892,9 +842,7 @@ function SB.CustomSpells.OpenCreate()
     fName:SetText("")
     fKey:SetText("")
     fDesc:SetText("")
-    fO1:SetText(""); fO2:SetText(""); fO3:SetText(""); fO4:SetText("")
     fCanCrit:SetChecked(false)
-    UpdateOutcomeSensitivity()
     -- #4: сброс duration/concentration
     if fDuration then fDuration:SetText("0") end
     if fIsConc   then fIsConc:SetChecked(false) end
@@ -942,10 +890,7 @@ function SB.CustomSpells.OpenEdit(spellID)
     fName:SetText(sp.name or "")
     fKey:SetText(sp.key or "")
     fDesc:SetText(sp.description or "")
-    fO1:SetText(sp.outcome1 or ""); fO2:SetText(sp.outcome2 or "")
-    fO3:SetText(sp.outcome3 or ""); fO4:SetText(sp.outcome4 or "")
     fCanCrit:SetChecked(sp.canCrit or false)
-    UpdateOutcomeSensitivity()
 
     -- #4: загрузить duration/concentration основного заклинания
     if fDuration then fDuration:SetText(tostring(sp.duration or 0)) end
@@ -1003,10 +948,6 @@ function SB.CustomSpells.SaveForm(silent)
         description     = FormGetText(fDesc):match("^%s*(.-)%s*$"),
         icon            = fIconPath,
         canCrit         = fCanCrit:GetChecked(),
-        outcome1        = FormGetText(fO1):match("^%s*(.-)%s*$"),
-        outcome2        = FormGetText(fO2):match("^%s*(.-)%s*$"),
-        outcome3        = fCanCrit:GetChecked() and FormGetText(fO3):match("^%s*(.-)%s*$") or nil,
-        outcome4        = fCanCrit:GetChecked() and FormGetText(fO4):match("^%s*(.-)%s*$") or nil,
         distance        = DIST_VALS[fDistIdx] or 0,
         container       = fContID,
         duration        = (durVal > 0) and durVal or (fContID and (fContDur or 1) or nil),
@@ -1017,11 +958,6 @@ function SB.CustomSpells.SaveForm(silent)
 		createdBy       = UnitName("player"),
 		version   = (SB.Data.Spells[id] and (SB.Data.Spells[id].version or 1) + 1) or 1,
     }
-
-    if sp.outcome1 == "" then sp.outcome1 = nil end
-    if sp.outcome2 == "" then sp.outcome2 = nil end
-    if sp.outcome3 == "" then sp.outcome3 = nil end
-    if sp.outcome4 == "" then sp.outcome4 = nil end
 
      InjectSpell(sp)
     -- Рассылка подготовленных заклинаний

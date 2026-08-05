@@ -341,30 +341,29 @@ function SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, totalScaling)
     local dcNum   = tonumber(dc) or 0
     local success = total >= dcNum
  
-    local successMsg = spell.outcome1 or "Заклинание успешно применено!"
-    local failMsg    = spell.outcome2 or "Заклинание провалилось."
-    local critMsg    = spell.outcome3 or successMsg
-    local fumbleMsg  = spell.outcome4 or failMsg
+    -- Единственная отпись игрока — на успех (и крит-успех тоже её
+    -- использует). Провал/крит-провал не имеют отписи в принципе.
+    local successMsg = SB.SpellOutcomes.Get(spellID)
  
     local outcomeText, resultStatus, succeeded, detail, isCrit, isFumble
  
     if spell.resistable == false and dcNum == 0 then
-        outcomeText   = spell.outcome1 or "Заклинание успешно применено."
+        outcomeText   = successMsg
         resultStatus  = "|cFF00FF00УСПЕХ (Без сопротивления)|r"
         succeeded     = true
         detail        = nil
     else
         if total > critThresh and spell.canCrit then
-            outcomeText = critMsg;   resultStatus = "|cFF00FF00Критический успех!|r"; succeeded = true; isCrit = true
+            outcomeText = successMsg; resultStatus = "|cFF00FF00Критический успех!|r"; succeeded = true; isCrit = true
             detail = string.format("%d + %d = %d — выше порога крита (%d)", roll, mod, total, critThresh)
         elseif roll == 1 and spell.canCrit then
-            outcomeText = fumbleMsg; resultStatus = "|cFFFF0000Критический провал...|r"; succeeded = false; isFumble = true
+            outcomeText = nil; resultStatus = "|cFFFF0000Критический провал...|r"; succeeded = false; isFumble = true
             detail = "Натуральная 1 на кубике"
         elseif success then
             outcomeText = successMsg; resultStatus = "|cFF00FF00Успех.|r"; succeeded = true
             detail = string.format("%d + %d = %d против СЛ %d", roll, mod, total, dcNum)
         else
-            outcomeText = failMsg;    resultStatus = "|cFFFF0000Провал.|r"; succeeded = false
+            outcomeText = nil;    resultStatus = "|cFFFF0000Провал.|r"; succeeded = false
             detail = string.format("%d + %d = %d против СЛ %d", roll, mod, total, dcNum)
         end
     end
@@ -418,10 +417,14 @@ function SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, totalScaling)
     end
     SB.Events.Fire("BROADCAST_LOG", sysMsg)
  
-    -- RP-эмоут
-    local rpMsg = ApplyTemplates(outcomeText or "применяет заклинание.")
-    if not SpellbreakerAccountDB or SpellbreakerAccountDB.sendEmotes ~= false then
-        SendChatMessage(rpMsg, "EMOTE")
+    -- RP-эмоут — только если у игрока задана отпись. Пустое поле
+    -- (включая провал/крит-провал, у которых outcomeText = nil) —
+    -- ничего не отправляем.
+    if outcomeText and outcomeText ~= "" then
+        local rpMsg = ApplyTemplates(outcomeText)
+        if not SpellbreakerAccountDB or SpellbreakerAccountDB.sendEmotes ~= false then
+            SendChatMessage(rpMsg, "EMOTE")
+        end
     end
 
     -- Хук для будущих уникальных механик заклинаний, работающих через
@@ -453,11 +456,12 @@ function SB.Logic.ExecuteForcedOutcome(spellID, outcomeIndex, slotLevel)
     if spell.caura and not (SpellbreakerAccountDB and SpellbreakerAccountDB.ignoreCaura)
        then SendChatMessage(".caura toggle " .. spell.caura, "SAY") end
 
-    local texts  = { spell.outcome1, spell.outcome2, spell.outcome3, spell.outcome4 }
+    -- Единственная отпись игрока используется на исходах 1 (успех) и
+    -- 3 (крит. успех) — на провал/крит-провал (2/4) отписи нет вообще.
+    local succeeded    = (outcomeIndex == 1 or outcomeIndex == 3)
+    local outcomeText  = succeeded and SB.SpellOutcomes.Get(spellID) or nil
     local labels = { "Успех.", "Провал.", "Критический успех!", "Критический провал..." }
-    local outcomeText = texts[outcomeIndex] or texts[1] or "применяет заклинание."
 
-    local succeeded   = (outcomeIndex == 1 or outcomeIndex == 3)
     local colorCode    = succeeded and "|cFF00FF00" or "|cFFFF0000"
     local resultStatus = colorCode .. (labels[outcomeIndex] or "Успех.") .. "|r"
     SB.Events.Fire("CAST_RESOLVED", spellID, succeeded, resultStatus, "Форсировано ГМом")
@@ -468,8 +472,6 @@ function SB.Logic.ExecuteForcedOutcome(spellID, outcomeIndex, slotLevel)
     local sysMsg = "|cFF9933FF[Spellbreaker]:|r " .. G .. UnitName("player") ..
         " применяет " .. t .. " |r" .. link ..
         G .. ". Форсировано ГМом: |r" .. resultStatus
-
-    local rpMsg = ApplyTemplates(outcomeText)
 
     	-- Уменьшает счетчик на 1 для все спеллов
     if SB.ActiveEffects then
@@ -485,8 +487,11 @@ function SB.Logic.ExecuteForcedOutcome(spellID, outcomeIndex, slotLevel)
     end
 
     SB.Events.Fire("BROADCAST_LOG", sysMsg)
-    if not SpellbreakerAccountDB or SpellbreakerAccountDB.sendEmotes ~= false then
-        SendChatMessage(rpMsg, "EMOTE")
+    if outcomeText and outcomeText ~= "" then
+        local rpMsg = ApplyTemplates(outcomeText)
+        if not SpellbreakerAccountDB or SpellbreakerAccountDB.sendEmotes ~= false then
+            SendChatMessage(rpMsg, "EMOTE")
+        end
     end
     SB.Events.Fire("STATUS_CHANGED")
 end
@@ -609,14 +614,11 @@ function SB.Logic.HandlePvpResultReceived(targetName, defRoll, defMod, defTotal,
     local spell = spellID and SB.Data.Spells[spellID]
     if not spell then return end
 
-    local isCrit = pending.isCrit
-    local outcomeText
-    if dmg > 0 then
-        outcomeText = (isCrit and spell.outcome3) or spell.outcome1
-    else
-        outcomeText = spell.outcome2
-    end
-    outcomeText = outcomeText or (dmg > 0 and "поражает цель." or "не достигает цели.")
+    -- Отпись есть только при попадании (обычном или крите) — при
+    -- промахе (dmg == 0) ничего не отправляем.
+    if dmg <= 0 then return end
+    local outcomeText = SB.SpellOutcomes.Get(spellID)
+    if not outcomeText or outcomeText == "" then return end
 
     local rpMsg = ApplyTemplates(outcomeText)
     if not SpellbreakerAccountDB or SpellbreakerAccountDB.sendEmotes ~= false then
@@ -684,12 +686,12 @@ function SB.Logic.ResolveHeal(spellID, slotLevel)
     SB.Events.Fire("BROADCAST_LOG", sysMsg)
     -- SendChatMessage(chatMsg, "SAY")
 
-    local emoteText = success
-        and (spell.outcome1 or "исцеляет раны.")
-        or  (spell.outcome2 or "не может подобрать нужное исцеление.")
-    local rpMsg = ApplyTemplates(emoteText)
-    if not SpellbreakerAccountDB or SpellbreakerAccountDB.sendEmotes ~= false then
-        SendChatMessage(rpMsg, "EMOTE")
+    local emoteText = success and SB.SpellOutcomes.Get(spellID) or nil
+    if emoteText and emoteText ~= "" then
+        local rpMsg = ApplyTemplates(emoteText)
+        if not SpellbreakerAccountDB or SpellbreakerAccountDB.sendEmotes ~= false then
+            SendChatMessage(rpMsg, "EMOTE")
+        end
     end
 
     if spell.onResolve then

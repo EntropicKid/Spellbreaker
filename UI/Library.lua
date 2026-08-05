@@ -204,6 +204,12 @@ function SB.Library.ShowDetail(spell)
     local f = SpellbreakerDetailFrame
     if not f then return end
 
+    -- Снять фокус ПЕРЕД сменой f._spellID — иначе OnEditFocusLost
+    -- сохранит недописанный текст под новым (уже сменившимся) ID.
+    if f.outcomeBox and f.outcomeBox.editBox:HasFocus() then
+        f.outcomeBox.editBox:ClearFocus()
+    end
+
     f._spellID = spell.id
     f.title:SetText(spell.name or "Неизвестно")
     f.icon:SetTexture(spell.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
@@ -259,23 +265,14 @@ function SB.Library.ShowDetail(spell)
         f.metaCreator:Hide()
     end
 
-    -- Описание и исходы
-    local txt = "|cFFFFFFFF" .. (spell.description or "Описание отсутствует.") .. "|r\n\n"
-    local function cleanOutcome(s)
-        s = s:gsub("{target_nom}", "цель")
-        s = s:gsub("{target_gen}", "цели")
-        s = s:gsub("{target_dat}", "цели")
-        s = s:gsub("{target_acc}", "цель")
-        s = s:gsub("{target_ins}", "целью")
-        s = s:gsub("{target_pre}", "цели")
-        s = s:gsub("{target}",     "цель")
-        return s
-    end
-    if spell.outcome1 then txt = txt .. "|cFF00FF00[Успех]:|r "       .. cleanOutcome(spell.outcome1) .. "\n" end
-    if spell.outcome2 then txt = txt .. "|cFFFF4444[Провал]:|r "      .. cleanOutcome(spell.outcome2) .. "\n" end
-    if spell.outcome3 then txt = txt .. "|cFF00FFFF[Крит. Успех]:|r " .. cleanOutcome(spell.outcome3) .. "\n" end
-    if spell.outcome4 then txt = txt .. "|cFFAA44FF[Крит. Провал]:|r ".. cleanOutcome(spell.outcome4) .. "\n" end
+    -- Описание (без исходов — они больше не хранятся в данных
+    -- заклинания; отпись при успехе вводится ниже игроком лично).
+    local txt = "|cFFFFFFFF" .. (spell.description or "Описание отсутствует.") .. "|r"
     f.desc:SetText(txt)
+
+    -- Поле отписи — общее для успеха и крит. успеха (см.
+    -- Core/SpellOutcomes.lua). Провал/крит-провал отписи не имеют.
+    f.outcomeBox.editBox:SetText(SB.SpellOutcomes.Get(spell.id) or "")
 
     f.prepareBtn:SetScript("OnClick", function()
         if SB.UI and SB.UI.PrepareSpell then SB.UI.PrepareSpell(spell) end
@@ -306,7 +303,8 @@ function SB.Library.ShowDetail(spell)
     headerH = math.max(headerH, 52) -- высота иконки
 
     local th = f.desc:GetStringHeight() or 0
-    f:SetHeight(math.max(200, headerH + th + 86)) -- отступ под кнопку
+    local OUTCOME_BOX_H = 58 -- ~2-3 строки + отступы
+    f:SetHeight(math.max(200, headerH + th + OUTCOME_BOX_H + 30 + 86)) -- +30 надпись, +86 отступ под кнопку
 
     f:SetFrameStrata("DIALOG")
     f:Show()
@@ -564,6 +562,26 @@ function SB.Library.BuildFrame()
     detailFrame.desc:SetJustifyV("TOP")
     detailFrame.desc:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
     detailFrame.desc:SetWordWrap(true)
+
+    -- Отпись игрока при успехе/крит. успехе — заполняется лично,
+    -- сохраняется автоматически по потере фокуса (см. ниже).
+    detailFrame.outcomeLabel = detailFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    detailFrame.outcomeLabel:SetPoint("TOPLEFT", detailFrame.desc, "BOTTOMLEFT", 0, -10)
+    detailFrame.outcomeLabel:SetText("|cFFFFD100Ваша отпись при успехе:|r")
+    detailFrame.outcomeLabel:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+
+    local OUTCOME_MAX_CHARS = 300
+    detailFrame.outcomeBox = SB.Theme.MultilineInput(detailFrame,
+        "Например: наносит удар мечом по врагу…", 354, 58, OUTCOME_MAX_CHARS)
+    detailFrame.outcomeBox:SetPoint("TOPLEFT", detailFrame.outcomeLabel, "BOTTOMLEFT", 0, -4)
+    detailFrame.outcomeBox:SetPoint("RIGHT", detailFrame, "RIGHT", -12, 0)
+
+    detailFrame.outcomeBox.editBox:SetScript("OnEditFocusLost", function(self)
+        SB.SpellOutcomes.Set(detailFrame._spellID, self:GetText())
+        -- Синхронизировать плейсхолдер (переиспользуем OnTextChanged
+        -- логику, уже привязанную в SB.Theme.MultilineInput).
+        self:GetScript("OnTextChanged")(self)
+    end)
 
     detailFrame.prepareBtn = SB.Theme.Button(detailFrame, "Подготовить", 110, 26, "primary")
     detailFrame.prepareBtn:SetPoint("BOTTOM", detailFrame, "BOTTOM", 0, 12)

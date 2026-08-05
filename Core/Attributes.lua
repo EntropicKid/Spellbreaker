@@ -88,15 +88,30 @@ end
 -- ПУБЛИЧНЫЙ API
 -- ============================================================
 
+-- Быстрая проверка "является ли ключ именем атрибута" — нужна,
+-- чтобы Get/GetModifier могли принимать как атрибут, так и навык,
+-- и корректно делегировать в SB.Skills.
+local isAttrKey = {}
+for _, def in ipairs(SB.Data.Attributes) do
+    isAttrKey[def.key] = true
+end
+
 --- Сколько всего очков атрибутов положено персонажу на его уровне.
---- 6 базовых + 1 за каждый чётный уровень.
+--- 5 базовых + 1 за каждые 5 уровней (5/10/15/20/25).
 function SB.Attributes.GetTotalPoints(level)
     level = level or UnitLevel("player") or 1
-    return 6 + math.floor(level / 2)
+    return 5 + math.floor(level / 5)
 end
 
 --- Текущее значение атрибута (по умолчанию 1 — минимум).
+--- Полиморфно: если key — не имя атрибута, а имя навыка,
+--- прозрачно делегирует в SB.Skills.Get — это позволяет
+--- заклинаниям скейлиться от навыков наравне с атрибутами
+--- через один и тот же API (spell.attributes = {...}).
 function SB.Attributes.Get(key)
+    if not isAttrKey[key] and SB.Skills and SB.Skills.IsSkillKey and SB.Skills.IsSkillKey(key) then
+        return SB.Skills.Get(key)
+    end
     local d = db()
     return (d and d.attributes and d.attributes[key]) or MIN_ATTR
 end
@@ -111,7 +126,7 @@ function SB.Attributes.GetAll()
     return out
 end
 
---- Модификатор броска от значения атрибута: (значение-1) * 3.
+--- Модификатор броска от значения атрибута ИЛИ навыка: (значение-1) * 3.
 function SB.Attributes.GetModifier(key)
     return (SB.Attributes.Get(key) - MIN_ATTR) * MOD_PER_POINT
 end

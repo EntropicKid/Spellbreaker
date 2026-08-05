@@ -1,7 +1,7 @@
 ## Interface: 90207
 ## Title: |cff865BF2Spellbreaker|r
 ## Notes: Модульная RP-система заклинаний
-## Version: 1.17
+## Version: 1.182(beta)
 ## SavedVariables: SpellbreakerDB SpellbreakerCustomDB
 
 Libs\LibStub\LibStub.lua
@@ -41,8 +41,10 @@ Spells\Effects.lua
 
 Core\Theme.lua
 Core\Strings.lua
-Core\PlayerModel.lua
 Core\Attributes.lua
+Core\Skills.lua
+Core\SpellOutcomes.lua
+Core\PlayerModel.lua
 Core\Logic.lua
 Core\Network.lua
 Core\CustomSpells.lua

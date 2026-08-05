@@ -59,8 +59,8 @@ local function EnsureToastHandle()
     h:SetPoint("TOP", UIParent, "TOP", 0, TOAST_BASE_Y)
     h:SetFrameStrata("HIGH")
     h:SetBackdrop(SB.Theme.BD.card)
-    h:SetBackdropColor(0.04, 0.03, 0.07, 0.85)
-    h:SetBackdropBorderColor(CC.frameBorder[1], CC.frameBorder[2], CC.frameBorder[3], 0.8)
+    h:SetBackdropColor(C.cardBg[1], C.cardBg[2], C.cardBg[3], C.cardBg[4])
+    h:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
     h:EnableMouse(true)
     h:SetMovable(true)
     h:SetClampedToScreen(true)
@@ -183,7 +183,7 @@ local function CreateToast()
     f:SetBackdrop(SB.Theme.BD.card)
     f._bgColor     = {0.05, 0.04, 0.08, 0.92}
     f._borderColor = {CC.frameBorder[1], CC.frameBorder[2], CC.frameBorder[3], 1}
-    f:SetBackdropColor(f._bgColor[1], f._bgColor[2], f._bgColor[3], f._bgColor[4])
+    f:SetBackdropColor(C.cardBg[1], C.cardBg[2], C.cardBg[3], C.cardBg[4])
     f:SetBackdropBorderColor(f._borderColor[1], f._borderColor[2], f._borderColor[3], f._borderColor[4])
     f:EnableMouse(false)
     f:SetAlpha(0)
@@ -416,7 +416,7 @@ local function BuildMainFrame()
     -- ── Портрет персонажа + полоски здоровья/маны (рвения) ────
     local portFrame = CreateFrame("Frame", nil, header, "BackdropTemplate")
     portFrame:SetSize(48, 48)
-    portFrame:SetPoint("TOPLEFT", header, "TOPLEFT", 2, -2)
+    portFrame:SetPoint("TOPLEFT", header, "TOPLEFT", 2, -6)
     portFrame:SetBackdrop({
         bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -438,10 +438,10 @@ local function BuildMainFrame()
         if not unit or unit == "player" then SetPortraitTexture(portTex, "player") end
     end)
  
-    healthBar = SB.Theme.Bar(header, 170, 15, "health")
-    healthBar:SetPoint("TOPLEFT", portFrame, "TOPRIGHT", 8, -2)
+    healthBar = SB.Theme.Bar(header, 155, 15, "health")
+    healthBar:SetPoint("TOPLEFT", portFrame, "TOPRIGHT", 8, -10)
  
-    manaBar = SB.Theme.Bar(header, 170, 15, "mana")
+    manaBar = SB.Theme.Bar(header, 155, 15, "mana")
     manaBar:SetPoint("TOPLEFT", healthBar, "BOTTOMLEFT", 0, -4)
  
     -- ── Ранг (мастерство) — верхний правый угол ────────────────
@@ -520,6 +520,23 @@ local function BuildMainFrame()
     abilColumn = SB.Theme.DockableColumn(sbFrame, "colAbilPos", "Способности", ABIL_COL_W)
     effColumn  = SB.Theme.DockableColumn(sbFrame, "colEffPos",  "Активные эффекты", EFFECTS_COL_W)
  
+	-- ── Заголовок колонки "Атрибуты" ─────────────────────────────
+	local attrTitleBar = attrColumn.titleFS:GetParent() or attrColumn
+
+	local resetAttrBtn = SB.Theme.Button(attrTitleBar, "Сбросить", 80, 18, "danger")
+	resetAttrBtn:SetPoint("RIGHT", attrTitleBar, "RIGHT", -20, 0)
+	resetAttrBtn._fs:SetFontObject("GameFontNormal")
+	resetAttrBtn:SetScript("OnClick", function()
+		SB.UI.ResetAttributesAndSkills()
+	end)
+
+	attrColumn.titleFS:ClearAllPoints()
+	attrColumn.titleFS:SetPoint("LEFT", attrTitleBar, "LEFT", 6, 0)
+	attrColumn.titleFS:SetPoint("RIGHT", resetAttrBtn, "LEFT", -6, 0)
+	attrColumn.titleFS:SetFontObject("GameFontNormal")
+	attrColumn.titleFS:SetJustifyH("LEFT")
+	attrColumn.titleFS:SetWordWrap(false)
+
 	-- ── Заголовок колонки "Способности" ─────────────────────────
 	-- Один общий заголовок в стиле остальных колонок:
 	-- "Способности (текущее/лимит)".
@@ -840,7 +857,7 @@ function SB.UI.UpdateSpellCards()
             -- Длительность
             local dur = spell.duration
             if dur and dur > 0 then
-                table.insert(parts, "Длительность:" .. dur .. "ход.")
+                table.insert(parts, "Длительность:" .. dur .. " ход.")
             else
                 table.insert(parts, "Длительность: Мгновенно")
             end

@@ -12,26 +12,33 @@
 local addonName, SB = ...
 SB.Theme = SB.Theme or {}
 
+SB.Theme.Assets = SB.Theme.Assets or {}
+
+SB.Theme.Assets.Background = "Interface\\AddOns\\Spellbreaker\\Assets\\Background.blp"
+SB.Theme.Assets.Card = "Interface\\AddOns\\Spellbreaker\\Assets\\Card.blp"
+
 local C = {
-    frameBg        = { 0.05, 0.06, 0.09, 0.97 },
-    frameBorder    = { 0.16, 0.32, 0.42, 1.00 },
-    titleBg        = { 0.04, 0.09, 0.13, 1.00 },
-    titleText      = { 0.55, 0.85, 1.00, 1.00 },
-    divider        = { 0.22, 0.42, 0.52, 0.90 },
-    cardBg         = { 0.07, 0.09, 0.13, 0.90 },
-    cardBorder     = { 0.20, 0.38, 0.48, 0.85 },
-    cardHoverBg    = { 0.11, 0.17, 0.24, 0.95 },
-    cardHoverBorder= { 0.30, 0.62, 0.78, 1.00 },
-    pBg=  {0.06,0.14,0.20,1}, pBorder={0.20,0.48,0.62,1}, pText={0.65,0.90,1,1},
-    pHBg= {0.09,0.20,0.28,1}, pHBd=   {0.32,0.68,0.86,1}, pPress={0.03,0.07,0.10,1},
-    sBg=  {0.09,0.11,0.13,1}, sBorder={0.24,0.30,0.35,.8}, sText={0.82,0.88,0.92,1},
-    sHBg= {0.14,0.17,0.20,1}, sHBd=   {0.38,0.48,0.55,1}, sPress={0.05,0.06,0.07,1},
-    dBg=  {0.22,0.07,0.06,1}, dBorder={0.52,0.14,0.11,1}, dText={1,0.62,0.55,1},
-    dHBg= {0.36,0.10,0.08,1}, dHBd=   {0.76,0.20,0.15,1}, dPress={0.12,0.03,0.02,1},
-    disBg={0.07,0.08,0.09,.7},disBd=  {0.20,0.24,0.27,.5}, disText={0.42,0.46,0.50,1},
-    textMain={0.85,0.90,0.94,1}, textDim={0.55,0.62,0.68,1},
-    textGold={0.55,0.85,1.00,1}, textDanger={1,0.40,0.30,1},
-    inputBg={0.03,0.04,0.06,.97},inputBd={0.18,0.30,0.38,.80},
+    frameBg        = { 0.11, 0.09, 0.08, 0.97 },  -- тёплый графит (чуть янтарного подтона), не нейтральный
+    frameBorder    = { 0.62, 0.56, 0.42, 1.00 },  -- приглушённая латунь вместо нейтрального серого
+	titleBg        = { 0.15, 0.12, 0.09, 1.00 },  -- тёмный янтарь — заметно теплее полотна фрейма
+	titleText      = { 0.92, 0.85, 0.68, 1.00 },  -- светлое золото — заголовки читаются как акцент
+	divider        = { 0.34, 0.30, 0.24, 0.90 },  -- латунный разделитель, не холодный серый
+    cardBg         = { 0.69, 0.66, 0.64, 0.95 },  -- тёплый графит с янтарным подтоном, НЕ серый 1:1:1
+    cardBorder     = { 0.62, 0.48, 0.24, 0.85 },  -- латунь — уже было верно, оставлено
+    cardHoverBg     = { 0.76, 0.71, 0.66, 0.97 }, -- тот же графит, заметно теплее на наводке
+    cardHoverBorder= { 0.78, 0.62, 0.32, 0.90 },  -- латунь ярче на наводке
+	columnBg       = { 0.61, 0.59, 0.58, 1.00 },
+	columnBorder   = { 0.62, 0.48, 0.24, 0.85 },
+    pBg=  {0.35, 0.30, 0.25, 1.00}, pBorder={0.65, 0.55, 0.45, 1.00}, pText={0.95, 0.90, 0.85, 1.00},
+    pHBg= {0.45, 0.38, 0.32, 1.00}, pHBd=   {0.75, 0.65, 0.55, 1.00}, pPress={0.25, 0.20, 0.18, 1.00},
+    sBg= {0.17, 0.14, 0.11, 1.00}, sBorder  = {0.54, 0.44, 0.26, 0.90}, sText={0.85,0.82,0.76,1},
+    sHBg= {0.25,0.20,0.16,1}, sHBd=   {0.58,0.52,0.42,1}, sPress={0.09,0.07,0.06,1},
+    dBg=  {0.28, 0.10, 0.08, 1.00}, dBorder={0.65, 0.20, 0.15, 1.00}, dText={1.00, 0.75, 0.70, 1.00},
+    dHBg= {0.38,0.10,0.11,1}, dHBd=   {0.85,0.24,0.20,1}, dPress={0.13,0.03,0.03,1},
+    disBg={0.10,0.10,0.11,.7},disBd=  {0.30,0.28,0.26,.5}, disText={0.50,0.48,0.44,1},
+    textMain={0.92,0.90,0.86,1}, textDim={0.62,0.58,0.54,1},
+    textGold={1.00,0.80,0.42,1}, textDanger={1.00,0.42,0.34,1},
+    inputBg={0.06,0.06,0.08,.97},inputBd={0.42,0.36,0.24,.80},
 }
 SB.Theme.C = C
 C.surface       = C.cardBg
@@ -41,25 +48,42 @@ C.textSecondary = C.textDim
 SB.Theme.Font = SB.Theme.Font or {}
 SB.Theme.Font.h2 = "GameFontNormal"
 
-local BD = {
-    frame = {
-        bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
-        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-        tile = true, tileSize = 32, edgeSize = 22,
-        insets = { left = 6, right = 6, top = 6, bottom = 6 },
-    },
+local BG_TEXTURE = SB.Theme.Assets.Background
 
-    card = {
-        bgFile   = "Interface\\ChatFrame\\ChatFrameBackground",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 12,
-        insets = { left = 3, right = 3, top = 3, bottom = 3 },
-    },
+local BD = {
+	frame = {
+		bgFile   = SB.Theme.Assets.Background,
+		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+		tile = true,
+		tileSize = 256,
+		edgeSize = 20,
+		insets = { left = 3, right = 3, top = 3, bottom = 3 },
+	},
+
+	card = {
+		bgFile   = SB.Theme.Assets.Card,
+		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+		tile = true,
+        tileSize = 256,
+		edgeSize = 12,
+		insets = { left = 3, right = 3, top = 3, bottom = 3 },
+	},
+
+	column = {
+		bgFile   = SB.Theme.Assets.Background,
+		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+		tile = true,
+		tileSize = 256,
+		edgeSize = 12,
+		insets = { left = 3, right = 3, top = 3, bottom = 3 },
+	},
 
     button = {
         bgFile   = "Interface\\ChatFrame\\ChatFrameBackground",
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 10,
+        tile = true,
+        tileSize = 16,
+        edgeSize = 10,
         insets = { left = 2, right = 2, top = 2, bottom = 2 },
     },
 
@@ -181,7 +205,7 @@ function SB.Theme.Button(parent, text, w, h, variant)
     btn:SetScript("OnEnter", function(self)
         if self:IsEnabled() then
             self:SetBackdropColor(self._v.hBg[1], self._v.hBg[2], self._v.hBg[3], self._v.hBg[4])
-            self:SetBackdropBorderColor(self._v.hBd[1], self._v.hBd[2], self._v.hBd[3], 1)
+            self:SetBackdropBorderColor(self._v.hBd[1], self._v.hBd[2], self._v.hBd[3], 0.85)
         end
     end)
     btn:SetScript("OnLeave", function(self)
@@ -240,7 +264,7 @@ function SB.Theme.Tab(parent, text, w, h, isActive)
 
     tab.bg = tab:CreateTexture(nil, "BACKGROUND")
     tab.bg:SetAllPoints()
-    tab.bg:SetColorTexture(C.surface[1], C.surface[2], C.surface[3], 1)
+    tab.bg:SetColorTexture(C.titleBg[1], C.titleBg[2], C.titleBg[3], 1)
 
     tab.underline = tab:CreateTexture(nil, "ARTWORK")
     tab.underline:SetHeight(2)
@@ -270,7 +294,7 @@ function SB.Theme.Frame(name, parent, title, w, h)
     f:SetSize(w or 400, h or 300)
     f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     f:SetBackdrop(BD.frame)
-    f:SetBackdropColor(C.frameBg[1], C.frameBg[2], C.frameBg[3], C.frameBg[4])
+    f:SetBackdropColor(0.98, 0.95, 0.92)
     f:SetBackdropBorderColor(C.frameBorder[1], C.frameBorder[2], C.frameBorder[3], C.frameBorder[4])
     f:SetToplevel(true)
     f:SetClampedToScreen(true)
@@ -282,13 +306,13 @@ function SB.Theme.Frame(name, parent, title, w, h)
     f:SetScript("OnDragStart", function(self) self:StartMoving() end)
     -- OnDragStop задаётся через AttachPositionMemory
 
-    -- Title bar
-    local tb = f:CreateTexture(nil, "ARTWORK")
-    tb:SetPoint("TOPLEFT",  f, "TOPLEFT",  8, -8)
-    tb:SetPoint("TOPRIGHT", f, "TOPRIGHT", -8, -8)
-    tb:SetHeight(22)
-    tb:SetColorTexture(C.titleBg[1], C.titleBg[2], C.titleBg[3], C.titleBg[4])
-    f.TitleBg = tb
+	-- Title bar
+	local tb = f:CreateTexture(nil, "ARTWORK")
+	tb:SetPoint("TOPLEFT",  f, "TOPLEFT",  5, -5)
+	tb:SetPoint("TOPRIGHT", f, "TOPRIGHT", -5, -5)
+	tb:SetHeight(24)
+	tb:SetColorTexture(C.titleBg[1], C.titleBg[2], C.titleBg[3], C.titleBg[4])
+	f.TitleBg = tb
 
     local tfs = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     tfs:SetPoint("CENTER", tb, "CENTER", -12, 0)
@@ -298,18 +322,17 @@ function SB.Theme.Frame(name, parent, title, w, h)
     tfs:SetShadowOffset(1, -1)
     f.title = tfs
 
-    local cb = SB.Theme.Button(f, "×", 22, 22, "danger")
-    cb:SetPoint("TOPRIGHT", f, "TOPRIGHT", -8, -8)
+	local cb = SB.Theme.Button(f, "×", 22, 22, "danger")
+	cb:SetPoint("TOPRIGHT", f, "TOPRIGHT", -5, -5)
     cb:SetScript("OnClick", function() f:Hide() end)
     f.CloseButton = cb
 
-    local div = f:CreateTexture(nil, "ARTWORK")
-    div:SetHeight(1)
-    div:SetPoint("TOPLEFT",  f, "TOPLEFT",  8, -31)
-    div:SetPoint("TOPRIGHT", f, "TOPRIGHT", -8, -31)
-    div:SetColorTexture(C.divider[1], C.divider[2], C.divider[3], C.divider[4])
-
-    f.contentY = -34
+	local div = f:CreateTexture(nil, "ARTWORK")
+	div:SetHeight(2)
+	div:SetPoint("TOPLEFT",  f, "TOPLEFT",  4, -29)
+	div:SetPoint("TOPRIGHT", f, "TOPRIGHT", -4, -29)
+	div:SetColorTexture(C.divider[1], C.divider[2], C.divider[3], C.divider[4])
+	f.contentY = -32
     -- Звук при открытии фрейма
     local _origShow = f.Show
     f.Show = function(self)
@@ -698,6 +721,96 @@ function SB.Theme.Input(parent, placeholder, w, h)
     return wrap, eb
 end
 
+local function Utf8Len(s)
+    if string.utf8len then
+        local ok, n = pcall(string.utf8len, s)
+        return ok and n or #s
+    end
+    return #s
+end
+
+--- Обрезает строку до maxChars UTF-8 символов.
+local function Utf8Clamp(s, maxChars)
+    if not s or s == "" then return s end
+    if Utf8Len(s) <= maxChars then return s end
+    if string.utf8sub then
+        local ok, r = pcall(string.utf8sub, s, 1, maxChars)
+        return ok and r or s:sub(1, maxChars)
+    end
+    return s:sub(1, maxChars)
+end
+
+--- Навешивает жёсткий лимит символов (UTF-8) на EditBox + счётчик
+--- "NN/MAX" в углу. Общий хелпер — переиспользуй вместо копии.
+function SB.Theme.AttachCharLimit(eb, maxChars, counterParent)
+    local counter
+    if counterParent then
+        counter = counterParent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        counter:SetPoint("TOPRIGHT", counterParent, "TOPRIGHT", -2, -2)
+        counter:SetTextColor(0.6, 0.57, 0.5, 1)
+    end
+    local function onChanged(self)
+        local t  = self:GetText()
+        local ln = Utf8Len(t)
+        if ln > maxChars then
+            local clamped = Utf8Clamp(t, maxChars)
+            self:SetText(clamped)
+            self:SetCursorPosition(#clamped)
+        end
+        if counter then
+            local cur = math.min(Utf8Len(self:GetText()), maxChars)
+            local col = (cur >= maxChars) and "|cFFFF4444" or "|cFF888888"
+            counter:SetText(col .. cur .. "/" .. maxChars .. "|r")
+        end
+    end
+    local prev = eb:GetScript("OnTextChanged")
+    eb:SetScript("OnTextChanged", function(self, userInput)
+        if prev then prev(self, userInput) end
+        onChanged(self)
+    end)
+    onChanged(eb)
+end
+
+--- Многострочное поле ввода (~2-3 строки, автоперенос по словам,
+--- БЕЗ прокрутки — рассчитано на короткий текст, ограниченный
+--- через maxChars).
+--- @param maxChars number|nil  Если задан, навешивает AttachCharLimit
+---                              и показывает счётчик "NN/MAX".
+function SB.Theme.MultilineInput(parent, placeholder, w, h, maxChars)
+    local wrap = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    wrap:SetSize(w or 200, h or 54)
+    wrap:SetBackdrop(BD.input)
+    wrap:SetBackdropColor(C.inputBg[1], C.inputBg[2], C.inputBg[3], C.inputBg[4])
+    wrap:SetBackdropBorderColor(C.inputBd[1], C.inputBd[2], C.inputBd[3], C.inputBd[4])
+
+    local eb = CreateFrame("EditBox", nil, wrap)
+    eb:SetMultiLine(true)
+    eb:SetFontObject("ChatFontNormal")
+    eb:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+    eb:SetAutoFocus(false)
+    eb:SetPoint("TOPLEFT",     wrap, "TOPLEFT",     4, -3)
+    eb:SetPoint("BOTTOMRIGHT", wrap, "BOTTOMRIGHT", -4, 3)
+    eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+
+    if placeholder and placeholder ~= "" then
+        local ph = wrap:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        ph:SetPoint("TOPLEFT", eb, "TOPLEFT", 0, 0)
+        ph:SetText(placeholder)
+        ph:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
+
+        eb:SetScript("OnTextChanged",     function(self) ph:SetShown(self:GetText() == "") end)
+        eb:SetScript("OnEditFocusGained", function()      ph:Hide() end)
+        eb:SetScript("OnEditFocusLost",   function(self)  ph:SetShown(self:GetText() == "") end)
+    end
+
+    if maxChars then
+        SB.Theme.AttachCharLimit(eb, maxChars, wrap)
+    end
+
+    wrap.editBox = eb
+    return wrap, eb
+end
+
 -- ============================================================
 -- DockableColumn — колонка, которая может быть встроена в другой
 -- фрейм (MainFrame) ИЛИ откреплена в самостоятельное плавающее
@@ -716,9 +829,9 @@ end
 function SB.Theme.DockableColumn(hostFrame, dbKey, title, width)
     local col = CreateFrame("Frame", nil, hostFrame, "BackdropTemplate")
     col:SetWidth(width)
-    col:SetBackdrop(BD.card)
-    col:SetBackdropColor(C.cardBg[1], C.cardBg[2], C.cardBg[3], C.cardBg[4] * 0.6)
-    col:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.6)
+	col:SetBackdrop(BD.column)
+	col:SetBackdropColor(C.columnBg[1], C.columnBg[2], C.columnBg[3], C.columnBg[4])
+	col:SetBackdropBorderColor(C.columnBorder[1], C.columnBorder[2], C.columnBorder[3], 1.0)
     col:SetClampedToScreen(true)
  
     col.isDocked   = true
@@ -744,7 +857,7 @@ function SB.Theme.DockableColumn(hostFrame, dbKey, title, width)
     col.titleFS = titleFS
  
     -- Кнопка "вернуть на место" — видна только когда откреплена
-    local dockBtn = SB.Theme.Button(titleBar, "⇲", 18, 18, "secondary")
+    local dockBtn = SB.Theme.Button(titleBar, "×", 18, 18, "secondary")
     dockBtn:SetPoint("RIGHT", titleBar, "RIGHT", -2, 0)
     dockBtn:Hide()
  
@@ -762,9 +875,9 @@ function SB.Theme.DockableColumn(hostFrame, dbKey, title, width)
     local FLOAT_W, FLOAT_H = width, 420
 	
 	local function ApplyDockedVisual()
-        col:SetBackdrop(BD.card)
-        col:SetBackdropColor(C.cardBg[1], C.cardBg[2], C.cardBg[3], C.cardBg[4] * 0.6)
-        col:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.6)
+		col:SetBackdrop(BD.column)
+		col:SetBackdropColor(C.columnBg[1], C.columnBg[2], C.columnBg[3], 1.0)
+		col:SetBackdropBorderColor(C.columnBorder[1], C.columnBorder[2], C.columnBorder[3], 1.0)
     end
  
     local function Undock()
