@@ -12,11 +12,23 @@ local attrColumn, abilColumn, effColumn
 local scrollFrame, scrollChild
 local masteryLabel
 local libBtn
-local prepText, modBadge
+local prepText, atkBadge, defBadge, moveBadge
 local healthBar, manaBar
+local shortRestBtn
 local spellCards = {}
 local slotFrame
 local C  -- shortcut к палитре
+
+-- Видны ли сейчас карточки: либо открыто главное окно, либо колонка
+-- «Способности» откреплена в собственное окно. Объявлено ЗДЕСЬ, рядом с
+-- sbFrame/abilColumn: замыкания внутри BuildMainFrame стоят выше по файлу,
+-- чем UpdateSpellCards, и локаль, объявленная там, для них была бы
+-- глобальной (то есть nil навсегда).
+local cardsDirty = false
+local function CardsVisible()
+    if sbFrame and sbFrame:IsShown() then return true end
+    return (abilColumn and not abilColumn.isDocked and abilColumn:IsShown()) or false
+end
  
 -- Стек тостов ожидания/вердикта каста (#13, #15-18)
 local toastPool    = {}   -- все когда-либо созданные фреймы-тосты (для реюза)
@@ -69,7 +81,7 @@ local function EnsureToastHandle()
  
     h.grip = h:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     h.grip:SetPoint("CENTER")
-    h.grip:SetText("• • •")
+    h.grip:SetText("* * *")
     h.grip:SetTextColor(CC.textDim[1], CC.textDim[2], CC.textDim[3])
  
     -- Клик (без сдвига) → свернуть/развернуть; перетаскивание → переместить стек.
@@ -166,7 +178,7 @@ function SB.UI.SetToastsCollapsed(collapsed)
         end
     end
     if toastHandle then
-        toastHandle.grip:SetText(collapsed and "• • •" or "• • •")
+        toastHandle.grip:SetText(collapsed and "* * *" or "* * *")
     end
 end
  
@@ -342,9 +354,12 @@ function SB.UI.ShowCastVerdict(spellID, succeeded, resultStatus, detail)
         statusLine = statusLine .. " |cFFAAAAAA(" .. detail .. ")|r"
     end
     toast.status:SetText(statusLine)
- 
-    SB.Theme.PlaySound(succeeded and "success" or "fail")
- 
+
+    -- Звук здесь больше НЕ проигрывается: тост существует только у
+    -- заявок, прошедших через Ведущего, а отклик нужен на любой каст.
+    -- Теперь звук висит на самом событии CAST_RESOLVED (см. подписку в
+    -- конце файла) — так он ровно один и на всех путях сразу.
+
     if succeeded then
         FlashToast(toast, 3) -- Запускаем плавное дыхание
     end
@@ -391,8 +406,11 @@ local function BuildMainFrame()
     local COL_GAP = 14
     local ATTR_COL_W    = 210     -- было ~310 (960-20-20)/3
     local ABIL_COL_W    = 340
-    local EFFECTS_COL_W = 190     -- было ~310 — иконки уменьшены до
-                                   -- 48px, 3 в ряд по-прежнему влезают
+    -- Ширину колонки эффектов задаёт САМА сетка (3 иконки по 48 + зазоры
+    -- + одинаковые поля по краям), а не отдельное число здесь: пока оно
+    -- жило своей жизнью (190), справа от сетки оставалось 30 пикселей
+    -- пустоты против 8 слева. См. SB.ActiveEffects.GetColumnWidth.
+    local EFFECTS_COL_W = SB.ActiveEffects.GetColumnWidth()
     local SIDE_PAD      = 10      -- отступ слева/справа окна до колонок
     local FRAME_W = SIDE_PAD*2 + ATTR_COL_W + COL_GAP + ABIL_COL_W + COL_GAP + EFFECTS_COL_W
  
@@ -414,21 +432,12 @@ local function BuildMainFrame()
     header:SetHeight(HEADER_H)
  
     -- ── Портрет персонажа + полоски здоровья/маны (рвения) ────
-    local portFrame = CreateFrame("Frame", nil, header, "BackdropTemplate")
-    portFrame:SetSize(48, 48)
+    -- Габарит увеличен с 48: кольцо BlueMenuRing занимает весь фрейм, а
+    -- само изображение вписано в его отверстие (~0.71 размера), так что
+    -- при прежних 48px портрет стал бы заметно мельче прежнего.
+    local portFrame = SB.Theme.RoundPortrait(header, 54)
     portFrame:SetPoint("TOPLEFT", header, "TOPLEFT", 2, -6)
-    portFrame:SetBackdrop({
-        bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 12,
-        insets = { left = 3, right = 3, top = 3, bottom = 3 }
-    })
-    portFrame:SetBackdropColor(0.05, 0.05, 0.05, 0.9)
-    portFrame:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.8)
- 
-    local portTex = portFrame:CreateTexture(nil, "ARTWORK")
-    portTex:SetAllPoints()
-    portTex:SetTexCoord(0.1, 0.9, 0.1, 0.9)
+    local portTex = portFrame.tex
     SetPortraitTexture(portTex, "player")
  
     local portEvFrame = CreateFrame("Frame")
@@ -437,16 +446,109 @@ local function BuildMainFrame()
     portEvFrame:SetScript("OnEvent", function(_, _, unit)
         if not unit or unit == "player" then SetPortraitTexture(portTex, "player") end
     end)
- 
+
+    -- Профиль класса на портрете: единственное место, где игрок может
+    -- увидеть, чем его класс отличается от остальных (см.
+    -- SB.Data.ClassProfiles). Строится по таблице, поэтому правка
+    -- баланса сразу видна в подсказке без правок UI.
+    portFrame:EnableMouse(true)
+    portFrame:SetScript("OnEnter", function(self)
+        local className = SB.PlayerModel.GetClass()
+        local prof      = SB.Data.GetClassProfile(className)
+
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        SB.Theme.StyleTooltip(GameTooltip)
+        GameTooltip:SetText(className, 1, 0.82, 0)
+        GameTooltip:AddLine(SB.PlayerModel.IsCaster() and "Кастер" or "Некастер", 0.6, 0.6, 0.6)
+        GameTooltip:AddLine(" ")
+        -- ОДИН список на профиль, а не два. Раньше здесь было деление на
+        -- «Особенности класса» (здоровье/ресурс/атака/защита) и
+        -- «Особенности класса (вне боя)» (SoftBonusKeys) — но health и
+        -- resource входят в ОБА набора, и класс с -1 здоровья честно
+        -- показывал минус дважды, будто их два разных.
+        local ROW_ORDER = {
+            "health", "resource", "attack", "defense",
+            "prepared", "rollFloor", "armor", "skillPoints",
+            "restHeal", "restCharges",
+        }
+        local EXTRA_LABELS = {
+            attack   = "Бросок атаки",
+            defense  = "Бросок защиты",
+            -- Ресурс у каждого класса зовётся по-своему (Мана, Ярость,
+            -- Фокус...) — обобщённое «Максимум ресурса» уместно только
+            -- в расовом блоке, где класс ещё неизвестен.
+            resource = "Максимум: " .. SB.Logic.GetResourceName(className),
+        }
+
+        local function ProfileBlock(title, profile, labelOverrides)
+            local rows = {}
+            for _, key in ipairs(ROW_ORDER) do
+                local v = tonumber(profile[key]) or 0
+                if v ~= 0 then table.insert(rows, { key, v }) end
+            end
+            if #rows == 0 then return false end
+            GameTooltip:AddLine(title, 1, 0.82, 0)
+            for _, row in ipairs(rows) do
+                local key, v = row[1], row[2]
+                local label = (labelOverrides and labelOverrides[key])
+                    or SB.Data.SoftBonusLabels[key] or key
+                -- rollFloor — не прибавка, а «начиная с»: у него свой
+                -- формат, иначе «+6» читалось бы как бонус к броску.
+                local txt
+                if key == "rollFloor" then
+                    local lo, hi = SB.Logic.GetRollRange()
+                    txt = string.format("%d-%d", lo, hi)
+                else
+                    txt = ((v > 0) and "+" or "") .. v
+                end
+                -- Плюс зелёным, минус красным: слабые стороны должны
+                -- читаться так же явно, как сильные.
+                local r, g, b2 = 0.4, 1, 0.4
+                if v < 0 then r, g, b2 = 1, 0.4, 0.4 end
+                GameTooltip:AddDoubleLine("  " .. label, txt, 0.9, 0.9, 0.9, r, g, b2)
+            end
+            return true
+        end
+
+        if not ProfileBlock("Особенности класса:", prof, EXTRA_LABELS) then
+            GameTooltip:AddLine("Особенности класса:", 1, 0.82, 0)
+            GameTooltip:AddLine("  без сдвигов — ровный по всем показателям", 0.6, 0.6, 0.6, true)
+        end
+
+        -- Раса — отдельным блоком: игроку важно понимать, что от расы,
+        -- а что от класса. См. SB.Data.RaceProfiles.
+        local raceProf = SB.Data.GetRaceProfile()
+        local hasRace = false
+        for _, key in ipairs(ROW_ORDER) do
+            if (tonumber(raceProf[key]) or 0) ~= 0 then hasRace = true; break end
+        end
+        if hasRace then
+            GameTooltip:AddLine(" ")
+            ProfileBlock(UnitRace("player") .. " — расовые особенности:", raceProf)
+        end
+
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("Классы и расы намеренно не равны друг другу: сильная сторона " ..
+            "одного всегда оплачена слабой стороной в другом месте.", 0.6, 0.6, 0.6, true)
+        GameTooltip:Show()
+    end)
+    portFrame:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
     healthBar = SB.Theme.Bar(header, 155, 15, "health")
     healthBar:SetPoint("TOPLEFT", portFrame, "TOPRIGHT", 8, -10)
  
     manaBar = SB.Theme.Bar(header, 155, 15, "mana")
     manaBar:SetPoint("TOPLEFT", healthBar, "BOTTOMLEFT", 0, -4)
+    manaBar:EnableMouse(true)
+    manaBar:SetScript("OnEnter", function(self)
+        local key = SB.Logic.GetResourceTooltipKey(SB.PlayerModel.GetClass())
+        SB.UI.ShowInfoTooltip(self, key)
+    end)
+    manaBar:SetScript("OnLeave", function() GameTooltip:Hide() end)
  
     -- ── Ранг (мастерство) — верхний правый угол ────────────────
     local masteryBg = CreateFrame("Frame", nil, header, "BackdropTemplate")
-    masteryBg:SetSize(100, 24)
+    masteryBg:SetSize(87, 24)
     masteryBg:SetPoint("TOPRIGHT", header, "TOPRIGHT", 0, 0)
     masteryBg:SetBackdrop(SB.Theme.BD.card)
     masteryBg:SetBackdropColor(0.07, 0.09, 0.13, 0.90)
@@ -462,26 +564,40 @@ local function BuildMainFrame()
     end)
     masteryBg:SetScript("OnLeave", function() GameTooltip:Hide() end)
  
-    -- ── Бейдж модификатора броска (наводка — разбивка по источникам) ──
-    modBadge = CreateFrame("Button", nil, header, "BackdropTemplate")
-    modBadge:SetSize(60, 24)
-    modBadge:SetPoint("RIGHT", masteryBg, "LEFT", -3, 0)
-    modBadge:SetBackdrop(SB.Theme.BD.card)
-    modBadge:SetBackdropColor(0.07, 0.09, 0.13, 0.90)
-    modBadge:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.85)
- 
-    modBadge.text = modBadge:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    modBadge.text:SetPoint("CENTER")
-    modBadge.text:SetText("+0")
-    modBadge.text:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
- 
-    modBadge:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    -- ── Бейджи модификаторов: отдельно атака и защита ─────────
+    -- Считаются они по разным наборам источников (см. Core/Logic.lua),
+    -- поэтому и показываются раздельно — одно общее число врало бы про
+    -- половину бросков.
+    --
+    -- ИКОНКИ. Раньше здесь вырезались роли DPS/TANK из атласа
+    -- Interface\LFGFrame\UI-LFG-ICON-ROLES по координатам сетки 64x64.
+    -- Атлас этот у Blizzard от версии к версии переразмечался, и на
+    -- текущем клиенте вырез попадал мимо — в бейджах отрисовывался
+    -- кусок соседней ячейки (та самая «некорректная текстурка»).
+    -- Теперь берутся обычные ЦЕЛЫЕ иконки предметов/способностей:
+    -- у них нет сетки, промахнуться координатами негде, а обрезка
+    -- 0.08-0.92 всего лишь снимает штатную тёмную рамку — ровно тот же
+    -- приём, что уже используется для иконок заклинаний в библиотеке.
+    -- Оба файла заведомо есть на клиенте: на них ссылаются заклинания
+    -- в Spells/ (Превосходство и Разоружение у Воина).
+    local ICON_ATTACK  = "Interface\\Icons\\Ability_MeleeDamage"  -- удар
+    local ICON_DEFENSE = "Interface\\Icons\\Ability_Defend"       -- щит
+    local ICON_TRIM    = { 0.08, 0.92, 0.08, 0.92 }
+    --
+    -- ВАЖНО: иконка — ОТДЕЛЬНЫЙ Texture, а не инлайн |T..|t внутри
+    -- SetText. Инлайн-вариант на этом клиенте ломал высоту строки —
+    -- иконка отрисовывалась отдельной строкой НАД текстом вместо места
+    -- рядом с ним.
+
+    --- Общая начинка тултипа для одной области бросков.
+    local function ShowScopeTooltip(owner, title, scope, r, g, b)
+        GameTooltip:SetOwner(owner, "ANCHOR_TOP")
         SB.Theme.StyleTooltip(GameTooltip)
-        GameTooltip:SetText("Модификатор броска", 1, 1, 1)
-        local total, parts = SB.Logic.GetModifierBreakdown()
+        GameTooltip:SetText(title, r, g, b)
+
+        local total, parts = SB.Logic.GetModifierBreakdown(scope)
         if #parts == 0 then
-            GameTooltip:AddLine("Нет активных источников.", 0.7, 0.7, 0.7)
+            GameTooltip:AddLine("Нет активных источников.", 0.6, 0.6, 0.6)
         else
             for _, p in ipairs(parts) do
                 local sign = (p.value >= 0) and "+" or ""
@@ -491,10 +607,146 @@ local function BuildMainFrame()
         GameTooltip:AddLine(" ")
         local totalSign = (total >= 0) and "+" or ""
         GameTooltip:AddDoubleLine("Итого", totalSign .. total, 1, 0.82, 0, 1, 0.82, 0)
+        if scope == "attack" then
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine("Скейлинг заклинания и «Внушение» добавляются в момент каста.",
+                0.6, 0.6, 0.6, true)
+            GameTooltip:AddLine("|cFFFFD100ЛКМ|r — бросить атаку со всеми модификаторами. " ..
+                "Ход и ресурс не тратятся.", 0.6, 0.6, 0.6, true)
+        else
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine("|cFFFFD100ЛКМ|r — бросить защиту со всеми модификаторами.",
+                0.6, 0.6, 0.6, true)
+        end
         GameTooltip:Show()
+    end
+
+    -- Бейджи — не просто индикаторы, а кнопки: у обоих есть действие,
+    -- которое иначе пришлось бы делать руками (см. onClick у вызовов
+    -- ниже). Размер и вид не меняются — только подсветка под курсором,
+    -- чтобы кликабельность вообще читалась.
+    local function MakeModBadge(iconPath, tooltipTitle, scope, r, g, b, onClick)
+        local badge = CreateFrame("Button", nil, header, "BackdropTemplate")
+        badge:SetSize(62, 24)
+        badge:SetBackdrop(SB.Theme.BD.card)
+        badge:SetBackdropColor(0.07, 0.09, 0.13, 0.90)
+        badge:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.85)
+
+        badge.icon = badge:CreateTexture(nil, "ARTWORK")
+        badge.icon:SetSize(14, 14)
+        badge.icon:SetPoint("LEFT", badge, "LEFT", 7, 0)
+        badge.icon:SetTexture(iconPath)
+        badge.icon:SetTexCoord(ICON_TRIM[1], ICON_TRIM[2], ICON_TRIM[3], ICON_TRIM[4])
+
+        badge.text = badge:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        badge.text:SetPoint("LEFT", badge.icon, "RIGHT", 4, 0)
+        badge.text:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+        badge.text:SetText("+0")
+
+        badge:SetScript("OnEnter", function(self)
+            self:SetBackdropBorderColor(r, g, b, 1)
+            ShowScopeTooltip(self, tooltipTitle, scope, r, g, b)
+        end)
+        badge:SetScript("OnLeave", function(self)
+            self:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.85)
+            GameTooltip:Hide()
+        end)
+        badge:RegisterForClicks("LeftButtonUp")
+        badge:SetScript("OnClick", function(self)
+            if onClick then onClick() end
+            -- Тултип пересобираем: после тика эффектов часть источников
+            -- могла отвалиться, и оставшаяся на экране разбивка врала бы.
+            if self:IsMouseOver() then
+                ShowScopeTooltip(self, tooltipTitle, scope, r, g, b)
+            end
+        end)
+        return badge
+    end
+
+    -- Атака: бросок атаки вне заклинания — ПвЕ-утилита по требованию
+    -- Ведущего. Пропуск хода отсюда убран: он переехал на бейдж
+    -- передвижения, где ему и место (там же видно, зачем его жать), а две
+    -- кнопки с одним и тем же действием — просто способ нажать не ту.
+    atkBadge = MakeModBadge(ICON_ATTACK,  "Модификатор атаки",  "attack",  1, 0.6, 0.3,
+        function() SB.Logic.RollManualAttack() end)
+    atkBadge:SetPoint("RIGHT", masteryBg, "LEFT", -3, 0)
+
+    -- Защита: бросок вне размена. По сети защиту считает получатель
+    -- удара автоматически, но против НПС бьёт Ведущий — такого пакета
+    -- нет, и бросок нужно сделать руками.
+    defBadge = MakeModBadge(ICON_DEFENSE, "Модификатор защиты", "defense", 0.4, 0.8, 1,
+        function() SB.Logic.RollManualDefense() end)
+    defBadge:SetPoint("RIGHT", atkBadge, "LEFT", -3, 0)
+
+    -- ── Передвижение ──────────────────────────────────────────
+    -- Отдельный бейдж, а не строка в тултипе атаки: это единственное
+    -- число, которое может ЗАПРЕТИТЬ каст (см. Core/Movement.lua), и
+    -- узнавать о запрете из красной строки в чате после нажатия
+    -- «Применить» — поздно. Кликается тем же пропуском хода, что и
+    -- бейдж атаки: то, что показывает проблему, её же и решает.
+    moveBadge = CreateFrame("Button", nil, header, "BackdropTemplate")
+    moveBadge:SetSize(70, 24)
+    moveBadge:SetBackdrop(SB.Theme.BD.card)
+    moveBadge:SetBackdropColor(0.07, 0.09, 0.13, 0.90)
+    moveBadge:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.85)
+    moveBadge:SetPoint("RIGHT", defBadge, "LEFT", -3, 0)
+
+    moveBadge.icon = moveBadge:CreateTexture(nil, "ARTWORK")
+    moveBadge.icon:SetSize(14, 14)
+    moveBadge.icon:SetPoint("LEFT", moveBadge, "LEFT", 7, 0)
+    -- Ровно та же строка, что у «Спринта» в Spells/Rogue.lua: путь
+    -- проверен данными аддона, а не выбран наугад (см. врезку об иконках
+    -- бейджей выше — промах по атласу здесь уже случался).
+    moveBadge.icon:SetTexture("Interface\\Icons\\Ability_rogue_sprint")
+    moveBadge.icon:SetTexCoord(ICON_TRIM[1], ICON_TRIM[2], ICON_TRIM[3], ICON_TRIM[4])
+
+    moveBadge.text = moveBadge:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    moveBadge.text:SetPoint("LEFT", moveBadge.icon, "RIGHT", 4, 0)
+    moveBadge.text:SetText("0/9")
+
+    local function ShowMoveTooltip(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        SB.Theme.StyleTooltip(GameTooltip)
+        GameTooltip:SetText("Передвижение за ход", 0.6, 1, 0.6)
+        local walked = SB.Movement.GetDistance()
+        GameTooltip:AddDoubleLine("Пройдено", string.format("%.1f м", walked), 0.9,0.9,0.9, 1,1,1)
+        if SB.Movement.HasLimit() then
+            GameTooltip:AddDoubleLine("Предел",
+                string.format("%.0f м", SB.Movement.GetCap()), 0.9,0.9,0.9, 1,1,1)
+            GameTooltip:AddDoubleLine("Осталось",
+                string.format("%.1f м", SB.Movement.GetRemaining()), 0.9,0.9,0.9, 1, 0.82, 0)
+        else
+            GameTooltip:AddDoubleLine("Предел", "снят Ведущим", 0.9,0.9,0.9, 1, 0.82, 0)
+        end
+        GameTooltip:AddLine(" ")
+        if SB.Movement.IsExhausted() then
+            GameTooltip:AddLine("Предел выбран — применить способность нельзя.", 1, 0.4, 0.4, true)
+        elseif SB.Movement.HasLimit() then
+            GameTooltip:AddLine("Выберете предел — до конца хода останется только пропустить ход.",
+                0.6, 0.6, 0.6, true)
+        end
+        GameTooltip:AddLine("Любое действие обнуляет путь: каст, лечение, отдых.",
+            0.6, 0.6, 0.6, true)
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("|cFFFFD100ЛКМ|r — пропустить ход: путь обнуляется, +1 " ..
+            SB.PlayerModel.GetResourceName() .. ", эффекты тикают.", 0.6, 0.6, 0.6, true)
+        GameTooltip:Show()
+    end
+
+    moveBadge:SetScript("OnEnter", function(self)
+        self:SetBackdropBorderColor(0.6, 1, 0.6, 1)
+        ShowMoveTooltip(self)
     end)
-    modBadge:SetScript("OnLeave", function() GameTooltip:Hide() end)
- 
+    moveBadge:SetScript("OnLeave", function(self)
+        self:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.85)
+        GameTooltip:Hide()
+    end)
+    moveBadge:RegisterForClicks("LeftButtonUp")
+    moveBadge:SetScript("OnClick", function(self)
+        SB.Logic.SpendTurnManually()
+        if self:IsMouseOver() then ShowMoveTooltip(self) end
+    end)
+
     -- ── Библиотека — под рангом/модификатором ──────────────────
     libBtn = SB.Theme.Button(header, "Библиотека", 100, 24, "secondary")
     libBtn:SetPoint("TOPRIGHT", masteryBg, "BOTTOMRIGHT", 0, -6)
@@ -504,6 +756,22 @@ local function BuildMainFrame()
             else SpellbreakerLibraryFrame:Show(); SB.Library.UpdateList() end
         end
     end)
+
+    -- ── Короткий Отдых — тот же ряд, слева от "Библиотека".
+    -- В свободном месте шапки между полосками ресурсов и рангом,
+    -- над колонками. Долгий Отдых сюда намеренно не возвращён —
+    -- он реже нужен под рукой и остаётся в мини-карточке миникарты.
+    shortRestBtn = SB.Theme.Button(header, "Короткий Отдых", 110, 24, "secondary")
+    shortRestBtn:SetPoint("RIGHT", libBtn, "LEFT", -6, 0)
+    shortRestBtn:SetScript("OnClick", function()
+        if SB.Logic and SB.Logic.ShortRest then
+            SB.Logic.ShortRest()
+        end
+    end)
+    shortRestBtn:SetScript("OnEnter", function(self)
+        SB.UI.ShowInfoTooltip(self, "shortRest")
+    end)
+    shortRestBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
  
     -- ============================================================
     -- ТРИ КОЛОНКИ: Атрибуты | Способности | Активные эффекты
@@ -568,47 +836,158 @@ local function BuildMainFrame()
     -- область, которая существует независимо от docked/floating) ──
     local attrScroll, attrChild = SB.Theme.Scroll(attrColumn.body, 4, -4, -4, 4)
     SB.UI.BuildAttributesColumn(attrChild)
- 
+
     scrollFrame, scrollChild = SB.Theme.Scroll(abilColumn.body, 6, -4, -6, 4)
- 
+
+    -- Метка для RecalcLayout: у этих двух колонок полоса прокрутки
+    -- вынесена за правый край, и последней в ряду им нужно место справа.
+    -- У колонки эффектов прокрутки нет — там сетка иконок.
+    attrColumn._hasScrollbar = true
+    abilColumn._hasScrollbar = true
+
+    -- Поля слева/справа — из того же источника, что и ширина колонки,
+    -- иначе сетка снова уедет от центра (см. GetColumnWidth).
+    local EFF_PAD = SB.ActiveEffects.GRID_PAD
     local effHolder = CreateFrame("Frame", nil, effColumn.body)
-    effHolder:SetPoint("TOPLEFT", effColumn.body, "TOPLEFT", 8, -4)
-    effHolder:SetPoint("TOPRIGHT", effColumn.body, "TOPRIGHT", -8, -4)
+    effHolder:SetPoint("TOPLEFT", effColumn.body, "TOPLEFT", EFF_PAD, -4)
+    effHolder:SetPoint("TOPRIGHT", effColumn.body, "TOPRIGHT", -EFF_PAD, -4)
     effHolder:SetHeight(1)
     SB.ActiveEffects.RenderInto(effHolder)
  
     -- ============================================================
-    -- RecalcLayout — пересчитывает ширину окна и позиции docked-
+    -- RecalcLayout — пересчитывает размеры окна и позиции docked-
     -- колонок каждый раз, когда одна из них откреплена/прикреплена.
-    -- Правило (по требованию): главное окно просто сжимается по
-    -- ширине, ОСТАВШИЕСЯ docked-колонки НЕ меняют свою ширину —
-    -- сжатие/расширение окна происходит только за счёт исчезновения/
-    -- появления места, которое занимала откреплённая колонка.
+    -- Правило (по требованию): главное окно просто сжимается,
+    -- ОСТАВШИЕСЯ docked-колонки СВОЮ ширину не меняют — сжатие
+    -- происходит только за счёт исчезновения места, которое занимала
+    -- откреплённая колонка.
     -- ============================================================
+
+    -- Полоса прокрутки вынесена ЗА правый край колонки (дизайнерское
+    -- решение, см. SB.Theme.AttachScrollbar): её правый край приходится
+    -- на край колонки + SCROLL_TRACK_PAD. В зазор между колонками она
+    -- помещается, а вот справа от ПОСЛЕДНЕЙ колонки лежал только
+    -- SIDE_PAD в 10 пикселей — и полоса ложилась прямо на рамку окна.
+    -- Заметно это было, когда колонка эффектов скрыта и последней
+    -- становится «Способности».
+    local SCROLL_RESERVE = SB.Theme.SCROLL_TRACK_PAD + 11
+
+    -- Вертикальная геометрия. TOP_BLOCK — всё, что выше колонок
+    -- (заголовок окна + шапка с портретом), BOTTOM_PAD — отступ снизу.
+    local TOP_BLOCK  = -COL_TOP
+    local BOTTOM_PAD = 10
+    local FULL_COL_H = FRAME_H - TOP_BLOCK - BOTTOM_PAD
+
+    --- Меняет размер, оставляя ВЕРХНИЙ ЛЕВЫЙ угол на месте. Окно
+    --- закреплено за центр, поэтому без пересчёта смещения сжатие по
+    --- высоте на полтысячи пикселей утаскивало бы заголовок к середине
+    --- экрана — окно «прыгало» бы при каждом откреплении колонки.
+    local function ResizeKeepingCorner(frame, newW, newH)
+        local oldW, oldH = frame:GetWidth(), frame:GetHeight()
+        if math.abs(oldW - newW) < 0.5 and math.abs(oldH - newH) < 0.5 then return end
+
+        local cx, cy = frame:GetCenter()
+        frame:SetSize(newW, newH)
+        if not cx or not cy then return end
+
+        local uiW, uiH = UIParent:GetSize()
+        local offX = (cx + (newW - oldW) / 2) - uiW / 2
+        local offY = (cy + (oldH - newH) / 2) - uiH / 2
+        frame:ClearAllPoints()
+        frame:SetPoint("CENTER", UIParent, "CENTER", offX, offY)
+        frame:SetUserPlaced(true)
+        if SpellbreakerAccountDB then
+            SpellbreakerAccountDB.sbFramePos = { x = offX, y = offY }
+        end
+    end
+
     local function RecalcLayout()
-        local x = SIDE_PAD
-        local totalW = SIDE_PAD
- 
+        -- 1. Кто сейчас пристыкован и сколько высоты просит.
+        local docked, colH = {}, 0
         for _, col in ipairs({ attrColumn, abilColumn, effColumn }) do
-            if col.isDocked then
-                col:Show()
-                col:SetDockLayout(x, COL_TOP, COL_BOT)
-                x = x + col._width + COL_GAP
-                totalW = totalW + col._width + COL_GAP
+            if col.isDocked and not col._hidden then
+                table.insert(docked, col)
+                -- Колонка с заданной SetDockHeight высотой (эффекты)
+                -- просит ровно столько; остальные тянутся во всё окно.
+                colH = math.max(colH, col._dockHeight or FULL_COL_H)
             end
         end
-        -- Последний зазор лишний, если хоть одна колонка docked
-        if x > SIDE_PAD then totalW = totalW - COL_GAP end
-        totalW = totalW + SIDE_PAD
- 
-        sbFrame:SetWidth(math.max(totalW, 460))
+
+        -- 2. Высота окна — по самой высокой пристыкованной колонке.
+        -- Раньше она была намертво 600: вынеси все три колонки наружу —
+        -- и под шапкой оставалась пустая панель во весь экран.
+        local frameH = TOP_BLOCK + BOTTOM_PAD + ((#docked > 0) and colH or 0)
+
+        -- 3. Ширина: колонки, зазоры между ними и место справа.
+        local totalW = SIDE_PAD
+        for i, col in ipairs(docked) do
+            totalW = totalW + col._width
+            if i < #docked then totalW = totalW + COL_GAP end
+        end
+        local last = docked[#docked]
+        totalW = totalW + ((last and last._hasScrollbar) and SCROLL_RESERVE or SIDE_PAD)
+
+        ResizeKeepingCorner(sbFrame, math.max(totalW, 460), frameH)
+
+        -- 4. Раскладка — уже под новую высоту окна.
+        local x, colBottom = SIDE_PAD, BOTTOM_PAD - frameH
+        for _, col in ipairs(docked) do
+            col:Show()
+            col:SetDockLayout(x, COL_TOP, colBottom)
+            x = x + col._width + COL_GAP
+        end
     end
  
+    -- ── Куда можно бросить заклинание, чтобы подготовить его ──
+    -- Библиотека и карточки проверяли попадание курсора по
+    -- SpellbreakerMainFrame. Пока колонка «Способности» пристыкована,
+    -- это одно и то же; откреплённая колонка — самостоятельный фрейм
+    -- ВНЕ главного окна, и проверка её не видела: drop из библиотеки
+    -- молча ничего не делал, а перетаскивание карточки внутри самой
+    -- колонки считалось «выбросил наружу» и разучивало заклинание.
+    function SB.UI.IsOverPrepareArea()
+        if abilColumn and not abilColumn.isDocked
+            and abilColumn:IsShown() and abilColumn:IsMouseOver() then
+            return true
+        end
+        return sbFrame and sbFrame:IsShown() and sbFrame:IsMouseOver() or false
+    end
+
     attrColumn.OnDockChanged = RecalcLayout
     abilColumn.OnDockChanged = RecalcLayout
     effColumn.OnDockChanged  = RecalcLayout
- 
+
+    -- Колонка, откреплённая в прошлой сессии, открепляется снова и встаёт
+    -- туда же, где её оставили (см. col:RestoreDockState в Core/Theme.lua).
+    -- Строго ПОСЛЕ назначения OnDockChanged: открепление пересчитывает
+    -- ширину главного окна, и без обработчика оно осталось бы шириной под
+    -- три колонки с дырой на месте уехавшей.
+    for _, col in ipairs({ attrColumn, abilColumn, effColumn }) do
+        col:RestoreDockState()
+    end
+
+    -- ── Скрываем колонку "Активные эффекты" целиком, когда
+    -- эффектов нет — она не должна ни занимать место в докнутой
+    -- раскладке, ни висеть пустым плавающим окном на экране.
+    local function UpdateEffColumnShown()
+        local hasEffects = SB.ActiveEffects.GetCount() > 0
+        effColumn._hidden = not hasEffects
+        if hasEffects then effColumn:Show() else effColumn:Hide() end
+
+        -- Высота колонки — по числу рядов иконок, а не во всё окно
+        -- (см. SB.ActiveEffects.GetColumnHeight и col:SetDockHeight).
+        -- Сетку внутри тоже подгоняем: без этого effHolder остаётся
+        -- высотой в 1px и колонка не понимает, чем она заполнена.
+        effColumn:SetDockHeight(hasEffects and SB.ActiveEffects.GetColumnHeight() or nil)
+        effHolder:SetHeight(math.max(1, SB.ActiveEffects.GetGridHeight()))
+
+        RecalcLayout()
+    end
+
+    SB.Events.On("ACTIVE_EFFECTS_CHANGED", UpdateEffColumnShown)
+
     RecalcLayout()
+    UpdateEffColumnShown()
  
     -- ── Пикер круга ───────────────────────────────────────────
     slotFrame = SB.Theme.Frame("SB_SlotSelectFrame", UIParent, "Выбор порядка", 200, 180)
@@ -626,15 +1005,8 @@ local function BuildMainFrame()
                 end
                 return
             end
-            if link:match("^sbmod:") then
-                -- Ссылка на модификатор — по клику ничего не делаем
-                -- (разбивка уже видна по наводке), просто гасим клик,
-                -- чтобы Blizzard не пыталась сама её разобрать.
-                return
-            end
-            if link:match("^sbroll:") then
-                -- Ссылка на бросок кубика — та же логика: по клику
-                -- ничего не делаем, грани уже видны по наводке.
+            if link:match("^sbamt:") then
+                -- Ссылка на урон/исцеление — разбивка по наводке.
                 return
             end
         end
@@ -659,6 +1031,34 @@ local function BuildMainFrame()
         g:Hide()
         return g
     end)()
+
+    -- Пока окно было закрыто, перерисовку карточек пропускали
+    -- (см. CardsVisible) — дособираем на показе.
+    local function RebuildIfDirty()
+        if cardsDirty then SB.UI.UpdateAll() end
+    end
+    sbFrame:HookScript("OnShow", RebuildIfDirty)
+    abilColumn:HookScript("OnShow", RebuildIfDirty)
+
+    -- ── Слежение за дистанцией до цели ────────────────────────
+    -- Событие есть только на смену цели; сама дистанция меняется, пока
+    -- игрок ходит, и события на это нет вовсе — отсюда редкий опрос.
+    -- 0.3с достаточно: за это время границу дальности не пересечь и не
+    -- успеть кликнуть. Когда ни окно, ни откреплённая колонка не видны,
+    -- не считаем ничего.
+    local rangeWatcher = CreateFrame("Frame")
+    rangeWatcher:RegisterEvent("PLAYER_TARGET_CHANGED")
+    rangeWatcher:SetScript("OnEvent", function() SB.UI.RefreshCastButtons() end)
+
+    local sinceRangeCheck = 0
+    rangeWatcher:SetScript("OnUpdate", function(_, dt)
+        sinceRangeCheck = sinceRangeCheck + dt
+        if sinceRangeCheck < 0.3 then return end
+        sinceRangeCheck = 0
+        local cardsVisible = sbFrame:IsShown()
+            or (abilColumn and not abilColumn.isDocked and abilColumn:IsShown())
+        if cardsVisible then SB.UI.RefreshCastButtons() end
+    end)
 end
 -- ============================================================
 -- ОБНОВЛЕНИЕ ВСЕГО UI
@@ -666,10 +1066,47 @@ end
  
 --- Можно ли сейчас объявить отдых (Долгий/Короткий) — используется
 --- мини-карточкой миникарты при построении своих кнопок отдыха.
+--- Может ли игрок объявить ДОЛГИЙ Отдых: вне группы — всегда,
+--- в группе — только лидер. Вовлечённость в ПвП здесь НЕ проверяется
+--- намеренно: Долгий Отдых — единственное, что снимает флаг боя
+--- (см. PM.FullReset), и запрет на него замкнул бы группу в тупик.
 function SB.UI.CanRest()
     return not IsInGroup() or UnitIsGroupLeader("player")
 end
+
+--- Может ли игрок объявить КОРОТКИЙ Отдых всей группе. То же самое
+--- плюс условие «ещё не в размене»: начавший бой (или получивший удар)
+--- раздавать передышку отряду не должен — ему остаётся личный отдых,
+--- как и всем остальным.
+function SB.UI.CanGroupShortRest()
+    if not SB.UI.CanRest() then return false end
+    return not (SB.PlayerModel and SB.PlayerModel.IsPvpEngaged())
+end
  
+-- ============================================================
+-- КОАЛЕСЦИРОВАНИЕ ПЕРЕРИСОВКИ
+--
+-- PLAYER_MODEL_CHANGED — самое частое событие в аддоне: его шлёт каждое
+-- изменение здоровья, ресурса, эффектов и статуса. В бою на массовом
+-- ивенте это десятки раз в секунду, и каждый раз шла ПОЛНАЯ перерисовка:
+-- проверка кастомных заклинаний, пересборка всех карточек со строками,
+-- замерами ширины и перестановкой якорей.
+--
+-- Промежуточные состояния на экране всё равно не видны — между двумя
+-- изменениями в одном кадре нет ни одной отрисовки. Поэтому событие лишь
+-- взводит флаг, а перерисовка идёт ОДИН раз на кадр.
+-- ============================================================
+local updateQueued = false
+
+function SB.UI.RequestUpdate()
+    if updateQueued then return end
+    updateQueued = true
+    C_Timer.After(0, function()
+        updateQueued = false
+        SB.UI.UpdateAll()
+    end)
+end
+
 function SB.UI.UpdateAll()
     if not sbFrame or not SB.PlayerModel then return end
  
@@ -681,24 +1118,50 @@ function SB.UI.UpdateAll()
  
     if masteryLabel then masteryLabel:SetText(PM.GetMastery()) end
  
-    if modBadge then
-        local total = SB.Logic.GetModifierBreakdown()
-        modBadge.text:SetText((total >= 0 and "+" or "") .. total)
+    if atkBadge and defBadge then
+        local atk = SB.Logic.GetModifierBreakdown("attack")
+        local def = SB.Logic.GetModifierBreakdown("defense")
+        atkBadge.text:SetText((atk >= 0 and "+" or "") .. atk)
+        defBadge.text:SetText((def >= 0 and "+" or "") .. def)
+    end
+
+    if moveBadge and SB.Movement then
+        local walked = SB.Movement.GetDistance()
+        if SB.Movement.HasLimit() then
+            moveBadge.text:SetText(string.format("%.0f/%.0f", walked, SB.Movement.GetCap()))
+        else
+            -- Предел снят Ведущим: показываем пройденное и бесконечность,
+            -- иначе «12/-1» читалось бы как поломка.
+            moveBadge.text:SetText(string.format("%.0f/∞", walked))
+        end
+        -- Красным, когда предел выбран: бейдж в этот момент перестаёт быть
+        -- справкой и становится единственным, что можно нажать.
+        if SB.Movement.IsExhausted() then
+            moveBadge.text:SetTextColor(1, 0.35, 0.35)
+        else
+            moveBadge.text:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+        end
     end
  
-    -- Долгий/Короткий отдых переехали в мини-карточку миникарты —
-    -- их доступность (только вне группы или для лидера) теперь
-    -- вычисляется там же в момент показа карточки через CanRest().
- 
-    -- Ресурсы (только рвение)
-    local zeal = PM.GetZeal()
-    local maxZ = PM.GetMaxZeal()
-    --resourceText:SetText(string.format("|cFFFF6666Рвение: %d/%d|r", zeal, maxZ))
- 
-    -- Полоски здоровья / маны (рвения)
+    -- Долгий Отдых остался только в мини-карточке миникарты. Короткий
+    -- Отдых продублирован здесь в шапке — доступность та же (вне группы
+    -- или для лидера), плюс личные заряды (см. Core/ClassMechanics.lua)
+    -- обходят требование лидерства только для Короткого Отдыха.
+    if shortRestBtn then
+        local canShortRest = SB.UI.CanGroupShortRest()
+            or (SB.ClassMechanics and SB.ClassMechanics.CanPersonalShortRest())
+        if canShortRest then shortRestBtn:Enable() else shortRestBtn:Disable() end
+    end
+
+    -- Ресурсы (ресурс каста: Рвение у кастеров, свой ресурс у некастеров)
+    local zeal = PM.GetCastResource()
+    local maxZ = PM.GetMaxCastResource()
+    --resourceText:SetText(string.format("|cFFFF6666%s: %d/%d|r", PM.GetResourceName(), zeal, maxZ))
+
+    -- Полоски здоровья / ресурса каста
     if healthBar then healthBar:SetValue(PM.GetHealth(), PM.GetMaxHealth()) end
     if manaBar then
-        manaBar:SetValue(PM.GetZeal(), PM.GetMaxZeal())
+        manaBar:SetValue(PM.GetCastResource(), PM.GetMaxCastResource())
         local r, g, b = SB.Logic.GetResourceBarColor(PM.GetClass())
         manaBar:SetColor(r, g, b)
     end
@@ -706,7 +1169,7 @@ function SB.UI.UpdateAll()
     -- Счётчик подготовки — компактный формат "(N/M)" рядом с
     -- заголовком колонки "Способности" (раньше была длинная строка
     -- "Подготовлено: N/M" в общей шапке — туда уже не влезает).
-	local maxPrep = SB.Data.Config.MaxPrepared[PM.GetMastery()] or 5
+	local maxPrep = PM.GetMaxPrepared()
 	local curPrep = #PM.GetPreparedSpells()
 	local col     = (curPrep >= maxPrep) and "|cFFFF4444" or "|cFFFFD100"
 
@@ -724,8 +1187,23 @@ end
 -- ============================================================
 -- КАРТОЧКИ ЗАКЛИНАНИЙ
 -- ============================================================
+-- Ширина метки «(Конц.)» в пикселях — под неё поджимается правая
+-- граница названия, чтобы метка встала сразу за именем и не налезла
+-- на кнопки справа.
+local CONC_LABEL_W = 48
+
 function SB.UI.UpdateSpellCards()
     if not SB.PlayerModel then return end
+
+    -- Окно закрыто — не собираем ничего. В бою на массовом ивенте модель
+    -- меняется десятки раз в секунду, и всё это время пересобирались
+    -- карточки, которых никто не видит: строки, замеры ширины, якоря.
+    if not CardsVisible() then
+        cardsDirty = true
+        return
+    end
+    cardsDirty = false
+
     local prepared = SB.PlayerModel.GetPreparedSpells()
  
     for _, c in ipairs(spellCards) do c:Hide() end
@@ -764,14 +1242,40 @@ function SB.UI.UpdateSpellCards()
                 card.extra:SetJustifyH("LEFT")
                 card.extra:SetTextColor(0.55, 0.52, 0.44, 1)
  
-                -- Концентрация — справа, напротив названия
+                -- Концентрация — сразу за названием, а не у правого края
+                -- карточки: у коротких имён метка улетала от него на
+                -- полкарточки и читалась как отдельная колонка.
+                -- Позиция вычисляется по фактической ширине текста в
+                -- UpdateSpellCards — сама FontString растянута двумя
+                -- точками и своей ширины не знает.
                 card.concLabel = card:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-                card.concLabel:SetPoint("RIGHT", card.name, "RIGHT", 37, 0)
-          
-                card.concLabel:SetJustifyH("RIGHT")
+                card.concLabel:SetJustifyH("LEFT")
  
                 card.castBtn = SB.Theme.Button(card, "Применить",    82, 24, "primary")
                 card.castBtn:SetPoint("TOPRIGHT", card, "TOPRIGHT", -4, -6)
+
+                -- Причина, по которой кнопка погасла. Оборачиваем
+                -- существующие обработчики темы, а не подменяем их:
+                -- в них живёт подсветка кнопки под курсором.
+                local baseEnter = card.castBtn:GetScript("OnEnter")
+                local baseLeave = card.castBtn:GetScript("OnLeave")
+                card.castBtn:SetScript("OnEnter", function(self)
+                    if baseEnter then baseEnter(self) end
+                    if self:IsEnabled() then return end
+                    local sp = GetSpellData(card._spellID)
+                    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+                    SB.Theme.StyleTooltip(GameTooltip)
+                    GameTooltip:SetText("Слишком далеко", 1, 0.3, 0.3)
+                    local d = sp and sp.distance or 0
+                    GameTooltip:AddLine("Дальность заклинания — " ..
+                        ((d == 1.5) and "ближний бой" or string.format("%g м", d)) ..
+                        ". Подойдите к цели.", 0.9, 0.9, 0.9, true)
+                    GameTooltip:Show()
+                end)
+                card.castBtn:SetScript("OnLeave", function(self)
+                    if baseLeave then baseLeave(self) end
+                    GameTooltip:Hide()
+                end)
  
                 card.unlearnBtn = SB.Theme.Button(card, "Разучить", 82, 24, "danger")
                 card.unlearnBtn:SetPoint("BOTTOMRIGHT", card, "BOTTOMRIGHT", -4, 6)
@@ -815,7 +1319,7 @@ function SB.UI.UpdateSpellCards()
                         SB.PlayerModel.ReorderSpell(draggedID, targetCard._spellID)
                         SB.UI.UpdateAll()
                         SB.Events.Fire("STATUS_CHANGED")
-                    elseif not sbFrame:IsMouseOver() then
+                    elseif not SB.UI.IsOverPrepareArea() then
                         SB.UI.UnprepareSpell(draggedID)
                     end
                 end)
@@ -823,7 +1327,12 @@ function SB.UI.UpdateSpellCards()
                 card:SetScript("OnMouseUp", function(self, btn)
                     if self._isDragging then return end
                     local sp = GetSpellData(self._spellID)
-                    if btn == "LeftButton" and sp and SB.Library and SB.Library.ShowDetail then
+                    -- Shift+ЛКМ — показать заклинание группе (см.
+                    -- SB.UI.ShareSpellLink). Проверяем ДО обычного ЛКМ,
+                    -- иначе поверх ссылки открылась бы ещё и карточка.
+                    if btn == "LeftButton" and IsShiftKeyDown() and sp then
+                        SB.UI.ShareSpellLink(sp)
+                    elseif btn == "LeftButton" and sp and SB.Library and SB.Library.ShowDetail then
                         SB.Library.ShowDetail(sp)
                     elseif btn == "RightButton" and sp and sp.isCustom and SB.CustomSpells then
                         SB.CustomSpells.OpenEdit(sp.id)
@@ -842,7 +1351,7 @@ function SB.UI.UpdateSpellCards()
  
             -- Только уровень (дескриптор убран по запросу)
             local lvl  = spell.level or 0
-            local lvlS = (lvl == 0) and "Заговор" or ("Порядок: " .. lvl)
+            local lvlS = (lvl == 0) and SB.Logic.GetCantripLabel(spell.class) or ("Порядок: " .. lvl)
             card.desc:SetText(lvlS)
             local parts = {}
             -- Расстояние
@@ -854,20 +1363,42 @@ function SB.UI.UpdateSpellCards()
             else
                 table.insert(parts, "Дальность: " .. dist .. "м.")
             end
-            -- Длительность
+            -- Длительность. -1 значит бессрочно (до Долгого Отдыха);
+            -- положительное число — база при касте в свой круг, апкаст
+            -- удваивает её за каждый круг сверх.
             local dur = spell.duration
-            if dur and dur > 0 then
-                table.insert(parts, "Длительность:" .. dur .. " ход.")
+            if dur == -1 then
+                table.insert(parts, "Длительность: бессрочно")
+            elseif dur and dur > 0 then
+                table.insert(parts, "Длительность: " .. dur .. " ход.")
             else
                 table.insert(parts, "Длительность: Мгновенно")
             end
             card.extra:SetText(table.concat(parts, "\n"))
  
-            -- Концентрация — справа напротив названия
+            -- Концентрация — вплотную к названию. Отступ считаем по
+            -- GetStringWidth (реальная ширина текста), зажимая доступной
+            -- шириной строки имени: у длинного имени, уже обрезанного
+            -- многоточием, метка иначе ушла бы под кнопку «Применить».
+            -- Доступную ширину выводим арифметикой из ширины карточки, а
+            -- не через name:GetWidth(): карточку растягивают ниже по
+            -- коду, и якоря FontString движок пересчитает лишь к
+            -- следующему кадру — GetWidth() вернул бы прошлое значение.
+            -- 8 отступ + 43 иконка + 8 зазор слева, 95 под кнопки справа.
+            local nameAvail = math.max(200, (scrollChild:GetWidth() or 340) - 10) - 154
             if spell.isConcentration then
                 card.concLabel:SetText("|cFF22BFFF(Конц.)|r")
+                -- Под метку резервируем место, поджимая правую границу
+                -- имени: иначе длинное имя дотянулось бы до кнопок, и
+                -- метка легла бы поверх «Применить».
+                card.name:SetPoint("RIGHT", card, "RIGHT", -95 - CONC_LABEL_W, 0)
+                nameAvail = math.max(20, nameAvail - CONC_LABEL_W)
+                local nameW = math.min(card.name:GetStringWidth(), nameAvail)
+                card.concLabel:ClearAllPoints()
+                card.concLabel:SetPoint("LEFT", card.name, "LEFT", nameW + 5, 0)
                 card.concLabel:Show()
             else
+                card.name:SetPoint("RIGHT", card, "RIGHT", -95, 0)
                 card.concLabel:Hide()
             end
  
@@ -887,6 +1418,48 @@ function SB.UI.UpdateSpellCards()
     end
  
     scrollChild:SetHeight(math.max(yOff, 10))
+    SB.UI.RefreshCastButtons()
+end
+
+-- ============================================================
+-- ДОСТУПНОСТЬ «ПРИМЕНИТЬ» ПО ДИСТАНЦИИ
+--
+-- Сам каст перекрыт в SB.Logic.ConfirmCast, но узнавать о том, что цель
+-- далеко, из строчки в чате ПОСЛЕ нажатия — плохо: игрок уже выбрал круг
+-- в пикере. Кнопка гаснет заранее, а причина видна по наводке.
+--
+-- Проверяем только по игрокам: по НПС дистанцию считает Ведущий (см.
+-- комментарий в ConfirmCast), и гасить там кнопку было бы враньём.
+-- ============================================================
+local function CanReachTargetWith(spell, dist)
+    if not spell then return true end
+    if not UnitExists("target") or not UnitIsPlayer("target") then return true end
+    if UnitIsUnit("target", "player") then return true end
+    return SB.Logic.IsSpellInRange(spell, dist)
+end
+
+function SB.UI.RefreshCastButtons()
+    -- Дистанцию меряем ОДИН раз на весь проход, а не внутри каждой
+    -- карточки: там это два UnitPosition и корень, и при дюжине
+    -- подготовленных заклинаний счёт шёл на сотни вызовов в секунду.
+    local dist = SB.Logic.GetTargetDistance and SB.Logic.GetTargetDistance() or nil
+    for _, card in ipairs(spellCards) do
+        if card:IsShown() and card.castBtn then
+            local ok = CanReachTargetWith(GetSpellData(card._spellID), dist)
+            -- Только на смену состояния: функция вызывается по таймеру,
+            -- а Enable/Disable перекрашивают backdrop и шрифт.
+            if ok ~= card._inRange then
+                card._inRange = ok
+                if ok then
+                    card.castBtn:Enable()
+                    card.castBtn:SetAlpha(1)
+                else
+                    card.castBtn:Disable()
+                    card.castBtn:SetAlpha(0.45)
+                end
+            end
+        end
+    end
 end
  
 -- ============================================================
@@ -898,14 +1471,27 @@ function SB.UI.PrepareSpell(spell)
     if result == "locked" then
         SB.UI.PrintMsg("noPrepAfterCast")
         return
+    elseif result == "class_hidden" then
+        SB.UI.PrintMsg("classHiddenOnRealm")
+        return
     elseif result == "order_too_high" then
-        local maxOrder = SB.Data.Config.MaxOrder[SB.PlayerModel.GetMastery()] or 3
-        print(string.format(
-            "|cFFFF0000[Spellbreaker]: Ваш ранг (%s) не может подготавливать заклинания выше %d-го порядка!|r",
-            SB.PlayerModel.GetMastery(), maxOrder))
+        local PM       = SB.PlayerModel
+        local maxOrder = PM.GetMaxPrepareOrder(spell.class)
+        -- У чужого класса потолок на круг ниже, и без этой оговорки
+        -- сообщение выглядело бы враньём: игрок видит у себя открытый
+        -- 3-й круг, а ему отвечают «не выше 2-го».
+        if PM.IsOwnClassSpell(spell.class) then
+            print(string.format(
+                "|cFFFF0000[Spellbreaker]: Ваш ранг (%s) не может подготавливать заклинания выше %d-го порядка!|r",
+                PM.GetMastery(), maxOrder))
+        else
+            print(string.format(
+                "|cFFFF0000[Spellbreaker]: «%s» — чужая школа (%s). Чужие заклинания доступны на круг ниже: не выше %d-го.|r",
+                spell.name or "Заклинание", spell.class or "—", maxOrder))
+        end
         return
     elseif result == "full" then
-        local maxPrep = SB.Data.Config.MaxPrepared[SB.PlayerModel.GetMastery()] or 5
+        local maxPrep = SB.PlayerModel.GetMaxPrepared()
         print(string.format("|cFFFF0000[Spellbreaker]: Лимит подготовки (%d) достигнут!|r", maxPrep))
         return
     elseif result == "duplicate" then
@@ -939,52 +1525,232 @@ end
 -- ============================================================
 -- ПИКЕР КРУГА
 -- ============================================================
+-- Геометрия пикера. Окно подстраивается под содержимое: и по высоте
+-- (сколько вариантов реально доступно), и по ширине (самая длинная
+-- подпись). Раньше и то, и другое было фиксировано под четыре кнопки в
+-- 200 пикселей, а недоступные варианты висели серыми заглушками —
+-- на Sanctuary с его пятью кругами их стало бы шесть.
+local SLOT_BTN_H    = 30
+local SLOT_GAP      = 4
+local SLOT_PAD_L    = 14
+local SLOT_PAD_R    = 16
+local SLOT_BTN_MIN  = 170
+local SLOT_BTN_MAX  = 380
+local SLOT_TEXT_PAD = 26   -- воздух вокруг текста внутри кнопки
+
+--- «3 хода» / «1 ход» / «5 ходов» — для подписи длительности эффекта.
+local function TurnsWord(n)
+    local tail100 = n % 100
+    if tail100 >= 11 and tail100 <= 14 then return "ходов" end
+    local tail = n % 10
+    if tail == 1 then return "ход" end
+    if tail >= 2 and tail <= 4 then return "хода" end
+    return "ходов"
+end
+
 function SB.UI.ShowSlotPicker(spellID)
     local spell = GetSpellData(spellID)
     if not spell then return end
- 
-    if slotFrame._slotBtns then
-        for _, b in ipairs(slotFrame._slotBtns) do b:Hide() end
-    end
-    slotFrame._slotBtns = {}
- 
+
+    slotFrame._slotBtns = slotFrame._slotBtns or {}
+    for _, b in ipairs(slotFrame._slotBtns) do b:Hide() end
+    if slotFrame._hintFS then slotFrame._hintFS:Hide() end
+
     local PM       = SB.PlayerModel
-    local maxOrder = SB.Data.Config.MaxOrder[PM.GetMastery()] or 3
-    local yBase    = slotFrame.contentY - 4
-    local btnH, gap = 30, 4
-    local idx = 0
- 
-    local function makeSlotBtn(label, level, available)
-        idx = idx + 1
-        local b = slotFrame._slotBtns[idx]
-        if not b then
-            b = SB.Theme.Button(slotFrame, label, 170, btnH, available and "primary" or "secondary")
-            table.insert(slotFrame._slotBtns, b)
+    -- Не MaxOrderFor(ранг), а потолок С УЧЁТОМ КЛАССА заклинания: у чужой
+    -- школы он на круг ниже, и пикер обязан показывать ровно те круги,
+    -- которые примет ConfirmCast — иначе кнопка есть, а каст отбивается.
+    local maxOrder = PM.GetMaxPrepareOrder(spell.class)
+    local zeal     = PM.GetCastResource()
+    local resName  = PM.GetResourceName()
+    local spellLvl = spell.level or 0
+
+    -- Что именно даст вложенный ресурс на этом уровне. Раньше здесь
+    -- стояло глухое «(+Эффект)», по которому нельзя было понять ни
+    -- сколько именно, ни во что оно уходит — а у кастера и некастера
+    -- ресурс работает по-разному (см. SB.Logic.GetCastPower).
+    --
+    -- Скейлинг обязательно считаем ЗДЕСЬ же, с тем самым level: у
+    -- кастера вложенная мана давно не прибавляет урон плоско, она
+    -- множит скейлинг (см. SB.Logic.GetDamageScaleMultiplier). Без
+    -- этого пикер показывал бы одну и ту же базовую единицу на всех
+    -- кругах и обещал бы, что вливать бессмысленно.
+    local function GainTag(level)
+        local dmg, hit = SB.Logic.GetCastPower(spell, level)
+        if hit > 0 then
+            return string.format(" (+%d атака)", hit)
         end
+        local scaled = dmg + SB.Logic.GetSpellScaling(spell, "damage", level)
+        if spell.isHeal then
+            return string.format(" (%d ХП)", scaled)
+        end
+        if spell.canCrit then
+            return string.format(" (%d урона)", scaled)
+        end
+        return ""
+    end
+
+    -- Длительность эффекта на этом уровне вливания. Ресурс растягивает
+    -- эффект (см. SB.Logic.GetEffectDuration), и без этой подписи выбор
+    -- между «влить 1» и «влить 3» для чистого баффа выглядел бы
+    -- одинаково бессмысленным в обоих случаях.
+    local effectID = spell.container or spell.buff or spell.debuff
+    local function DurationTag(level)
+        if not effectID or not SB.Data.Spells[effectID] then return "" end
+        local turns = SB.Logic.GetEffectDuration(effectID, spell, level)
+        if turns == SB.ActiveEffects.INFINITE then return " | беск." end
+        return string.format(" | %d %s", turns, TurnsWord(turns))
+    end
+
+    -- ── Собираем ТОЛЬКО доступные варианты ──────────────────
+    -- Верхняя граница перебора — не ранг игрока, а потолок реалма:
+    -- иначе не отличить «круг не открыт рангом» от «такого круга нет».
+    local realmMaxOrder = SB.Data.MaxOrderFor(SB.Data.GetMaxMastery())
+    local options = {}
+    local lackResource, lackRank = false, false
+
+    -- ПРЕДЕЛ ПЕРЕДВИЖЕНИЯ ВЫБРАН. Кругов не показываем вовсе: ни один из
+    -- них не пройдёт (ConfirmCast отобьёт каст), а нажимаемая кнопка,
+    -- которая молча ничего не делает, — худшее, что может быть.
+    --
+    -- Вместо этого в пикере остаётся ровно одно действие, которое СЕЙЧАС
+    -- имеет смысл, и подпись под ним объясняет, почему. Именно поэтому
+    -- отказ и не пишется в чат (см. SB.Movement.CheckCanAct): игрок
+    -- узнаёт причину там же, где нажал, и тут же может её устранить.
+    local exhausted = SB.Movement and SB.Movement.IsExhausted()
+
+    if exhausted then
+        table.insert(options, { label = "Пропустить ход", passTurn = true })
+    else
+        if spellLvl == 0 then
+            table.insert(options, {
+                label = SB.Logic.GetCantripLabel(spell.class) .. GainTag(0) .. DurationTag(0),
+                level = 0,
+            })
+        end
+
+        for lvl = 1, realmMaxOrder do
+            if lvl >= spellLvl then
+                if lvl > maxOrder then
+                    lackRank = true
+                elseif zeal < lvl then
+                    lackResource = true
+                else
+                    table.insert(options, {
+                        label = resName .. " x " .. lvl .. GainTag(lvl) .. DurationTag(lvl),
+                        level = lvl,
+                    })
+                end
+            end
+        end
+    end
+
+    -- ── Ширина по самой длинной подписи ─────────────────────
+    -- Меряем ОТДЕЛЬНОЙ строкой без переноса, а не текстом кнопки: у
+    -- кнопки FontString растянут SetAllPoints, поэтому длинная подпись
+    -- успевает перенестись внутри ещё старой (170px) ширины, и измерение
+    -- вернуло бы ширину переноса вместо ширины строки.
+    local measure = slotFrame._measureFS
+    if not measure then
+        measure = slotFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        measure:SetPoint("TOPLEFT", slotFrame, "TOPLEFT", 0, 0)
+        measure:SetWordWrap(false)
+        measure:Hide()
+        slotFrame._measureFS = measure
+    end
+
+    local btnW = SLOT_BTN_MIN
+    for _, opt in ipairs(options) do
+        measure:SetText(opt.label)
+        local w = measure:GetStringWidth() + SLOT_TEXT_PAD
+        if w > btnW then btnW = w end
+    end
+    btnW = math.min(SLOT_BTN_MAX, math.ceil(btnW))
+    -- «Пропустить ход» — подпись короткая, а пояснение под ней длинное.
+    -- По ширине кнопки окно вышло бы узким столбцом на шесть строк, и
+    -- расчёт высоты (GetStringHeight на ещё не разложенном тексте) не
+    -- поспел бы за переносами. Даём тексту нормальную строку.
+    if exhausted then btnW = math.max(btnW, 160) end
+
+    -- ── Кнопки: создаём/переиспользуем ──────────────────────
+    for i, opt in ipairs(options) do
+        local b = slotFrame._slotBtns[i]
+        if not b then
+            b = SB.Theme.Button(slotFrame, opt.label, SLOT_BTN_MIN, SLOT_BTN_H, "primary")
+            b._fs:SetWordWrap(false)
+            slotFrame._slotBtns[i] = b
+        end
+        b:SetText(opt.label)
+        b:Enable()
+    end
+
+    local yBase = slotFrame.contentY - 4
+    for i, opt in ipairs(options) do
+        local b = slotFrame._slotBtns[i]
+        b:SetWidth(btnW)
         b:ClearAllPoints()
-        b:SetPoint("TOPLEFT", slotFrame, "TOPLEFT", 14, yBase - (idx - 1) * (btnH + gap))
-        b:SetText(label)
-        if available then b:Enable() else b:Disable() end
+        b:SetPoint("TOPLEFT", slotFrame, "TOPLEFT", SLOT_PAD_L,
+                   yBase - (i - 1) * (SLOT_BTN_H + SLOT_GAP))
         b:SetScript("OnClick", function()
             slotFrame:Hide()
-            SB.Logic.ConfirmCast(spellID, level)
+            if opt.passTurn then
+                SB.Logic.SpendTurnManually()
+            else
+                SB.Logic.ConfirmCast(spellID, opt.level)
+            end
         end)
         b:Show()
     end
- 
-    if spell.level == 0 then
-        makeSlotBtn("Заговор", 0, true)
+
+    -- ── Пояснение, если что-то скрыто ───────────────────────
+    -- Пропавшая кнопка сама по себе ничего не объясняет, поэтому
+    -- причина называется словами — но одной строкой, а не четырьмя
+    -- серыми заглушками, как было раньше.
+    local hint
+    -- Для чужой школы причина потолка не в ранге, а в мультиклассе, и
+    -- «откроются с повышением ранга» там просто неправда: Эксперт уже
+    -- на максимуме, а третий круг чужого класса ему всё равно закрыт.
+    local foreign  = not PM.IsOwnClassSpell(spell.class)
+    local rankNote = foreign
+        and ("Чужая школа: круги выше " .. maxOrder .. "-го закрыты мультиклассом.")
+        or  ("Круги выше " .. maxOrder .. "-го откроются с повышением ранга.")
+    if exhausted then
+        hint = string.format(
+            "Пройдено %.0f м из %.0f — ход выбран передвижением, на действие сил не осталось.\n" ..
+            "Пропуск хода обнулит путь и вернёт 1 %s.",
+            SB.Movement.GetDistance(), SB.Movement.GetCap(), resName)
+    elseif #options == 0 then
+        hint = lackResource
+            and ("Не хватает ресурса «" .. resName .. "» ни на один круг.")
+            or  (foreign
+                 and ("Чужая школа: круг " .. spellLvl .. " вам недоступен.")
+                 or  ("Ваш ранг не открывает круг " .. spellLvl .. "."))
+    elseif lackResource and lackRank then
+        hint = "Выше — не хватает ресурса, дальше круг закрыт."
+    elseif lackResource then
+        hint = "Влить больше не хватает ресурса «" .. resName .. "»."
+    elseif lackRank then
+        hint = rankNote
     end
- 
-    local zeal = PM.GetZeal()
-    for lvl = 1, 3 do
-        local ok     = (zeal >= lvl) and (lvl >= (spell.level or 0)) and (lvl <= maxOrder)
-        local upcast = (lvl > (spell.level or 0)) and " (+Эффект)" or ""
-        local capTag = (lvl > maxOrder) and " (недоступно рангу)" or ""
-        makeSlotBtn("Мана × " .. lvl .. upcast .. capTag, lvl, ok)
+
+    local contentH = #options * (SLOT_BTN_H + SLOT_GAP)
+    if hint then
+        local fs = slotFrame._hintFS
+        if not fs then
+            fs = slotFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+            fs:SetJustifyH("LEFT")
+            slotFrame._hintFS = fs
+        end
+        fs:SetWidth(btnW)
+        fs:SetText(hint)
+        fs:ClearAllPoints()
+        fs:SetPoint("TOPLEFT", slotFrame, "TOPLEFT", SLOT_PAD_L, yBase - contentH - 2)
+        fs:Show()
+        contentH = contentH + fs:GetStringHeight() + 8
     end
- 
-    slotFrame:SetHeight(slotFrame.contentY * -1 + idx * (btnH + gap) + 20)
+
+    slotFrame:SetWidth(btnW + SLOT_PAD_L + SLOT_PAD_R)
+    slotFrame:SetHeight(-slotFrame.contentY + contentH + 20)
     slotFrame:Show()
 end
  
@@ -1021,9 +1787,14 @@ SB.Events.On("SB_INIT", function()
     SB.Library.BuildFrame()
     SB.UI.UpdateAll()
  
-    -- Перерисовывать UI при изменении модели
-    SB.Events.On("PLAYER_MODEL_CHANGED",  function() SB.UI.UpdateAll() end)
-    SB.Events.On("PREPARED_SPELLS_CHANGED", function() SB.UI.UpdateAll() end)
+    -- Перерисовывать UI при изменении модели — через очередь на кадр,
+    -- а не немедленно (см. SB.UI.RequestUpdate).
+    SB.Events.On(SB.E.PLAYER_MODEL_CHANGED,    SB.UI.RequestUpdate)
+    SB.Events.On(SB.E.PREPARED_SPELLS_CHANGED, SB.UI.RequestUpdate)
+    -- Шагомер шлёт MOVEMENT_CHANGED не чаще пяти раз в секунду и только
+    -- пока игрок движется (см. Core/Movement.lua), а очередь на кадр
+    -- схлопывает это в одну перерисовку.
+    SB.Events.On(SB.E.MOVEMENT_CHANGED,        SB.UI.RequestUpdate)
  
     -- Лог-сообщения из сети — идут и в окно логов, и локальным
     -- системным сообщением в чат (никуда не отправляются по сети,
@@ -1047,6 +1818,19 @@ SB.Events.On("SB_INIT", function()
         end
     end)
  
+    -- ЗВУКОВОЙ ОТКЛИК НА ИСХОД КАСТА. Отдельной подпиской, а не внутри
+    -- тоста: тост есть только у заявок, которые рассматривал Ведущий, а
+    -- откликнуться надо на любое применённое умение — и на ПвП-удар, и
+    -- на лечение, и на наложение эффекта. Здесь же он гарантированно
+    -- один: сколько бы кусков UI ни отреагировало на событие, звук
+    -- проигрывает только эта подписка.
+    --
+    -- ЗАЩИТА звука не получает намеренно: игрок не выбирал момент, и
+    -- отклик на чужое действие только сбивал бы с толку.
+    SB.Events.On(SB.E.CAST_RESOLVED, function(_, succeeded)
+        SB.Theme.PlaySound(succeeded and "success" or "fail")
+    end)
+
     -- Ожидание решения ГМа, вердикт и отказ (#13, #15-18)
     SB.Events.On("CAST_PENDING", function(spellID)
         SB.UI.ShowCastPending(spellID)

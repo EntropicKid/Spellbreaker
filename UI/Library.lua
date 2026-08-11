@@ -88,7 +88,7 @@ function SB.Library.UpdateList()
                 hdr:SetJustifyH("LEFT")
                 headerRows[hdrIdx] = hdr
             end
-            local htxt = (lvl == 0) and "Заговоры: " or (lvl .. " Порядок: ")
+            local htxt = (lvl == 0) and (SB.Logic.GetCantripLabel(selectedClass, true) .. ": ") or (lvl .. " Порядок: ")
             hdr:SetText("|cFFFFD100" .. htxt .. "|r")
             yOff = yOff + (hdrIdx == 1 and 5 or 15)
             hdr:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 10, -yOff)
@@ -148,17 +148,29 @@ function SB.Library.UpdateList()
                 ResetCursor()
                 if SB.UI.DragGhost then SB.UI.DragGhost:Hide() end
                 if SB.DraggingSpell then
-                    if SpellbreakerMainFrame and SpellbreakerMainFrame:IsMouseOver() then
-                        if SB.UI and SB.UI.PrepareSpell then
-                            SB.UI.PrepareSpell(SB.DraggingSpell)
-                        end
+                    -- Не «мышь над SpellbreakerMainFrame», а «мышь над
+                    -- областью подготовки» — колонку «Способности» можно
+                    -- открепить в отдельное окно, и тогда главного фрейма
+                    -- под курсором нет (см. SB.UI.IsOverPrepareArea).
+                    local over
+                    if SB.UI and SB.UI.IsOverPrepareArea then
+                        over = SB.UI.IsOverPrepareArea()
+                    else
+                        over = SpellbreakerMainFrame and SpellbreakerMainFrame:IsMouseOver()
+                    end
+                    if over and SB.UI and SB.UI.PrepareSpell then
+                        SB.UI.PrepareSpell(SB.DraggingSpell)
                     end
                     SB.DraggingSpell = nil
                 end
             end)
 
             row:SetScript("OnMouseUp", function(self, btn)
-                if btn == "LeftButton" and self.spellData then
+                -- Shift+ЛКМ — показать заклинание группе кликабельной
+                -- ссылкой (см. SB.UI.ShareSpellLink).
+                if btn == "LeftButton" and IsShiftKeyDown() and self.spellData then
+                    SB.UI.ShareSpellLink(self.spellData)
+                elseif btn == "LeftButton" and self.spellData then
                     if SB.Library and SB.Library.ShowDetail then
                         SB.Library.ShowDetail(self.spellData)
                     end
@@ -217,11 +229,23 @@ function SB.Library.ShowDetail(spell)
 
     local C = SB.Theme.C
 
-    -- Левая часть: класс, порядок, дескриптор
+    -- Левая часть: класс, порядок, дескриптор.
+    -- Чужой класс помечаем ЦВЕТОМ и только цветом: подготовить его можно
+    -- лишь на круг ниже своего потолка (см. PM.GetMaxPrepareOrder), и
+    -- узнавать об этом из красной строки в чате ПОСЛЕ перетаскивания
+    -- карточки — поздно. Приписки с числом здесь нет намеренно: она
+    -- дублировала строку «Порядок» соседней строкой и повторялась на
+    -- каждой чужой карточке, хотя правило в игре ровно одно и учится
+    -- один раз.
+    local PM        = SB.PlayerModel
+    local classStr  = spell.class or "—"
+    if PM and not PM.IsOwnClassSpell(spell.class) then
+        classStr = "|cFFFF8844" .. classStr .. "|r"
+    end
     local leftText = string.format(
         "|cFFFFD100Класс:|r %s\n|cFFFFD100Порядок:|r %s\n|cFFFFD100Дескриптор:|r %s",
-        spell.class or "—",
-        (spell.level == 0) and "Заговор" or (spell.level .. "-й"),
+        classStr,
+        (spell.level == 0) and SB.Logic.GetCantripLabel(spell.class) or (spell.level .. "-й"),
         spell.key or "—")
     f.metaLeft:SetText(leftText)
 
@@ -237,11 +261,24 @@ function SB.Library.ShowDetail(spell)
     end
     f.metaDistance:SetText("|cFFFFD100Дальность:|r " .. distStr)
 
+    -- Площадь — ОТДЕЛЬНОЙ строкой под дальностью, а не приписью справа:
+    -- в одну строку с дальностью она не помещалась и лезла на текст.
+    local radius = SB.Logic.GetAoeRadius and SB.Logic.GetAoeRadius(spell) or 0
+    if radius > 0 then
+        f.metaArea:SetText(string.format("|cFFFF8844Область: %g м|r", radius))
+    else
+        f.metaArea:SetText("")
+    end
+
     -- Длительность (левая колонка, под дескриптором)
+    -- -1 значит бессрочно (снимается только Долгим Отдыхом): раньше здесь
+    -- стояло «Отсутствует», и карточка прямо противоречила расчёту.
+    -- Положительное число — БАЗОВАЯ длина при касте в свой круг; апкаст
+    -- удваивает её за каждый круг сверх (SB.Logic.GetUpcastMultiplier).
     local dur = spell.duration
     local durStr
     if dur == -1 then
-        durStr = "Отсутствует"
+        durStr = "Бессрочно (до Долгого Отдыха)"
     elseif dur and dur > 0 then
         durStr = dur .. " ход."
     else
@@ -265,18 +302,107 @@ function SB.Library.ShowDetail(spell)
         f.metaCreator:Hide()
     end
 
-    -- Описание (без исходов — они больше не хранятся в данных
-    -- заклинания; отпись при успехе вводится ниже игроком лично).
-    local txt = "|cFFFFFFFF" .. (spell.description or "Описание отсутствует.") .. "|r"
-    f.desc:SetText(txt)
+    -- Описание — ЦЕЛИКОМ, без обрезки. Раньше здесь стояла
+    -- TruncateForDisplay(..., 300) — лимит из поля отписи, ошибочно
+    -- применённый и к описанию: текст рвался на полуслове, а карточка
+    -- переставала расти. Длину карточки задаёт само описание
+    -- (см. AutoGrowToFit в конце функции).
+    f.desc:SetText("|cFFFFFFFF" .. (spell.description or "Описание отсутствует.") .. "|r")
+
+    -- Скейлинг — гэп до описания только когда есть что показывать
+    -- (см. комментарий в BuildFrame).
+    --
+    -- У ЭФФЕКТА-КОНТЕЙНЕРА скейлинга нет вовсе: он не бросается и не
+    -- скейлится, он просто действует. Вместо него в той же строке
+    -- показываем, ЧТО он делает — mods, stats и tick (см.
+    -- SB.ActiveEffects.GetEffectLines). Без этого карточка эффекта,
+    -- на которую теперь ведёт строка «Накладывает» с карточки
+    -- заклинания, состояла бы из одного художественного описания.
+    local scalingLines
+    if spell.isContainer then
+        scalingLines = SB.ActiveEffects.GetEffectLines(spell.id)
+    else
+        scalingLines = SB.Logic.GetSpellScalingLines(spell)
+    end
+    f.scalingText:ClearAllPoints()
+    f.scalingText:SetPoint("TOPRIGHT", f, "TOPRIGHT", -12, 0)
+    if #scalingLines > 0 then
+        f.scalingText:SetText(table.concat(scalingLines, "\n"))
+        f.scalingText:SetPoint("TOPLEFT", f.desc, "BOTTOMLEFT", 0, -8)
+    else
+        f.scalingText:SetText("")
+        f.scalingText:SetPoint("TOPLEFT", f.desc, "BOTTOMLEFT", 0, 0)
+    end
+
+    -- ── Накладываемый эффект ──────────────────────────────────
+    -- У заклинания ровно один из трёх адресатов — container (на себя),
+    -- buff (на союзника) или debuff (на цель), — поэтому строка одна.
+    -- Имя эффекта из системных сообщений боя убрано (см.
+    -- SB.Logic.ProcessRollAndCast): смотреть, что именно вешается,
+    -- полагается здесь, и по клику открывается полная карточка эффекта.
+    local effectID, effectVerb
+    if spell.container then
+        effectID, effectVerb = spell.container, "Накладывает на себя:"
+    elseif spell.buff then
+        effectID, effectVerb = spell.buff, "Накладывает:"
+    elseif spell.debuff then
+        effectID, effectVerb = spell.debuff, "Накладывает на цель:"
+    end
+    local effectSpell = effectID and SB.Data.Spells[effectID]
+
+    f.outcomeLabel:ClearAllPoints()
+    if effectSpell then
+        f.effectLine:SetText(string.format("|cFFFFD100%s|r |cFF9933FF[%s]|r",
+            effectVerb, effectSpell.name or effectID))
+        -- Ширина по тексту, но не уже 80px: GetStringWidth сразу после
+        -- SetText в том же кадре может отдать ноль, и кликать было бы
+        -- некуда (та же причина, по которой авто-рост карточки отложен
+        -- на следующий кадр — см. конец функции).
+        local fsw = f.effectLine:GetFontString():GetStringWidth() or 0
+        f.effectLine:SetWidth(math.max(80, fsw + 2))
+        f.effectLine:ClearAllPoints()
+        f.effectLine:SetPoint("TOPLEFT", f.scalingText, "BOTTOMLEFT", 0, -8)
+        f.effectLine:SetScript("OnClick", function()
+            SB.Library.ShowDetail(effectSpell)
+        end)
+        f.effectLine:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(effectSpell.name or effectID, 1, 1, 1)
+            GameTooltip:AddLine("ЛКМ — открыть карточку эффекта", 0.7, 0.7, 0.7)
+            GameTooltip:Show()
+        end)
+        f.effectLine:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        f.effectLine:Show()
+        f.outcomeLabel:SetPoint("TOPLEFT", f.effectLine, "BOTTOMLEFT", 0, -10)
+    else
+        f.effectLine:Hide()
+        f.outcomeLabel:SetPoint("TOPLEFT", f.scalingText, "BOTTOMLEFT", 0, -10)
+    end
 
     -- Поле отписи — общее для успеха и крит. успеха (см.
     -- Core/SpellOutcomes.lua). Провал/крит-провал отписи не имеют.
-    f.outcomeBox.editBox:SetText(SB.SpellOutcomes.Get(spell.id) or "")
+    --
+    -- У ЭФФЕКТА ЕГО НЕТ. Отпись печатается в чат при успешном КАСТЕ, а
+    -- контейнер не кастуют — он вешается чужим заклинанием. Поле стояло
+    -- на его карточке пустым и молча ничего не сохраняло бы никуда.
+    local showOutcome = not spell.isContainer
+    f.outcomeLabel:SetShown(showOutcome)
+    f.outcomeBox:SetShown(showOutcome)
+    if showOutcome then
+        f.outcomeBox.editBox:SetText(SB.SpellOutcomes.Get(spell.id) or "")
+    end
 
     f.prepareBtn:SetScript("OnClick", function()
         if SB.UI and SB.UI.PrepareSpell then SB.UI.PrepareSpell(spell) end
     end)
+
+    -- ЭФФЕКТ-КОНТЕЙНЕР НЕ ГОТОВЯТ. Раньше до его карточки было просто не
+    -- добраться — фильтр библиотеки отсекает isContainer, — но теперь
+    -- сюда ведёт строка «Накладывает» с карточки заклинания, и кнопка
+    -- «Подготовить» на эффекте оказалась бы рабочей: PM.PrepareSpell
+    -- пропустил бы его (класс «Эффект» считается своим, круг 0) и занял
+    -- бы им ячейку подготовки.
+    f.prepareBtn:SetShown(not spell.isContainer)
 
     -- Кнопка удаления — только для кастомных заклинаний
     if spell.isCustom then
@@ -294,20 +420,29 @@ function SB.Library.ShowDetail(spell)
         f.prepareBtn:SetPoint("BOTTOM", f, "BOTTOM", 0, 12)
     end
 
-    -- Расчёт высоты фрейма
-    local leftH = f.metaLeft:GetStringHeight() or 0
-    local rightH = f.metaDistance:GetStringHeight() or 0
-    local durationH = f.metaDuration:GetStringHeight() or 0
-    local creatorH = f.metaCreator:IsShown() and (f.metaCreator:GetStringHeight() or 0) or 0
-    local headerH = math.max(leftH, rightH) + durationH + creatorH + 8
-    headerH = math.max(headerH, 52) -- высота иконки
-
-    local th = f.desc:GetStringHeight() or 0
-    local OUTCOME_BOX_H = 58 -- ~2-3 строки + отступы
-    f:SetHeight(math.max(200, headerH + th + OUTCOME_BOX_H + 30 + 86)) -- +30 надпись, +86 отступ под кнопку
-
     f:SetFrameStrata("DIALOG")
     f:Show()
+
+    -- Авто-рост под длинное описание (#4). GetStringHeight() у только
+    -- что переписанного f.desc (word-wrap) не гарантированно актуален
+    -- В ЭТОМ ЖЕ кадре — пересчёт откладываем на следующий (см.
+    -- SB.Theme.AutoGrowToFit), иначе высота считается по СТАРОМУ тексту
+    -- и коробка вылезает за нижнюю границу окна ровно как в баге.
+    C_Timer.After(0, function()
+        if f._spellID ~= spell.id then return end -- пока ждали кадр, открыли другое заклинание
+        -- Считаем высоту по САМОМУ НИЖНЕМУ ВИДИМОМУ элементу. У эффекта
+        -- поля отписи нет, и мерить по нему нельзя: скрытый фрейм
+        -- сохраняет позицию, так что окно выросло бы под пустоту.
+        if showOutcome then
+            -- Сначала поле под свою отпись, потом окно под поле: порядок
+            -- важен, иначе окно посчитается по ещё не выросшей коробке.
+            if f.outcomeBox.FitToText then f.outcomeBox.FitToText() end
+            SB.Theme.AutoGrowToFit(f, f.outcomeBox, 56, 200)
+        else
+            local bottom = f.effectLine:IsShown() and f.effectLine or f.scalingText
+            SB.Theme.AutoGrowToFit(f, bottom, 56, 200)
+        end
+    end)
 end
 
 -- ============================================================
@@ -317,8 +452,11 @@ function SB.Library.BuildFrame()
     local C = SB.Theme.C
 
     -- ── Главное окно библиотеки ───────────────────────────────
+    -- Ширина увеличена с 425: полоса прокрутки теперь живёт ВНУТРИ окна
+    -- (см. SB.Theme.Scroll), и на прежней ширине вторая колонка
+    -- карточек (2 x SPELL_ROW_W) переставала помещаться.
     libFrame = SB.Theme.Frame("SpellbreakerLibraryFrame", UIParent,
-        "Библиотека Заклинаний", 425, 510)
+        "Библиотека Заклинаний", 445, 510)
     SB.Theme.AttachPositionMemory(libFrame, "libFramePos", -200, 0)
 
     -- Кнопка класса
@@ -349,7 +487,7 @@ function SB.Library.BuildFrame()
 
     -- Поле поиска
     local searchWrap, searchEBLocal = SB.Theme.Input(libFrame,
-        "Поиск названия или дескриптора…", 185, 24)
+        "Поиск названия или дескриптора...", 185, 24)
     searchWrap:SetPoint("LEFT", classBtn, "RIGHT", 6, 0)
     searchEB = searchEBLocal
     searchEB:SetScript("OnTextChanged", function(self)
@@ -521,6 +659,23 @@ function SB.Library.BuildFrame()
                     insets={left=2, right=2, top=2, bottom=2}})
     ib:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.9)
 
+    -- Иконка в развёрнутой карточке — третья точка, откуда заклинание
+    -- отправляется группе (кроме строки библиотеки и карточки в главном
+    -- окне). Без Shift клик по ней ничего не делает: карточка уже открыта.
+    ib:EnableMouse(true)
+    ib:SetScript("OnMouseUp", function(_, btn)
+        if btn ~= "LeftButton" or not IsShiftKeyDown() then return end
+        local sp = detailFrame._spellID and SB.Data.Spells[detailFrame._spellID]
+        if sp then SB.UI.ShareSpellLink(sp) end
+    end)
+    ib:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        SB.Theme.StyleTooltip(GameTooltip)
+        GameTooltip:SetText("Shift+ЛКМ — показать группе", 1, 0.82, 0)
+        GameTooltip:Show()
+    end)
+    ib:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
     -- Левая мета-информация (класс, порядок, дескриптор)
     detailFrame.metaLeft = detailFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     detailFrame.metaLeft:SetPoint("TOPLEFT", detailFrame.icon, "TOPRIGHT", 12, 0)
@@ -541,9 +696,16 @@ function SB.Library.BuildFrame()
     detailFrame.metaDuration:SetJustifyH("LEFT")
     detailFrame.metaDuration:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
 
+    -- Радиус площадного заклинания — своя строка прямо под дальностью.
+    -- Пустой текст схлопывает FontString в нулевую высоту, поэтому у
+    -- обычных заклинаний строка не отъедает места, а «Концентрация»
+    -- поднимается на её место сама (она привязана к низу этой строки).
+    detailFrame.metaArea = detailFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    detailFrame.metaArea:SetPoint("TOPRIGHT", detailFrame.metaDistance, "BOTTOMRIGHT", 0, 0)
+    detailFrame.metaArea:SetJustifyH("RIGHT")
+
     detailFrame.metaConcentration = detailFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    detailFrame.metaConcentration:SetPoint("TOPRIGHT", detailFrame, "TOPRIGHT", -12, 0)
-    detailFrame.metaConcentration:SetPoint("TOP", detailFrame.metaDuration, "TOP", 0, 0)
+    detailFrame.metaConcentration:SetPoint("TOPRIGHT", detailFrame.metaArea, "BOTTOMRIGHT", 0, 0)
     detailFrame.metaConcentration:SetJustifyH("RIGHT")
     detailFrame.metaConcentration:SetTextColor(0.15, 0.75, 1.0, 1)
 
@@ -555,6 +717,14 @@ function SB.Library.BuildFrame()
     detailFrame.metaCreator:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
     detailFrame.metaCreator:Hide()
 
+    -- ── Описание ──────────────────────────────────────────────
+    -- FontString без заданной высоты: с двумя горизонтальными точками
+    -- (TOPLEFT/TOPRIGHT) и word-wrap она сама вырастает ровно на
+    -- столько строк, сколько нужно тексту. Всё, что ниже, привязано к
+    -- её BOTTOMLEFT, а высоту окна под итог подгоняет AutoGrowToFit
+    -- в конце ShowDetail — так карточка тянется за длиной описания.
+    -- Описание НЕ обрезается: лимит в 300 символов относится только к
+    -- полю отписи ниже (OUTCOME_MAX_CHARS).
     detailFrame.desc = detailFrame:CreateFontString(nil, "OVERLAY", "ChatFontNormal")
     detailFrame.desc:SetPoint("TOPLEFT", detailFrame.icon, "BOTTOMLEFT", 0, -10)
     detailFrame.desc:SetPoint("TOPRIGHT", detailFrame, "TOPRIGHT", -12, -10)
@@ -563,18 +733,70 @@ function SB.Library.BuildFrame()
     detailFrame.desc:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
     detailFrame.desc:SetWordWrap(true)
 
+    -- Скейлинг заклинания (см. SB.Logic.GetSpellScalingLines) — между
+    -- описанием и отписью. Заполняется и позиционируется в ShowDetail:
+    -- при отсутствии скейлинга текст пустой И отступ сверху равен 0,
+    -- так что строка не отъедает места (сама FontString без явной
+    -- высоты уже схлопывается до 0px на пустом тексте — как и desc).
+    detailFrame.scalingText = detailFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    detailFrame.scalingText:SetPoint("TOPRIGHT", detailFrame, "TOPRIGHT", -12, 0)
+    detailFrame.scalingText:SetJustifyH("LEFT")
+    detailFrame.scalingText:SetWordWrap(true)
+    detailFrame.scalingText:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+    detailFrame.scalingText:SetSpacing(2)
+
+    -- ── «Накладывает: <эффект>» ───────────────────────────────
+    -- Кнопка, а не FontString: по имени эффекта надо КЛИКАТЬ, чтобы
+    -- открыть его карточку и прочитать, что он, собственно, делает.
+    -- FontString кликов не принимает вовсе, а |H-ссылки работают только
+    -- внутри EditBox с SetHyperlinksEnabled (так сделан журнал, см.
+    -- UI/Logs.lua) — ради одной строки заводить здесь EditBox незачем.
+    --
+    -- Шрифт нарочно ОБЫЧНЫЙ (ChatFontNormal), а не ...Small, как у
+    -- скейлинга: это не сноска к цифрам, а вход в другую карточку.
+    --
+    -- FontString заводится ЯВНО и вешается через SetFontString. Кнопка,
+    -- созданная без шаблона, своей строки не имеет вовсе: SetText ей
+    -- некуда писать, а GetFontString() возвращает nil — и обращение к
+    -- нему роняло всю BuildFrame на середине, из-за чего не создавались
+    -- ни outcomeLabel, ни всё, что объявлено ниже.
+    detailFrame.effectLine = CreateFrame("Button", nil, detailFrame)
+    detailFrame.effectLine:SetHeight(16)
+    local effectFS = detailFrame.effectLine:CreateFontString(nil, "OVERLAY", "ChatFontNormal")
+    effectFS:SetPoint("LEFT", detailFrame.effectLine, "LEFT", 0, 0)
+    effectFS:SetJustifyH("LEFT")
+    detailFrame.effectLine:SetFontString(effectFS)
+    -- Подсветка при наведении — текстурой слоя HIGHLIGHT, а не сменой
+    -- цвета текста: в строке зашиты свои |cFF-коды, и SetTextColor их
+    -- всё равно не переборет.
+    local effectHL = detailFrame.effectLine:CreateTexture(nil, "HIGHLIGHT")
+    effectHL:SetAllPoints()
+    effectHL:SetColorTexture(1, 1, 1, 0.08)
+    detailFrame.effectLine:Hide()
+
     -- Отпись игрока при успехе/крит. успехе — заполняется лично,
     -- сохраняется автоматически по потере фокуса (см. ниже).
+    -- Точка привязки переустанавливается в ShowDetail: строка эффекта
+    -- есть не у каждого заклинания, и на пустом месте она не должна
+    -- отъедать вертикаль.
     detailFrame.outcomeLabel = detailFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    detailFrame.outcomeLabel:SetPoint("TOPLEFT", detailFrame.desc, "BOTTOMLEFT", 0, -10)
+    detailFrame.outcomeLabel:SetPoint("TOPLEFT", detailFrame.scalingText, "BOTTOMLEFT", 0, -10)
     detailFrame.outcomeLabel:SetText("|cFFFFD100Ваша отпись при успехе:|r")
     detailFrame.outcomeLabel:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
 
     local OUTCOME_MAX_CHARS = 300
     detailFrame.outcomeBox = SB.Theme.MultilineInput(detailFrame,
-        "Например: наносит удар мечом по врагу…", 354, 58, OUTCOME_MAX_CHARS)
+        "Например: наносит удар мечом по врагу...", 354, 58, OUTCOME_MAX_CHARS)
     detailFrame.outcomeBox:SetPoint("TOPLEFT", detailFrame.outcomeLabel, "BOTTOMLEFT", 0, -4)
     detailFrame.outcomeBox:SetPoint("RIGHT", detailFrame, "RIGHT", -12, 0)
+
+    -- Поле растёт под длинную отпись, а карточка — под поле. Без этого
+    -- текст уезжал за нижнюю рамку окна и продолжался в пустоте.
+    SB.Theme.AttachAutoGrow(detailFrame.outcomeBox, 58, OUTCOME_MAX_CHARS, function()
+        if detailFrame:IsShown() then
+            SB.Theme.AutoGrowToFit(detailFrame, detailFrame.outcomeBox, 56, 200)
+        end
+    end)
 
     detailFrame.outcomeBox.editBox:SetScript("OnEditFocusLost", function(self)
         SB.SpellOutcomes.Set(detailFrame._spellID, self:GetText())

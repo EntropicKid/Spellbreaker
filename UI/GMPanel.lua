@@ -10,6 +10,9 @@ local gmFrame
 local playersTab, queueTab
 local playersPanel, playersChild
 local queuePanel,  queueChild
+-- Плашка «Симуляция реалтайм эффектов» — видна только Ведущему,
+-- см. SB.UI.IsGameMaster и RefreshRealtimeRow ниже.
+local rtBg, rtChk
 local queueRows  = {}
 local playerRows = {}
 local playerSubs = {}   -- подстрока-плашка с иконками под каждым игроком
@@ -29,6 +32,43 @@ local playerSpellsVisible = {}
 
 -- Фрейм для прослушивания нативных событий портрета.
 local portraitEventFrame
+
+-- ============================================================
+-- КТО ЗДЕСЬ ВЕДУЩИЙ
+--
+-- Тот же предикат, что у объявления отдыха (SB.UI.CanRest): вне группы
+-- Ведущий сам себе каждый, в группе — только лидер. Отдельным именем,
+-- потому что смысл другой: там «кому можно раздать отдых», здесь «кому
+-- вообще показывать управление сценой».
+-- ============================================================
+function SB.UI.IsGameMaster()
+    return not IsInGroup() or UnitIsGroupLeader("player")
+end
+
+--- Показать/скрыть плашку реалтайм-симуляции по праву Ведущего и
+--- подтянуть под неё нижнюю границу списков.
+---
+--- ПОЧЕМУ ЭТО ВАЖНО, А НЕ КОСМЕТИКА. Галочка запускает таймер, который
+--- КАЖДЫЕ ШЕСТЬ СЕКУНД списывает ход всем активным эффектам в группе
+--- (SendRealtimeDecrement). Это управление темпом всей сцены, и рычаг от
+--- него должен быть ровно один — у того, кто сцену ведёт. Раньше плашку
+--- видел любой, кто открыл панель, и второй включивший начинал тикать
+--- эффекты параллельно с Ведущим.
+local function RefreshRealtimeRow()
+    if not rtBg then return end
+    local isGM = SB.UI.IsGameMaster()
+    rtBg:SetShown(isGM)
+
+    -- Списки занимают освободившееся место: без этого у не-Ведущего
+    -- внизу панели висела бы пустая полоса в 36 пикселей.
+    local bottom = isGM and 36 or 10
+    for _, panel in ipairs({ playersPanel, queuePanel }) do
+        if panel then
+            panel:SetPoint("BOTTOMRIGHT", gmFrame, "BOTTOMRIGHT", -10, bottom)
+        end
+    end
+end
+SB.UI.RefreshGMRealtimeRow = RefreshRealtimeRow
 
 local function RebuildNameToUnit()
     table.wipe(nameToUnit)
@@ -62,6 +102,16 @@ function SB.UI.BuildGMPanel()
         "Spellbreaker — Панель Ведущего", 380, 440)
     SB.Theme.AttachPositionMemory(gmFrame, "gmFramePos", 100, 0)
 
+    -- Статусы участников запрашивает только тот, кому они нужны
+    -- (см. SB.Net.RequestRosterStatuses). Раньше их регулярно
+    -- спрашивали ВСЕ, что и создавало лавину ответов в рейде.
+    -- Поэтому здесь — явный запрос в момент открытия панели.
+    gmFrame:HookScript("OnShow", function()
+        if SB.Net and SB.Net.RequestRosterStatuses then
+            SB.Net.RequestRosterStatuses()
+        end
+    end)
+
     playersTab = SB.Theme.Tab(gmFrame, "Игроки", 180, 24, true)
     playersTab:SetPoint("TOPLEFT", gmFrame, "TOPLEFT", 8, gmFrame.contentY)
     playersTab:SetScript("OnClick", function()
@@ -71,7 +121,7 @@ function SB.UI.BuildGMPanel()
         playersPanel:Show(); queuePanel:Hide()
         SB.UI.UpdateGMPlayers()
         if IsInGroup() and SB.Net and SB.Net.BroadcastStatus then
-            SB.Net.BroadcastStatus()
+            SB.Net.BroadcastStatus(true)
         end
     end)
 
@@ -91,15 +141,16 @@ function SB.UI.BuildGMPanel()
     queuePanel, queueChild = SB.Theme.Scroll(gmFrame, 10, gmFrame.contentY - 30, -10, 36)
     queuePanel:Hide()
 
-    -- Галочка реалтайм-симуляции эффектов
-    local rtBg = CreateFrame("Frame", nil, gmFrame, "BackdropTemplate")
+    -- Галочка реалтайм-симуляции эффектов — ТОЛЬКО ВЕДУЩЕМУ
+    -- (см. RefreshRealtimeRow выше; локали объявлены в шапке файла).
+    rtBg = CreateFrame("Frame", nil, gmFrame, "BackdropTemplate")
     rtBg:SetSize(gmFrame:GetWidth() - 20, 26)
     rtBg:SetPoint("BOTTOM", gmFrame, "BOTTOM", 0, 10)
     rtBg:SetBackdrop(SB.Theme.BD.card)
     rtBg:SetBackdropColor(0.05, 0.04, 0.08, 0.80)
     rtBg:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
 
-    local rtChk = CreateFrame("CheckButton", "SBRealtimeEffectChk", rtBg, "UICheckButtonTemplate")
+    rtChk = CreateFrame("CheckButton", "SBRealtimeEffectChk", rtBg, "UICheckButtonTemplate")
     rtChk:SetSize(20, 20)
     rtChk:SetPoint("LEFT", rtBg, "LEFT", 6, 0)
     rtChk:SetChecked(SpellbreakerAccountDB and SpellbreakerAccountDB.realtimeEffects or false)
@@ -157,6 +208,16 @@ function SB.UI.BuildGMPanel()
     end
 
     rtChk:SetScript("OnClick", function(self)
+        -- Второй замок, помимо скрытой плашки: состав группы мог
+        -- смениться между показом панели и нажатием (лидер передал
+        -- лид), и снятая галочка не должна успеть запустить таймер.
+        if not SB.UI.IsGameMaster() then
+            self:SetChecked(SpellbreakerAccountDB
+                and SpellbreakerAccountDB.realtimeEffects or false)
+            RefreshRealtimeRow()
+            return
+        end
+
         local enabled = self:GetChecked()
         if SpellbreakerAccountDB then
             SpellbreakerAccountDB.realtimeEffects = enabled
@@ -175,7 +236,7 @@ function SB.UI.BuildGMPanel()
     -- Восстановить таймер если был включён до релога
     SB.Events.On("SB_INIT", function()
         if SpellbreakerAccountDB and SpellbreakerAccountDB.realtimeEffects then
-            if not IsInGroup() or UnitIsGroupLeader("player") then
+            if SB.UI.IsGameMaster() then
                 StartRealtimeTimer()
             end
         end
@@ -183,7 +244,24 @@ function SB.UI.BuildGMPanel()
             SBRealtimeEffectChk:SetChecked(
                 SpellbreakerAccountDB and SpellbreakerAccountDB.realtimeEffects or false)
         end
+        RefreshRealtimeRow()
     end)
+
+    -- Лид могли передать, пока панель открыта. Пересчитываем видимость
+    -- на смене состава — и на каждом показе панели, на случай, если
+    -- события не было (собрались до того, как её впервые открыли).
+    local rosterWatch = CreateFrame("Frame")
+    rosterWatch:RegisterEvent("GROUP_ROSTER_UPDATE")
+    rosterWatch:RegisterEvent("PARTY_LEADER_CHANGED")
+    rosterWatch:SetScript("OnEvent", function()
+        RefreshRealtimeRow()
+        -- Перестал быть Ведущим — гасим и сам таймер: иначе бывший лидер
+        -- продолжал бы списывать ходы эффектам всей группы.
+        if not SB.UI.IsGameMaster() then StopRealtimeTimer() end
+    end)
+    gmFrame:HookScript("OnShow", RefreshRealtimeRow)
+
+    RefreshRealtimeRow()
 end
 
 -- ============================================================
@@ -266,7 +344,9 @@ function SB.UI.UpdateGMQueue()
 
         local spell   = SB.Data.Spells[req.spellID]
         local spName  = spell and spell.name or req.spellID
-        local lvlTxt  = (req.slotLevel == 0) and "заговор" or ("Круг " .. req.slotLevel)
+        local lvlTxt  = (req.slotLevel == 0)
+            and (spell and SB.Logic.GetCantripLabel(spell.class):lower() or "заговор")
+            or ("Круг " .. req.slotLevel)
 
         row.casterLabel:SetText(req.caster)
         if spell and spell.isCustom then
@@ -379,8 +459,8 @@ function SB.UI.UpdateGMPlayers()
         local PM = SB.PlayerModel
         if PM.GetClass     then myClass     = PM.GetClass()     or "?" end
         if PM.GetMastery   then myMastery   = PM.GetMastery()   or "?" end
-        if PM.GetZeal      then myZeal      = PM.GetZeal()      or 0 end
-        if PM.GetMaxZeal   then myMaxZeal   = PM.GetMaxZeal()   or 1 end
+        if PM.GetCastResource    then myZeal    = PM.GetCastResource()    or 0 end
+        if PM.GetMaxCastResource then myMaxZeal = PM.GetMaxCastResource() or 1 end
         if PM.GetHealth    then myHealth    = PM.GetHealth()    or 20 end
         if PM.GetMaxHealth then myMaxHealth = PM.GetMaxHealth() or 20 end
     elseif SpellbreakerCharDB then
@@ -439,22 +519,10 @@ function SB.UI.UpdateGMPlayers()
             row:SetBackdropColor(C.cardBg[1], C.cardBg[2], C.cardBg[3], C.cardBg[4])
             row:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
 
-            -- Портрет (без изменений)
-            row.portrait = CreateFrame("Frame", nil, row, "BackdropTemplate")
-            row.portrait:SetSize(42, 42)
+            -- Габарит увеличен с 42 по той же причине, что и в шапке
+            -- главного окна: изображение вписано внутрь кольца.
+            row.portrait = SB.Theme.RoundPortrait(row, 52)
             row.portrait:SetPoint("LEFT", row, "LEFT", 8, 0)
-            row.portrait:SetBackdrop({
-                bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
-                edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-                tile = true, tileSize = 16, edgeSize = 12,
-                insets = { left = 3, right = 3, top = 3, bottom = 3 }
-            })
-            row.portrait:SetBackdropColor(0.05, 0.05, 0.05, 0.9)
-            row.portrait:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.8)
-
-            row.portrait.tex = row.portrait:CreateTexture(nil, "ARTWORK")
-            row.portrait.tex:SetAllPoints()
-            row.portrait.tex:SetTexCoord(0.1, 0.9, 0.1, 0.9)
 
             row.portrait.classIcon = row.portrait:CreateTexture(nil, "OVERLAY")
             row.portrait.classIcon:SetSize(24, 24)
@@ -490,7 +558,7 @@ function SB.UI.UpdateGMPlayers()
         -- Текст лейблов
         row.nameLabel:SetText((p.name or "?"))
 		
-		row.infoLabel:SetText((p.class or "?") .. " • " .. (p.mastery or "?"))
+		row.infoLabel:SetText((p.class or "?") .. " * " .. (p.mastery or "?"))
 
         row.resLabel:Hide()
         row.zealBar:Show()
@@ -700,7 +768,7 @@ function SB.UI.UpdateGMPlayers()
                                   tostring(self._spID) ..
                                   "' не найдено. Запрашиваю синхронизацию...")
                             if IsInGroup() and SB.Net and SB.Net.BroadcastStatus then
-                                SB.Net.BroadcastStatus()
+                                SB.Net.BroadcastStatus(true)
                             end
                         end
                     end)

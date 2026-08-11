@@ -3,22 +3,109 @@
 -- Минималистичная событийная шина (publish / subscribe).
 --
 -- Использование:
---   SB.Events.On("SB_INIT", function() ... end)
---   SB.Events.Fire("CAST_COMPLETE", spellID, result)
+--   SB.Events.On(SB.E.SB_INIT, function() ... end)
+--   SB.Events.Fire(SB.E.CAST_RESOLVED, spellID, succeeded, status, detail)
 --
 -- Это разрывает прямые зависимости между модулями:
 --   Logic не импортирует Net, а просто кидает событие.
 --   Net подписывается на события и реагирует сам.
+--
+-- РЕЕСТР ИМЁН (SB.E) — единственный источник правды по событиям.
+-- Раньше имена были строковыми литералами, раскиданными по 12 файлам:
+-- опечатка в имени давала ТИХИЙ no-op (подписка на несуществующее
+-- событие или Fire, который никто не слышит) — без ошибки, без варнинга,
+-- баг всплывал только по отсутствующему поведению. Теперь все имена
+-- объявлены здесь, а On/Fire предупреждают о неизвестном имени.
 -- ============================================================
 local addonName, SB = ...
 SB.Events = SB.Events or {}
 
+-- ============================================================
+-- РЕЕСТР СОБЫТИЙ
+-- Ключ == значение: SB.E.SB_INIT возвращает "SB_INIT". Это даёт
+-- автодополнение/опечатко-устойчивость (SB.E.SB_NIT — это nil, а не
+-- строка-призрак), сохраняя совместимость с любым старым кодом,
+-- который всё ещё передаёт строковый литерал.
+--
+-- Сигнатуры аргументов указаны в комментариях — шина их не проверяет,
+-- но это единственное место, где они задокументированы.
+-- ============================================================
+SB.E = {
+    -- Жизненный цикл
+    SB_INIT                 = "SB_INIT",                 -- ()
+
+    -- Модель игрока
+    PLAYER_MODEL_CHANGED    = "PLAYER_MODEL_CHANGED",    -- ()
+    PREPARED_SPELLS_CHANGED = "PREPARED_SPELLS_CHANGED", -- ()
+    ATTRIBUTES_CHANGED      = "ATTRIBUTES_CHANGED",      -- ()
+    SKILLS_CHANGED          = "SKILLS_CHANGED",          -- ()
+    HEALTH_CHANGED          = "HEALTH_CHANGED",          -- (newHP, oldHP, delta)
+    -- Уровень персонажа изменился И UnitLevel уже отдаёт новое значение.
+    -- Именно поэтому событие своё, а не «подпишитесь на PLAYER_LEVEL_UP»:
+    -- в момент этого клиентского события UnitLevel ещё СТАРЫЙ, и всё, что
+    -- считается от уровня (очки атрибутов и навыков, здоровье, ранг
+    -- некастера), пересчитывалось по прошлому уровню — до /reload.
+    LEVEL_CHANGED           = "LEVEL_CHANGED",           -- (newLevel)
+
+    -- Синхронизация с группой
+    STATUS_CHANGED          = "STATUS_CHANGED",          -- ()
+    PLAYERS_STATUS_UPDATED  = "PLAYERS_STATUS_UPDATED",  -- ()
+    BROADCAST_LOG           = "BROADCAST_LOG",           -- (msg)
+    BROADCAST_REST          = "BROADCAST_REST",          -- ("LONG"|"SHORT")
+    LOG_MESSAGE_RECEIVED    = "LOG_MESSAGE_RECEIVED",    -- (msg)
+
+    -- Каст
+    CAST_REQUEST            = "CAST_REQUEST",            -- (spellID, slotLevel, targetLabel)
+    CAST_PENDING            = "CAST_PENDING",            -- (spellID)
+    CAST_CONFIRMED          = "CAST_CONFIRMED",          -- (spellID, slotLevel)
+    CAST_RESOLVED           = "CAST_RESOLVED",           -- (spellID, succeeded, resultStatus, detail)
+    CAST_REJECTED           = "CAST_REJECTED",           -- (spellID)
+    PVP_HIT_RESOLVED        = "PVP_HIT_RESOLVED",        -- (dmg, spellID, landed)
+    GM_REQUEST_RECEIVED     = "GM_REQUEST_RECEIVED",     -- (caster, spellID, slotLevel, targetLabel)
+
+    -- Активные эффекты
+    ACTIVE_EFFECTS_CHANGED  = "ACTIVE_EFFECTS_CHANGED",  -- ()
+    ACTIVE_EFFECT_CAST      = "ACTIVE_EFFECT_CAST",      -- (spellID)
+
+    -- Передвижение (шагомер, см. Core/Movement.lua)
+    MOVEMENT_CHANGED        = "MOVEMENT_CHANGED",        -- ()
+}
+
 local handlers = {}   -- { eventName = { fn, fn, ... } }
 
+-- Предупреждаем об одном и том же неизвестном имени только один раз —
+-- иначе опечатка внутри часто вызываемого кода зальёт весь чат.
+local warnedUnknown = {}
+
+--- @return boolean usable — false, если именем вообще нельзя пользоваться
+---         как ключом таблицы (nil/не строка). Такой вызов игнорируется:
+---         handlers[nil] = {} уронил бы Lua ("table index is nil"), а
+---         именно nil и приходит при опечатке вида SB.E.ОПЕЧТКА.
+local function ValidateName(event, where)
+    if type(event) ~= "string" then
+        print("|cFFFF0000[Spellbreaker Events]|r " .. where ..
+            ": имя события = " .. tostring(event) ..
+            " (ожидалась строка). Скорее всего опечатка в SB.E.* — вызов проигнорирован.")
+        return false
+    end
+    if SB.E[event] or warnedUnknown[event] then return true end
+    warnedUnknown[event] = true
+    print("|cFFFF8800[Spellbreaker Events]|r неизвестное событие \"" ..
+        event .. "\" в " .. where ..
+        " — опечатка или забыли добавить его в реестр SB.E (Core/Events.lua).")
+    return true
+end
+
 --- Подписаться на событие.
---- @param event  string   Имя события
+--- @param event  string   Имя события (используй SB.E.*)
 --- @param fn     function Обработчик
 function SB.Events.On(event, fn)
+    if not ValidateName(event, "SB.Events.On") then return end
+    if type(fn) ~= "function" then
+        print("|cFFFF0000[Spellbreaker Events]|r SB.Events.On(\"" .. event ..
+            "\"): обработчик не функция — вызов проигнорирован.")
+        return
+    end
     if not handlers[event] then handlers[event] = {} end
     table.insert(handlers[event], fn)
 end
@@ -38,6 +125,7 @@ end
 --- передаются обработчикам.
 --- @param event  string
 function SB.Events.Fire(event, ...)
+    if not ValidateName(event, "SB.Events.Fire") then return end
     local list = handlers[event]
     if not list then return end
     -- Идем по индексу с версией списка: если обработчик внутри
@@ -60,4 +148,20 @@ function SB.Events.Fire(event, ...)
             i = i + 1
         end
     end
+end
+
+--- Диагностика: события из реестра, на которые никто не подписан —
+--- помогает поймать «Fire в пустоту» после рефакторинга.
+--- Модуль не экспортирует глобалей, поэтому из чата смотреть так:
+---   /dump LibStub("AceAddon-3.0"):GetAddon("Spellbreaker")
+--- либо просто выставить точку останова в отладчике: список лежит в
+--- SB.Events.GetUnsubscribed().
+function SB.Events.GetUnsubscribed()
+    local out = {}
+    for name in pairs(SB.E) do
+        local list = handlers[name]
+        if not list or #list == 0 then table.insert(out, name) end
+    end
+    table.sort(out)
+    return out
 end

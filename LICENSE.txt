@@ -20,24 +20,94 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----
+================================================================================
+THIRD-PARTY COMPONENTS
+================================================================================
 
-This project bundles third-party libraries under their own licenses:
+This project bundles the libraries below in Libs/. Each keeps its own license;
+the MIT terms above cover only Spellbreaker's own code (Core/, Spells/, UI/,
+MinimapButton.lua, Spellbreaker.toc).
 
-* Ace3 (AceAddon-3.0, AceDB-3.0, AceEvent-3.0, AceTimer-3.0, AceConsole-3.0,
-  AceGUI-3.0, CallbackHandler-1.0, LibStub) — MIT License
-  Copyright (c) 2008–2014, Ace3 Development Team
-  See https://www.wowace.com/projects/ace3 for details.
+--------------------------------------------------------------------------------
+Ace3 — MIT License
+Copyright (c) 2007–2022 Ace3 Development Team
+https://www.wowace.com/projects/ace3
 
-* LibDataBroker-1.1 — MIT License
-  Copyright (c) 2007–2014, various authors.
-  See https://www.curseforge.com/wow/addons/libdatabroker-1-1
+  Bundled components: LibStub, CallbackHandler-1.0, AceAddon-3.0, AceDB-3.0,
+  AceDBOptions-3.0, AceEvent-3.0, AceConsole-3.0, AceTimer-3.0, AceComm-3.0,
+  AceSerializer-3.0, AceGUI-3.0-SharedMediaWidgets.
 
-* LibDBIcon-1.0 — MIT License
-  Copyright (c) 2007–2014, various authors.
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, subject to the conditions of the MIT License.
 
-* LibRPMedia-1.0 — MIT License
-  Copyright (c) 2014, Ravendwyr.
+--------------------------------------------------------------------------------
+LibDataBroker-1.1 — MIT License
+Copyright (c) 2008 Kevin Lyles ("tekkub") and contributors
+https://github.com/tekkub/libdatabroker-1-1
 
-* AceGUI-3.0-SharedMediaWidgets — MIT License
-  Copyright (c) 2010, Funatics.
+--------------------------------------------------------------------------------
+LibDBIcon-1.0 — MIT License
+Copyright (c) 2010 Rabbit and contributors
+https://www.curseforge.com/wow/addons/libdbicon-1-0
+
+--------------------------------------------------------------------------------
+LibRPMedia-1.0 — The Unlicense (public domain)
+Copyright (c) Daniel "Meorawr" Yates / Ravendwyr
+https://github.com/Meorawr/LibRPMedia
+
+  Full text in Libs/LibRPMedia/LICENSE. This is free and unencumbered software
+  released into the public domain.
+
+--------------------------------------------------------------------------------
+LibRangeCheck-2.0 — Public Domain
+Author: mitch0
+http://www.wowace.com/projects/librangecheck-2-0/
+
+  Declared "License: Public Domain" in the library header.
+
+--------------------------------------------------------------------------------
+UTF8 library (string.utf8len / utf8sub / utf8upper / utf8lower)
+BSD 3-Clause License
+Copyright (c) 2006–2007 Kyle Smith
+All rights reserved.
+
+  Redistribution and use in source and binary forms, with or without
+  modification, are permitted provided that the following conditions are met:
+
+    * Redistributions of source code must retain the above copyright notice,
+      this list of conditions and the following disclaimer.
+    * Redistributions in binary form must reproduce the above copyright notice,
+      this list of conditions and the following disclaimer in the documentation
+      and/or other materials provided with the distribution.
+    * Neither the name of the author nor the names of its contributors may be
+      used to endorse or promote products derived from this software without
+      specific prior written permission.
+
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+  AND ANY EXPRESS OR IMPLIED WARRANTIES ARE DISCLAIMED. IN NO EVENT SHALL THE
+  COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES HOWEVER CAUSED AND
+  ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+  POSSIBILITY OF SUCH DAMAGE.
+
+  Full text in Libs/UTF8/utf8.lua.
+
+================================================================================
+NOTES
+================================================================================
+
+Trademarks: World of Warcraft and Blizzard Entertainment are trademarks or
+registered trademarks of Blizzard Entertainment, Inc. This addon is not
+affiliated with or endorsed by Blizzard Entertainment.
+
+Game content and materials are trademarks and copyrights of Blizzard
+Entertainment and its licensors. Icon paths referenced by this addon
+(Interface\Icons\...) point at game files and are not redistributed here.
+
+The custom-spell concept draws on the D&D 5e SRD, published by Wizards of the
+Coast under the Open Gaming License 1.0a. No SRD text is reproduced in this
+addon; the spell descriptions are original.

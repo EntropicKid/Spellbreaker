@@ -8,12 +8,16 @@ Add({
     icon = "Interface\\Icons\\Spell_arcane_arcaneresilience",
     level = 1,
     class = "Маг",
-    caura = 151,
     description = "Создает невидимый движущийся защитный диск, по размеру идентичный обычному щиту, который защищает заклинателя со всех сторон от физических атак, снижая их, и полностью нейтрализующий любые атаки совершаемые заклинанием магическая стрела; также щит предотвращает касательные атаки бестелесных существ; также субъект под воздействием заклинания защищается от любых атакующих заклятий с уроном от тайной магии с преимуществом.",
     isCantrip = false,
     resistable = true,
-	duration = 2,
+	duration = 10,
     isConcentration = false,
+	container = "eff_mage_shield",
+    caura = 151,
+	scaling = {
+		hit    = { ["Наука"] = 1, ["Эрудиция"] = 0.5 },
+	},
 })
 Add({
     id = "fireball",
@@ -28,6 +32,12 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 18,
+	aoe = { radius = 5 },
+	scaling = {
+		hit    = { ["Наука"] = 1 },
+		crit   = { ["Точность"] = 1.5 },
+		damage = { ["Интеллект"] = 1 },
+	},
 })
 Add({
     id = "mage_lasso",
@@ -40,8 +50,12 @@ Add({
     description = "Вы создаёте хлыст из молний, поражающий одно существо по вашему выбору, которое вы можете видеть в пределах 4.5 метрах от вас. Цель должна может пытаться сопротивляться, иначе будет притянута на 3 метра по прямой к вам, после чего получит урон электричеством, если окажется в пределах 1.5 метров от вас.",
     isCantrip = true,
     resistable = true,
-    canCrit = false,
+    canCrit = true,
 	distance = 7,
+	scaling = {
+		hit    = { ["Наука"] = 1, ["Эрудиция"] = 1 },
+		crit   = { ["Точность"] = 1 },
+	},
 })
 Add({
     id = "fire_mastery",
@@ -54,10 +68,11 @@ Add({
     description = "Вы выбираете немагическое пламя, которое вы можете видеть в пределах дистанции и которое помещается в куб с длиной ребра 1.5 метра. Вы можете управлять им одним из нижеперечисленных способов:\n\n— Вы можете мгновенно распространить огонь на 1.5 метра в одном направлении, если там присутствует дерево или другое топливо.\n— Вы можете мгновенно потушить огонь в кубе.\n— Вы можете увеличить или уменьшить вдвое область яркого и тусклого света, излучаемого пламенем, а также поменять его цвет. Эффект действует 1 час.\n— Вы можете сотворить в огне изображение, которое будет отдалённо напоминать существо, предмет или место, и двигаться согласно вашим указаниям. Эффект действует 1 час.\n\nЕсли вы накладываете это заклинание несколько раз, то вы не можете поддерживать более 3 длительных эффектов одновременно. Вы можете действием отменить один из действующих эффектов.",
     isCantrip = true,
     resistable = true,
-    canCrit = true,
-	duration = 600,
-    isConcentration = false,
+    canCrit = false,
 	distance = 18,
+	scaling = {
+		hit    = { ["Наука"] = 1, ["Эрудиция"] = 1 },
+	},
 })
 Add({
     id = "electric_shock",
@@ -72,6 +87,11 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 1.5,
+	scaling = {
+		hit    = { ["Наука"] = 1 },
+		crit   = { ["Рвение"] = 1.5 },
+		damage = { ["Интеллект"] = 0.5 },
+	},
 })
 Add({
     id = "ray_of_frost",
@@ -86,6 +106,10 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 18,
+	scaling = {
+		hit    = { ["Наука"] = 1, ["Эрудиция"] = 1 },
+		crit   = { ["Точность"] = 1.5 },
+	},
 })
 Add({
     id = "fire_bolt",
@@ -100,6 +124,11 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 18,
+	scaling = {
+		hit    = { ["Наука"] = 1, ["Эрудиция"] = 1 },
+		crit   = { ["Точность"] = 1 },
+		damage = { ["Интеллект"] = 0.5 },
+	},
 })
 Add({
     id = "frost_bolt",
@@ -114,6 +143,13 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 18,
+	debuff = "eff_slowed_frost_bolt",
+    duration = 3,
+	scaling = {
+		hit    = { ["Наука"] = 1, ["Эрудиция"] = 0.5 },
+		crit   = { ["Точность"] = 1 },
+		damage = { ["Интеллект"] = 0.5 },
+	},
 })
 Add({
     id = "arcane_missles",
@@ -128,6 +164,11 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 40,
+	scaling = {
+		hit    = { ["Наука"] = 3, ["Точность"] = 1 },
+		crit   = { ["Точность"] = 1.5 },
+		damage = { ["Интеллект"] = 0.5 },
+	},
 })
 Add({
     id = "fire_hands",
@@ -140,8 +181,14 @@ Add({
     description = "Из ваших кончиков пальцев вырывается конус обжигающего пламени. Любое существо в области пламени получает урон огнём, становящимся всё более сильным в зависимости от уровня заклинателя. Горючие материалы воспламеняются, если пламя коснётся их. Персонаж может потушить горящие предметы полным действием.",
     isCantrip = false,
     resistable = true,
-    canCrit = false,
+    canCrit = true,
 	distance = 5,
+	aoe = { radius = 5 },
+	scaling = {
+		hit    = { ["Наука"] = 1, ["Эрудиция"] = 0.5 },
+		crit   = { ["Рвение"] = 1 },
+		damage = { ["Интеллект"] = 1 },
+	},
 })
 Add({
     id = "mage_whirlpool",
@@ -156,6 +203,9 @@ Add({
     resistable = true,
     canCrit = false,
 	distance = 9,
+	scaling = {
+		hit    = { ["Наука"] = 1, ["Эрудиция"] = 0.5 },
+	},
 })
 Add({
     id = "frost_glacier",
@@ -168,8 +218,15 @@ Add({
     description = "Вы выпускаете из рук поток магического холода, наносящий малый урон холодом врагам в конусе перед заклинателем, а так же замедляющий их передвижение на 1 ход.",
     isCantrip = false,
     resistable = true,
-    canCrit = false,
+    canCrit = true,
 	distance = 5,
+	debuff = "eff_slowed_frost_glacier",
+    duration = 3,
+	scaling = {
+		hit    = { ["Наука"] = 1, ["Эрудиция"] = 0.5 },
+		crit   = { ["Рвение"] = 1 },
+		damage = { ["Интеллект"] = 1 },
+	},
 })
 Add({
     id = "clap_of_thunder_mage",
@@ -182,10 +239,17 @@ Add({
     description = "Вы с силой ударяете по земле, порождая чудовищный грохот, разрывающий барабанные перепонки врагов. Все существа в области (кроме вас) получают урон звуком, становящимся сильнее в зависимости от уровня заклинателя. Существа, получившие урон от этого эффекта, потрясаются звуковой энергией и замедляются (как под эффектом замораживания) на 1 полный раунд.",
     isCantrip = false,
     resistable = true,
-    canCrit = false,
+    canCrit = true,
 	duration = 1,
     isConcentration = false,
 	distance = 7,
+	debuff = "eff_blinded_clap_of_thunder_mage",
+	aoe = { radius = 7 },
+	scaling = {
+		hit    = { ["Исток"] = 1 },
+		crit   = { ["Рвение"] = 1 },
+		damage = { ["Интеллект"] = 1 },
+	},
 })
 Add({
     id = "deafening_screech",
@@ -202,6 +266,10 @@ Add({
     duration = 20,
     isConcentration = false,
 	distance = 18,
+    debuff = "eff_deafening_screech",
+	scaling = {
+		hit    = { ["Исток"] = 1 },
+	},
 })
 Add({
     id = "flaming_sphere",
@@ -214,9 +282,16 @@ Add({
     description = "Вы создаёте пылающую сферу чистого огня, которую направляете в указанную точку. Сфера движется со скоростью 9 м за раунд и может опускаться или подниматься до 9 м, чтобы достичь цели\n\nЕсли она входит в клетку с существом, то останавливается и наносит урон огнём; успешный спасбросок нейтрализует эффект.\n\nОна движется, пока вы направляете её (требуется действие перемещения); если вы не отдаёте команд, сфера остаётся на месте, пылая. Её можно потушить любыми средствами, которые способны погасить обычный огонь такого размера.\n\nПоверхность сферы пористая и упругая, поэтому она не наносит иных повреждений, не может сбить существ с ног или разрушить преграды.\n\nСфера исчезает, если выходит за пределы дистанции заклинания.",
     isCantrip = false,
     resistable = true,
+    canCrit = true,
     duration = 2,
     isConcentration = false,
 	distance = 30,	
+    container = "eff_flaming_sphere",
+	scaling = {
+		hit    = { ["Исток"] = 1 },
+		crit   = { ["Рвение"] = 1 },
+		damage = { ["Интеллект"] = 1 },
+	},
 })
 Add({
     id = "scorching_ray",
@@ -231,6 +306,11 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 18,
+	scaling = {
+		hit    = { ["Наука"] = 1 },
+		crit   = { ["Точность"] = 1 },
+		damage = { ["Интеллект"] = 1.5 },
+	},
 })
 Add({
     id = "ice_spear",
@@ -245,6 +325,11 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 40,
+	scaling = {
+		hit    = { ["Наука"] = 1 },
+		crit   = { ["Точность"] = 1.5 },
+		damage = { ["Интеллект"] = 1 },
+	},
 })
 Add({
     id = "gust_of_wind",
@@ -257,10 +342,17 @@ Add({
     description = "Вы создаёте мощный поток воздуха (около 80 км/ч), исходящий от вас и поражающий всё на своём пути.\n\nСтепень влияния на существ, в зависимости от размера:\nКрошечные и меньше — опрокидываются и отбрасываются на десяток метров, получая урон в зависимости того, насколько далеко их откинуло.\nМаленькие — опрокидываются и отбрасываются на шесть метров.\nСредние — не могут двигаться против ветра; если летают, отбрасываются на три метра.\nБольшие и более крупные — движутся без ограничений.\n\nЛетающих существ небольшого размера сдувает на несколько метров, причиняя временные повреждения и дезориентируя; в пределах линии ветра существа получают помеху к стрелковым атакам, и подслушиванию.\n\nВетер гасит незащёщенные источники пламени и имеет 50% шанс потушить защищённые (например, фонари). Он может поднять пыль, раздуть огонь, опрокинуть платки, перевернуть лодку или рассеять дым и пар в пределах действия.",
     isCantrip = false,
     resistable = true,
-    canCrit = false,
+    canCrit = true,
     duration = 1,
     isConcentration = false,
 	distance = 18,
+	aoe = { radius = 18 },
+    container = "eff_gust_of_wind",
+	scaling = {
+		hit    = { ["Исток"] = 1 },
+		crit   = { ["Рвение"] = 1 },
+		damage = { ["Интеллект"] = 0.5 },
+	},
 })
 Add({
     id = "long_flame",
@@ -275,6 +367,10 @@ Add({
     description = "Вы наполняете объект волшебным светом, сияющим, как факел, но не излучающим тепла и не требующим кислорода. Свет можно прикрыть или спрятать, но не потушить.\n\nЗаклинание Тьма того же или более высокого уровня рассекает или отменяет действие Продолжительного пламени.",
     isCantrip = false,
     resistable = true,
+    container = "eff_long_flame",
+	scaling = {
+		hit    = { ["Наука"] = 1 },
+	},
 })
 Add({
     id = "mana_gem",
@@ -289,6 +385,10 @@ Add({
     resistable = true,
     duration = 10,
     isConcentration = false,
+    container = "eff_mana_gem",
+	scaling = {
+		hit    = { ["Наука"] = 1, ["Концентрация"] = 0.5 },
+	},
 })
 Add({
     id = "mage_lightning",
@@ -303,6 +403,11 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 40,
+	scaling = {
+		hit    = { ["Исток"] = 1 },
+		crit   = { ["Точность"] = 1 },
+		damage = { ["Интеллект"] = 1.5 },
+	},
 })
 Add({
     id = "dragon_breath",
@@ -315,8 +420,14 @@ Add({
     description = "Вы выдыхаете изо рта перед собой резкий поток пламени, вызывающий мучительные ожоги  у всех кто находится перед вами; у основания вашего рта пламя столь высоких температур, что в теории, при должной настойчивости способно оплавить металл, но есть все риски потерять лицо, в буквальном смысле!",
     isCantrip = false,
     resistable = true,
-    canCrit = false,
+    canCrit = true,
 	distance = 3,
+	aoe = { radius = 3 },
+	scaling = {
+		hit    = { ["Исток"] = 1.5 },
+		crit   = { ["Рвение"] = 1.5 },
+		damage = { ["Интеллект"] = 2.5 },
+	},
 })
 Add({
     id = "frost_nova",
@@ -329,8 +440,13 @@ Add({
     description = "Всплеск льда и холода, который детонирует с пронзительным визгом. Заклинание наносит урона холод  всем существам в области эффекта; успешный спасбросок сокращает урон вдвое. Окружающие предметы также получают урон.\n\nЗаклинатель указывает пальцем и определяет дистанцию (расстояние и высоту), на которой должно произойти кольцо льда. Область взрыва имеет радиус 10 футов, но лишь 1 фут в высоту; заклинатель может контролировать её ориентацию.\n\nСущества, получившие урон от кольца льда замеляются от пронзающего их суть хлада.",
     isCantrip = false,
     resistable = true,
-    canCrit = false,
-	distance = 9,
+    canCrit = true,
+	aoe = { radius = 9 },
+	scaling = {
+		hit    = { ["Наука"] = 1 },
+		crit   = { ["Рвение"] = 1.5 },
+		damage = { ["Интеллект"] = 0.5 },
+	},
 })
 Add({
     id = "explosive_rune",
@@ -346,6 +462,10 @@ Add({
 	duration = -1,
     isConcentration = false,
 	distance = 1.5,
+    container = "eff_explosive_rune",
+	scaling = {
+		hit    = { ["Наука"] = 1 },
+	},
 })
 Add({
     id = "mana_burst",
@@ -362,6 +482,12 @@ Add({
 	duration = 1,
     isConcentration = false,
 	distance = 9,
+    container = "eff_mana_burst",
+	scaling = {
+		hit    = { ["Исток"] = 1 },
+		crit   = { ["Рвение"] = 1 },
+		damage = { ["Интеллект"] = 0.5 },
+	},
 })
 Add({
     id = "protective_round_mage",
@@ -377,6 +503,10 @@ Add({
     duration = 100,
     isConcentration = false,
     distance = 4.5,
+    container = "eff_protective_round_mage",
+	scaling = {
+		hit    = { ["Наука"] = 1 },
+	},
 })
 Add({
     id = "undetectable",
@@ -392,6 +522,10 @@ Add({
 	duration = 1200,
     isConcentration = false,
 	distance = 1.5,
+    buff = "eff_undetectable",
+	scaling = {
+		hit    = { ["Наука"] = 0.5, ["Концентрация"] = 0.5 },
+	},
 })
 Add({
     id = "antimagic",
@@ -405,6 +539,9 @@ Add({
     isCantrip = false,
     resistable = true,
 	distance = 40,
+	scaling = {
+		hit    = { ["Наука"] = 0.5, ["Концентрация"] = 0.5 },
+	},
 })
 Add({
     id = "arrow_protection",
@@ -420,6 +557,10 @@ Add({
 	duration = 1200,
     isConcentration = false,
 	distance = 1.5,
+    buff = "eff_arrow_protection",
+	scaling = {
+		hit    = { ["Наука"] = 0.5, ["Концентрация"] = 0.5 },
+	},
 })
 Add({
     id = "magic_lock",
@@ -435,6 +576,10 @@ Add({
 	duration = -1,
     isConcentration = false,
 	distance = 1.5,
+    container = "eff_magic_lock",
+	scaling = {
+		hit    = { ["Наука"] = 0.5, ["Концентрация"] = 0.5 },
+	},
 })
 Add({
     id = "mage_seal",
@@ -450,6 +595,10 @@ Add({
 	duration = 2,
     isConcentration = false,
 	distance = 1.5,
+    container = "eff_mage_seal",
+	scaling = {
+		hit    = { ["Наука"] = 1, ["Концентрация"] = 0.5 },
+	},
 })
 Add({
     id = "abonish_magic",
@@ -465,6 +614,10 @@ Add({
 	duration = 20,
     isConcentration = false,
 	distance = 1.5,
+	debuff = "eff_weakness_abonish_magic",
+	scaling = {
+		hit    = { ["Наука"] = 1, ["Концентрация"] = 0.5 },
+	},
 })
 Add({
     id = "frostfire_amulet",
@@ -480,6 +633,10 @@ Add({
     duration = 10,
     isConcentration = false,
 	distance = 1.5,
+    buff = "eff_frostfire_amulet",
+	scaling = {
+		hit    = { ["Наука"] = 1, ["Концентрация"] = 0.5 },
+	},
 })
 Add({
     id = "protect_from_evil",
@@ -488,13 +645,17 @@ Add({
     icon = "Interface\\Icons\\Ui_sigil_nightfae",
     level = 1,
     class = "Маг",
-    caura = 1216,
+    caura = 1142,
     description = "Заклинание охраняет субъект от атак существ относящихся частично, или полностью к одному из доменов: смерти, тьмы, скверны; предотвращая ментальное воздействие и ограждая от призванных существ, позволяя защищаться от них с преимуществом.\n\nЗаклинание предотвращает, но не отменяет действие заклинания; таким образом, если действие заклинания защиты заканчивается раньше каким-либо образом, жертва подпадает под контроль недоброжелателя.",
     isCantrip = false,
     resistable = true,
-	duration = 2,
+	duration = 10,
     isConcentration = false,
 	distance = 1.5,
+    buff = "eff_protect_from_evil",
+	scaling = {
+		hit    = { ["Наука"] = 1, ["Концентрация"] = 0.5 },
+	},
 })
 Add({
     id = "anxiety",
@@ -503,13 +664,17 @@ Add({
     icon = "Interface\\Icons\\Ui_embercourt-emoji-uncomfortable",
     level = 1,
     class = "Маг",
-    caura = 98,
+    caura = 1142,
     description = "Вы накладываете на область скрытый ментальный триггер. Если любое враждебное или скрытое существо пересекает невидимую черту, разум заклинателя получает мгновенный тревожный импульс, предупреждающий об опасности.",
     isCantrip = false,
     resistable = true,
 	duration = 4,
     isConcentration = false,
 	distance = 9,
+    container = "eff_anxiety",
+	scaling = {
+		hit    = { ["Наука"] = 1, ["Концентрация"] = 0.5 },
+	},
 })
 Add({
     id = "mage_resistance",
@@ -525,6 +690,10 @@ Add({
 	duration = 10,
     isConcentration = false,
 	distance = 1.5,
+    buff = "eff_mage_resistance",
+	scaling = {
+		hit    = { ["Наука"] = 1, ["Концентрация"] = 1 },
+	},
 })
 Add({
     id = "mage_slow",
@@ -540,6 +709,10 @@ Add({
 	duration = 2,
     isConcentration = false,
 	distance = 15,
+	debuff = "eff_slowed_mage_slow",
+	scaling = {
+		hit    = { ["Наука"] = 1 },
+	},
 })
 Add({
     id = "night_blindness",
@@ -555,6 +728,10 @@ Add({
     duration = 10,
     isConcentration = false,
 	distance = 9,
+	debuff = "eff_blinded_night_blindness",
+	scaling = {
+		hit    = { ["Наука"] = 1 },
+	},
 })
 Add({
     id = "fire_cape",
@@ -570,6 +747,10 @@ Add({
 	duration = 2,
     isConcentration = false,
 	distance = 1.5,
+    container = "eff_fire_cape",
+	scaling = {
+		hit    = { ["Наука"] = 1 },
+	},
 })
 Add({
     id = "dark_vision",
@@ -585,6 +766,10 @@ Add({
 	duration = 1200,
     isConcentration = false,
 	distance = 1.5,
+    buff = "eff_dark_vision",
+	scaling = {
+		hit    = { ["Наука"] = 1 },
+	},
 })
 Add({
     id = "blink",
@@ -598,6 +783,9 @@ Add({
     isCantrip = false,
     resistable = true,
 	distance = 10,
+	scaling = {
+		hit    = { ["Наука"] = 1 },
+	},
 })
 Add({
     id = "arcaneintellect",
@@ -613,6 +801,10 @@ Add({
 	duration = 20,
     isConcentration = false,
 	distance = 1.5,
+	buff = "eff_owl_wisdom_arcaneintellect",
+	scaling = {
+		hit    = { ["Наука"] = 1 },
+	},
 })
 Add({
     id = "increase_humanoid",
@@ -628,6 +820,10 @@ Add({
 	duration = 10,
     isConcentration = false,
 	distance = 9,
+	buff = "eff_giant_strength_increase_humanoid",
+	scaling = {
+		hit    = { ["Наука"] = 1.5 },
+	},
 })
 Add({
     id = "decrease_humanoid",
@@ -643,6 +839,10 @@ Add({
 	duration = 10,
     isConcentration = false,
 	distance = 9,
+	buff = "eff_cat_grace_decrease_humanoid",
+	scaling = {
+		hit    = { ["Наука"] = 1.5 },
+	},
 })
 Add({
     id = "mage_featherfall",
@@ -658,6 +858,10 @@ Add({
 	duration = 2,
     isConcentration = false,
 	distance = 9,
+    buff = "eff_mage_featherfall",
+	scaling = {
+		hit    = { ["Наука"] = 1.5 },
+	},
 })
 Add({
     id = "chilling",
@@ -673,6 +877,10 @@ Add({
 	duration = 4800,
     isConcentration = false,
 	distance = 1.5,
+    container = "eff_chilling",
+	scaling = {
+		hit    = { ["Наука"] = 2 },
+	},
 })
 Add({
     id = "mage_waterforming",
@@ -688,6 +896,10 @@ Add({
 	duration = 600,
     isConcentration = false,
 	distance = 9,
+    container = "eff_mage_waterforming",
+	scaling = {
+		hit    = { ["Наука"] = 2 },
+	},
 })
 Add({
     id = "message",
@@ -703,6 +915,10 @@ Add({
 	duration = 100,
     isConcentration = false,
 	distance = 30,
+    container = "eff_message",
+	scaling = {
+		hit    = { ["Наука"] = 2 },
+	},
 })
 Add({
     id = "clean_page",
@@ -716,6 +932,9 @@ Add({
     isCantrip = true,
     resistable = true,
 	distance = 9,
+	scaling = {
+		hit    = { ["Наука"] = 2 },
+	},
 })
 Add({
     id = "squall",
@@ -729,6 +948,9 @@ Add({
     isCantrip = true,
     resistable = true,
 	distance = 9,
+	scaling = {
+		hit    = { ["Наука"] = 2 },
+	},
 })
 Add({
     id = "flee_hand",
@@ -743,6 +965,10 @@ Add({
     resistable = true,
 	duration = 3,
     isConcentration = false,
+    container = "eff_flee_hand",
+	scaling = {
+		hit    = { ["Наука"] = 1 },
+	},
 })
 Add({
     id = "mana_water",
@@ -757,6 +983,10 @@ Add({
     resistable = true,
 	duration = 20,
     isConcentration = false,
+    container = "eff_mana_water",
+	scaling = {
+		hit    = { ["Наука"] = 1 },
+	},
 })
 Add({
     id = "mana_food",
@@ -771,6 +1001,10 @@ Add({
     resistable = true,
 	duration = 1200,
     isConcentration = false,
+    container = "eff_mana_food",
+	scaling = {
+		hit    = { ["Наука"] = 1 },
+	},
 })
 Add({
     id = "translocate_item",
@@ -784,6 +1018,9 @@ Add({
     isCantrip = false,
     resistable = true,
 	distance = 9,
+	scaling = {
+		hit    = { ["Наука"] = 1 },
+	},
 })
 Add({
     id = "mage_prop",
@@ -799,6 +1036,10 @@ Add({
 	duration = 600,
     isConcentration = false,
 	distance = 9,
+    container = "eff_mage_prop",
+	scaling = {
+		hit    = { ["Наука"] = 1, ["Исток"] = 1 },
+	},
 })
 Add({
     id = "mage_slate",
@@ -812,6 +1053,9 @@ Add({
     isCantrip = false,
     resistable = true,
 	distance = 3,
+	scaling = {
+		hit    = { ["Наука"] = 1, ["Исток"] = 0.5 },
+	},
 })
 Add({
     id = "poisonous_splashes",
@@ -826,6 +1070,11 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 3,
+	scaling = {
+		hit    = { ["Наука"] = 1, ["Исток"] = 0.5 },
+		crit   = { ["Рвение"] = 1 },
+		damage = { ["Интеллект"] = 0.5 },
+	},
 })
 Add({
     id = "record",
@@ -839,6 +1088,9 @@ Add({
     isCantrip = false,
     resistable = true,
 	distance = 3,
+	scaling = {
+		hit    = { ["Наука"] = 1, ["Исток"] = 0.5 },
+	},
 })
 Add({
     id = "frost_armor_mage",
@@ -854,6 +1106,10 @@ Add({
 	duration = 600,
     isConcentration = false,
 	distance = 1.5,
+	buff = "eff_armor_magic_frost_armor_mage",
+	scaling = {
+		hit    = { ["Наука"] = 1, ["Исток"] = 0.5 },
+	},
 })
 Add({
     id = "summon_creature",
@@ -866,9 +1122,13 @@ Add({
     description = "Это заклинание призывает какое-либо экстрапланарное существо (обычно демона, элементаля или магического зверя — местного жителя иного плана).\n\nОно появляется в том месте, в которое было нацелено заклинание, и начинает немедленно действовать. Оно изо всех сил атакует ваших врагов. Если вы можете общаться с существом, то можете приказать ему не атаковать, атаковать кого-то определённого или совершить иное действие.",
     isCantrip = false,
     resistable = true,
-	duration = 2,
+	duration = 10,
     isConcentration = false,
 	distance = 9,
+    container = "eff_summon_creature",
+	scaling = {
+		hit    = { ["Наука"] = 1, ["Исток"] = 0.5 },
+	},
 })
 Add({
     id = "summon_trap",
@@ -884,6 +1144,10 @@ Add({
 	duration = 10,
     isConcentration = false,
 	distance = 6,
+    container = "eff_summon_trap",
+	scaling = {
+		hit    = { ["Наука"] = 1 },
+	},
 })
 Add({
     id = "image",
@@ -899,6 +1163,10 @@ Add({
 	duration = 10,
     isConcentration = false,
 	distance = 18,
+    container = "eff_image",
+	scaling = {
+		hit    = { ["Наука"] = 1 },
+	},
 })
 Add({
     id = "ordnance",
@@ -913,6 +1181,10 @@ Add({
     resistable = true,
 	duration = 3,
     isConcentration = true,
+    container = "eff_ordnance",
+	scaling = {
+		hit    = { ["Наука"] = 1 },
+	},
 })
 Add({
     id = "mage_fun",
@@ -928,6 +1200,10 @@ Add({
 	duration = 20,
     isConcentration = false,
 	distance = 9,
+    container = "eff_mage_fun",
+	scaling = {
+		hit    = { ["Наука"] = 1 },
+	},
 })
 Add({
     id = "blurred_image",
@@ -943,6 +1219,10 @@ Add({
 	duration = 20,
     isConcentration = false,
 	distance = 1.5,
+	buff = "eff_evasion_blurred_image",
+	scaling = {
+		hit    = { ["Наука"] = 1 },
+	},
 })
 Add({
     id = "mage_invisibility",
@@ -958,6 +1238,10 @@ Add({
 	duration = 10,
     isConcentration = false,
 	distance = 1.5,
+	buff = "eff_stealth_mage_invisibility",
+	scaling = {
+		hit    = { ["Наука"] = 1 },
+	},
 })
 Add({
     id = "disguise",
@@ -972,6 +1256,10 @@ Add({
     resistable = true,
 	duration = 100,
     isConcentration = false,
+    container = "eff_disguise",
+	scaling = {
+		hit    = { ["Наука"] = 1 },
+	},
 })
 Add({
     id = "silent_image",
@@ -987,6 +1275,10 @@ Add({
 	duration = 3,
     isConcentration = true,
 	distance = 100,
+    container = "eff_silent_image",
+	scaling = {
+		hit    = { ["Наука"] = 1, ["Внушение"] = 0.5 },
+	},
 })
 Add({
     id = "ghost_sound",
@@ -1002,6 +1294,10 @@ Add({
 	duration = 2,
     isConcentration = false,
 	distance = 9,
+    container = "eff_ghost_sound",
+	scaling = {
+		hit    = { ["Наука"] = 1, ["Внушение"] = 1 },
+	},
 })
 Add({
     id = "clairvoyance",
@@ -1017,6 +1313,10 @@ Add({
 	duration = 100,
     isConcentration = false,
 	distance = 135,
+    container = "eff_clairvoyance",
+	scaling = {
+		hit    = { ["Наука"] = 0.5, ["Интуиция"] = 0.5 },
+	},
 })
 Add({
     id = "gaze",
@@ -1032,6 +1332,10 @@ Add({
 	duration = 1,
     isConcentration = false,
 	distance = 7.5,
+    container = "eff_gaze",
+	scaling = {
+		hit    = { ["Наука"] = 0.5, ["Интуиция"] = 0.5 },
+	},
 })
 Add({
     id = "detect_thougts",
@@ -1047,6 +1351,10 @@ Add({
 	duration = 10,
     isConcentration = true,
 	distance = 18,
+    container = "eff_detect_thougts",
+	scaling = {
+		hit    = { ["Наука"] = 0.5, ["Интуиция"] = 0.5 },
+	},
 })
 Add({
     id = "see_invisible",
@@ -1061,6 +1369,10 @@ Add({
     resistable = true,
 	duration = 100,
     isConcentration = false,
+    container = "eff_see_invisible",
+	scaling = {
+		hit    = { ["Наука"] = 0.5, ["Интуиция"] = 0.5 },
+	},
 })
 Add({
     id = "languages",
@@ -1076,6 +1388,10 @@ Add({
 	duration = 100,
     isConcentration = false,
 	distance = 1.5,
+    buff = "eff_languages",
+	scaling = {
+		hit    = { ["Наука"] = 0.5, ["Интуиция"] = 0.5 },
+	},
 })
 Add({
     id = "recognition",
@@ -1089,6 +1405,9 @@ Add({
     isCantrip = false,
     resistable = true,
 	distance = 1.5,
+	scaling = {
+		hit    = { ["Наука"] = 1, ["Интуиция"] = 0.5 },
+	},
 })
 Add({
     id = "dancing_lights",
@@ -1104,6 +1423,10 @@ Add({
     duration = 10,
     isConcentration = false,
     distance = 12,
+    container = "eff_dancing_lights",
+	scaling = {
+		hit    = { ["Наука"] = 1, ["Интуиция"] = 1 },
+	},
 })
 Add({
     id = "polymorph",
@@ -1119,4 +1442,8 @@ Add({
 	duration = 10,
     isConcentration = false,
 	distance = 30,
+    debuff = "eff_polymorph",
+	scaling = {
+		hit    = { ["Наука"] = 1 },
+	},
 })

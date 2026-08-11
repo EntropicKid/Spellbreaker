@@ -274,7 +274,7 @@ local createFrame
 local currentEditID = nil
 
 -- Виджеты формы
-local fIconTex, fName, fClass, fLevel, fKey, fDesc
+local fIconTex, fName, fClass, fLevel, fKey, fDesc, fDescWrap
 local fCanCrit
 local fDist, fDistIdx = nil, 1
 local fClassIdx, fLevelVal = 1, 0
@@ -376,6 +376,70 @@ local function MakeMLInput(parent, w, h)
     return bg, eb
 end
 
+--- Текст кнопки "Порядок" зависит от выбранного в форме класса —
+--- некастеры называют заклинание нулевого порядка "Приём", а не
+--- "Заговор". Вызывается и при смене класса, и при смене порядка.
+local function RefreshLevelBtnText()
+    if not fLevel then return end
+    local cls = SB.Data.Classes[fClassIdx]
+    fLevel:SetText(fLevelVal == 0
+        and ("Порядок: " .. SB.Logic.GetCantripLabel(cls))
+        or ("Порядок: " .. fLevelVal))
+end
+
+-- ============================================================
+-- АВТО-РОСТ ОКОН ПОД ОПИСАНИЕ (#4) — то же поведение и тот же
+-- потолок (300 симв.), что и в карточке заклинания UI/Library.lua,
+-- через общий SB.Theme.MeasureCappedTextHeight/AutoGrowToFit.
+-- В отличие от Library (read-only текст, авторастущий FontString),
+-- здесь поле РЕДАКТИРУЕМОЕ (MakeMLInput, фиксированный Frame) —
+-- растим сам бокс явно, а не полагаемся на авторазмер.
+-- ============================================================
+-- Меряем ВЕСЬ текст, а не первые 300 символов. Раньше здесь стояла
+-- жёсткая тристa при лимите ввода в LIMIT_DESC (1550): поле росло ровно
+-- до 300 символов, а всё, что дальше, уезжало вниз за рамку — и за край
+-- окна вместе с ней.
+local DESC_GROW_CAP = LIMIT_DESC
+local DESC_MIN_H    = 56
+-- Потолок роста самого поля. Выше него текст прокручивается: MakeMLInput
+-- собран на ScrollFrame с колесом, так что ничего не теряется, а окно не
+-- уезжает за пределы экрана на описании в полторы тысячи символов.
+local DESC_MAX_H    = 300
+
+--- Растит descWrap под текст fDesc (до DESC_GROW_CAP символов), затем
+--- растит createFrame под сместившееся содержимое ниже. Якорь —
+--- createFrame.ccBg (чекбокс "Способно ли критовать?"): единственный
+--- ВСЕГДА видимый элемент цепочки под descWrap (fContBtn/fContDelBtn
+--- скрываются для контейнерных заклинаний) — bottomReserve заложен с
+--- запасом на их фиксированную высоту, когда они показаны, плюс на
+--- Сохранить/Отмена/Удалить, которые прибиты к низу окна независимо.
+local function RefreshCreateFormGrowth()
+    if not fDescWrap or not createFrame or not fDesc then return end
+    local width = fDescWrap:GetWidth() - 10
+    local neededH = SB.Theme.MeasureCappedTextHeight(fDesc:GetText(), width, "ChatFontNormal", DESC_GROW_CAP)
+    fDescWrap:SetHeight(math.max(DESC_MIN_H, math.min(DESC_MAX_H, neededH + 14)))
+    C_Timer.After(0, function()
+        SB.Theme.AutoGrowToFit(createFrame, createFrame.ccBg, 116, 480)
+    end)
+end
+
+--- Аналог RefreshCreateFormGrowth для формы контейнера/эффекта —
+--- там весь низ (Сохранить/Отмена/Удалить) уже цепочкой анкоров
+--- зависит от descWrap, так что достаточно вырастить сам бокс и
+--- само окно под самую нижнюю кнопку ряда.
+local function RefreshContFormGrowth()
+    if not fC_DescWrap or not contFrame or not fC_Desc then return end
+    local width = fC_DescWrap:GetWidth() - 10
+    local neededH = SB.Theme.MeasureCappedTextHeight(fC_Desc:GetText(), width, "ChatFontNormal", DESC_GROW_CAP)
+    fC_DescWrap:SetHeight(math.max(DESC_MIN_H, math.min(DESC_MAX_H, neededH + 14)))
+    C_Timer.After(0, function()
+        -- Якорь — saveBtn (contFrame.saveBtn), а не deleteBtn: последняя
+        -- скрыта при создании нового эффекта, а позиция/GetBottom()
+        -- скрытого фрейма — ненадёжный источник для замера.
+        SB.Theme.AutoGrowToFit(contFrame, contFrame.saveBtn, 14, 340)
+    end)
+end
+
 local function BuildCreateFrame()
     C = C or SB.Theme.C
     local fw = 400
@@ -425,14 +489,18 @@ local function BuildCreateFrame()
     classBtn:SetScript("OnClick", function()
         fClassIdx = fClassIdx % #SB.Data.Classes + 1
         classBtn:SetText("Класс: " .. SB.Data.Classes[fClassIdx])
+        RefreshLevelBtnText()
     end)
     fClass = classBtn
 
     local levelBtn = SB.Theme.Button(createFrame, "Порядок: Заговор", 175, 24, "secondary")
     levelBtn:SetPoint("LEFT", classBtn, "RIGHT", 4, 0)
+    -- Кругов столько, сколько открывает высший ранг реалма: на Origins
+    -- их три, на Sanctuary — пять. Раньше здесь стояло жёсткое % 4, и
+    -- создать кастомное заклинание четвёртого круга было нечем.
     levelBtn:SetScript("OnClick", function()
-        fLevelVal = (fLevelVal + 1) % 4
-        levelBtn:SetText(fLevelVal == 0 and "Порядок: Заговор" or ("Порядок: " .. fLevelVal))
+        fLevelVal = (fLevelVal + 1) % (SB.Data.MaxOrderFor(SB.Data.GetMaxMastery()) + 1)
+        RefreshLevelBtnText()
     end)
     fLevel = levelBtn
 
@@ -456,15 +524,23 @@ local function BuildCreateFrame()
     descLabel:SetPoint("TOPLEFT", keyW, "BOTTOMLEFT", 0, -6)
     descLabel:SetText("Полное описание работы:")
     descLabel:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
-    local descWrap, descEB = MakeMLInput(createFrame, fw-28, 56)
-    descWrap:SetPoint("TOPLEFT", descLabel, "BOTTOMLEFT", 0, -2)
-    fDesc = descEB
-    AttachCharLimit(fDesc, LIMIT_DESC, descWrap)
+    fDescWrap, fDesc = MakeMLInput(createFrame, fw-28, 56)
+    fDescWrap:SetPoint("TOPLEFT", descLabel, "BOTTOMLEFT", 0, -2)
+    AttachCharLimit(fDesc, LIMIT_DESC, fDescWrap)
+    -- Авто-рост бокса + окна (#4) — хук поверх уже навешенного
+    -- AttachCharLimit, тем же паттерном цепочки OnTextChanged.
+    do
+        local prevOnChanged = fDesc:GetScript("OnTextChanged")
+        fDesc:SetScript("OnTextChanged", function(self, userInput)
+            if prevOnChanged then prevOnChanged(self, userInput) end
+            RefreshCreateFormGrowth()
+        end)
+    end
 
     -- ── #4: Duration + Concentration (основной спелл) ────────
     local effectBg = CreateFrame("Frame", nil, createFrame, "BackdropTemplate")
     effectBg:SetSize(fw-28, 28)
-    effectBg:SetPoint("TOPLEFT", descWrap, "BOTTOMLEFT", 0, -8)
+    effectBg:SetPoint("TOPLEFT", fDescWrap, "BOTTOMLEFT", 0, -8)
     effectBg:SetBackdrop(SB.Theme.BD.card)
     effectBg:SetBackdropColor(0.06, 0.05, 0.10, 0.80)
     effectBg:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
@@ -510,6 +586,7 @@ local function BuildCreateFrame()
     ccBg:SetBackdrop(SB.Theme.BD.card)
     ccBg:SetBackdropColor(0.06, 0.05, 0.10, 0.80)
     ccBg:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
+    createFrame.ccBg = ccBg -- якорь для RefreshCreateFormGrowth (#4) — всегда виден
 
     fCanCrit = CreateFrame("CheckButton", nil, ccBg, "UICheckButtonTemplate")
     fCanCrit:SetSize(20, 20)
@@ -575,7 +652,7 @@ end
 -- § 6b. ОТДЕЛЬНЫЙ ФРЕЙМ СОЗДАНИЯ КОНТЕЙНЕРА
 -- ============================================================
 local contFrame
-local fC_Name, fC_Icon, fC_IconPath, fC_Desc, fC_Dur, fC_IsConc
+local fC_Name, fC_Icon, fC_IconPath, fC_Desc, fC_DescWrap, fC_Dur, fC_IsConc
 local fC_Level, fC_Dist, fC_CanCrit, fC_IsPassive
 local fC_LevelVal, fC_DistIdx, fC_ClassIdx
 local contParentID, contEditID
@@ -618,7 +695,7 @@ local function BuildContainerFrame()
     local levelBtn = SB.Theme.Button(contFrame, "Порядок: 0", fw-28, 24, "secondary")
     levelBtn:SetPoint("TOPLEFT", iconBtn, "BOTTOMLEFT", 0, -8)
     levelBtn:SetScript("OnClick", function()
-        fC_LevelVal = ((fC_LevelVal or 0) + 1) % 4
+        fC_LevelVal = ((fC_LevelVal or 0) + 1) % (SB.Data.MaxOrderFor(SB.Data.GetMaxMastery()) + 1)
         levelBtn:SetText(fC_LevelVal == 0 and "Порядок: Заговор" or ("Порядок: " .. fC_LevelVal))
     end)
     fC_Level = levelBtn
@@ -639,15 +716,22 @@ local function BuildContainerFrame()
     descLabel:SetPoint("TOPLEFT", distBtn, "BOTTOMLEFT", 0, -8)
     descLabel:SetText("Полное описание эффекта:")
     descLabel:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
-    local descWrap, descEB = MakeMLInput(contFrame, fw-28, 56)
-    descWrap:SetPoint("TOPLEFT", descLabel, "BOTTOMLEFT", 0, -2)
-    fC_Desc = descEB
-    AttachCharLimit(fC_Desc, LIMIT_DESC, descWrap)
+    fC_DescWrap, fC_Desc = MakeMLInput(contFrame, fw-28, 56)
+    fC_DescWrap:SetPoint("TOPLEFT", descLabel, "BOTTOMLEFT", 0, -2)
+    AttachCharLimit(fC_Desc, LIMIT_DESC, fC_DescWrap)
+    -- Авто-рост бокса + окна (#4) — тот же паттерн, что и в основной форме.
+    do
+        local prevOnChanged = fC_Desc:GetScript("OnTextChanged")
+        fC_Desc:SetScript("OnTextChanged", function(self, userInput)
+            if prevOnChanged then prevOnChanged(self, userInput) end
+            RefreshContFormGrowth()
+        end)
+    end
 
     -- Duration + Concentration
     local durBg = CreateFrame("Frame", nil, contFrame, "BackdropTemplate")
     durBg:SetSize(fw-28, 28)
-    durBg:SetPoint("TOPLEFT", descWrap, "BOTTOMLEFT", 0, -8)
+    durBg:SetPoint("TOPLEFT", fC_DescWrap, "BOTTOMLEFT", 0, -8)
     durBg:SetBackdrop(SB.Theme.BD.card)
     durBg:SetBackdropColor(0.06, 0.05, 0.10, 0.80)
     durBg:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
@@ -703,6 +787,7 @@ local function BuildContainerFrame()
     local saveBtn = SB.Theme.Button(contFrame, "Сохранить эффект", 150, 28, "primary")
     saveBtn:SetPoint("TOPLEFT", ipBg, "BOTTOMLEFT", 0, -14)
     saveBtn:SetScript("OnClick", function() SB.CustomSpells.SaveContainer() end)
+    contFrame.saveBtn = saveBtn -- якорь для RefreshContFormGrowth (#4) — всегда виден
 
     local cancelBtn = SB.Theme.Button(contFrame, "Отмена", 100, 28, "secondary")
     cancelBtn:SetPoint("LEFT", saveBtn, "RIGHT", 8, 0)
@@ -752,6 +837,7 @@ function SB.CustomSpells.OpenContainerFrame(parentID, existingContID)
             contFrame.title:SetText("Редактировать эффект: " .. (sp.name or ""))
             contFrame.deleteBtn:Show()
             contFrame:Show()
+            RefreshContFormGrowth() -- SetText() не триггерит OnTextChanged сам по себе
             return
         end
     end
@@ -772,6 +858,7 @@ function SB.CustomSpells.OpenContainerFrame(parentID, existingContID)
     contFrame.title:SetText("Новый эффект")
     contFrame.deleteBtn:Hide()
     contFrame:Show()
+    RefreshContFormGrowth() -- SetText() не триггерит OnTextChanged сам по себе
 end
 
 function SB.CustomSpells.SaveContainer()
@@ -838,7 +925,7 @@ function SB.CustomSpells.OpenCreate()
     fIconPath = "Interface\\Icons\\INV_Misc_QuestionMark"
     fIconTex:SetTexture(fIconPath)
     fClass:SetText("Класс: " .. SB.Data.Classes[1])
-    fLevel:SetText("Порядок: Заговор")
+    RefreshLevelBtnText()
     fName:SetText("")
     fKey:SetText("")
     fDesc:SetText("")
@@ -854,6 +941,7 @@ function SB.CustomSpells.OpenCreate()
     createFrame.title:SetText("Создать заклинание")
     createFrame.deleteBtn:Hide()
     createFrame:Show()
+    RefreshCreateFormGrowth() -- SetText() не триггерит OnTextChanged сам по себе
 end
 
 function SB.CustomSpells.OpenEdit(spellID)
@@ -886,7 +974,7 @@ function SB.CustomSpells.OpenEdit(spellID)
     fIconPath = sp.icon or "Interface\\Icons\\INV_Misc_QuestionMark"
     fIconTex:SetTexture(fIconPath)
     fClass:SetText("Класс: " .. (sp.class or "?"))
-    fLevel:SetText(fLevelVal == 0 and "Порядок: Заговор" or ("Порядок: " .. fLevelVal))
+    RefreshLevelBtnText()
     fName:SetText(sp.name or "")
     fKey:SetText(sp.key or "")
     fDesc:SetText(sp.description or "")
@@ -920,6 +1008,7 @@ function SB.CustomSpells.OpenEdit(spellID)
     createFrame.title:SetText("Редактировать: " .. (sp.name or spellID))
     createFrame.deleteBtn:Show()
     createFrame:Show()
+    RefreshCreateFormGrowth() -- SetText() не триггерит OnTextChanged сам по себе
 end
 
 -- ============================================================
@@ -1185,13 +1274,42 @@ function SB.CustomSpells.Init()
         sp.isCustom = true
         SB.Data.Spells[id] = sp
     end
-	local referenced = {}
+    -- Сборка мусора: контейнер, на который никто не ссылается, из реестра
+    -- убирается. Адресатов у эффекта ТРИ — container (на себя), buff (на
+    -- союзника) и debuff (на цель), — и считать надо все три. Раньше
+    -- считался только container, поэтому каждый эффект из библиотеки,
+    -- который вешается ТОЛЬКО дебаффом или баффом (eff_bleeding, eff_pain,
+    -- eff_blinded, eff_mana_burn, eff_languages, ...), пропадал из
+    -- SB.Data.Spells на первом же SB_INIT. Дальше SB.Logic.ApplyEffect
+    -- молча выходил на `if not effectSpell then return end`, эффект не
+    -- вешался, а в лог печаталось «неизвестный эффект <eff_x>».
+    local referenced = {}
     for _, sp in pairs(SB.Data.Spells) do
-        if sp.container then referenced[sp.container] = true end
+        for _, field in ipairs({ "container", "buff", "debuff" }) do
+            local ref = sp[field]
+            if type(ref) == "string" and ref ~= "" then referenced[ref] = true end
+        end
+    end
+    -- Эффект, который ПРЯМО СЕЙЧАС висит на персонаже, тоже считается
+    -- живым, даже если на него не ссылается ни одно заклинание. Так
+    -- бывает у контейнера, выданного Ведущим из панели, или у того, чьё
+    -- родительское заклинание удалили, пока эффект держался. Без этой
+    -- строки сборка мусора сносила определение на входе в игру, а
+    -- SB.ActiveEffects.LoadFromDB следом молча выбрасывал сам эффект —
+    -- он просто исчезал с персонажа после релога.
+    for _, entry in ipairs((SpellbreakerCharDB and SpellbreakerCharDB.activeEffects) or {}) do
+        if type(entry) == "table" and type(entry.spellID) == "string" then
+            referenced[entry.spellID] = true
+        end
     end
     local db = SpellbreakerCustomDB and SpellbreakerCustomDB.spells
     for id, sp in pairs(SB.Data.Spells) do
-        if sp.isContainer and not referenced[id] then
+        -- Только КАСТОМНЫЕ сироты. Библиотечный эффект живёт в Lua-файле,
+        -- в SavedVariables его нет, и удалять его из реестра нечем не
+        -- оправдано: даже если сейчас на него не ссылается ни одно
+        -- заклинание, его в любой момент может навесить Ведущий из своей
+        -- панели или прислать сеть.
+        if sp.isContainer and sp.isCustom and not referenced[id] then
             SB.Data.Spells[id] = nil
             if db then db[id] = nil end
         end

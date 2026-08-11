@@ -13,9 +13,10 @@ local grantFrame    = nil
 local currentTarget = nil   -- { name, mastery, zeal, maxZeal, health, maxHealth }
 local deltas        = { zeal = 0, health = 0 }
  
+-- Секции-обёртки и подписи имени/класса больше не нужны: строки
+-- кладутся прямо во фрейм, имя с классом ушли в заголовок окна.
 local zealRow   = {}
 local healthRow = {}
-local zealSection, healthSection, nameLabel, classLabel
  
 -- ============================================================
 -- ОТПРАВКА ГРАНТА
@@ -63,90 +64,96 @@ local function RefreshDisplay()
     local health    = currentTarget.health    or 0
     local maxHealth = currentTarget.maxHealth or 20
  
-    local d   = deltas.zeal
-    local new = math.max(0, zeal + d)
-    zealRow.infoLabel:SetText("Сейчас: " .. new .. "/" .. maxZeal)
- 
-    local hd  = deltas.health
-    local hNew = math.max(0, health + hd)
-    healthRow.infoLabel:SetText("Сейчас: " .. hNew .. "/" .. maxHealth)
+    -- Формат ужат до «N/M»: подпись «Сейчас:» съедала место, ничего не
+    -- добавляя. Изменённое значение подсвечиваем, чтобы было видно, что
+    -- именно уйдёт при нажатии «Выдать».
+    local function Format(cur, delta, max)
+        local new = math.max(0, cur + delta)
+        if delta ~= 0 then
+            return "|cFFFFD100" .. new .. "|r/" .. max
+        end
+        return new .. "/" .. max
+    end
+
+    zealRow.infoLabel:SetText(Format(zeal, deltas.zeal, maxZeal))
+    healthRow.infoLabel:SetText(Format(health, deltas.health, maxHealth))
 end
  
 -- ============================================================
 -- СТРОИТЕЛЬ ОДНОЙ СТРОКИ-РЕГУЛЯТОРА
 -- ============================================================
+-- Компактная раскладка строки: подпись | [-] значение [+] — всё в
+-- одну линию высотой 20px. Раньше строка занимала секцию в 34px с
+-- кнопками 24x24 и подписью «Сейчас: N/M» на 90px, из-за чего окно
+-- разрасталось до 300x213 при двух управляемых числах.
+local ROW_H     = 20
+local LABEL_W   = 84
+local VALUE_W   = 44
+local BTN       = 18
+
 local function MakeAdjustRow(parent, yOffset, labelText, onMinus, onPlus)
     local C = SB.Theme.C
     local row = {}
- 
-    row.label = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    row.label:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, yOffset)
-    row.label:SetWidth(68); row.label:SetJustifyH("LEFT")
+
+    row.label = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.label:SetPoint("TOPLEFT", parent, "TOPLEFT", 12, yOffset)
+    row.label:SetWidth(LABEL_W); row.label:SetJustifyH("LEFT")
+    row.label:SetWordWrap(false)
     row.label:SetText(labelText)
     row.label:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
- 
-    row.minusBtn = SB.Theme.Button(parent, "—", 24, 24, "danger")
-    row.minusBtn:SetPoint("TOPLEFT", parent, "TOPLEFT", 74, yOffset + 2)
+
+    row.minusBtn = SB.Theme.Button(parent, "—", BTN, BTN, "danger")
+    row.minusBtn:SetPoint("LEFT", row.label, "RIGHT", 6, 0)
     row.minusBtn:SetScript("OnClick", onMinus)
- 
+
     row.infoLabel = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    row.infoLabel:SetPoint("LEFT", row.minusBtn, "RIGHT", 8, 0)
-    row.infoLabel:SetWidth(100); row.infoLabel:SetJustifyH("CENTER")
+    row.infoLabel:SetPoint("LEFT", row.minusBtn, "RIGHT", 4, 0)
+    row.infoLabel:SetWidth(VALUE_W); row.infoLabel:SetJustifyH("CENTER")
+    row.infoLabel:SetWordWrap(false)
     row.infoLabel:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
- 
-    row.plusBtn = SB.Theme.Button(parent, "+", 24, 24, "primary")
+
+    row.plusBtn = SB.Theme.Button(parent, "+", BTN, BTN, "primary")
     row.plusBtn:SetPoint("LEFT", row.infoLabel, "RIGHT", 4, 0)
     row.plusBtn:SetScript("OnClick", onPlus)
- 
+
     return row
 end
- 
+
 -- ============================================================
 -- ПОСТРОЕНИЕ ФРЕЙМА (лениво)
 -- ============================================================
 local function BuildFrame()
     local C = SB.Theme.C
- 
-    grantFrame = SB.Theme.Frame("SpellbreakerGrantFrame", UIParent, "Выдача ресурсов", 265, 213)
+
+    -- Имя и класс игрока переехали в ЗАГОЛОВОК окна: две отдельные
+    -- строки под шапкой съедали половину высоты, дублируя то, что и так
+    -- видно в панели Ведущего, откуда окно и открывается.
+    grantFrame = SB.Theme.Frame("SpellbreakerGrantFrame", UIParent, "Выдача ресурсов", 205, 122)
     SB.Theme.AttachPositionMemory(grantFrame, "grantFramePos", 0, 0)
- 
-    nameLabel = grantFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    nameLabel:SetPoint("TOPLEFT", grantFrame, "TOPLEFT", 14, grantFrame.contentY - 2)
-    nameLabel:SetTextColor(C.textGold[1], C.textGold[2], C.textGold[3])
-    nameLabel:SetWidth(290); nameLabel:SetJustifyH("LEFT")
- 
-    classLabel = grantFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    classLabel:SetPoint("TOPLEFT", nameLabel, "BOTTOMLEFT", 0, -2)
-    classLabel:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
-    classLabel:SetWidth(290); classLabel:SetJustifyH("LEFT")
- 
-    -- Секция рвения
-    zealSection = CreateFrame("Frame", nil, grantFrame)
-    zealSection:SetPoint("TOPLEFT", classLabel, "BOTTOMLEFT", 0, -10)
-    zealSection:SetSize(300, 34)
- 
-    zealRow = MakeAdjustRow(zealSection, 0,
-        "Мана:",
-        function() deltas.zeal = deltas.zeal - 1; RefreshDisplay() end,
-        function() deltas.zeal = deltas.zeal + 1; RefreshDisplay() end
-    )
- 
-    -- Секция здоровья
-    healthSection = CreateFrame("Frame", nil, grantFrame)
-    healthSection:SetPoint("TOPLEFT", zealSection, "BOTTOMLEFT", 0, -10)
-    healthSection:SetSize(300, 34)
- 
-    healthRow = MakeAdjustRow(healthSection, 0,
-        "Здоровье:",
+
+    local y = grantFrame.contentY
+
+    -- Здоровье идёт ПЕРВЫМ (выше ресурса) для удобства восприятия.
+    healthRow = MakeAdjustRow(grantFrame, y,
+        "Здоровье",
         function() deltas.health = deltas.health - 1; RefreshDisplay() end,
         function() deltas.health = deltas.health + 1; RefreshDisplay() end
     )
- 
-    local confirmBtn = SB.Theme.Button(grantFrame, "Выдать", 80, 28, "primary")
-    confirmBtn:SetPoint("BOTTOM", grantFrame, "BOTTOM", -44, 14)
+
+    -- Текст подписи перезаписывается в ShowFor под ресурс конкретного
+    -- игрока (Мана у кастеров, Ярость/Энергия/Фокус/... у некастеров) —
+    -- здесь только дефолт до первого показа панели.
+    zealRow = MakeAdjustRow(grantFrame, y - ROW_H - 6,
+        "Мана",
+        function() deltas.zeal = deltas.zeal - 1; RefreshDisplay() end,
+        function() deltas.zeal = deltas.zeal + 1; RefreshDisplay() end
+    )
+
+    local confirmBtn = SB.Theme.Button(grantFrame, "Выдать", 70, 22, "primary")
+    confirmBtn:SetPoint("BOTTOMLEFT", grantFrame, "BOTTOM", -74, 10)
     confirmBtn:SetScript("OnClick", SendGrant)
- 
-    local resetBtn = SB.Theme.Button(grantFrame, "Сброс", 80, 28, "secondary")
+
+    local resetBtn = SB.Theme.Button(grantFrame, "Сброс", 60, 22, "secondary")
     resetBtn:SetPoint("LEFT", confirmBtn, "RIGHT", 8, 0)
     resetBtn:SetScript("OnClick", function()
         deltas = { zeal = 0, health = 0 }
@@ -179,23 +186,28 @@ function SB.ResourceGrant.ShowFor(name, data)
         return
     end
  
+    -- Фолбэк maxZeal (на случай отсутствия свежих сетевых данных) должен
+    -- учитывать тип класса — некастеру не растим потолок по рангу.
+    local fallbackMaxZeal = (SB.Data.NonCasterClasses and SB.Data.NonCasterClasses[data.class])
+        and SB.Data.MaxClassResourceFor(data.mastery or "Неофит")
+        or (SB.Data.Config.MaxZeal[data.mastery or "Неофит"] or 1)
+
     currentTarget = {
         name      = name,
         mastery   = data.mastery  or "Неофит",
         zeal      = data.zeal      or 0,
-        maxZeal   = data.maxZeal   or SB.Data.Config.MaxZeal[data.mastery or "Неофит"] or 1,
+        maxZeal   = data.maxZeal   or fallbackMaxZeal,
         health    = data.health    or 20,
         maxHealth = data.maxHealth or 20,
         class     = data.class     or "?",
     }
     deltas = { zeal = 0, health = 0 }
- 
-    nameLabel:SetText(name)
-    classLabel:SetText(
-        (data.class or "?") .. " • " ..
-        (data.mastery or "?")
-    )
- 
+
+    zealRow.label:SetText(SB.Logic.GetResourceName(data.class))
+
+    -- Имя и класс — в заголовке окна вместо отдельных строк.
+    grantFrame.title:SetText(name .. "  |cFF9D9D9D" .. (data.class or "?") .. "|r")
+
     RefreshDisplay()
     grantFrame:Show()
 end
@@ -213,13 +225,14 @@ function SB.ResourceGrant.Apply(grantType, v1, v2, v3, granterName)
     local resourceName, delta, newVal, maxVal
 
     if grantType == "ZEAL" then
+        -- Тип пакета исторически называется "ZEAL", но фактически бьёт
+        -- по РЕСУРСУ КАСТА получателя — Рвение у кастеров, собственный
+        -- ресурс (Ярость/Энергия/...) у некастеров (см. PM.GrantCastResource).
         delta = tonumber(v1) or 0
         if delta == 0 then return end
         -- ГМ может намеренно выдать больше максимума
-        newVal = math.max(0, PM.GetZeal() + delta)
-        SpellbreakerCharDB.zeal = newVal  -- прямая запись чтобы обойти cap
-        maxVal = PM.GetMaxZeal()
-        resourceName = "Рвение"
+        newVal, maxVal = PM.GrantCastResource(delta)
+        resourceName = PM.GetResourceName()
         SB.Events.Fire("PLAYER_MODEL_CHANGED")
     elseif grantType == "HEALTH" then
         delta = tonumber(v1) or 0

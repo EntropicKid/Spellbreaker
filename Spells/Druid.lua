@@ -14,6 +14,11 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 18,
+	scaling = {
+		hit    = { ["Исток"] = 1, ["Эрудиция"] = 0.5 },
+		crit   = { ["Точность"] = 1 },
+		damage = { ["Дух"] = 1 },
+	},
 })
 Add({
     id = "circle_of_fang",
@@ -27,6 +32,10 @@ Add({
     resistable = false,
 	duration = -1,
     isConcentration = false,
+    container = "eff_circle_of_fang",
+	scaling = {
+		hit    = { ["Скрытность"] = 1, ["Акробатика"] = 0.5 },
+	},
 })
 Add({
     id = "circle_of_paw",
@@ -40,6 +49,10 @@ Add({
     resistable = false,
 	duration = -1,
     isConcentration = false,
+    container = "eff_circle_of_paw",
+	scaling = {
+		hit    = { ["Живучесть"] = 1, ["Запугивание"] = 0.5 },
+	},
 })
 Add({
     id = "circle_of_beak",
@@ -53,6 +66,10 @@ Add({
     resistable = false,
 	duration = -1,
     isConcentration = false,
+    container = "eff_circle_of_beak",
+	scaling = {
+		hit    = { ["Акробатика"] = 1, ["Интуиция"] = 0.5 },
+	},
 })
 Add({
     id = "circle_of_tree",
@@ -66,6 +83,10 @@ Add({
     resistable = false,
 	duration = -1,
     isConcentration = false,
+    container = "eff_circle_of_tree",
+	scaling = {
+		hit    = { ["Милосердие"] = 1, ["Живучесть"] = 0.5 },
+	},
 })
 Add({
     id = "circle_of_scale",
@@ -79,6 +100,10 @@ Add({
     resistable = false,
 	duration = -1,
     isConcentration = false,
+    container = "eff_circle_of_scale",
+	scaling = {
+		hit    = { ["Выживание"] = 1, ["Атлетика"] = 0.5 },
+	},
 })
 Add({
     id = "circle_of_hoof",
@@ -92,6 +117,10 @@ Add({
     resistable = false,
 	duration = -1,
     isConcentration = false,
+    container = "eff_circle_of_hoof",
+	scaling = {
+		hit    = { ["Атлетика"] = 1, ["Выживание"] = 0.5 },
+	},
 })
 Add({
     id = "mighty_fangs",
@@ -107,6 +136,10 @@ Add({
 	duration = 10,
     isConcentration = false,
 	distance = 1.5,
+	buff = "eff_weapon_enchant_mighty_fangs",
+	scaling = {
+		hit    = { ["Выживание"] = 1, ["Запугивание"] = 0.5 },
+	},
 })
 Add({
     id = "easy_step",
@@ -123,6 +156,10 @@ Add({
     isConcentration = false,
 	distance = 1.5,
 
+    buff = "eff_easy_step",
+	scaling = {
+		hit    = { ["Выживание"] = 1, ["Акробатика"] = 0.5 },
+	},
 })
 Add({
     id = "speak_with_animals",
@@ -136,6 +173,10 @@ Add({
     resistable = true,
 	duration = 10,
     isConcentration = false,
+    container = "eff_speak_with_animals",
+	scaling = {
+		hit    = { ["Выживание"] = 1, ["Интуиция"] = 0.5 },
+	},
 })
 Add({
     id = "bestial_trance",
@@ -152,6 +193,10 @@ Add({
 	duration = 100,
     isConcentration = true,
 	distance = 7,
+    container = "eff_bestial_trance",
+	scaling = {
+		hit    = { ["Выживание"] = 1.5, ["Запугивание"] = 0.5 },
+	},
 })
 Add({
     id = "insect_swarm",
@@ -164,8 +209,15 @@ Add({
 	description = "Друид может наслать на неприятеля рой насекомых обитающий поблизости, будь это мухи, комары, мошки и прочая мерзость, таким образом дезориентировав своего врага или немного подпортив ему кровь. Данное заклинание не позволяет влиять на гигантских насекомых: они считаются чудовищами.",
     isCantrip = true,
     resistable = true,
-    canCrit = false,
+    canCrit = true,
 	distance = 18,
+	debuff = "eff_blinded_insect_swarm",
+    duration = 4,
+	scaling = {
+		hit    = { ["Исток"] = 1, ["Интуиция"] = 0.5 },
+		crit   = { ["Рвение"] = 1 },
+		damage = { ["Дух"] = 1 },
+	},
 })
 Add({
     id = "lunar_flame",
@@ -178,8 +230,13 @@ Add({
 	description = "Друид взывает к небесам, к матери-и-дитя и тем силам что обитают за облаками, и призывает их сокрушительную власть низвергнутся на вражеские головы сверкающим лунным столбом: их тела страдают и сгорают в холодном ночном пламени. Это крайне эффективно против нежити, и противоестественной нечисти.",
     isCantrip = false,
     resistable = true,
-    canCrit = false,
+    canCrit = true,
 	distance = 18,
+	scaling = {
+		hit    = { ["Исток"] = 1, ["Концентрация"] = 0.5 },
+		crit   = { ["Точность"] = 1 },
+		damage = { ["Дух"] = 1 },
+	},
 })
 Add({
     id = "thorns",
@@ -196,6 +253,10 @@ Add({
 	duration = 3,
     isConcentration = false,
 	distance = 1.5,
+    buff = "eff_thorns",
+	scaling = {
+		hit    = { ["Исток"] = 1, ["Эрудиция"] = 0.5 },
+	},
 })
 Add({
     id = "swamp_mist",
@@ -211,6 +272,10 @@ Add({
 	duration = 3,
     isConcentration = false,
 	distance = 40,
+    debuff = "eff_swamp_mist",
+	scaling = {
+		hit    = { ["Исток"] = 1, ["Интуиция"] = 0.5 },
+	},
 })
 Add({
     id = "tree_wrath",
@@ -227,6 +292,10 @@ Add({
 	duration = 2,
     isConcentration = false,
 	distance = 18,
+	debuff = "eff_slowed_tree_wrath",
+	scaling = {
+		hit    = { ["Исток"] = 1, ["Концентрация"] = 0.5 },
+	},
 })
 Add({
     id = "faerie_fire",
@@ -243,6 +312,10 @@ Add({
 	duration = 3,
     isConcentration = false,
 	distance = 18,
+	debuff = "eff_vulnerable_faerie_fire",
+	scaling = {
+		hit    = { ["Исток"] = 1, ["Эрудиция"] = 0.5 },
+	},
 })
 Add({
     id = "druid_sleep",
@@ -259,6 +332,10 @@ Add({
 	duration = 2,
     isConcentration = false,
 	distance = 7,
+    debuff = "eff_druid_sleep",
+	scaling = {
+		hit    = { ["Исток"] = 1.5, ["Интуиция"] = 0.5 },
+	},
 })
 Add({
     id = "druid_starfall",
@@ -275,6 +352,13 @@ Add({
 	duration = 3,
     isConcentration = false,
 	distance = 18,
+	aoe = { radius = 18 },
+    container = "eff_druid_starfall",
+	scaling = {
+		hit    = { ["Исток"] = 1.5, ["Концентрация"] = 0.5 },
+		crit   = { ["Рвение"] = 1.5 },
+		damage = { ["Дух"] = 1.5 },
+	},
 })
 Add({
     id = "beast_calm",
@@ -291,6 +375,10 @@ Add({
 	duration = 10,
     isConcentration = false,
 	distance = 12,
+    debuff = "eff_beast_calm",
+	scaling = {
+		hit    = { ["Исток"] = 1.5, ["Эрудиция"] = 0.5 },
+	},
 })
 Add({
     id = "druid_hurricane",
@@ -303,10 +391,17 @@ Add({
 	description = "Могущественный друид призывает не только гнев природы, но и самой стихии ветра! В области действия воззвания разрывается небольшой ураган: гром и молния, вихри воздуха подхватывают маленьких, и даже больших существ и разбрасывают их по полю битвы, а вместе с тем и всё что находится рядом.\n\nВ области действия урагана все присутствующие должны совершить спасбросок или оказаться подхваченными ветром, они могут как потерять своё снаряжение в процессе, так и получить дробящий урон при столкновении с посторонними объектами или препятствиями.\n\nОсобо неудачливые получат удар молнией.",
     isCantrip = false,
     resistable = true,
-    canCrit = false,
+    canCrit = true,
 	duration = 3,
     isConcentration = false,
 	distance = 12,
+	aoe = { radius = 12 },
+    container = "eff_druid_hurricane",
+	scaling = {
+		hit    = { ["Исток"] = 1.5, ["Интуиция"] = 1 },
+		crit   = { ["Рвение"] = 1.5 },
+		damage = { ["Дух"] = 2 },
+	},
 })
 Add({
     id = "druid_tornado",
@@ -323,6 +418,10 @@ Add({
 	duration = 2,
     isConcentration = false,
 	distance = 18,
+    container = "eff_druid_tornado",
+	scaling = {
+		hit    = { ["Исток"] = 1.5, ["Концентрация"] = 1 },
+	},
 })
 Add({
     id = "druid_stoneskin",
@@ -337,6 +436,10 @@ Add({
     resistable = true,
 	duration = 3,
     isConcentration = false,
+	container = "eff_stone_skin_druid_stoneskin",
+	scaling = {
+		hit    = { ["Исток"] = 1.5, ["Эрудиция"] = 1 },
+	},
 })
 Add({
     id = "druid_prophetic_dream",
@@ -353,6 +456,10 @@ Add({
 	duration = 4800,
     isConcentration = false,
 	distance = -1,
+    container = "eff_druid_prophetic_dream",
+	scaling = {
+		hit    = { ["Исток"] = 1.5, ["Интуиция"] = 1 },
+	},
 })
 Add({
     id = "rejuvenation",
@@ -368,6 +475,10 @@ Add({
 	duration = 3,
     isConcentration = false,
 	distance = 18,
+    buff = "eff_rejuvenation",
+	scaling = {
+		hit    = { ["Милосердие"] = 1, ["Выживание"] = 0.5 },
+	},
 })
 Add({
     id = "druid_recovery",
@@ -382,6 +493,10 @@ Add({
     resistable = true,
 	distance = 18,
     isHeal = true,
+	scaling = {
+		hit    = { ["Милосердие"] = 1, ["Интуиция"] = 0.5 },
+		damage = { ["Характер"] = 1 },
+	},
 })
 Add({
     id = "wildlife_sign",
@@ -397,6 +512,10 @@ Add({
 	duration = 600,
     isConcentration = false,
 	distance = 1.5,
+	buff = "eff_devotion_wildlife_sign",
+	scaling = {
+		hit    = { ["Милосердие"] = 1, ["Живучесть"] = 0.5 },
+	},
 })
 Add({
     id = "clean_posion_druid",
@@ -410,6 +529,9 @@ Add({
     isCantrip = false,
     resistable = true,
 	distance = 18,
+	scaling = {
+		hit    = { ["Милосердие"] = 1, ["Выживание"] = 0.5 },
+	},
 })
 Add({
     id = "druid_club",
@@ -425,6 +547,10 @@ Add({
 	duration = 10,
     isConcentration = false,
 	distance = 1.5,
+	buff = "eff_weapon_enchant_druid_club",
+	scaling = {
+		hit    = { ["Милосердие"] = 1, ["Интуиция"] = 0.5 },
+	},
 })
 Add({
     id = "druid_removecurse",
@@ -438,6 +564,9 @@ Add({
     isCantrip = false,
     resistable = true,
 	distance = 1.5,
+	scaling = {
+		hit    = { ["Милосердие"] = 1.5, ["Живучесть"] = 0.5 },
+	},
 })
 Add({
     id = "nature_patronage",
@@ -454,6 +583,11 @@ Add({
     isConcentration = false,
 	distance = 1.5,
     isHeal = true,
+	buff = "eff_mercy_blessing_nature_patronage",
+	scaling = {
+		hit    = { ["Милосердие"] = 1.5, ["Выживание"] = 0.5 },
+		damage = { ["Характер"] = 1.5 },
+	},
 })
 Add({
     id = "tranquility",
@@ -470,6 +604,11 @@ Add({
     isConcentration = false,
 	distance = 4.5,
     isHeal = true,
+    buff = "eff_tranquility",
+	scaling = {
+		hit    = { ["Милосердие"] = 1.5, ["Интуиция"] = 0.5 },
+		damage = { ["Характер"] = 1.5 },
+	},
 })
 Add({
     id = "lifebloom",
@@ -486,6 +625,11 @@ Add({
     isConcentration = false,
 	distance = 18,
     isHeal = true,
+    buff = "eff_lifebloom",
+	scaling = {
+		hit    = { ["Милосердие"] = 1.5, ["Живучесть"] = 1 },
+		damage = { ["Характер"] = 2 },
+	},
 })
 Add({
     id = "nature_blessing",
@@ -501,4 +645,9 @@ Add({
 	duration = 600,
     isConcentration = false,
 	distance = 18,
+	buff = "eff_fortitude_nature_blessing",
+	aoe = { radius = 18 },
+	scaling = {
+		hit    = { ["Милосердие"] = 1.5, ["Выживание"] = 1 },
+	},
 })

@@ -29,12 +29,29 @@ local ICON_TEXTURE = "Interface\\Icons\\Ability_Mage_Arcanebarrage"
 
 local hoverCard
 local hideTimer
+local HIDE_DELAY = 0.3
+
+-- Предобъявление: OnEnter LDB-объекта (см. ниже) ссылается на эту
+-- функцию, а определена она уже после него. Без local-предобъявления
+-- замыкание захватило бы ГЛОБАЛЬНОЕ имя, то есть nil.
+local ShowHoverCard
 
 local function CancelHideTimer()
     if hideTimer then
         hideTimer:Cancel()
         hideTimer = nil
     end
+end
+
+--- Планирует скрытие карточки через HIDE_DELAY. Общая для OnLeave
+--- самой карточки, OnLeave кнопки миникарты и OnLeave каждой дочерней
+--- кнопки внутри карточки.
+local function ScheduleHideHoverCard()
+    if not hoverCard then return end
+    CancelHideTimer()
+    hideTimer = C_Timer.NewTimer(HIDE_DELAY, function()
+        hoverCard:Hide()
+    end)
 end
 
 local function ToggleFrame(frame, onShowFn)
@@ -94,16 +111,32 @@ local sbLDB = LDB:NewDataObject("SpellbreakerMinimap", {
         end
     end,
 
-    OnTooltipShow = function(tooltip)
-        if not tooltip or not tooltip.AddLine then return end
+    -- ВНИМАНИЕ: наведение обрабатывается через OnEnter/OnLeave САМОГО
+    -- LDB-объекта, а НЕ через HookScript на кнопке миникарты и НЕ через
+    -- OnTooltipShow.
+    --
+    -- Почему не HookScript: в конце LibDBIcon-1.0.lua есть блок
+    -- "-- Upgrade!", который при загрузке любой более свежей копии
+    -- библиотеки (её приносит с собой почти каждый второй аддон)
+    -- проходит по всем уже созданным кнопкам и делает
+    -- button:SetScript("OnEnter", onEnter). SetScript затирает скрипт
+    -- целиком — вместе с нашим хуком. Внешне это выглядело ровно как
+    -- «виджет на миникарте перестал всплывать»: сам аддон не менялся,
+    -- ломал его чужой апгрейд библиотеки.
+    --
+    -- Почему не OnTooltipShow: библиотека вызывает его ВМЕСТО
+    -- obj.OnEnter (см. onEnter: `if obj.OnTooltipShow then ... elseif
+    -- obj.OnEnter then`), так что с ним карточку было бы не показать.
+    -- Подсказки по кликам переехали в подвал самой карточки.
+    --
+    -- Функции на LDB-объекте библиотека не трогает никогда — этот путь
+    -- переживает любые её обновления.
+    OnEnter = function(self)
+        ShowHoverCard(self)
+    end,
 
-        tooltip:SetText("Spellbreaker", 0.6, 0.2, 1)
-
-        local text = "|cffffd100[ЛКМ]:|r |cffffffffГлавная панель|r\n" ..
-                     "|cffffd100[ПКМ]:|r |cffffffffПанель ведущего|r\n" ..
-                     "|cffffd100[Shift + ЛКМ]:|r |cffffffffБиблиотека|r"
-
-        tooltip:AddLine(text, 1, 1, 1, true)
+    OnLeave = function()
+        ScheduleHideHoverCard()
     end,
 })
 
@@ -123,7 +156,7 @@ local function BuildHoverCard()
     local C = SB.Theme.C
 
     hoverCard = CreateFrame("Frame", "SpellbreakerMinimapCard", UIParent, "BackdropTemplate")
-    hoverCard:SetSize(150, 148)
+    hoverCard:SetSize(176, 212)
     hoverCard:SetFrameStrata("TOOLTIP")
     hoverCard:SetClampedToScreen(true)
     hoverCard:SetBackdrop(SB.Theme.BD.tooltip)
@@ -140,7 +173,7 @@ local function BuildHoverCard()
     title:SetTextColor(C.titleText[1], C.titleText[2], C.titleText[3])
 
     -- Долгий отдых
-    local restBtn = SB.Theme.Button(hoverCard, "Долгий Отдых", 130, 24, "secondary")
+    local restBtn = SB.Theme.Button(hoverCard, "Долгий Отдых", 156, 24, "secondary")
     restBtn:SetPoint("TOP", title, "BOTTOM", 0, -8)
     restBtn:SetScript("OnClick", function()
         hoverCard:Hide()
@@ -149,16 +182,18 @@ local function BuildHoverCard()
         end
     end)
     restBtn:HookScript("OnEnter", function(self)
+        CancelHideTimer()
         if SB.UI and SB.UI.ShowInfoTooltip then
             SB.UI.ShowInfoTooltip(self, "longRest")
         end
     end)
     restBtn:HookScript("OnLeave", function(self)
         HideOwnedTooltip(self)
+        ScheduleHideHoverCard()
     end)
 
     -- Короткий отдых
-    local shortRestBtn = SB.Theme.Button(hoverCard, "Короткий Отдых", 130, 24, "secondary")
+    local shortRestBtn = SB.Theme.Button(hoverCard, "Короткий Отдых", 156, 24, "secondary")
     shortRestBtn:SetPoint("TOP", restBtn, "BOTTOM", 0, -4)
     shortRestBtn:SetScript("OnClick", function()
         hoverCard:Hide()
@@ -167,16 +202,18 @@ local function BuildHoverCard()
         end
     end)
     shortRestBtn:HookScript("OnEnter", function(self)
+        CancelHideTimer()
         if SB.UI and SB.UI.ShowInfoTooltip then
             SB.UI.ShowInfoTooltip(self, "shortRest")
         end
     end)
     shortRestBtn:HookScript("OnLeave", function(self)
         HideOwnedTooltip(self)
+        ScheduleHideHoverCard()
     end)
 
     -- Панель ГМа
-    local gmPanelBtn = SB.Theme.Button(hoverCard, "Панель ГМа", 130, 24, "secondary")
+    local gmPanelBtn = SB.Theme.Button(hoverCard, "Панель ГМа", 156, 24, "secondary")
     gmPanelBtn:SetPoint("TOP", shortRestBtn, "BOTTOM", 0, -4)
     gmPanelBtn:SetScript("OnClick", function()
         hoverCard:Hide()
@@ -193,9 +230,11 @@ local function BuildHoverCard()
             end
         end)
     end)
+    gmPanelBtn:HookScript("OnEnter", CancelHideTimer)
+    gmPanelBtn:HookScript("OnLeave", ScheduleHideHoverCard)
 
     -- Логи
-    local logsBtn = SB.Theme.Button(hoverCard, "Логи", 130, 24, "secondary")
+    local logsBtn = SB.Theme.Button(hoverCard, "Логи", 156, 24, "secondary")
     logsBtn:SetPoint("TOP", gmPanelBtn, "BOTTOM", 0, -4)
     logsBtn:SetScript("OnClick", function()
         hoverCard:Hide()
@@ -206,17 +245,42 @@ local function BuildHoverCard()
 
         ToggleFrame(SpellbreakerLogFrame)
     end)
+    logsBtn:HookScript("OnEnter", CancelHideTimer)
+    logsBtn:HookScript("OnLeave", ScheduleHideHoverCard)
+
+    -- Подсказки по кликам. Раньше жили в отдельном тултипе
+    -- (OnTooltipShow), но он и карточка — взаимоисключающие пути в
+    -- LibDBIcon: показать можно только что-то одно. Здесь они и
+    -- нагляднее — прямо под кнопками, к которым относятся.
+    local sep = hoverCard:CreateTexture(nil, "ARTWORK")
+    sep:SetHeight(1)
+    sep:SetPoint("TOPLEFT",  logsBtn, "BOTTOMLEFT",  0, -7)
+    sep:SetPoint("TOPRIGHT", logsBtn, "BOTTOMRIGHT", 0, -7)
+    sep:SetColorTexture(C.divider[1], C.divider[2], C.divider[3], C.divider[4])
+
+    local hints = hoverCard:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    hints:SetPoint("TOPLEFT", sep, "BOTTOMLEFT", 0, -6)
+    hints:SetPoint("RIGHT",   sep, "RIGHT",      0, 0)
+    hints:SetJustifyH("LEFT")
+    hints:SetSpacing(2)
+    hints:SetText(
+        "|cffffd100ЛКМ|r — Главная панель\n" ..
+        "|cffffd100ПКМ|r — Панель ведущего\n" ..
+        "|cffffd100Shift+ЛКМ|r — Библиотека")
 
     hoverCard._restBtn = restBtn
     hoverCard._shortRestBtn = shortRestBtn
 
+    -- ВАЖНО: наведение на любую дочернюю кнопку внутри карточки меняет
+    -- фокус мыши с карточки на кнопку — это САМО ПО СЕБЕ вызывает
+    -- OnLeave у карточки (даже когда курсор физически ещё внутри её
+    -- границ). Раньше только у 2 из 4 кнопок были обработчики, и ни один
+    -- не отменял уже запланированное скрытие — карточка гасла прямо
+    -- под курсором, пока пытаешься кликнуть. Теперь каждая кнопка сама
+    -- отменяет/планирует скрытие (см. HookScript-и выше), а обработчики
+    -- самой карточки — общий случай (наведение на пустое место карточки).
     hoverCard:SetScript("OnEnter", CancelHideTimer)
-    hoverCard:SetScript("OnLeave", function(self)
-        CancelHideTimer()
-        hideTimer = C_Timer.NewTimer(0.2, function()
-            self:Hide()
-        end)
-    end)
+    hoverCard:SetScript("OnLeave", ScheduleHideHoverCard)
 
     return hoverCard
 end
@@ -234,34 +298,45 @@ local function UpdateHoverCardState()
 
     if canRest then
         hoverCard._restBtn:Enable()
-        hoverCard._shortRestBtn:Enable()
     else
         hoverCard._restBtn:Disable()
+    end
+
+    -- Короткий Отдых доступен отдельно от Долгого: у него своё условие
+    -- (лидер И не в ПвП-размене, см. SB.UI.CanGroupShortRest), а личные
+    -- заряды (см. Core/ClassMechanics.lua) обходят его целиком.
+    local canGroupShort = SB.UI and SB.UI.CanGroupShortRest
+        and SB.UI.CanGroupShortRest() or false
+    local canShortRest = canGroupShort
+        or (SB.ClassMechanics and SB.ClassMechanics.CanPersonalShortRest())
+
+    if canShortRest then
+        hoverCard._shortRestBtn:Enable()
+    else
         hoverCard._shortRestBtn:Disable()
     end
 end
 
-local function ShowHoverCard(anchor)
+function ShowHoverCard(anchor)
     local card = BuildHoverCard()
     if not card then return end
 
     CancelHideTimer()
 
     card:ClearAllPoints()
-    card:SetPoint("TOP", anchor, "BOTTOM", 0, -4)
+    -- Кнопку миникарты часто утаскивают в нижнюю половину экрана —
+    -- там карточка, выпадающая вниз, упиралась бы в край и её
+    -- перекрывал бы SetClampedToScreen, накрывая саму кнопку.
+    -- Ниже середины экрана раскрываемся вверх.
+    local _, y = anchor:GetCenter()
+    if y and y < (UIParent:GetHeight() / 2) then
+        card:SetPoint("BOTTOM", anchor, "TOP", 0, 4)
+    else
+        card:SetPoint("TOP", anchor, "BOTTOM", 0, -4)
+    end
     card:Show()
 
     UpdateHoverCardState()
-end
-
-local function ScheduleHideHoverCard()
-    if not hoverCard then return end
-
-    CancelHideTimer()
-
-    hideTimer = C_Timer.NewTimer(0.2, function()
-        hoverCard:Hide()
-    end)
 end
 
 -- Публичная функция для других модулей.
@@ -317,51 +392,10 @@ initFrame:SetScript("OnEvent", function(self, event, loaded)
         return
     end
 
+    -- Всё. Наведение обрабатывают OnEnter/OnLeave самого LDB-объекта
+    -- (см. sbLDB выше). Раньше здесь крутился OnUpdate-цикл, который
+    -- до 10 секунд ждал появления кнопки, чтобы навесить на неё
+    -- HookScript: и ждать было не гарантированно достаточно, и хук
+    -- всё равно затирался апгрейдом LibDBIcon из чужого аддона.
     icon:Register("Spellbreaker", sbLDB, minimapDB)
-
-    -- LibDBIcon может создать кнопку не мгновенно.
-    -- Ждём появления кнопки и вешаем на неё hover-карточку.
-    local hookFrame = CreateFrame("Frame")
-    local elapsed = 0
-    local timeout = 0
-
-    hookFrame:SetScript("OnUpdate", function(self, dt)
-        timeout = timeout + dt
-
-        -- Если за 10 секунд кнопка так и не появилась, прекращаем ждать.
-        if timeout > 10 then
-            self:SetScript("OnUpdate", nil)
-            return
-        end
-
-        elapsed = elapsed + dt
-        if elapsed < 0.05 then
-            return
-        end
-        elapsed = 0
-
-        local btn
-
-        if icon.GetMinimapButton then
-            btn = icon:GetMinimapButton("Spellbreaker")
-        end
-
-        if not btn and icon.objects then
-            btn = icon.objects["Spellbreaker"]
-        end
-
-        if not btn then
-            return
-        end
-
-        self:SetScript("OnUpdate", nil)
-
-        btn:HookScript("OnEnter", function()
-            ShowHoverCard(btn)
-        end)
-
-        btn:HookScript("OnLeave", function()
-            ScheduleHideHoverCard()
-        end)
-    end)
 end)

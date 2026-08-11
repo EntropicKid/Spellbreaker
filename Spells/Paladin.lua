@@ -15,6 +15,10 @@ Add({
     duration = 100,
     isConcentration = false,
     distance = 1.5,
+	buff = "eff_blessing_might",
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+	},
 })
 
 Add({
@@ -25,10 +29,15 @@ Add({
     level = 2,
     class = "Паладин",
     caura = 400,
-    description = "Вскидывая оружие или священный символ, вы высвобождаете первозданную силу своей active Печати и обрушиваете на противника сакральный приговор. Враг оказывается скован невидимыми путами божественного суда, которые удерживают его в течение 2 ходов.\n\nПока над целью довлеет этот приговор, сама её суть оскверняется в глазах небес, превращая нечестивца в невольный источник надежды и сил для ваших союзников. Каждый раз, когда по отмеченному врагу наносится удар, нападающего касается мимолётное, но ощутимое исцеляющее прикосновение Света, залечивающее раны соразмерно жизненной силе самого атакующего, чем больше и живее враг - тем сильнее исцеление, вплоть до среднего исцеления ранений..\n\nВаша вера требует абсолютного сосредоточения. Вы можете поддерживать лишь одно заклинание категории «Правосудие» за раз. Если вы взываете к новому суду, пока действует предыдущий, старый приговор немедленно рассеивается, уступая место новой воле Света.",
+    description = "Вскидывая оружие или священный символ, вы высвобождаете первозданную силу своей активной Печати и обрушиваете на противника сакральный приговор. Враг оказывается скован невидимыми путами божественного суда, которые удерживают его в течение 2 ходов.\n\nПока над целью довлеет этот приговор, сама её суть оскверняется в глазах небес, превращая нечестивца в невольный источник надежды и сил для ваших союзников. Каждый раз, когда по отмеченному врагу наносится удар, нападающего касается мимолётное, но ощутимое исцеляющее прикосновение Света, залечивающее раны соразмерно жизненной силе самого атакующего, чем больше и живее враг - тем сильнее исцеление, вплоть до среднего исцеления ранений..\n\nВаша вера требует абсолютного сосредоточения. Вы можете поддерживать лишь одно заклинание категории «Правосудие» за раз. Если вы взываете к новому суду, пока действует предыдущий, старый приговор немедленно рассеивается, уступая место новой воле Света.",
     isCantrip = false,
     resistable = true,
     distance = 1.5,
+	debuff = "eff_justice_of_light",
+    duration = 4,
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+	},
 })
 
 Add({
@@ -44,7 +53,11 @@ Add({
     resistable = true,
     duration = 150,
     isConcentration = false,
-    distance = 1.5,
+	buff = "eff_auraoflight",
+	aoe = { radius = 18 },
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+	},
 })
 
 Add({
@@ -59,6 +72,11 @@ Add({
     isCantrip = false,
     resistable = true,
     distance = 1.5,
+	debuff = "eff_weakness_justice_of_justice",
+    duration = 4,
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+	},
 })
 
 Add({
@@ -75,6 +93,11 @@ Add({
     duration = 15,
     isConcentration = false,
     distance = 1.5,
+	buff = "eff_evasion_crusaderaura",
+	aoe = { radius = 36 },
+	scaling = {
+		hit    = { ["Рвение"] = 1, ["Лидерство"] = 0.5 },
+	},
 })
 
 Add({
@@ -91,6 +114,10 @@ Add({
     duration = 10,
     isConcentration = false,
     distance = 1.5,
+    buff = "eff_greaterblessingofkings",
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+	},
 })
 
 Add({
@@ -106,13 +133,18 @@ Add({
     resistable = true,
     duration = 600,
     isConcentration = false,
+	buff = "eff_devotion_devotionaura",
+	aoe = { radius = 36 },
+	scaling = {
+		hit    = { ["Рвение"] = 1, ["Религия"] = 0.5 },
+	},
 })
 
 Add({
     id = "divine_protection",
     name = "Божественная защита",
     key = "Защита",
-    icon = "Interface\\Icons\\Spell_holy_restoration",
+    icon = "Interface\\Icons\\Spell_holy_divineprotection",
     level = 1,
     class = "Паладин",
     caura = 400,
@@ -122,6 +154,10 @@ Add({
     duration = 2,
     isConcentration = false,
     distance = 5,
+	buff = "eff_divine_protection",
+	scaling = {
+		hit    = { ["Рвение"] = 1, ["Религия"] = 0.5 },
+	},
 })
 
 Add({
@@ -135,7 +171,12 @@ Add({
     description = "Паладин взывает к Свету, и со всей силы ударяет по своей цели, оглушая её на 1 ход, а также прерывая любые сотворяемые заклинания в моменте.",
     isCantrip = false,
     resistable = true,
+    canCrit = true,
     distance = 5,
+    debuff = "eff_hummer_of_justice",
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+	},
 })
 
 Add({
@@ -152,6 +193,10 @@ Add({
     duration = 1,
     isConcentration = false,
     distance = 1.5,
+    buff = "eff_sealofprotection",
+	scaling = {
+		hit    = { ["Рвение"] = 1, ["Религия"] = 0.5 },
+	},
 })
 
 Add({
@@ -165,6 +210,9 @@ Add({
     description = "Паладин выступает вперёд, становясь живым щитом для своего союзника, сияя силой Света. По его повелению до трёх существ, атакующих дружественную цель, вынуждены обратить свой гнев на паладина и перенести свои атаки на него.\n\nПока действует этот эффект, паладин принимает на себя роль защитника, отвлекая врагов от своего соратника и принимая удар на себя.",
     isCantrip = false,
     resistable = true,
+	scaling = {
+		hit    = { ["Рвение"] = 1, ["Религия"] = 0.5 },
+	},
 })
 
 Add({
@@ -180,6 +228,10 @@ Add({
     resistable = true,
     duration = 10,
     isConcentration = false,
+    debuff = "eff_reckoning_hand",
+	scaling = {
+		hit    = { ["Рвение"] = 1, ["Религия"] = 0.5 },
+	},
 })
 
 Add({
@@ -196,6 +248,10 @@ Add({
     duration = 3,
     isConcentration = false,
     distance = 1.5,
+    buff = "eff_seal_of_valor",
+	scaling = {
+		hit    = { ["Рвение"] = 1, ["Религия"] = 0.5 },
+	},
 })
 
 Add({
@@ -212,6 +268,10 @@ Add({
     duration = 50,
     isConcentration = false,
     distance = 5,
+	buff = "eff_fortitude_seal_of_kings",
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+	},
 })
 
 Add({
@@ -228,6 +288,10 @@ Add({
     duration = 300,
     isConcentration = false,
     distance = 5,
+	buff = "eff_weapon_enchant_seal_of_wrath",
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+	},
 })
 
 Add({
@@ -244,6 +308,11 @@ Add({
     duration = 10,
     isConcentration = false,
     isHeal = true,
+    buff = "eff_aura_against_dark",
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+		damage = { ["Характер"] = 0.5 },
+	},
 })
 
 Add({
@@ -258,6 +327,9 @@ Add({
     isCantrip = false,
     resistable = true,
     distance = 12,
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+	},
 })
 
 Add({
@@ -273,6 +345,10 @@ Add({
     resistable = true,
     duration = 600,
     isConcentration = false,
+    buff = "eff_aura_against_frost",
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+	},
 })
 
 Add({
@@ -288,6 +364,10 @@ Add({
     resistable = true,
     duration = 600,
     isConcentration = false,
+    buff = "eff_aura_against_fire",
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+	},
 })
 
 Add({
@@ -303,6 +383,10 @@ Add({
     resistable = true,
     duration = 2,
     isConcentration = false,
+    container = "eff_divineshield",
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+	},
 })
 
 Add({
@@ -319,6 +403,10 @@ Add({
     duration = 2,
     isConcentration = false,
     distance = 1.5,
+    buff = "eff_sealofsacrifice",
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+	},
 })
 
 Add({
@@ -332,7 +420,12 @@ Add({
     description = "Прикоснувшись к живому существу и воззвав к силам Света, вы способны исцелять легкие ранения: порезы, глубокие колотые ранения, этой силы недостаточно чтобы исцелить внутренние повреждения органов, сращивать разрезанные конечности или восстановить им функциональность в обход длительной реабилитации. Этим заклинанием можно остановить кровотечение или залечить вскрытую артерию; ожоги и раны оставленные темной магией залечиваются неохотно.",
     isCantrip = false,
     resistable = true,
+    isHeal = true,
     distance = 18,
+	scaling = {
+		hit    = { ["Рвение"] = 1, ["Религия"] = 0.5 },
+		damage = { ["Дух"] = 0.5 },
+	},
 })
 
 Add({
@@ -348,6 +441,10 @@ Add({
     resistable = true,
     duration = 300,
     isConcentration = false,
+	container = "eff_weapon_enchant_seal_of_righteousness",
+	scaling = {
+		hit    = { ["Рвение"] = 1, ["Религия"] = 0.5 },
+	},
 })
 
 Add({
@@ -362,6 +459,9 @@ Add({
     isCantrip = false,
     resistable = true,
     distance = 1.5,
+	scaling = {
+		hit    = { ["Рвение"] = 1, ["Религия"] = 0.5 },
+	},
 })
 
 Add({
@@ -377,6 +477,10 @@ Add({
     resistable = true,
     distance = 1.5,
     isHeal = true,
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+		damage = { ["Дух"] = 1.5 },
+	},
 })
 
 Add({
@@ -391,6 +495,9 @@ Add({
     isCantrip = false,
     resistable = true,
     distance = 12,
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+	},
 })
 
 Add({
@@ -407,6 +514,10 @@ Add({
     duration = -1,
     isConcentration = false,
     distance = 1.5,
+	buff = "eff_wisdom_sealofwisdom",
+	scaling = {
+		hit    = { ["Рвение"] = 1, ["Дипломатия"] = 0.5 },
+	},
 })
 
 Add({
@@ -424,6 +535,13 @@ Add({
     duration = 2,
     isConcentration = false,
     distance = 9,
+	aoe = { radius = 6 },
+    container = "eff_consecration",
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+		crit   = { ["Религия"] = 1 },
+		damage = { ["Дух"] = 0.5 },
+	},
 })
 
 Add({
@@ -439,6 +557,11 @@ Add({
     resistable = true,
     canCrit = true,
     distance = 5,
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+		crit   = { ["Религия"] = 1 },
+		damage = { ["Дух"] = 0.5 },
+	},
 })
 
 Add({
@@ -454,6 +577,10 @@ Add({
     resistable = true,
     duration = 10,
     isConcentration = false,
+    container = "eff_sense_of_undead",
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+	},
 })
 
 Add({
@@ -470,6 +597,11 @@ Add({
     duration = 2,
     isConcentration = false,
     distance = 1.5,
+	buff = "eff_concentration_aura",
+	aoe = { radius = 36 },
+	scaling = {
+		hit    = { ["Рвение"] = 1, ["Религия"] = 0.5 },
+	},
 })
 
 Add({
@@ -484,6 +616,9 @@ Add({
     isCantrip = false,
     resistable = true,
     distance = 5,
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+	},
 })
 
 Add({
@@ -499,6 +634,10 @@ Add({
     resistable = true,
     duration = 300,
     isConcentration = false,
+    container = "eff_lightseal",
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+	},
 })
 
 Add({
@@ -514,6 +653,10 @@ Add({
     resistable = true,
     duration = 300,
     isConcentration = false,
+    container = "eff_sealwisdom",
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+	},
 })
 
 Add({
@@ -529,6 +672,12 @@ Add({
     resistable = true,
     canCrit = true,
     distance = 5,
+	aoe = { radius = 5 },
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+		crit   = { ["Религия"] = 2 },
+		damage = { ["Дух"] = 0.5 },
+	},
 })
 
 Add({
@@ -545,6 +694,11 @@ Add({
     duration = -1,
     isConcentration = false,
     distance = 5,
+	debuff = "eff_wisdom_greaterblessingofwisdom",
+	aoe = { radius = 18 },
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+	},
 })
 
 Add({
@@ -560,6 +714,11 @@ Add({
     resistable = true,
     canCrit = true,
     distance = 1.5,
+	scaling = {
+		hit    = { ["Рвение"] = 1.5 },
+		crit   = { ["Точность"] = 1 },
+		damage = { ["Сила"] = 0.5 },
+	},
 })
 
 Add({
@@ -575,6 +734,11 @@ Add({
     resistable = true,
     canCrit = true,
     distance = 18,
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+		crit   = { ["Религия"] = 1 },
+		damage = { ["Дух"] = 0.5 },
+	},
 })
 
 Add({
@@ -590,6 +754,12 @@ Add({
     resistable = true,
     canCrit = true,
     distance = 1.5,
+	aoe = { radius = 5 },
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+		crit   = { ["Точность"] = 2 },
+		damage = { ["Сила"] = 0.5 },
+	},
 })
 
 Add({
@@ -606,6 +776,12 @@ Add({
     canCrit = true,
     distance = 1.5,
 	duration = 1,
+    debuff = "eff_templars_verdict",
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+		crit   = { ["Точность"] = 4 },
+		damage = { ["Сила"] = 1.5 },
+	},
 })
 
 Add({
@@ -619,8 +795,11 @@ Add({
     description = "В момент получения смертельного удара паладином Святой свет ниспосылает на своего заступника исцеляющую силу заклинания «Света Небес», что позволяет с некоторой вероятностью выжить и продолжить своё дело. Подобное чудо случается не слишком часто, поэтому паладин может уповать на него лишь единожды во время сражения.",
     isCantrip = true,
     resistable = true,
-    canCrit = true,
+    canCrit = false,
     distance = 1.5,
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+	},
 })
 Add({
     id = "surgeoflight",
@@ -633,8 +812,13 @@ Add({
     description = "Это именно то исцеление, за которое паладины стали известны. Оно не требует долгого прочтения или внимания. Паладин способен использовать эту способность во время боя, не отвлекаясь на иные манипуляции. Таким образом эта способность заживляет раны только паладину, а, чтобы исцелить союзника, Паладин должен опустить на него руку и обратить всё своё внимание на раненого соратника. Несмотря на это требование, молящемуся требуется значительно мало времени для применения “Вспышки”.",
     isCantrip = false,
     resistable = true,
+    isHeal = true,
     isConcentration = false,
     distance = 1.5,
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+		damage = { ["Дух"] = 1 },
+	},
 })
 Add({
     id = "repentance",
@@ -650,6 +834,10 @@ Add({
     isConcentration = false,
     distance = 18,
 	duration = 10,
+	debuff = "eff_repentance",
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+	},
 })
 Add({
     id = "beaconoflight",
@@ -665,4 +853,8 @@ Add({
     isConcentration = false,
     distance = 9,
 	duration = 600,
+    buff = "eff_beaconoflight",
+	scaling = {
+		hit    = { ["Рвение"] = 1 },
+	},
 })

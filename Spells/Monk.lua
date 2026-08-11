@@ -18,6 +18,11 @@ Add({
     resistable = true,
     canCrit = true,
     distance = 1.5,
+	scaling = {
+		hit    = { ["Акробатика"] = 1 },
+		crit   = { ["Точность"] = 1 },
+		damage = { ["Ловкость"] = 1 },
+	},
 })
 
 Add({
@@ -34,6 +39,10 @@ Add({
     duration = 3,
     isConcentration = false,
     distance = 6,
+	debuff = "eff_blinded_monk_paralysis",
+	scaling = {
+		hit    = { ["Акробатика"] = 1, ["Концентрация"] = 0.5 },
+	},
 })
 
 Add({
@@ -49,6 +58,11 @@ Add({
     resistable = true,
     canCrit = true,
     distance = 1.5,
+	scaling = {
+		hit    = { ["Акробатика"] = 1 },
+		crit   = { ["Точность"] = 1 },
+		damage = { ["Ловкость"] = 1 },
+	},
 })
 
 -- ==========================================
@@ -59,7 +73,7 @@ Add({
     id = "soothing_mist",
     name = "Успокаивающий туман",
     key = "Целебные туманы",
-    icon = "Interface\\Icons\\Ability_monk_soothingmist",
+    icon = "Interface\\Icons\\ability_monk_soothingmists",
     level = 0,
     class = "Монах",
     caura = 240,
@@ -69,6 +83,12 @@ Add({
     isConcentration = true,
     distance = 12,
     isHeal = true,
+    duration = 3,
+    buff = "eff_soothing_mist",
+	scaling = {
+		hit    = { ["Милосердие"] = 1, ["Концентрация"] = 0.5 },
+		damage = { ["Характер"] = 0.5 },
+	},
 })
 
 Add({
@@ -84,13 +104,17 @@ Add({
     resistable = false,
     distance = 18,
     isHeal = true,
+	scaling = {
+		hit    = { ["Милосердие"] = 1, ["Концентрация"] = 0.5 },
+		damage = { ["Характер"] = 0.5 },
+	},
 })
 
 Add({
     id = "life_cocoon",
     name = "Купель жизни",
     key = "Целебные туманы",
-    icon = "Interface\\Icons\\Ability_monk_lifecocoon",
+    icon = "Interface\\Icons\\Ability_monk_essencefont",
     level = 3,
     class = "Монах",
     caura = 1100,
@@ -100,6 +124,10 @@ Add({
     duration = 3,
     isConcentration = false,
     distance = 12,
+	buff = "eff_shield_life_cocoon",
+	scaling = {
+		hit    = { ["Милосердие"] = 1, ["Концентрация"] = 0.5 },
+	},
 })
 
 -- ==========================================
@@ -110,7 +138,7 @@ Add({
     id = "keg_smash",
     name = "Удар бочонком",
     key = "Путь Хмеля",
-    icon = "Interface\\Icons\\Ability_monk_kegsmash",
+    icon = "Interface\\Icons\\Achievement_brewery_2",
     level = 1,
     class = "Монах",
     caura = 450,
@@ -118,13 +146,19 @@ Add({
     isCantrip = false,
     resistable = true,
     distance = 9,
+	debuff = "eff_slowed_keg_smash",
+    duration = 3,
+    aoe = { radius = 3 },
+	scaling = {
+		hit    = { ["Живучесть"] = 1, ["Ремесло"] = 0.5 },
+	},
 })
 
 Add({
     id = "breath_of_fire",
     name = "Огненное дыхание",
     key = "Путь Хмеля",
-    icon = "Interface\\Icons\\Spell_monk_breathoffire",
+    icon = "Interface\\Icons\\Ability_monk_breathoffire",
     level = 2,
     class = "Монах",
     caura = 502,
@@ -133,13 +167,19 @@ Add({
     resistable = true,
     canCrit = true,
     distance = 4.5,
+	aoe = { radius = 4.5 },
+	scaling = {
+		hit    = { ["Живучесть"] = 1 },
+		crit   = { ["Рвение"] = 1 },
+		damage = { ["Ловкость"] = 1 },
+	},
 })
 
 Add({
     id = "purifying_brew",
     name = "Очищающий отвар",
     key = "Путь Хмеля",
-    icon = "Interface\\Icons\\Ability_monk_purifyingbrew",
+    icon = "Interface\\Icons\\Inv_misc_beer_06",
     level = 2,
     class = "Монах",
     caura = 88,
@@ -148,6 +188,11 @@ Add({
     resistable = false,
     duration = -1,
     isConcentration = false,
+	container = "eff_fortitude_purifying_brew",
+    distance = 0,
+	scaling = {
+		hit    = { ["Живучесть"] = 1, ["Ремесло"] = 0.5 },
+	},
 })
 
 -- ==========================================
@@ -165,24 +210,36 @@ Add({
     description = "Заклинатель концентрирует внутреннюю энергию и выпускает из пальцев непрерывный, гудящий поток изумрудных молний. Наносит урон силами природы.\n\nУникальные особенности:\n1. Кинетика: если противник пытается приблизиться к монаху в ближнем бою во время поддержания молнии, энергетический импульс отбрасывает его назад на несколько метров.\n2. Инженерия: молнию можно использовать как контролируемый источник питания для подзарядки гоблинских или гномских механизмов.\n3. Тактика: при снижении мощности заклинание может служить «электрошокером» для нелетального захвата — разряд временно парализует мышцы цели на 1 ход без нанесения ран.",
     isCantrip = false,
     resistable = true,
+    canCrit = true,
     isConcentration = true,
     distance = 18,
+    duration = 3,
+    debuff = "eff_crackling_jade_lightning",
+	scaling = {
+		hit    = { ["Концентрация"] = 1 },
+		crit   = { ["Рвение"] = 1 },
+		damage = { ["Дух"] = 1 },
+	},
 })
 
 Add({
     id = "monk_transcendence",
     name = "Трансцендентность",
     key = "Энергия Ци",
-    icon = "Interface\\Icons\\Spell_monk_transcendence",
+    icon = "Interface\\Icons\\Monk_ability_transcendence",
     level = 2,
     class = "Монах",
     caura = 801,
     description = "Великое искусство разделения духа и плоти. \n\nПервое применение: монах оставляет в указанной точке свою полупрозрачную, незримую для обычного взора призрачную копию (дух существует до 1 часа).\nВторое применение («Перенос»): монах мгновенно меняет свое физическое тело местами со своим духом.\n\nПозволяет мгновенно преодолевать видимые физические преграды (решетки тюрем, глубокие рвы, окна, каньоны), если дух был оставлен там заранее. Идеально для побега из заточения или организации неожиданных засад. Не работает, если физическое тело и дух разделены мощными магическими барьерами 3-го круга и выше.",
     isCantrip = false,
     resistable = false,
-    duration = 3600,
+    duration = 10,
     isConcentration = false,
     distance = 30,
+    container = "eff_monk_transcendence",
+	scaling = {
+		hit    = { ["Концентрация"] = 1, ["Воля"] = 0.5 },
+	},
 })
 
 -- ==========================================
@@ -192,8 +249,8 @@ Add({
 Add({
     id = "invoke_xuen",
     name = "Благословение Сюэня",
-    key = "Благословение Небожителей",
-    icon = "Interface\\Icons\\Ability_monk_summonxuenthewhitetiger",
+    key = "Небожители",
+    icon = "Interface\\Icons\\Monk_stance_whitetiger",
     level = 3,
     class = "Монах",
     caura = 850,
@@ -203,4 +260,348 @@ Add({
     duration = 5,
     isConcentration = false,
     distance = 12,
+	buff = "eff_bloodlust_invoke_xuen",
+	scaling = {
+		hit    = { ["Религия"] = 1, ["Концентрация"] = 0.5 },
+	},
+})
+
+-- ==========================================
+-- ДОПОЛНЕНИЕ: круги 0-5
+-- ==========================================
+
+Add({
+    id = "blackout_kick",
+    name = "Ослепляющий пинок",
+    key = "Боевые искусства",
+    icon = "Interface\\Icons\\Ability_monk_roundhousekick",
+    level = 0,
+    class = "Монах",
+    description = "Разворот с пинком в голову — не чтобы оглушить, а чтобы сбить цель с оси. Пока противник ловит равновесие, он не видит и не бьёт. Приём короткий и дешёвый, монахи ставят его вторым в связке почти всегда.",
+    isCantrip = true,
+    resistable = true,
+    canCrit = true,
+    distance = 1.5,
+    scaling = {
+    	hit    = { ["Акробатика"] = 1 },
+    	crit   = { ["Точность"] = 1 },
+    	damage = { ["Ловкость"] = 0.5 },
+    },
+})
+
+Add({
+    id = "chi_wave",
+    name = "Волна ци",
+    key = "Энергия Ци",
+    icon = "Interface\\Icons\\Ability_monk_chiwave",
+    level = 0,
+    class = "Монах",
+    description = "Монах отпускает от ладони сгусток энергии, который сам находит цель: он отталкивается от врага и уходит к союзнику, забрав часть силы у первого и отдав второму. Направление волне не задают — она выбирает сама.",
+    isCantrip = true,
+    resistable = false,
+    isHeal = true,
+    distance = 18,
+    scaling = {
+    	hit    = { ["Концентрация"] = 1, ["Милосердие"] = 0.5 },
+    	damage = { ["Дух"] = 0.5 },
+    },
+})
+
+Add({
+    id = "monk_roll",
+    name = "Перекат",
+    key = "Боевые искусства",
+    icon = "Interface\\Icons\\Ability_monk_roll",
+    level = 0,
+    class = "Монах",
+    description = "Монах уходит вниз и вперёд, проходя под удар и выходя за спину. В момент переката попасть по нему почти нельзя, но и он ничего не видит. В тесном помещении перекат заканчивается стеной.",
+    isCantrip = true,
+    resistable = false,
+    distance = 0,
+    duration = 2,
+    container = "eff_evasion_monk_roll",
+    scaling = {
+    	hit    = { ["Акробатика"] = 1, ["Концентрация"] = 0.5 },
+    },
+})
+
+Add({
+    id = "provoke",
+    name = "Провокация",
+    key = "Путь Хмеля",
+    icon = "Interface\\Icons\\Ability_monk_provoke",
+    level = 0,
+    class = "Монах",
+    description = "Насмешка, поднесённая вежливо и потому особенно обидная: монах кланяется и приглашает противника начать. Тот теряет расчёт и бьёт первым, как хотел монах. На звере и нежити действует только жест, а не смысл.",
+    isCantrip = true,
+    resistable = true,
+    distance = 18,
+    duration = 3,
+    debuff = "eff_demoralized_provoke",
+    scaling = {
+    	hit    = { ["Дипломатия"] = 1, ["Живучесть"] = 0.5 },
+    },
+})
+
+Add({
+    id = "rising_sun_kick",
+    name = "Удар восходящего солнца",
+    key = "Боевые искусства",
+    icon = "Interface\\Icons\\Ability_monk_risingsunkick",
+    level = 1,
+    class = "Монах",
+    description = "Пинок по восходящей дуге, снизу вверх, в подбородок или под ребро. Вкладывается вся масса тела, поэтому удар пробивает даже плотный блок. Открывает монаха на весь замах — с ним не начинают, им заканчивают.",
+    isCantrip = false,
+    resistable = true,
+    canCrit = true,
+    distance = 1.5,
+    scaling = {
+    	hit    = { ["Акробатика"] = 1, ["Концентрация"] = 0.5 },
+    	crit   = { ["Точность"] = 1 },
+    	damage = { ["Ловкость"] = 1 },
+    },
+})
+
+Add({
+    id = "expel_harm",
+    name = "Изгнание вреда",
+    key = "Целебные туманы",
+    icon = "Interface\\Icons\\Ability_monk_expelharm",
+    level = 1,
+    class = "Монах",
+    description = "Монах собирает боль и повреждения в один узел и выталкивает его наружу выдохом. Раны затягиваются, а вытолкнутое рассеивается облачком зеленоватого пара. Не работает на том, что уже не является телом.",
+    isCantrip = false,
+    resistable = false,
+    isHeal = true,
+    distance = 0,
+    scaling = {
+    	hit    = { ["Милосердие"] = 1, ["Концентрация"] = 0.5 },
+    	damage = { ["Характер"] = 1 },
+    },
+})
+
+Add({
+    id = "tigers_lust",
+    name = "Жажда тигра",
+    key = "Энергия Ци",
+    icon = "Interface\\Icons\\Ability_monk_tigerslust",
+    level = 1,
+    class = "Монах",
+    description = "Монах разгоняет ци по ногам союзника, и тот начинает двигаться так, как двигается зверь: без раздумья, сразу в нужную сторону. Оковы, сети и вязкая земля перестают держать. Продлить это состояние повторным касанием нельзя.",
+    isCantrip = false,
+    resistable = false,
+    distance = 9,
+    duration = 4,
+    buff = "eff_cat_grace_tigers_lust",
+    scaling = {
+    	hit    = { ["Концентрация"] = 1, ["Акробатика"] = 0.5 },
+    },
+})
+
+Add({
+    id = "spinning_crane_kick",
+    name = "Пинок вертящегося журавля",
+    key = "Боевые искусства",
+    icon = "Interface\\Icons\\Ability_monk_cranekick_new",
+    level = 2,
+    class = "Монах",
+    description = "Монах вращается на одной ноге, второй доставая всех вокруг по очереди и непрерывно. Приём держит на расстоянии сразу нескольких, но не пробивает тяжёлый доспех — это работа по числу, а не по броне.",
+    isCantrip = false,
+    resistable = true,
+    canCrit = true,
+    distance = 3,
+    aoe = { radius = 3 },
+    scaling = {
+    	hit    = { ["Акробатика"] = 1 },
+    	crit   = { ["Точность"] = 0.5 },
+    	damage = { ["Ловкость"] = 0.5 },
+    },
+})
+
+Add({
+    id = "fortifying_brew",
+    name = "Укрепляющий отвар",
+    key = "Путь Хмеля",
+    icon = "Interface\\Icons\\Ability_monk_fortifyingale_new",
+    level = 2,
+    class = "Монах",
+    description = "Тяжёлый тёмный отвар на корне и глине. Тело каменеет и перестаёт чувствовать удары, но и слушаться начинает с задержкой. Пока отвар действует, монах — стена, а не боец.",
+    isCantrip = false,
+    resistable = false,
+    distance = 0,
+    duration = 4,
+    container = "eff_stone_skin_fortifying_brew",
+    scaling = {
+    	hit    = { ["Живучесть"] = 1, ["Ремесло"] = 0.5 },
+    },
+})
+
+Add({
+    id = "monk_detox",
+    name = "Детоксикация",
+    key = "Целебные туманы",
+    icon = "Interface\\Icons\\Ability_rogue_imrovedrecuperate",
+    level = 2,
+    class = "Монах",
+    description = "Монах разгоняет ци по кровотоку союзника и выгоняет чужое: яд, заразу, следы чужой воли в голове. Процедура быстрая и крайне неприятная — цель обливается потом и теряет силы, но остаётся собой.",
+    isCantrip = false,
+    resistable = false,
+    isHeal = true,
+    distance = 12,
+    scaling = {
+    	hit    = { ["Милосердие"] = 1, ["Концентрация"] = 0.5 },
+    	damage = { ["Характер"] = 0.5 },
+    },
+})
+
+Add({
+    id = "fists_of_fury",
+    name = "Ярость ветра",
+    key = "Боевые искусства",
+    icon = "Interface\\Icons\\Monk_ability_fistoffury",
+    level = 3,
+    class = "Монах",
+    description = "Монах замирает на месте и обрушивает на всё перед собой поток ударов, которые невозможно посчитать. Пока связка идёт, он не может ни сдвинуться, ни защититься: всё вложено в атаку.",
+    isCantrip = false,
+    resistable = true,
+    canCrit = true,
+    isConcentration = true,
+    distance = 4.5,
+    aoe = { radius = 4.5 },
+    scaling = {
+    	hit    = { ["Акробатика"] = 1, ["Концентрация"] = 0.5 },
+    	crit   = { ["Точность"] = 1 },
+    	damage = { ["Ловкость"] = 1 },
+    },
+})
+
+Add({
+    id = "renewing_mist",
+    name = "Обновляющий туман",
+    key = "Целебные туманы",
+    icon = "Interface\\Icons\\Ability_monk_renewingmists",
+    level = 3,
+    class = "Монах",
+    description = "Клуб тумана садится на союзника и остаётся при нём, затягивая раны постепенно, ход за ходом. Не спасает от одного тяжёлого удара, зато вытаскивает того, кто держится долго.",
+    isCantrip = false,
+    resistable = false,
+    distance = 18,
+    duration = 5,
+    buff = "eff_mercy_blessing_renewing_mist",
+    scaling = {
+    	hit    = { ["Милосердие"] = 1, ["Концентрация"] = 0.5 },
+    },
+})
+
+Add({
+    id = "zen_meditation",
+    name = "Медитация дзен",
+    key = "Энергия Ци",
+    icon = "Interface\\Icons\\Ability_monk_zenmeditation",
+    level = 3,
+    class = "Монах",
+    description = "Монах садится и убирает из головы всё, кроме предстоящего. Мир вокруг замедляется до различимого, каждое движение противника читается заранее. Любое прикосновение выбивает из медитации сразу и полностью.",
+    isCantrip = false,
+    resistable = false,
+    distance = 0,
+    duration = 4,
+    container = "eff_concentration_zen_meditation",
+    scaling = {
+    	hit    = { ["Концентрация"] = 1, ["Воля"] = 0.5 },
+    },
+})
+
+Add({
+    id = "storm_earth_fire",
+    name = "Буря, земля и огонь",
+    key = "Небожители",
+    icon = "Interface\\Icons\\Spell_nature_giftofthewild",
+    level = 4,
+    class = "Монах",
+    description = "Монах разделяет себя на трёх духов-двойников, каждый из которых бьёт самостоятельно. Втроём они накрывают площадь, которую один не смог бы удержать. Пока двойники в бою, сам монах чувствует каждый их удар и каждую их рану.",
+    isCantrip = false,
+    resistable = true,
+    canCrit = true,
+    distance = 6,
+    aoe = { radius = 6 },
+    scaling = {
+    	hit    = { ["Религия"] = 1.5, ["Концентрация"] = 0.5 },
+    	crit   = { ["Рвение"] = 1 },
+    	damage = { ["Дух"] = 1.5 },
+    },
+})
+
+Add({
+    id = "monk_revival",
+    name = "Возрождение",
+    key = "Целебные туманы",
+    icon = "Interface\\Icons\\Spell_nature_reincarnation",
+    level = 4,
+    class = "Монах",
+    description = "Монах выдыхает разом весь запас целебного тумана, и он расходится волной по всем, кто рядом. Раны закрываются, яды выгорают, сломленные приходят в себя. После этого у монаха не остаётся ни ци, ни сил стоять.",
+    isCantrip = false,
+    resistable = false,
+    isHeal = true,
+    distance = 12,
+    aoe = { radius = 12 },
+    scaling = {
+    	hit    = { ["Милосердие"] = 1, ["Концентрация"] = 0.5 },
+    	damage = { ["Характер"] = 1 },
+    },
+})
+
+Add({
+    id = "dampen_harm",
+    name = "Ослабление вреда",
+    key = "Путь Хмеля",
+    icon = "Interface\\Icons\\Ability_monk_dampenharm",
+    level = 4,
+    class = "Монах",
+    description = "Монах перестаёт принимать удары телом и начинает пропускать их сквозь себя, растворяя силу в потоке ци. Тяжёлый удар доходит ослабленным, чары соскальзывают. Лёгкие удары так гасить незачем — они и не мешали.",
+    isCantrip = false,
+    resistable = false,
+    distance = 0,
+    duration = 4,
+    container = "eff_armor_magic_dampen_harm",
+    scaling = {
+    	hit    = { ["Концентрация"] = 1, ["Воля"] = 0.5 },
+    },
+})
+
+Add({
+    id = "invoke_niuzao",
+    name = "Благословение Нюцзао",
+    key = "Небожители",
+    icon = "Interface\\Icons\\Monk_stance_drunkenox",
+    level = 5,
+    class = "Монах",
+    description = "Монах взывает к Чёрному Волу, и тот отдаёт ему свою тяжесть. Монаха невозможно сдвинуть, свалить или пробить, но и быстрым он больше не будет. Так держат проход, за которым больше некому стоять.",
+    isCantrip = false,
+    resistable = false,
+    distance = 0,
+    duration = 4,
+    container = "eff_stone_skin_invoke_niuzao",
+    scaling = {
+    	hit    = { ["Религия"] = 1, ["Концентрация"] = 0.5 },
+    },
+})
+
+Add({
+    id = "whirling_dragon_punch",
+    name = "Удар крутящегося дракона",
+    key = "Боевые искусства",
+    icon = "Interface\\Icons\\Ability_monk_hurricanestrike",
+    level = 5,
+    class = "Монах",
+    description = "Завершение всей школы: монах уходит в воздух и обрушивается вращением, собрав в одну точку всё, что умеет. Удар достаёт всех вокруг и пробивает любую защиту. Выполняется только на исходе связки — с холодного тела не выходит.",
+    isCantrip = false,
+    resistable = true,
+    canCrit = true,
+    distance = 4.5,
+    aoe = { radius = 4.5 },
+    scaling = {
+    	hit    = { ["Акробатика"] = 1, ["Концентрация"] = 0.5 },
+    	crit   = { ["Точность"] = 2 },
+    	damage = { ["Ловкость"] = 2 },
+    },
 })

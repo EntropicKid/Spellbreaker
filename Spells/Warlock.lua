@@ -14,6 +14,11 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 27,
+	scaling = {
+		hit    = { ["Исток"] = 2 },
+		crit   = { ["Точность"] = 1 },
+		damage = { ["Характер"] = 0.5 },
+	},
 })
 Add({
     id = "immolation",
@@ -30,6 +35,12 @@ Add({
 	duration = 2,
     isConcentration = false,
 	distance = 1.5,
+    debuff = "eff_immolation",
+	scaling = {
+		hit    = { ["Исток"] = 1 },
+		crit   = { ["Рвение"] = 1 },
+		damage = { ["Характер"] = 0.5 },
+	},
 })
 Add({
     id = "burning_pain",
@@ -44,6 +55,11 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 9,
+	scaling = {
+		hit    = { ["Исток"] = 1 },
+		crit   = { ["Рвение"] = 1 },
+		damage = { ["Характер"] = 0.5 },
+	},
 })
 Add({
     id = "soul_burn",
@@ -58,6 +74,11 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 9,
+	scaling = {
+		hit    = { ["Исток"] = 1 },
+		crit   = { ["Рвение"] = 1 },
+		damage = { ["Характер"] = 1 },
+	},
 })
 Add({
     id = "hell_incinerate",
@@ -74,6 +95,13 @@ Add({
 	duration = 3,
     isConcentration = false,
 	distance = 9,
+	aoe = { radius = 9 },
+    container = "eff_hell_incinerate",
+	scaling = {
+		hit    = { ["Исток"] = 1 },
+		crit   = { ["Рвение"] = 1 },
+		damage = { ["Характер"] = 0.5 },
+	},
 })
 Add({
     id = "rain_of_fire",
@@ -90,6 +118,13 @@ Add({
 	duration = 2,
     isConcentration = false,
 	distance = 9,
+	aoe = { radius = 9 },
+    container = "eff_rain_of_fire",
+	scaling = {
+		hit    = { ["Исток"] = 1 },
+		crit   = { ["Рвение"] = 1 },
+		damage = { ["Характер"] = 0.5 },
+	},
 })
 Add({
     id = "demonic_swarm",
@@ -102,10 +137,15 @@ Add({
 	description = "Вы призываете рой демонических паразитов, столь малых и незначительных что они не задерживаются надолго в нашей реальности; плотоядные мухи кружат вокруг вашего противника и щедро обгладывают его плоть, нанося увечные раны. Это жуткое и неприятное зрелище в большей мере лишь увечит ваших недругов, убить оно способно разве что крысу.",
     isCantrip = true,
     resistable = true,
-    canCrit = false,
+    canCrit = true,
 	duration = 2,
     isConcentration = true,
 	distance = 9,
+    container = "eff_demonic_swarm",
+	scaling = {
+		hit    = { ["Исток"] = 2 },
+		crit   = { ["Рвение"] = 1 },
+	},
 })
 Add({
     id = "summon_imp",
@@ -121,6 +161,10 @@ Add({
 	duration = 600,
     isConcentration = false,
 	distance = 9,
+    container = "eff_summon_imp",
+	scaling = {
+		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+	},
 })
 Add({
     id = "demonic_armor",
@@ -135,6 +179,10 @@ Add({
     resistable = true,
 	duration = 600,
     isConcentration = false,
+	container = "eff_demonic_armor",
+	scaling = {
+		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+	},
 })
 Add({
     id = "health_funnel",
@@ -148,6 +196,9 @@ Add({
     isCantrip = false,
     resistable = true,
 	distance = 9,
+	scaling = {
+		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+	},
 })
 Add({
     id = "demon_breath",
@@ -163,6 +214,10 @@ Add({
 	duration = 1200,
     isConcentration = false,
 	distance = 1.5,
+    buff = "eff_demon_breath",
+	scaling = {
+		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+	},
 })
 Add({
     id = "healthstone",
@@ -178,6 +233,10 @@ Add({
 	duration = -1,
     isConcentration = false,
 	distance = 1.5,
+    container = "eff_healthstone",
+	scaling = {
+		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+	},
 })
 Add({
     id = "dark_amulet",
@@ -193,6 +252,10 @@ Add({
 	duration = 600,
     isConcentration = false,
 	distance = 1.5,
+	buff = "eff_shield_dark_amulet",
+	scaling = {
+		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+	},
 })
 Add({
     id = "summon_sayaada",
@@ -208,6 +271,10 @@ Add({
 	duration = 600,
     isConcentration = false,
 	distance = 9,
+    container = "eff_summon_sayaada",
+	scaling = {
+		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+	},
 })
 Add({
     id = "summon_voidwalker",
@@ -223,6 +290,10 @@ Add({
 	duration = 600,
     isConcentration = false,
 	distance = 9,
+    container = "eff_summon_voidwalker",
+	scaling = {
+		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+	},
 })
 Add({
     id = "eye_of_kilrogg",
@@ -238,6 +309,10 @@ Add({
 	duration = 600,
     isConcentration = false,
 	distance = 9,
+    container = "eff_eye_of_kilrogg",
+	scaling = {
+		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+	},
 })
 Add({
     id = "banishment",
@@ -254,6 +329,10 @@ Add({
 	duration = 3,
     isConcentration = false,
 	distance = 12,
+    debuff = "eff_banishment",
+	scaling = {
+		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+	},
 })
 Add({
     id = "detect_invisibility",
@@ -267,6 +346,9 @@ Add({
     isCantrip = false,
     resistable = true,
 	distance = 12,
+	scaling = {
+		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+	},
 })
 Add({
     id = "create_soulstone",
@@ -281,6 +363,10 @@ Add({
     resistable = true,
 	duration = -1,
     isConcentration = false,
+    container = "eff_create_soulstone",
+	scaling = {
+		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+	},
 })
 Add({
     id = "ritual_of_summoning",
@@ -295,6 +381,9 @@ Add({
     resistable = true,
 	canCrit = false,
 	distance = 10000,
+	scaling = {
+		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+	},
 })
 Add({
     id = "create_magic_stone",
@@ -309,6 +398,10 @@ Add({
     resistable = true,
 	duration = -1,
     isConcentration = false,
+    container = "eff_create_magic_stone",
+	scaling = {
+		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+	},
 })
 Add({
     id = "enslave_demon",
@@ -325,6 +418,10 @@ Add({
 	duration = 3,
     isConcentration = false,
 	distance = 12,
+    debuff = "eff_enslave_demon",
+	scaling = {
+		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+	},
 })
 Add({
     id = "summon_felhunter",
@@ -340,6 +437,10 @@ Add({
 	duration = 600,
     isConcentration = false,
 	distance = 9,
+    container = "eff_summon_felhunter",
+	scaling = {
+		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+	},
 })
 Add({
     id = "summon_felmaunt",
@@ -355,6 +456,10 @@ Add({
 	duration = 1200,
     isConcentration = false,
 	distance = 9,
+    container = "eff_summon_felmaunt",
+	scaling = {
+		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+	},
 })
 Add({
     id = "planar_chain",
@@ -371,6 +476,10 @@ Add({
 	duration = 3,
     isConcentration = false,
 	distance = 9,
+    debuff = "eff_planar_chain",
+	scaling = {
+		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+	},
 })
 Add({
     id = "corruption",
@@ -387,6 +496,12 @@ Add({
 	duration = 2,
     isConcentration = false,
 	distance = 18,
+	debuff = "eff_bleeding_corruption",
+	scaling = {
+		hit    = { ["Внушение"] = 1 },
+		crit   = { ["Рвение"] = 1 },
+		damage = { ["Характер"] = 0.5 },
+	},
 })
 Add({
     id = "curse_of_weakness",
@@ -403,6 +518,10 @@ Add({
 	duration = 4,
     isConcentration = false,
 	distance = 27,
+	debuff = "eff_weakness_curse_of_weakness",
+	scaling = {
+		hit    = { ["Внушение"] = 1, ["Воля"] = 0.5 },
+	},
 })
 Add({
     id = "curse_of_agony",
@@ -419,6 +538,12 @@ Add({
 	duration = 3,
     isConcentration = false,
 	distance = 27,
+	debuff = "eff_bleeding_curse_of_agony",
+	scaling = {
+		hit    = { ["Внушение"] = 1 },
+		crit   = { ["Рвение"] = 1 },
+		damage = { ["Характер"] = 0.5 },
+	},
 })
 Add({
     id = "soul_drain",
@@ -433,6 +558,11 @@ Add({
     resistable = true,
 	canCrit = true,
 	distance = 9,
+	scaling = {
+		hit    = { ["Внушение"] = 1 },
+		crit   = { ["Рвение"] = 1 },
+		damage = { ["Характер"] = 0.5 },
+	},
 })
 Add({
     id = "life_drain",
@@ -447,6 +577,11 @@ Add({
     resistable = true,
 	canCrit = true,
 	distance = 9,
+	scaling = {
+		hit    = { ["Внушение"] = 1 },
+		crit   = { ["Рвение"] = 1 },
+		damage = { ["Характер"] = 0.5 },
+	},
 })
 Add({
     id = "curse_of_recklessness",
@@ -463,6 +598,10 @@ Add({
 	duration = 3,
     isConcentration = false,
 	distance = 27,
+	debuff = "eff_clumsy",
+	scaling = {
+		hit    = { ["Внушение"] = 1, ["Воля"] = 0.5 },
+	},
 })
 Add({
     id = "curse_of_elements",
@@ -479,6 +618,10 @@ Add({
 	duration = 4,
     isConcentration = false,
 	distance = 18,
+	debuff = "eff_vulnerable_curse_of_elements",
+	scaling = {
+		hit    = { ["Внушение"] = 1, ["Воля"] = 0.5 },
+	},
 })
 Add({
     id = "warlock_terror_howl",
@@ -493,6 +636,12 @@ Add({
     resistable = true,
 	canCrit = false,
 	distance = 9,
+	debuff = "eff_fear_warlock_terror_howl",
+	aoe = { radius = 9 },
+    duration = 3,
+	scaling = {
+		hit    = { ["Внушение"] = 1, ["Воля"] = 0.5 },
+	},
 })
 Add({
     id = "curse_of_tounges",
@@ -509,6 +658,10 @@ Add({
 	duration = 3,
     isConcentration = false,
 	distance = 12,
+    debuff = "eff_curse_of_tounges",
+	scaling = {
+		hit    = { ["Внушение"] = 1, ["Воля"] = 0.5 },
+	},
 })
 Add({
     id = "curse_of_darkness",
@@ -525,6 +678,10 @@ Add({
 	duration = 3,
     isConcentration = false,
 	distance = 12,
+	debuff = "eff_vulnerable_curse_of_darkness",
+	scaling = {
+		hit    = { ["Внушение"] = 1, ["Воля"] = 0.5 },
+	},
 })
 Add({
     id = "burningspirit",
@@ -540,6 +697,10 @@ Add({
 	canCrit = false,
 	duration = -1,
     isConcentration = false,
+    container = "eff_burningspirit",
+	scaling = {
+		hit    = { ["Внушение"] = 1, ["Воля"] = 0.5 },
+	},
 })
 Add({
     id = "warlock_shadow_of_warrior",
@@ -556,6 +717,10 @@ Add({
 	duration = 1,
     isConcentration = false,
 	distance = 1.5,
+    buff = "eff_warlock_shadow_of_warrior",
+	scaling = {
+		hit    = { ["Внушение"] = 1, ["Воля"] = 0.5 },
+	},
 })
 Add({
     id = "warlock_fear",
@@ -572,4 +737,8 @@ Add({
 	duration = 5,
     isConcentration = false,
 	distance = 12,
+	debuff = "eff_fear_warlock_fear",
+	scaling = {
+		hit    = { ["Внушение"] = 1, ["Воля"] = 0.5 },
+	},
 })

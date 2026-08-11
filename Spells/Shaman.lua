@@ -16,10 +16,14 @@ Add({
     description = "Выберите область воды, которую вы видите в пределах дистанции, и которая помещается в куб с длиной ребра 5 футов. Вы можете управлять ей одним из нижеперечисленных способов:\n\nВы мгновенно перемещаете или иным образом изменяете течение воды до 5 футов в любом направлении. Этого воздействия недостаточно, чтобы причинить урон.\nВы можете упросить воду принимать простые формы и двигаться согласно вашим указаниям. Этот эффект действует 1 час.\nВы можете изменить прозрачность воды. Вся область воды должна быть одной прозрачности. Эффект действует 1 час.\nВы замораживаете воду, если в ней нет никаких существ. Вода размораживается через 1 час.\n\nЕсли вы накладываете это заклинание несколько раз, вы не можете поддерживать более двух длительных эффектов одновременно. Вы можете действием отменить один из действующих эффектов.",
     isCantrip = true,
     resistable = true,
-    canCrit = true,
+    canCrit = false,
 	duration = 600,
     isConcentration = false,
 	distance = 7.5,
+    container = "eff_create_water",
+	scaling = {
+		hit    = { ["Интуиция"] = 1, ["Милосердие"] = 0.5 },
+	},
 })
 
 Add({
@@ -35,6 +39,10 @@ Add({
     resistable = true,
 	distance = 18,
     isHeal = true,
+	scaling = {
+		hit    = { ["Интуиция"] = 1, ["Исток"] = 0.5 },
+		damage = { ["Характер"] = 1 },
+	},
 })
 
 Add({
@@ -51,6 +59,10 @@ Add({
 	duration = 600,
     isConcentration = false,
 	distance = 1.5,
+    buff = "eff_water_breathing",
+	scaling = {
+		hit    = { ["Интуиция"] = 1, ["Выживание"] = 0.5 },
+	},
 })
 
 Add({
@@ -67,6 +79,10 @@ Add({
     duration = 600,
     isConcentration = false,
 	distance = 7.5,
+    buff = "eff_water_walk",
+	scaling = {
+		hit    = { ["Интуиция"] = 1, ["Милосердие"] = 0.5 },
+	},
 })
 
 Add({
@@ -83,6 +99,10 @@ Add({
 	duration = 100,
     isConcentration = false,
 	distance = 1.5,
+	buff = "eff_shield_water_shield",
+	scaling = {
+		hit    = { ["Интуиция"] = 1, ["Исток"] = 0.5 },
+	},
 })
 
 Add({
@@ -98,6 +118,11 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 7.5,
+	scaling = {
+		hit    = { ["Интуиция"] = 1.5, ["Выживание"] = 0.5 },
+		crit   = { ["Точность"] = 1.5 },
+		damage = { ["Дух"] = 1.5 },
+	},
 })
 
 Add({
@@ -113,6 +138,11 @@ Add({
     resistable = true,
     canCrit = false,
 	distance = 7.5,
+	debuff = "eff_slowed_ice_shackles",
+    duration = 3,
+	scaling = {
+		hit    = { ["Интуиция"] = 1.5, ["Милосердие"] = 0.5 },
+	},
 })
 
 Add({
@@ -130,6 +160,11 @@ Add({
     isConcentration = false,
 	distance = 7.5,
     isHeal = true,
+    buff = "eff_healing_rain",
+	scaling = {
+		hit    = { ["Интуиция"] = 1.5, ["Исток"] = 0.5 },
+		damage = { ["Характер"] = 1.5 },
+	},
 })
 
 Add({
@@ -146,6 +181,10 @@ Add({
 	duration = 100,
     isConcentration = true,
 	distance = 1.5,
+	buff = "eff_weapon_enchant_ice_fringe",
+	scaling = {
+		hit    = { ["Интуиция"] = 1.5, ["Выживание"] = 0.5 },
+	},
 })
 
 Add({
@@ -162,6 +201,10 @@ Add({
 	duration = 10,
     isConcentration = false,
 	distance = 7.5,
+    buff = "eff_water_cradle",
+	scaling = {
+		hit    = { ["Интуиция"] = 1.5, ["Милосердие"] = 1 },
+	},
 })
 
 Add({
@@ -179,6 +222,10 @@ Add({
 	duration = 3,
     isConcentration = false,
 	distance = 7.5,
+    debuff = "eff_ice_tomb",
+	scaling = {
+		hit    = { ["Интуиция"] = 1.5, ["Исток"] = 1 },
+	},
 })
 
 Add({
@@ -195,6 +242,10 @@ Add({
 	duration = 3,
     isConcentration = false,
 	distance = 18,
+    debuff = "eff_great_flood",
+	scaling = {
+		hit    = { ["Интуиция"] = 1.5, ["Выживание"] = 1 },
+	},
 })
 
 Add({
@@ -211,6 +262,10 @@ Add({
 	duration = 600,
     isConcentration = true,
 	distance = 18,
+    container = "eff_summon_water_elem",
+	scaling = {
+		hit    = { ["Интуиция"] = 1.5, ["Милосердие"] = 1 },
+	},
 })
 
 Add({
@@ -220,8 +275,6 @@ Add({
     icon = "Interface\\Icons\\spell_frost_summonwaterelemental",
     level = 3,
     class = "Шаман",
-    duration = 100,
-    distance = 1.5,
     caura = 222,
     description = "Вы создаёте стену воды в точке, которую можете видеть, в пределах дистанции. Точка должна располагаться на земле. Стена может быть длиной до 30 футов, высотой до 10 футов и толщиной до 1 фута. В качестве альтернативы, вы можете создать кольцо диаметром до 20 футов, высотой до 20 футов и толщиной до 1 фута. Стена существует, пока действует заклинание. Стена считается труднопроходимой местностью.\n\nВсе атаки дальнобойным оружием, траектория которых проходит через пространство стены, совершаются с помехой. Огненный урон от эффектов, которые прошли через стену, уменьшается вдвое. Заклинания, которые причиняют урон холодом, при прохождении через стену замораживают ту область стены, сквозь которую прошли (минимум секция площадью 5×5 футов). Каждая замёрзшая секция площадью 5×5 футов имеет КД 5 и 15 хитов. Если хиты секции уменьшаются до 0, она разрушается. Разрушенные секции стены не заполняются водой повторно.",
     isCantrip = false,
@@ -229,6 +282,10 @@ Add({
 	duration = 600,
     isConcentration = true,
 	distance = 18,
+    container = "eff_shaman_water_wall",
+	scaling = {
+		hit    = { ["Интуиция"] = 1.5, ["Исток"] = 1 },
+	},
 })
 
 Add({
@@ -242,8 +299,14 @@ Add({
     description = "«Кольцо льда» — это всплеск льда и холода, который детонирует с пронзительным визгом. Заклинание наносит 1d6 урона холодом за уровень чародея (максимум 10d6) всем существам в области эффекта; успешный спасбросок Рефлекса сокращает урон вдвое. Не принадлежащие никому предметы также получают этот урон. Взрыв почти не создаёт давления.\nЗаклинатель указывает пальцем и определяет дистанцию (расстояние и высоту), на которой должно произойти кольцо льда. Область взрыва имеет радиус 10 футов, но лишь 1 фут в высоту; заклинатель может контролировать её ориентацию.\nСущества, получившие урон от кольца льда, должны преуспеть в спасброске Стойкости, иначе будут замедлены на 1d4 раунда.\nМатериальный компонент: Несколько капель воды и осколок стекла, который необходимо разбить во время чтения заклинания.",
     isCantrip = false,
     resistable = true,
-    canCrit = false,
+    canCrit = true,
 	distance = 9,
+	aoe = { radius = 9 },
+	scaling = {
+		hit    = { ["Интуиция"] = 1.5, ["Выживание"] = 1 },
+		crit   = { ["Рвение"] = 1.5 },
+		damage = { ["Дух"] = 2 },
+	},
 })
 
 
@@ -264,6 +327,10 @@ Add({
     resistable = true,
 	duration = 2,
     isConcentration = false,
+    container = "eff_spirit_mercy",
+	scaling = {
+		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+	},
 })
 
 Add({
@@ -278,6 +345,9 @@ Add({
     isCantrip = false,
     resistable = true,
 	distance = 1.5,
+	scaling = {
+		hit    = { ["Религия"] = 1.5, ["Дипломатия"] = 0.5 },
+	},
 })
 
 Add({
@@ -294,6 +364,10 @@ Add({
 	duration = 3,
     isConcentration = false,
 	distance = 7.5,
+    debuff = "eff_shaman_hex",
+	scaling = {
+		hit    = { ["Религия"] = 1.5, ["Лидерство"] = 0.5 },
+	},
 })
 
 Add({
@@ -309,6 +383,10 @@ Add({
     resistable = true,
 	duration = 1200,
     isConcentration = false,
+    container = "eff_spirit_call",
+	scaling = {
+		hit    = { ["Религия"] = 1.5, ["Воля"] = 0.5 },
+	},
 })
 
 Add({
@@ -325,6 +403,11 @@ Add({
 	duration = 3,
     isConcentration = false,
 	distance = 7.5,
+	buff = "eff_bloodlust_bloodlust",
+	aoe = { radius = 12 },
+	scaling = {
+		hit    = { ["Религия"] = 1.5, ["Дипломатия"] = 1 },
+	},
 })
 
 Add({
@@ -340,6 +423,10 @@ Add({
     resistable = true,
 	duration = 600,
     isConcentration = false,
+    container = "eff_talking_ancients",
+	scaling = {
+		hit    = { ["Религия"] = 1.5, ["Лидерство"] = 1 },
+	},
 })
 
 
@@ -361,6 +448,10 @@ Add({
 	duration = 600,
     isConcentration = true,
 	distance = 18,
+    container = "eff_summon_fire_elemental",
+	scaling = {
+		hit    = { ["Исток"] = 1.5, ["Запугивание"] = 1 },
+	},
 })
 
 Add({
@@ -376,6 +467,11 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 7.5,
+	scaling = {
+		hit    = { ["Исток"] = 1.5, ["Концентрация"] = 1 },
+		crit   = { ["Рвение"] = 1.5 },
+		damage = { ["Дух"] = 2 },
+	},
 })
 
 Add({
@@ -391,6 +487,11 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 7.5,
+	scaling = {
+		hit    = { ["Исток"] = 1.5, ["Ремесло"] = 1 },
+		crit   = { ["Точность"] = 1.5 },
+		damage = { ["Дух"] = 2 },
+	},
 })
 
 Add({
@@ -408,6 +509,13 @@ Add({
 	duration = 3,
     isConcentration = false,
 	distance = 7.5,
+	aoe = { radius = 7.5 },
+    container = "eff_cataclysm",
+	scaling = {
+		hit    = { ["Исток"] = 1.5, ["Запугивание"] = 1 },
+		crit   = { ["Рвение"] = 1.5 },
+		damage = { ["Дух"] = 2 },
+	},
 })
 
 Add({
@@ -424,6 +532,10 @@ Add({
 	duration = 100,
     isConcentration = false,
 	distance = 1.5,
+	buff = "eff_weapon_enchant_flame_weapon",
+	scaling = {
+		hit    = { ["Исток"] = 1.5, ["Концентрация"] = 0.5 },
+	},
 })
 
 Add({
@@ -439,6 +551,11 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 7.5,
+	scaling = {
+		hit    = { ["Исток"] = 1.5, ["Ремесло"] = 0.5 },
+		crit   = { ["Точность"] = 1.5 },
+		damage = { ["Дух"] = 1.5 },
+	},
 })
 
 Add({
@@ -454,6 +571,11 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 7.5,
+	scaling = {
+		hit    = { ["Исток"] = 1.5, ["Запугивание"] = 0.5 },
+		crit   = { ["Рвение"] = 1.5 },
+		damage = { ["Дух"] = 1.5 },
+	},
 })
 
 Add({
@@ -469,6 +591,11 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 7.5,
+	scaling = {
+		hit    = { ["Исток"] = 1.5, ["Концентрация"] = 0.5 },
+		crit   = { ["Точность"] = 1.5 },
+		damage = { ["Дух"] = 1.5 },
+	},
 })
 
 Add({
@@ -483,6 +610,9 @@ Add({
     isCantrip = false,
     resistable = true,
 	distance = 1.5,
+	scaling = {
+		hit    = { ["Исток"] = 1, ["Ремесло"] = 0.5 },
+	},
 })
 
 Add({
@@ -500,6 +630,12 @@ Add({
 	duration = 3,
     isConcentration = false,
 	distance = 1.5,
+	debuff = "eff_bleeding_ignition",
+	scaling = {
+		hit    = { ["Исток"] = 1, ["Запугивание"] = 0.5 },
+		crit   = { ["Точность"] = 1 },
+		damage = { ["Дух"] = 1 },
+	},
 })
 
 Add({
@@ -516,6 +652,10 @@ Add({
 	duration = 1200,
     isConcentration = false,
 	distance = 1.5,
+	buff = "eff_shield_flame_shield",
+	scaling = {
+		hit    = { ["Исток"] = 1, ["Концентрация"] = 0.5 },
+	},
 })
 
 Add({
@@ -530,6 +670,9 @@ Add({
     isCantrip = false,
     resistable = true,
 	distance = 4.5,
+	scaling = {
+		hit    = { ["Исток"] = 1, ["Ремесло"] = 0.5 },
+	},
 })
 
 
@@ -551,6 +694,10 @@ Add({
 	duration = 600,
     isConcentration = false,
 	distance = 18,
+    container = "eff_summon_earth_elemental",
+	scaling = {
+		hit    = { ["Мощь"] = 1.5, ["Ношение брони"] = 1 },
+	},
 })
 
 Add({
@@ -566,6 +713,11 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 9,
+	scaling = {
+		hit    = { ["Мощь"] = 1.5, ["Живучесть"] = 1 },
+		crit   = { ["Точность"] = 1.5 },
+		damage = { ["Дух"] = 2 },
+	},
 })
 
 Add({
@@ -582,6 +734,10 @@ Add({
 	duration = 3,
     isConcentration = false,
 	distance = 9,
+    debuff = "eff_quicksand",
+	scaling = {
+		hit    = { ["Мощь"] = 1.5, ["Ремесло"] = 1 },
+	},
 })
 
 Add({
@@ -595,7 +751,13 @@ Add({
     description = "Шаман призывает силы земли, и пробуждает движение в подземной тверди раскрывая зияющую рану в почве, глубиной 10 и шириной 10 фут; трещина проходит начиная от тотема шамана и заканчивая избираемой им точкой, все цели находящиеся в области воздействия заклинания падают вниз, за исключением больших существ, они получают урон от падения и им нужно потратить время на то чтобы выбраться из трещины.",
     isCantrip = false,
     resistable = true,
+    canCrit = true,
 	distance = 9,
+	scaling = {
+		hit    = { ["Мощь"] = 1.5, ["Ношение брони"] = 1 },
+		crit   = { ["Рвение"] = 1.5 },
+		damage = { ["Дух"] = 2 },
+	},
 })
 
 Add({
@@ -612,6 +774,10 @@ Add({
 	duration = 100,
     isConcentration = true,
 	distance = 1.5,
+	buff = "eff_weapon_enchant_stone_crust",
+	scaling = {
+		hit    = { ["Мощь"] = 1.5, ["Живучесть"] = 0.5 },
+	},
 })
 
 Add({
@@ -629,6 +795,13 @@ Add({
 	duration = 1,
     isConcentration = false,
 	distance = 7.5,
+	aoe = { radius = 7.5 },
+    debuff = "eff_clap_of_thunder",
+	scaling = {
+		hit    = { ["Мощь"] = 1.5, ["Ремесло"] = 0.5 },
+		crit   = { ["Рвение"] = 1.5 },
+		damage = { ["Дух"] = 1.5 },
+	},
 })
 
 Add({
@@ -645,6 +818,10 @@ Add({
 	duration = 100,
     isConcentration = true,
 	distance = 9,
+    debuff = "eff_sand_toss",
+	scaling = {
+		hit    = { ["Мощь"] = 1, ["Ношение брони"] = 0.5 },
+	},
 })
 
 Add({
@@ -659,6 +836,9 @@ Add({
     isCantrip = false,
     resistable = true,
 	distance = 9,
+	scaling = {
+		hit    = { ["Мощь"] = 1, ["Живучесть"] = 0.5 },
+	},
 })
 
 Add({
@@ -674,6 +854,11 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 9,
+	scaling = {
+		hit    = { ["Мощь"] = 1, ["Ремесло"] = 0.5 },
+		crit   = { ["Точность"] = 1 },
+		damage = { ["Дух"] = 1 },
+	},
 })
 
 Add({
@@ -690,6 +875,10 @@ Add({
 	duration = 1200,
     isConcentration = false,
 	distance = 1.5,
+	buff = "eff_stone_skin_stone_skin",
+	scaling = {
+		hit    = { ["Мощь"] = 1, ["Ношение брони"] = 0.5 },
+	},
 })
 
 Add({
@@ -706,6 +895,10 @@ Add({
 	duration = 600,
     isConcentration = false,
 	distance = 9,
+    container = "eff_earth_sculpting",
+	scaling = {
+		hit    = { ["Мощь"] = 1, ["Живучесть"] = 0.5 },
+	},
 })
 
 
@@ -728,6 +921,12 @@ Add({
 	duration = 10,
     isConcentration = true,
 	distance = 40,
+    container = "eff_wind_wall",
+	scaling = {
+		hit    = { ["Акробатика"] = 1.5, ["Интуиция"] = 1 },
+		crit   = { ["Рвение"] = 1.5 },
+		damage = { ["Дух"] = 2 },
+	},
 })
 
 Add({
@@ -743,6 +942,12 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 9,
+	aoe = { radius = 9 },
+	scaling = {
+		hit    = { ["Акробатика"] = 1.5, ["Выживание"] = 1 },
+		crit   = { ["Рвение"] = 1.5 },
+		damage = { ["Дух"] = 2 },
+	},
 })
 
 Add({
@@ -759,6 +964,10 @@ Add({
 	duration = 600,
     isConcentration = true,
 	distance = 18,
+    container = "eff_summon_wind_elemental",
+	scaling = {
+		hit    = { ["Акробатика"] = 1.5, ["Концентрация"] = 1 },
+	},
 })
 
 Add({
@@ -775,6 +984,11 @@ Add({
 	duration = 3,
     isConcentration = false,
 	distance = 9,
+	debuff = "eff_blinded_dust_darkness",
+	aoe = { radius = 9 },
+	scaling = {
+		hit    = { ["Акробатика"] = 1.5, ["Интуиция"] = 1 },
+	},
 })
 
 Add({
@@ -792,6 +1006,13 @@ Add({
 	duration = 3,
     isConcentration = false,
 	distance = 9,
+	aoe = { radius = 9 },
+    container = "eff_shaman_storm_unleashed",
+	scaling = {
+		hit    = { ["Акробатика"] = 1.5, ["Выживание"] = 1 },
+		crit   = { ["Рвение"] = 1.5 },
+		damage = { ["Дух"] = 2 },
+	},
 })
 
 Add({
@@ -808,6 +1029,10 @@ Add({
 	duration = 3,
     isConcentration = false,
 	distance = 7.5,
+    container = "eff_sweeping_hurricane",
+	scaling = {
+		hit    = { ["Акробатика"] = 1.5, ["Концентрация"] = 1 },
+	},
 })
 
 Add({
@@ -824,6 +1049,10 @@ Add({
 	duration = 100,
     isConcentration = false,
 	distance = 1.5,
+	buff = "eff_weapon_enchant_lightning_brand",
+	scaling = {
+		hit    = { ["Акробатика"] = 1.5, ["Интуиция"] = 0.5 },
+	},
 })
 
 Add({
@@ -840,6 +1069,10 @@ Add({
 	duration = 3,
     isConcentration = false,
 	distance = 1.5,
+	buff = "eff_evasion_lightness_of_the_wind",
+	scaling = {
+		hit    = { ["Акробатика"] = 1.5, ["Выживание"] = 0.5 },
+	},
 })
 
 Add({
@@ -855,6 +1088,11 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 9,
+	scaling = {
+		hit    = { ["Акробатика"] = 1.5, ["Концентрация"] = 0.5 },
+		crit   = { ["Точность"] = 1.5 },
+		damage = { ["Дух"] = 1.5 },
+	},
 })
 
 Add({
@@ -871,6 +1109,10 @@ Add({
 	duration = 3,
     isConcentration = false,
 	distance = 7.5,
+    debuff = "eff_suffocating_rush",
+	scaling = {
+		hit    = { ["Акробатика"] = 1.5, ["Интуиция"] = 0.5 },
+	},
 })
 
 Add({
@@ -887,6 +1129,10 @@ Add({
 	duration = 4,
     isConcentration = false,
 	distance = 7.5,
+    container = "eff_stasis_trap",
+	scaling = {
+		hit    = { ["Акробатика"] = 1, ["Выживание"] = 0.5 },
+	},
 })
 
 Add({
@@ -901,6 +1147,9 @@ Add({
     isCantrip = false,
     resistable = true,
 	distance = 7.5,
+	scaling = {
+		hit    = { ["Акробатика"] = 1, ["Концентрация"] = 0.5 },
+	},
 })
 
 Add({
@@ -916,6 +1165,11 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 30,
+	scaling = {
+		hit    = { ["Акробатика"] = 1, ["Интуиция"] = 0.5 },
+		crit   = { ["Точность"] = 1 },
+		damage = { ["Дух"] = 1 },
+	},
 })
 
 Add({
@@ -932,6 +1186,10 @@ Add({
 	duration = 2,
     isConcentration = false,
 	distance = 7.5,
+    buff = "eff_shaman_featherfall",
+	scaling = {
+		hit    = { ["Акробатика"] = 1, ["Выживание"] = 0.5 },
+	},
 })
 
 Add({
@@ -948,6 +1206,10 @@ Add({
 	duration = 1200,
     isConcentration = false,
 	distance = 1.5,
+	buff = "eff_shield_wind_barrier",
+	scaling = {
+		hit    = { ["Акробатика"] = 1, ["Концентрация"] = 0.5 },
+	},
 })
 
 Add({
@@ -963,6 +1225,11 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 1.5,
+	scaling = {
+		hit    = { ["Акробатика"] = 1, ["Интуиция"] = 0.5 },
+		crit   = { ["Точность"] = 1 },
+		damage = { ["Дух"] = 1 },
+	},
 })
 
 Add({
@@ -978,4 +1245,8 @@ Add({
     resistable = true,
 	duration = 100,
     isConcentration = false,
+	container = "eff_shield_lightningshield",
+	scaling = {
+		hit    = { ["Акробатика"] = 1, ["Выживание"] = 0.5 },
+	},
 })

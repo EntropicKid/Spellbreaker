@@ -1,9 +1,18 @@
 ## Interface: 90207
 ## Title: |cff865BF2Spellbreaker|r
 ## Notes: Модульная RP-система заклинаний
-## Version: 1.182(beta)
+## Notes-enUS: Modular RP spell system for World of Warcraft: Aviana RP
+## Version: 1.450(beta)
+## Author: Spellbreaker contributors
+## X-License: MIT
 ## SavedVariables: SpellbreakerDB SpellbreakerCustomDB
 
+# ── Библиотеки ───────────────────────────────────────────────
+# LibStub и CallbackHandler грузятся ПЕРВЫМИ и ровно один раз: от них
+# зависят все остальные Ace-библиотеки. Раньше обе строки стояли в
+# файле дважды (второй раз перед LibRangeCheck) — повторная загрузка
+# ничего не ломала, потому что LibStub идемпотентен, но и смысла в ней
+# не было никакого.
 Libs\LibStub\LibStub.lua
 Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
 Libs\AceAddon-3.0\AceAddon-3.0.xml
@@ -11,20 +20,26 @@ Libs\AceDB-3.0\AceDB-3.0.xml
 Libs\AceEvent-3.0\AceEvent-3.0.xml
 Libs\AceConsole-3.0\AceConsole-3.0.xml
 Libs\AceTimer-3.0\AceTimer-3.0.xml
+Libs\AceComm-3.0\AceComm-3.0.xml
+Libs\AceSerializer-3.0\AceSerializer-3.0.xml
 Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua
 Libs\LibDBIcon-1.0\lib.xml
 Libs\LibRPMedia\LibRPMedia-1.0.xml
-Libs\UTF8\lib.xml
-Libs\AceComm-3.0\AceComm-3.0.xml
-Libs\AceSerializer-3.0\AceSerializer-3.0.xml
-Libs\LibStub\LibStub.lua
-Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
 Libs\LibRangeCheck-2.0\LibRangeCheck-2.0.lua
+Libs\UTF8\lib.xml
 
+# ── Ядро: данные и схема ─────────────────────────────────────
+# Порядок обязателен: Database заводит реестр SB.Data.Spells, в который
+# пишут все файлы Spells\, а Migrations должен быть объявлен до того,
+# как Init создаст AceDB и позовёт SB.Migrations.Run.
 Core\Init.lua
 Core\Events.lua
 Core\Database.lua
+Core\Migrations.lua
 
+# ── Библиотека заклинаний ────────────────────────────────────
+# Effects.lua идёт последним: он описывает контейнеры, на которые
+# ссылаются классовые файлы полями container/buff/debuff.
 Spells\Warrior.lua
 Spells\Hunter.lua
 Spells\Mage.lua
@@ -39,22 +54,27 @@ Spells\DemonHunter.lua
 Spells\DeathKnight.lua
 Spells\Effects.lua
 
+# ── Ядро: модель и правила ───────────────────────────────────
 Core\Theme.lua
 Core\Strings.lua
 Core\Attributes.lua
 Core\Skills.lua
 Core\SpellOutcomes.lua
 Core\PlayerModel.lua
+Core\Movement.lua
 Core\Logic.lua
 Core\Network.lua
 Core\CustomSpells.lua
 Core\ResourceGrant.lua
 Core\ActiveEffects.lua
+Core\ClassMechanics.lua
 
+# ── Интерфейс ────────────────────────────────────────────────
 UI\MainFrame.lua
 UI\GMPanel.lua
 UI\Library.lua
 UI\Attributes.lua
 UI\Logs.lua
+UI\Overlay.lua
 UI\Options.lua
 MinimapButton.lua

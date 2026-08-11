@@ -51,7 +51,13 @@ function SB.Logs.BuildFrame()
     logsEB:SetMultiLine(true)
     logsEB:SetFontObject(ChatFontNormal)
     logsEB:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
-    logsEB:SetWidth(400)
+    -- Ширину ведём за скролл-фреймом, а не задаём константой: место
+    -- под полосу прокрутки резервируется внутри окна (см. SB.Theme.Scroll),
+    -- и фиксированные 400px теперь вылезали бы за правый край.
+    logsEB:SetWidth(sf:GetWidth() > 0 and sf:GetWidth() or 390)
+    sf:SetScript("OnSizeChanged", function(self, w)
+        if w and w > 0 then logsEB:SetWidth(w) end
+    end)
     logsEB:SetAutoFocus(false)
 	logsEB:SetHyperlinksEnabled(true)
 	logsEB:SetScript("OnHyperlinkClick", function(self, link, text, button)
@@ -65,10 +71,8 @@ function SB.Logs.BuildFrame()
         end
     end)
     logsEB:SetScript("OnHyperlinkEnter", function(self, link, text)
-        local data = link and link:match("^sbmod:(.+)$")
-        if data then SB.UI.ShowModTooltip(self, data) end
-	    local rollData = link and link:match("^sbroll:(.+)$")
-        if rollData then SB.UI.ShowRollTooltip(self, rollData) end	
+        local amtData = link and link:match("^sbamt:(.+)$")
+        if amtData then SB.UI.ShowAmountTooltip(self, amtData) end
     end)
     logsEB:SetScript("OnHyperlinkLeave", function(self)
         GameTooltip:Hide()
@@ -84,7 +88,9 @@ function SB.Logs.BuildFrame()
     local clearBtn = SB.Theme.Button(logFrame, "Очистить", 65, 24, "danger")
     clearBtn:SetPoint("BOTTOMLEFT", logFrame, "BOTTOMLEFT", 12, 10)
     clearBtn:SetScript("OnClick", function()
-        lastValidText = ""; logsEB:SetText("")
+        lastValidText = ""
+        logsEB:SetText("")
+        logsEB:HighlightText(0, 0)
         if updateLogScrollbar then updateLogScrollbar() end
     end)
 
@@ -154,6 +160,42 @@ end
 local recentMessages = {}   -- [cleanedText] = timeAdded
 local RECENT_WINDOW   = 4   -- секунд
 
+-- Потолок объёма лога. EditBox — не бесконечный буфер: на очень длинном
+-- тексте WoW начинает рисовать его с артефактами (куски строк
+-- «закрашиваются», ползёт разметка). Держим последние ~24k символов,
+-- обрезая СТАРЫЕ строки целиком, чтобы не разорвать цветовой код
+-- |cff....|r или гиперссылку посередине — оборванный код красит собой
+-- весь остаток текста, и это ровно тот эффект «закрашивания».
+local MAX_LOG_CHARS = 24000
+
+local function TrimLog(text)
+    if #text <= MAX_LOG_CHARS then return text end
+    -- Отрезаем с запасом и выравниваем срез по началу строки.
+    local cut = #text - MAX_LOG_CHARS
+    local nl  = text:find("\n", cut, true)
+    return text:sub((nl or cut) + 1)
+end
+
+-- Цвет метки времени — приглушённо-серый, как у штатного таймстампа
+-- в чате игры, чтобы он не спорил с телом сообщения.
+local STAMP_COLOR = "|cFF808080"
+
+--- Дописывает недостающие |r, если в сообщении открыто больше цветов,
+--- чем закрыто.
+---
+--- Это ЗАЩИТА ОТ ЧУЖИХ ОШИБОК, а не основное лечение: незакрытый
+--- |cXXXXXXXX красит собой весь последующий текст окна, и одна кривая
+--- строка портит вид всего лога. Чинить надо в месте, где сообщение
+--- собирается, но одна опечатка не должна ломать окно целиком.
+local function BalanceColors(text)
+    local opens  = select(2, text:gsub("|c%x%x%x%x%x%x%x%x", ""))
+    local closes = select(2, text:gsub("|r", ""))
+    if opens > closes then
+        text = text .. string.rep("|r", opens - closes)
+    end
+    return text
+end
+
 function SB.Logs.Add(message)
     if not logsEB then return end
 
@@ -170,9 +212,27 @@ function SB.Logs.Add(message)
     end
     recentMessages[clean] = now
 
-    local stamp = date("[%H:%M:%S] ")
-    lastValidText = logsEB:GetText() .. stamp .. clean .. "\n"
+    -- Раз в какое-то время чистим окно дедупа: без этого таблица росла
+    -- бы всю сессию, храня каждое когда-либо показанное сообщение.
+    if next(recentMessages) then
+        for text, seen in pairs(recentMessages) do
+            if (now - seen) > RECENT_WINDOW * 4 then
+                recentMessages[text] = nil
+            end
+        end
+    end
+
+    local stamp = STAMP_COLOR .. date("[%H:%M:%S]") .. "|r "
+    -- Накапливаем В СВОЕЙ переменной, а не через logsEB:GetText():
+    -- обратное чтение из виджета возвращает текст уже после его
+    -- внутренней обработки, и любое расхождение накапливалось бы с
+    -- каждой новой строкой.
+    lastValidText = TrimLog(lastValidText .. stamp .. BalanceColors(clean) .. "\n")
     logsEB:SetText(lastValidText)
+    -- Сбрасываем выделение: клик/протяжка мышью по логу оставляют
+    -- подсветку, которая переживает SetText и выглядит как «закрашенные»
+    -- куски текста.
+    logsEB:HighlightText(0, 0)
     logsEB:SetCursorPosition(logsEB:GetNumLetters())
     if updateLogScrollbar then updateLogScrollbar() end
 end
@@ -223,20 +283,15 @@ C_Timer.After(1, function()
                 return orig(frame, text, ...)
             end
 
-            -- Тултип по наводке на ссылку модификатора (sbmod:...).
+            -- Тултип по наводке на ссылку урона/лечения (sbamt:...).
             -- Цепляемся к существующему обработчику, а не подменяем его,
             -- чтобы не сломать наводку на обычные ссылки (предметы,
             -- достижения и т.д.).
             local origEnter = cf:GetScript("OnHyperlinkEnter")
             cf:SetScript("OnHyperlinkEnter", function(self, link, text, ...)
-                local data = link and link:match("^sbmod:(.+)$")
-                if data then
-                    SB.UI.ShowModTooltip(self, data)
-                    return
-                end
-				local rollData = link and link:match("^sbroll:(.+)$")
-                if rollData then
-                    SB.UI.ShowRollTooltip(self, rollData)
+                local amtData = link and link:match("^sbamt:(.+)$")
+                if amtData then
+                    SB.UI.ShowAmountTooltip(self, amtData)
                     return
                 end
                 if origEnter then origEnter(self, link, text, ...) end
