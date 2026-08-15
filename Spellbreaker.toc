@@ -2,7 +2,7 @@
 ## Title: |cff865BF2Spellbreaker|r
 ## Notes: Модульная RP-система заклинаний
 ## Notes-enUS: Modular RP spell system for World of Warcraft: Aviana RP
-## Version: 2.0
+## Version: 2.1
 ## Author: Spellbreaker contributors
 ## X-License: MIT
 ## SavedVariables: SpellbreakerDB SpellbreakerCustomDB
@@ -57,12 +57,24 @@ Spells\Effects.lua
 # ── Ядро: модель и правила ───────────────────────────────────
 Core\Theme.lua
 Core\Strings.lua
+# Кулдауны — общий предохранитель от спама, ими пользуются и Logic,
+# и TurnOrder, и интерфейс. Зависит только от Theme (цвет сообщения).
+Core\Cooldowns.lua
 Core\Attributes.lua
 Core\Skills.lua
 Core\SpellOutcomes.lua
 Core\PlayerModel.lua
 Core\Movement.lua
+# TurnOrder объявлен ДО Logic: Logic.SpendTurn и ConfirmCast зовут его на
+# каждом действии, а SB.Data.TurnModes читает панель Ведущего.
+Core\TurnOrder.lua
 Core\Logic.lua
+# Отпочковано от Logic.lua. Порядок после него обязателен только для
+# файлов, которые читают его функции на загрузке; сейчас таких нет, но
+# правило простое: Logic сначала, его части — следом.
+Core\Logic\Tooltips.lua
+Core\Logic\Geometry.lua
+Core\Logic\Aoe.lua
 Core\Network.lua
 Core\CustomSpells.lua
 Core\ResourceGrant.lua
@@ -71,6 +83,9 @@ Core\ClassMechanics.lua
 
 # ── Интерфейс ────────────────────────────────────────────────
 UI\MainFrame.lua
+# Компактный ряд иконок — второй вид колонки «Способности». После
+# MainFrame: берёт у него SB.UI.ShowSlotPicker и SB.UI.CanCastNowQuiet.
+UI\SpellBar.lua
 UI\GMPanel.lua
 UI\Library.lua
 UI\Attributes.lua

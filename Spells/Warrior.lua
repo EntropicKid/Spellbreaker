@@ -20,7 +20,7 @@ Add({
     duration = 3,
 	debuff = "eff_pummel",
 	scaling = {
-		hit    = { ["Атлетика"] = 1, ["Точность"] = 0.5 },
+		hit    = { ["Атлетика"] = 1 },
 		crit   = { ["Точность"] = 1 },
 	},
 })
@@ -37,13 +37,11 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-	debuff = "eff_slowed_hamstring",
+	debuff = "eff_hamstring",
     distance = 1.5,
     duration = 3,
 	scaling = {
-		hit    = { ["Мощь"] = 1 },
-		crit   = { ["Точность"] = 1 },
-		damage = { ["Сила"] = 0.5 },
+		hit    = { ["Мощь"] = 3 },
 	},
 })
 
@@ -60,6 +58,7 @@ Add({
     resistable = true,
     canCrit = true,
     distance = 1.5,
+	debuff = "eff_mortal_strike",
 	scaling = {
 		hit    = { ["Мощь"] = 1 },
 		crit   = { ["Точность"] = 1 },
@@ -83,9 +82,9 @@ Add({
     duration = 2,
     debuff = "eff_shield_slam",
 	scaling = {
-		hit    = { ["Атлетика"] = 1 },
+		hit    = { ["Атлетика"] = 1.5 },
 		crit   = { ["Точность"] = 1 },
-		damage = { ["Сила"] = 0.5 },
+		damage = { ["Сила"] = 0.75 },
 	},
 })
 
@@ -143,8 +142,7 @@ Add({
     canCrit = true,
     distance = 1.5,
 	scaling = {
-		hit    = { ["Мощь"] = 1, ["Атлетика"] = 0.5 },
-		crit   = { ["Точность"] = 1 },
+		hit    = { ["Мощь"] = 1 },
 		damage = { ["Сила"] = 1 },
 	},
 })
@@ -188,7 +186,6 @@ Add({
     canCrit = false,
 	debuff = "eff_intimidating_shout",
 	aoe = { radius = 9 },
-    distance = 9,
     duration = 3,
 	scaling = {
 		hit    = { ["Запугивание"] = 1, ["Мощь"] = 0.5 },
@@ -207,7 +204,6 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = false,
-    distance = 9,
     duration = 3,
     aoe = { radius = 9 },
     debuff = "eff_demoralized_challenging_shout",
@@ -228,9 +224,8 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = false,
-	debuff = "eff_demoralized_demoralizing_shout",
+	debuff = "eff_demoralizing_shout",
 	aoe = { radius = 9 },
-    distance = 9,
     duration = 4,
 	scaling = {
 		hit    = { ["Запугивание"] = 1, ["Мощь"] = 0.5 },
@@ -249,9 +244,8 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = false,
-	debuff = "eff_slowed_piercing_howl",
+	debuff = "eff_piercing_howl",
 	aoe = { radius = 9 },
-    distance = 9,
     duration = 3,
 	scaling = {
 		hit    = { ["Запугивание"] = 1, ["Мощь"] = 0.5 },
@@ -427,11 +421,11 @@ Add({
     description = "Воин преодолевает разрыв одним броском, вкладывая в него весь вес доспеха. Врага сбивает с ног и лишает опоры, союзника — выдёргивает из-под удара. Вне боя тот же разгон выносит запертую дверь или переносит через провал.",
     isCantrip = true,
     resistable = true,
-	canCrit = true,
     distance = 25,
+    container = "eff_charge",
+    duration = 1,
     scaling = {
-    	hit    = { ["Атлетика"] = 1.5, ["Запугивание"] = 0.5 },
-    	crit   = { ["Точность"] = 1 },
+    	hit    = { ["Атлетика"] = 2, ["Лидерство"] = 1 },
     },
 })
 
@@ -466,9 +460,16 @@ Add({
     class = "Воин",
     description = "Пока противник падает, воин успевает поймать эту секунду и вдохнуть на полную. Боль отступает, дыхание выравнивается, кровь перестаёт идти. Работает только на подъёме — на выдохшемся или отступающем не даёт ничего.",
     isCantrip = false,
-    resistable = false,
-    isHeal = true,
-    distance = 0,
+    -- РАНЬШЕ ЭТО БЫЛО ЧИСТОЕ ЛЕЧЕНИЕ (isHeal, дальность 0, без броска на
+    -- сопротивление): воин лечился сам по себе, без противника. Теперь
+    -- это добивание — удар в ближнем бою, который возвращает воину всё,
+    -- что забрал у падающего (leech = 1). Отсюда и остальные поля:
+    -- resistable/canCrit делают его обычной атакой, а дальность 1.5 —
+    -- ближним боем, иначе цель ему не нужна.
+    resistable = true,
+    canCrit = true,
+    distance = 1.5,
+    leech = 1,
     scaling = {
     	hit    = { ["Запугивание"] = 1, ["Живучесть"] = 0.5 },
     	damage = { ["Сила"] = 0.5 },
@@ -561,7 +562,7 @@ Add({
     resistable = true,
     canCrit = true,
     isConcentration = true,
-    distance = 4.5,
+    distance = 1.5,
     aoe = { radius = 4.5 },
     scaling = {
     	hit    = { ["Мощь"] = 1, ["Акробатика"] = 0.5 },

@@ -158,7 +158,11 @@ Add({
     resistable = true,
 	duration = 3,
     isConcentration = false,
+	-- Дождь ставится ТОТЕМОМ — то есть в точке, а не вокруг шамана:
+	-- дальность остаётся, и круг ложится вокруг цели. Радиус — те самые
+	-- «30 футов по окружности» из описания, в метрах.
 	distance = 7.5,
+	aoe = { radius = 9 },
     isHeal = true,
     buff = "eff_healing_rain",
 	scaling = {
@@ -345,6 +349,8 @@ Add({
     isCantrip = false,
     resistable = true,
 	distance = 1.5,
+	-- «Проклятия или тёмной магии» из описания — ровно две школы.
+	dispel = { "curse", "magic" },
 	scaling = {
 		hit    = { ["Религия"] = 1.5, ["Дипломатия"] = 0.5 },
 	},

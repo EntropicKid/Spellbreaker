@@ -23,8 +23,8 @@ Add({
 	-- урон с половинным коэффициентом (у кастера основной урон задаёт
 	-- вложенная мана, см. SB.Logic.GetCastPower).
 	scaling = {
-		hit    = { ["Религия"] = 1 },
-		crit   = { ["Рвение"] = 1 },
+		hit    = { ["Религия"] = 2 },
+		crit   = { ["Рвение"] = 2 },
 	},
 })
 Add({
@@ -274,6 +274,7 @@ Add({
 	duration = 10,
     isConcentration = false,
 	distance = 1.5,
+	dispel = "disease",
     buff = "eff_priest_cure_disease",
 	scaling = {
 		hit    = { ["Религия"] = 1, ["Рвение"] = 0.5 },
@@ -369,6 +370,7 @@ Add({
     isCantrip = false,
 	resistable = true,
 	distance = 1.5,
+	dispel = "curse",
 	scaling = {
 		hit    = { ["Дух"] = 1, ["Религия"] = 0.5 },
 	},
@@ -384,7 +386,11 @@ Add({
 	description = "Вы призываете силу Света используя свою религиозную фокусировку, и распространяете небесную благодать, залечивая силой Света легкие ранения у трёх человек, кто находится рядом с Вами. Если  жрец не решит иначе, то это заклинание навредит окружающей нежити, нанося легкий урон, преимущественно вызывая агонию.",
     isCantrip = false,
 	resistable = true,
-	distance = 5,
+	-- «Рядом с Вами» — площадь гремит ВОКРУГ ЖРЕЦА, поэтому дальность
+	-- нулевая: цель ей не нужна, круг и так вокруг заклинателя
+	-- (см. SB.Logic.GetAoeEpicenter).
+	distance = 0,
+	aoe = { radius = 5 },
     isHeal = true,
 	scaling = {
 		hit    = { ["Дух"] = 1, ["Религия"] = 0.5 },
@@ -424,7 +430,7 @@ Add({
     resistable = true,
 	duration = 10,
     isConcentration = false,
-	distance = 1.5,
+	distance = 18,
 	buff = "eff_fortitude_word_fortitude",
 	scaling = {
 		hit    = { ["Воля"] = 1.5, ["Религия"] = 0.5 },
@@ -480,6 +486,7 @@ Add({
     isCantrip = false,
     resistable = true,
 	distance = 30,
+	dispel = "magic",
 	scaling = {
 		hit    = { ["Воля"] = 1, ["Религия"] = 0.5 },
 	},
@@ -553,11 +560,10 @@ Add({
     resistable = true,
 	duration = 10,
     isConcentration = false,
-	distance = 100,
-	buff = "eff_fortitude_prayer_of_fortitude",
-	aoe = { radius = 36 },
+	buff = "eff_fortitude",
+	aoe = { radius = 30 },
 	scaling = {
-		hit    = { ["Воля"] = 1, ["Религия"] = 0.5 },
+		hit    = { ["Воля"] = 1 },
 	},
 })
 Add({
@@ -574,7 +580,7 @@ Add({
 	duration = 10,
     isConcentration = false,
 	distance = 1.5,
-	debuff = "eff_mana_burn_manaburn",
+	debuff = "eff_mana_burn",
 	scaling = {
 		hit    = { ["Воля"] = 1, ["Наука"] = 0.5 },
 	},
@@ -587,16 +593,15 @@ Add({
     level = 3,
     class = "Жрец",
 	caura = 84,
-    description = "Вы громогласно возносите молитву, вкладывая глубокую веру в свои слова, и призываете силы Света чтобы одарить вас, и ваших сопартийцев эффектом Оберега от страха.",
+    description = "Вы громогласно возносите молитву, вкладывая глубокую веру в свои слова, и призываете силы Света чтобы одарить вас, и ваших сопартийцев эффектом Божественного духа.",
     isCantrip = false,
     resistable = true,
-	duration = 10,
+	duration = 2,
     isConcentration = false,
-	distance = 15,
-	buff = "eff_wisdom_prayer_of_spirit",
-	aoe = { radius = 36 },
+	buff = "eff_priest_spirit",
+	aoe = { radius = 12 },
 	scaling = {
-		hit    = { ["Воля"] = 1, ["Религия"] = 0.5 },
+		hit    = { ["Воля"] = 1 },
 	},
 })
 Add({
@@ -670,7 +675,7 @@ Add({
 	distance = 13,
     container = "eff_mindvision",
 	scaling = {
-		hit    = { ["Внушение"] = 1,5 },
+		hit    = { ["Внушение"] = 1.5 },
 	},
 })
 Add({
@@ -685,18 +690,15 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-	duration = 1,
+	duration = 2,
     isConcentration = true,
-	distance = 7.5,
+	distance = 18,
     debuff = "eff_mind_flay",
-	-- ПОТОК: после каста на жреце повисает держатель «Поток: Пытка
-	-- разума», два клика по которому повторяют луч бесплатно. См.
-	-- SB.Database.AddSpell в Core/Database.lua.
 	channel = 2,
 	scaling = {
 		hit    = { ["Внушение"] = 1 },
 		crit   = { ["Рвение"] = 1 },
-		damage = { ["Дух"] = 0.5 },
+		damage = { ["Характер"] = 1 },
 	},
 })
 Add({
@@ -752,7 +754,7 @@ Add({
     isHeal = true,
 	scaling = {
 		hit    = { ["Внушение"] = 1, ["Воля"] = 0.5 },
-		damage = { ["Дух"] = 1 },
+		damage = { ["Характер"] = 1 },
 	},
 })
 Add({
@@ -845,16 +847,13 @@ Add({
     canCrit = true,
 	duration = 3,
     isConcentration = true,
-	distance = 12,
-	debuff = "eff_pain_mind_shear",
-	-- ПОТОК на три продолжения — по числу ходов в duration (channel = true
-	-- взял бы ровно его, но здесь пишем числом, чтобы длительность дебаффа
-	-- и длина потока правились независимо друг от друга).
+	aoe = { radius = 12 },
+	debuff = "eff_pain",
 	channel = 3,
 	scaling = {
 		hit    = { ["Внушение"] = 1 },
 		crit   = { ["Воля"] = 1 },
-		damage = { ["Дух"] = 0.5 },
+		damage = { ["Характер"] = 1 },
 	},
 })
 Add({
@@ -968,6 +967,26 @@ Add({
     isConcentration = false,
     container = "eff_shadow_fiend",
 	scaling = {
-		hit    = { ["Внушение"] = 1, ["Воля"] = 0.5 },
+		hit    = { ["Внушение"] = 0.5, ["Воля"] = 0.5 },
+	},
+})
+
+Add({
+    id = "priest_spirit",
+    name = "Божественный дух",
+	key = "Слово Силы",
+	icon = "Interface\\Icons\\Spell_holy_divinespirit",
+    level = 2,
+    class = "Жрец",
+    caura = 84, 
+    description = "Данный краткий волевой акт со стороны жреца позволяет тому пробудить в теле выбранного заклинателя скрытый резерв, таящиеся в его собственной душе, черпая силу из которого в краткие сроки удастся восстановить часть магического потенциала.",
+    isCantrip = false,
+	resistable = true,
+	duration = 3,
+    isConcentration = false,
+	distance = 18,
+	buff = "eff_priest_spirit",
+	scaling = {
+		hit    = { ["Воля"] = 1 },
 	},
 })

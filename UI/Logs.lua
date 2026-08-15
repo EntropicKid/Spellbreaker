@@ -6,14 +6,21 @@
 --   • hideSystemMessages читается/пишется только через
 --     SpellbreakerAccountDB — нет дублирующей локальной копии.
 --   • Подписывается на LOG_MESSAGE_RECEIVED через Events.
+--   • Текст лога переживает /reload и перезаход: он лежит в
+--     SpellbreakerCharDB.logHistory (см. LoadHistory/SaveHistory).
 -- ============================================================
 local addonName, SB = ...
 SB.Logs = SB.Logs or {}
 
 local logFrame
 local logsEB
+local logScroll
 local updateLogScrollbar
 local lastValidText = ""
+
+-- Объявлены здесь, а определены ниже, рядом с TrimLog: тело BuildFrame
+-- лексически идёт РАНЬШЕ и без этой строки просто не увидело бы их.
+local LoadHistory, SaveHistory, ScrollToBottom
 
 -- Удобный геттер флага (с защитой от nil до инициализации AceDB)
 local function HideEnabled()
@@ -70,19 +77,36 @@ function SB.Logs.BuildFrame()
             end
         end
     end)
-    logsEB:SetScript("OnHyperlinkEnter", function(self, link, text)
-        local amtData = link and link:match("^sbamt:(.+)$")
-        if amtData then SB.UI.ShowAmountTooltip(self, amtData) end
-    end)
-    logsEB:SetScript("OnHyperlinkLeave", function(self)
-        GameTooltip:Hide()
-    end)
+    -- Наводка на число урона/лечения больше ничего не показывает:
+    -- разбивка перестала ездить внутри ссылки (см. SB.UI.AmountText в
+    -- Core/Strings.lua), и показывать по наводке нечего.
     logsEB:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     logsEB:SetScript("OnTextChanged", function(self, userInput)
         if userInput then self:SetText(lastValidText) end
     end)
     sf:SetScrollChild(logsEB)
+    logScroll = sf
     updateLogScrollbar = select(3, SB.Theme.AttachScrollbar(sf, logsEB, logFrame, logFrame.contentY, 48))
+
+    -- Лог прошлой сессии. Читается ЗДЕСЬ, а не при загрузке файла:
+    -- SpellbreakerCharDB появляется только после AceDB, то есть к
+    -- моменту SB_INIT, которым и зовётся BuildFrame.
+    LoadHistory()
+    if lastValidText ~= "" then
+        logsEB:SetText(lastValidText)
+        logsEB:HighlightText(0, 0)
+        logsEB:SetCursorPosition(logsEB:GetNumLetters())
+    end
+
+    -- Прокрутка вниз — на первом показе окна, а не сейчас: фрейм создан
+    -- скрытым (см. SB.Theme.Frame), а у скрытого диапазон прокрутки
+    -- ещё нулевой, и прокручивать было бы некуда.
+    local scrolledOnce = false
+    logFrame:HookScript("OnShow", function()
+        if scrolledOnce then return end
+        scrolledOnce = true
+        ScrollToBottom()
+    end)
 
     -- ── Нижняя панель ─────────────────────────────────────────
     local clearBtn = SB.Theme.Button(logFrame, "Очистить", 65, 24, "danger")
@@ -91,6 +115,9 @@ function SB.Logs.BuildFrame()
         lastValidText = ""
         logsEB:SetText("")
         logsEB:HighlightText(0, 0)
+        -- Чистим и сохранённую копию: иначе очищенный лог возвращался бы
+        -- целиком на следующем /reload.
+        SaveHistory()
         if updateLogScrollbar then updateLogScrollbar() end
     end)
 
@@ -180,6 +207,72 @@ end
 -- в чате игры, чтобы он не спорил с телом сообщения.
 local STAMP_COLOR = "|cFF808080"
 
+-- ============================================================
+-- ИСТОРИЯ ЛОГА МЕЖДУ СЕССИЯМИ
+--
+-- Раньше лог жил только в переменной lastValidText, то есть умирал на
+-- первом же /reload — а перезагружаются в бою постоянно, и вместе с
+-- логом пропадала вся запись боя.
+--
+-- Хранится строкой ровно в том виде, в каком она лежит в EditBox:
+-- с метками времени, цветами и гиперссылками. Так восстановленный
+-- кусок ничем не отличается от свежего — и ссылки на заклинания в нём
+-- по-прежнему кликабельны.
+--
+-- Место хранения — SpellbreakerCharDB (профиль ПЕРСОНАЖА, не аккаунта):
+-- лог — это запись действий конкретного героя, и сваливать в одну кучу
+-- журналы всех своих чаров смысла нет.
+--
+-- Объём ограничен тем же MAX_LOG_CHARS (~24k символов), что и сам
+-- EditBox, поэтому файл SavedVariables не растёт бесконечно.
+-- ============================================================
+
+-- Разделитель между тем, что было до перезагрузки, и новой сессией.
+-- Em dash, а не псевдографика U+2500: длинное тире шрифты клиента
+-- заведомо знают (оно уже используется в подписях интерфейса), а
+-- рамочные символы у них может и не оказаться.
+local SESSION_DIVIDER = STAMP_COLOR ..
+    "———————— перезагрузка интерфейса ————————|r\n"
+
+local historyLoaded = false
+
+--- Подтягивает сохранённый лог в lastValidText. Идемпотентна: второй
+--- вызов ничего не делает, чтобы история не задвоилась.
+function LoadHistory()
+    if historyLoaded then return end
+    -- AceDB ещё не поднялась — выходим НЕ помечая загрузку сделанной,
+    -- иначе история потерялась бы навсегда.
+    if type(SpellbreakerCharDB) ~= "table" then return end
+    historyLoaded = true
+
+    local saved = SpellbreakerCharDB.logHistory
+    if type(saved) ~= "string" or saved == "" then return end
+
+    -- lastValidText в этот момент обычно пуст, но не обязательно:
+    -- сообщение могло прийти до постройки окна. Поэтому старое
+    -- дописывается СВЕРХУ, а не затирает новое.
+    lastValidText = TrimLog(saved .. SESSION_DIVIDER .. lastValidText)
+end
+
+--- Сохраняет текущий текст лога. Зовётся на каждую строку: это запись
+--- в таблицу Lua, на диск игра сбрасывает её сама при выходе/reload.
+function SaveHistory()
+    if type(SpellbreakerCharDB) ~= "table" then return end
+    SpellbreakerCharDB.logHistory = lastValidText
+end
+
+--- Прокрутка лога в самый низ — к свежим строкам.
+function ScrollToBottom()
+    if not logScroll then return end
+    -- Через кадр: диапазон прокрутки считается уже после того, как
+    -- EditBox разложит новый текст, и сразу после SetText он ещё нулевой.
+    C_Timer.After(0, function()
+        if not logScroll then return end
+        logScroll:SetVerticalScroll(logScroll:GetVerticalScrollRange())
+        if updateLogScrollbar then updateLogScrollbar() end
+    end)
+end
+
 --- Дописывает недостающие |r, если в сообщении открыто больше цветов,
 --- чем закрыто.
 ---
@@ -197,7 +290,12 @@ local function BalanceColors(text)
 end
 
 function SB.Logs.Add(message)
-    if not logsEB then return end
+    if not message then return end
+    -- Проверки на logsEB здесь НЕТ намеренно: сообщение может прийти до
+    -- постройки окна (окно строится по SB_INIT), и раньше такие строки
+    -- пропадали совсем. Теперь они копятся в lastValidText и в истории,
+    -- а виджет обновляется только если он уже есть.
+    LoadHistory()
 
     -- Очистка цветовых кодов WoW
 	local clean = message
@@ -228,6 +326,9 @@ function SB.Logs.Add(message)
     -- внутренней обработки, и любое расхождение накапливалось бы с
     -- каждой новой строкой.
     lastValidText = TrimLog(lastValidText .. stamp .. BalanceColors(clean) .. "\n")
+    SaveHistory()
+
+    if not logsEB then return end
     logsEB:SetText(lastValidText)
     -- Сбрасываем выделение: клик/протяжка мышью по логу оставляют
     -- подсветку, которая переживает SetText и выглядит как «закрашенные»
@@ -283,25 +384,9 @@ C_Timer.After(1, function()
                 return orig(frame, text, ...)
             end
 
-            -- Тултип по наводке на ссылку урона/лечения (sbamt:...).
-            -- Цепляемся к существующему обработчику, а не подменяем его,
-            -- чтобы не сломать наводку на обычные ссылки (предметы,
-            -- достижения и т.д.).
-            local origEnter = cf:GetScript("OnHyperlinkEnter")
-            cf:SetScript("OnHyperlinkEnter", function(self, link, text, ...)
-                local amtData = link and link:match("^sbamt:(.+)$")
-                if amtData then
-                    SB.UI.ShowAmountTooltip(self, amtData)
-                    return
-                end
-                if origEnter then origEnter(self, link, text, ...) end
-            end)
-
-            local origLeave = cf:GetScript("OnHyperlinkLeave")
-            cf:SetScript("OnHyperlinkLeave", function(self, ...)
-                GameTooltip:Hide()
-                if origLeave then origLeave(self, ...) end
-            end)
+            -- Перехвата наводки на числа урона здесь больше нет: ссылку
+            -- sbamt аддон не создаёт, а лезть в обработчики чужих фреймов
+            -- чата без надобности — лишний риск сломать чужие подсказки.
 
             cf.SBHooked = true
         end

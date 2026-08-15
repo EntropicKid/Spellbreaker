@@ -18,6 +18,10 @@ Add({
     resistable = true,
     canCrit = true,
     distance = 1.5,
+    -- Вампиризм: рана отдаёт рыцарю всё, что забрала. Доля считается от
+    -- УРОНА, ДОШЕДШЕГО ДО ЦЕЛИ, — отбитый удар не лечит (см.
+    -- SB.Logic.ApplyLeech в Core/Logic.lua).
+    leech = 1,
 	scaling = {
 		hit    = { ["Мощь"] = 1 },
 		crit   = { ["Точность"] = 1 },

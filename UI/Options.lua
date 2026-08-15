@@ -68,32 +68,15 @@ local function MakeCheckRow(parent, anchor, anchorY, labelText, dbKey, onToggle,
     return chk
 end
 
--- Симуляция реалтайм эффектов — ТОЛЬКО ВЕДУЩЕМУ.
---
--- Дубликат галочки из панели Ведущего. Прятать её здесь бессмысленно бы
--- не было: там она скрыта от не-лидера, и оставь мы её рабочей тут —
--- запрет обходился бы одним кликом в настройках. Поэтому строка
--- остаётся видимой (пусть игрок знает, что режим существует), но
--- выключена, а под ней сказано почему.
-local rtOptChk = MakeCheckRow(optPanel, addHeader, -10,
-    "Симуляция реалтайм эффектов (каждые 6 сек)",
-    "realtimeEffects",
-    function(val)
-        -- Синхронизируем оригинальный чекбокс (он управляет таймером)
-        if SBRealtimeEffectChk then
-            SBRealtimeEffectChk:SetChecked(val)
-            local h = SBRealtimeEffectChk:GetScript("OnClick")
-            if h then h(SBRealtimeEffectChk) end
-        end
-    end)
-
-local rtOptHint = optPanel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-rtOptHint:SetPoint("TOPLEFT", rtOptChk, "BOTTOMLEFT", 24, 2)
-rtOptHint:SetText("Доступно только Ведущему: режим списывает ход всем эффектам в группе.")
-rtOptHint:Hide()
+-- Галочки «Симуляция реалтайм эффектов» здесь больше НЕТ. Тик эффектов
+-- перестал быть настройкой: он включён ровно тогда, когда выключен
+-- пошаговый режим, и переключается он вместе с ним во вкладке
+-- «Настройки» панели Ведущего (см. SyncRealtimeToTurnMode в
+-- UI/GMPanel.lua). Отдельный переключатель здесь означал бы второй
+-- рычаг от того же механизма — и возможность рассинхронизировать их.
 
 -- Игнорировать .caura
-local cauraOptChk = MakeCheckRow(optPanel, rtOptChk, -8,
+local cauraOptChk = MakeCheckRow(optPanel, addHeader, -10,
     "Игнорировать .caura",
     "ignoreCaura",
     function(val)
@@ -116,6 +99,10 @@ local hideOptChk = MakeCheckRow(optPanel, emoteOptChk, -8,
         if SpellbreakerHideChatCheck then SpellbreakerHideChatCheck:SetChecked(val) end
     end)
 
+-- Панель способностей переехала в собственную вкладку (см. в конце
+-- файла): у неё пять настроек, и в общем списке они забивали всё
+-- остальное.
+
 -- Оверлей на стандартных рамках (см. UI/Overlay.lua)
 local overlayOptChk = MakeCheckRow(optPanel, hideOptChk, -8,
     "Показывать ХП/ресурс аддона на стандартных рамках (своей, цели, группы)",
@@ -132,6 +119,25 @@ local overlayHint = optPanel:CreateFontString(nil, "ARTWORK", "GameFontDisableSm
 overlayHint:SetPoint("TOPLEFT", overlayOptChk, "BOTTOMLEFT", 24, 0)
 overlayHint:SetText("Отключается сам в бою и на 5 секунд после урона вне боя " ..
     "— чтобы было видно настоящие значения.")
+
+-- Подмена АУР — отдельной настройкой от подмены чисел (см. UI/Overlay.lua).
+local auraOptChk = MakeCheckRow(optPanel, overlayHint, -10,
+    "Показывать эффекты аддона вместо игровых баффов/дебаффов (своих и цели)",
+    "blizzAuras",
+    function(val)
+        if SB.Overlay then
+            SB.Overlay.SetAurasEnabled(val)
+            SB.Overlay.Refresh()
+        end
+    end,
+    "SBOverlayAuraChk")   -- ищется из SB.Overlay.SetAurasEnabled
+
+local auraHint = optPanel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+auraHint:SetPoint("TOPLEFT", auraOptChk, "BOTTOMLEFT", 24, 0)
+auraHint:SetWidth(480)
+auraHint:SetJustifyH("LEFT")
+auraHint:SetText("Своя панель баффов прячется целиком. Ауры цели подменяются " ..
+    "только если у неё есть аддон и она делится состоянием — иначе там остаются игровые.")
 
 -- Синхронизировать все галочки и поля мин/макс с сохранённым
 -- состоянием. Вызывается ДВАЖДЫ намеренно: на SB_INIT (гарантированно
@@ -157,24 +163,13 @@ local function SyncOptionsFromDB()
     end
 
     if not db then return end
-    rtOptChk:SetChecked(db.realtimeEffects or false)
-    -- Право на реалтайм-симуляцию проверяем при КАЖДОМ показе панели:
-    -- лид могли передать, пока настройки были закрыты.
-    local isGM = SB.UI.IsGameMaster and SB.UI.IsGameMaster() or false
-    if isGM then
-        rtOptChk:Enable()
-        rtOptChk._lbl:SetTextColor(1, 1, 1)   -- цвет GameFontHighlight
-        rtOptHint:Hide()
-    else
-        rtOptChk:Disable()
-        rtOptChk._lbl:SetTextColor(0.5, 0.5, 0.5)
-        rtOptHint:Show()
-    end
     cauraOptChk:SetChecked(db.ignoreCaura or false)
     emoteOptChk:SetChecked(db.sendEmotes ~= false)
     hideOptChk:SetChecked(db.hideSystemMessages or false)
     -- Как и в SB.Overlay.IsEnabled: отсутствующее значение = включено.
     overlayOptChk:SetChecked(db.blizzOverlay ~= false)
+    -- А здесь наоборот: отсутствующее значение = выключено.
+    auraOptChk:SetChecked(db.blizzAuras == true)
 end
 
 local origOnShow = optPanel:GetScript("OnShow")
@@ -185,4 +180,153 @@ end)
 
 if SB.Events then
     SB.Events.On("SB_INIT", SyncOptionsFromDB)
+end
+-- ============================================================
+-- ВКЛАДКА: ПАНЕЛЬ СПОСОБНОСТЕЙ
+--
+-- Отдельной подкатегорией (panel.parent = "Spellbreaker"), а не пятью
+-- строками в общем списке: панель — это основной способ играть, у неё
+-- своя раскладка, свой замок и свои размеры, и в общем перечне они
+-- забивали всё остальное.
+--
+-- Все настройки применяются НЕМЕДЛЕННО, без «ОК»: панель видна прямо
+-- за окном настроек, и подбирать размер вслепую бессмысленно.
+-- ============================================================
+local barPanel = CreateFrame("Frame")
+barPanel.name   = "Панель способностей"
+barPanel.parent = optPanel.name
+InterfaceOptions_AddCategory(barPanel)
+
+local barTitle = barPanel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+barTitle:SetPoint("TOPLEFT", 16, -16)
+barTitle:SetText("Панель способностей")
+
+local barIntro = barPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+barIntro:SetPoint("TOPLEFT", barTitle, "BOTTOMLEFT", 0, -8)
+barIntro:SetWidth(500)
+barIntro:SetJustifyH("LEFT")
+barIntro:SetTextColor(0.6, 0.6, 0.6)
+barIntro:SetText("Ряд иконок вместо колонки карточек: то же самое, но по высоте " ..
+    "не больше игровой панели снизу. Работает независимо от большого окна.\n" ..
+    "ЛКМ — применить, ПКМ — карточка заклинания, Shift+ЛКМ — показать группе.")
+
+local barSep = barPanel:CreateTexture(nil, "ARTWORK")
+barSep:SetSize(500, 1)
+barSep:SetPoint("TOPLEFT", barIntro, "BOTTOMLEFT", 0, -14)
+barSep:SetColorTexture(0.3, 0.3, 0.3, 1)
+
+-- ── Галочки ─────────────────────────────────────────────────
+local barShowChk = MakeCheckRow(barPanel, barSep, -14,
+    "Показывать панель",
+    "spellBar",
+    function(val)
+        if SB.SpellBar then SB.SpellBar.SetEnabled(val) end
+    end,
+    "SBSpellBarChk")   -- ищется из SB.SpellBar.SetEnabled
+
+local barLockChk = MakeCheckRow(barPanel, barShowChk, -6,
+    "Запереть позицию",
+    "spellBarLocked",
+    function()
+        -- Ничего перерисовывать не нужно: замок читается в момент
+        -- начала перетаскивания (см. UI/SpellBar.lua).
+    end)
+
+local barMoveChk = MakeCheckRow(barPanel, barLockChk, -6,
+    "Показывать сводку слева",
+    "spellBarMove",
+    function()
+        if SB.SpellBar then SB.SpellBar.Relayout() end
+    end)
+
+local barMoveHint = barPanel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+barMoveHint:SetPoint("TOPLEFT", barMoveChk, "BOTTOMLEFT", 24, 0)
+barMoveHint:SetWidth(480)
+barMoveHint:SetJustifyH("LEFT")
+barMoveHint:SetText("По плашке на каждую строку иконок, врезаны в левый торец: " ..
+    "метры за ход, бросок атаки, бросок защиты, броня. Метры краснеют, когда " ..
+    "предел выбран, — в этот момент иконки рядом гаснут; в свободном ходе они " ..
+    "не считаются вовсе, и плашка исчезает вместе с местом под неё.")
+
+-- ── Ползунки ────────────────────────────────────────────────
+--- Ползунок с подписью и живым значением. Своей обёртки для них в теме
+--- нет: это единственные два во всём аддоне, и заводить ради них общий
+--- конструктор — больше кода, чем экономии.
+--- @param name string  ГЛОБАЛЬНОЕ имя обязательно: OptionsSliderTemplate
+---        ищет свои подписи как «$parentLow/High/Text», и у безымянного
+---        ползунка их попросту нет.
+--- @param setValue function(v)  применяется сразу, без «ОК»
+local function MakeSliderRow(parent, name, anchor, anchorY, label, lo, hi, getter, setter)
+    local s = CreateFrame("Slider", name, parent, "OptionsSliderTemplate")
+    s:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 4, anchorY)
+    s:SetWidth(220)
+    s:SetMinMaxValues(lo, hi)
+    s:SetValueStep(1)
+    s:SetObeyStepOnDrag(true)
+
+    -- Подписи концов и заголовок: в разных сборках клиента они лежат то
+    -- полями фрейма, то глобалями «$parentLow». Берём и то, и другое —
+    -- отсутствие подписи не должно ронять панель настроек.
+    local low  = s.Low  or _G[name .. "Low"]
+    local high = s.High or _G[name .. "High"]
+    local text = s.Text or _G[name .. "Text"]
+    if low  then low:SetText(tostring(lo))   end
+    if high then high:SetText(tostring(hi))  end
+
+    local function Sync(v)
+        if text then text:SetText(label .. ": |cFFFFD100" .. v .. "|r") end
+    end
+    s:SetScript("OnValueChanged", function(_, v)
+        v = math.floor(v + 0.5)
+        Sync(v)
+        setter(v)
+    end)
+    s._sync = function()
+        local v = getter()
+        s:SetValue(v)
+        Sync(v)
+    end
+    return s
+end
+
+local barSizeSlider = MakeSliderRow(barPanel, "SBSpellBarSizeSlider",
+    barMoveHint, -30,
+    "Размер иконок", SB.SpellBar.SIZE_MIN, SB.SpellBar.SIZE_MAX,
+    function() return SB.SpellBar.GetIconSize() end,
+    function(v)
+        if SpellbreakerAccountDB then SpellbreakerAccountDB.spellBarSize = v end
+        SB.SpellBar.Relayout()
+    end)
+
+local barRowsSlider = MakeSliderRow(barPanel, "SBSpellBarRowsSlider",
+    barSizeSlider, -34,
+    "Строк", SB.SpellBar.ROWS_MIN, SB.SpellBar.ROWS_MAX,
+    function() return SB.SpellBar.GetRows() end,
+    function(v)
+        if SpellbreakerAccountDB then SpellbreakerAccountDB.spellBarRows = v end
+        SB.SpellBar.Relayout()
+    end)
+
+local barRowsHint = barPanel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+barRowsHint:SetPoint("TOPLEFT", barRowsSlider, "BOTTOMLEFT", 0, -8)
+barRowsHint:SetWidth(480)
+barRowsHint:SetJustifyH("LEFT")
+barRowsHint:SetText("Сколько в строке — считается само от числа подготовленных: " ..
+    "это величина производная, и второй рычаг от того же спорил бы с первым.")
+
+local function SyncBarPanel()
+    local db = SpellbreakerAccountDB
+    if not db then return end
+    -- Панель включена ПО УМОЛЧАНИЮ — сравнение с false, а не «or false»
+    -- (см. SB.SpellBar.IsEnabled).
+    barShowChk:SetChecked(db.spellBar ~= false)
+    barLockChk:SetChecked(db.spellBarLocked == true)
+    barMoveChk:SetChecked(db.spellBarMove ~= false)
+    barSizeSlider._sync()
+    barRowsSlider._sync()
+end
+
+barPanel:SetScript("OnShow", SyncBarPanel)
+if SB.Events then
+    SB.Events.On("SB_INIT", SyncBarPanel)
 end

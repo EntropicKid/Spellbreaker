@@ -564,6 +564,8 @@ Add({
     isCantrip = false,
     resistable = true,
 	distance = 1.5,
+	-- «И от яда, и проклятий» — обе школы прямо из описания.
+	dispel = { "curse", "poison" },
 	scaling = {
 		hit    = { ["Милосердие"] = 1.5, ["Живучесть"] = 0.5 },
 	},
@@ -602,7 +604,10 @@ Add({
     resistable = true,
 	duration = 1,
     isConcentration = false,
-	distance = 4.5,
+	-- «Всех живых существ вокруг себя»: круг вокруг друида, цель не
+	-- нужна. Бафф ложится на тех, на ком сработало лечение.
+	distance = 0,
+	aoe = { radius = 4.5 },
     isHeal = true,
     buff = "eff_tranquility",
 	scaling = {

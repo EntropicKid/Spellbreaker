@@ -30,6 +30,27 @@ local FILTER_LABELS = {
 }
 local FILTER_CYCLE = { "all", "custom", "builtin" }
 
+-- Порог «клик, а не перетаскивание» — тот же, что у карточек главного
+-- окна (см. CLICK_SLOP в UI/MainFrame.lua): клиент начинает drag от пары
+-- пикселей, а начав его, обычного OnMouseUp уже не присылает.
+local CLICK_SLOP = 10
+
+--- Что делает нажатие на строку библиотеки. Отдельной функцией: то же
+--- самое приходится делать при разборе «дрожащего» перетаскивания.
+local function RowActivate(self, btn)
+    local sp = self.spellData
+    if not sp then return end
+    -- Shift+ЛКМ — показать заклинание группе кликабельной ссылкой
+    -- (см. SB.UI.ShareSpellLink).
+    if btn == "LeftButton" and IsShiftKeyDown() then
+        SB.UI.ShareSpellLink(sp)
+    elseif btn == "LeftButton" then
+        if SB.Library and SB.Library.ShowDetail then SB.Library.ShowDetail(sp) end
+    elseif btn == "RightButton" and sp.isCustom then
+        if SB.CustomSpells then SB.CustomSpells.OpenEdit(sp.id) end
+    end
+end
+
 -- ============================================================
 -- UpdateList
 -- ============================================================
@@ -45,7 +66,11 @@ function SB.Library.UpdateList()
     -- Фильтрация
     local filtered = {}
     for _, spell in pairs(SB.Data.Spells) do
-        if not spell.isContainer and spell.class ~= "Эффект" then
+        -- Круги выше реалмового потолка не показываем совсем: ранга,
+        -- который их открывает, здесь нет, и открыть его нечем
+        -- (см. SB.Data.IsOrderBeyondRealm).
+        if not spell.isContainer and spell.class ~= "Эффект"
+           and not SB.Data.IsOrderBeyondRealm(spell.level) then
             if spell.class == selectedClass then
                 local passFilter = true
                 if filterMode == "custom"  and not spell.isCustom then passFilter = false end
@@ -108,14 +133,22 @@ function SB.Library.UpdateList()
             row.icon = row:CreateTexture(nil, "ARTWORK")
             row.icon:SetSize(32, 32); row.icon:SetPoint("LEFT", 5, 0)
 
+            -- ОДНА СТРОКА И МНОГОТОЧИЕ. Строка в списке высотой 42
+            -- пикселя рассчитана ровно на две подписи — имя и
+            -- дескриптор. Длинное имя («Создание целебной пищи») с
+            -- переносом занимало две строки и наезжало на дескриптор,
+            -- превращая обе в кашу. Без переноса клиент сам обрывает
+            -- текст многоточием, а полное имя всё равно видно в карточке.
             row.name = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
             row.name:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 6, -2)
             row.name:SetWidth(147); row.name:SetJustifyH("LEFT")
+            row.name:SetWordWrap(false)
             row.name:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
 
             row.desc = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
             row.desc:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT", 6, 2)
             row.desc:SetWidth(147); row.desc:SetJustifyH("LEFT")
+            row.desc:SetWordWrap(false)
             row.desc:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
 
             row:SetScript("OnEnter", function(self)
@@ -130,24 +163,37 @@ function SB.Library.UpdateList()
             -- Drag-and-drop из библиотеки на главное окно
             row:RegisterForDrag("LeftButton")
             row:SetScript("OnDragStart", function(self)
-                if SB.UI.DragGhost then
-                    SB.UI.DragGhost.icon:SetTexture(self._iconPath)
-                    SB.UI.DragGhost.label:SetText(self.spellData.name or "?")
-                    SB.UI.DragGhost:Show()
-                    SB.UI.DragGhost:SetScript("OnUpdate", function(g)
-                        local x, y = GetCursorPosition()
-                        local s = UIParent:GetEffectiveScale()
-                        g:ClearAllPoints()
-                        g:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x/s, y/s)
-                    end)
-                end
+                self._dragX, self._dragY = GetCursorPosition()
                 SetCursor(self._iconPath or "Interface\\Icons\\INV_Misc_QuestionMark")
                 SB.DraggingSpell = self.spellData
+                -- Призрак ведёт себя одинаково и здесь, и на карточках
+                -- главного окна: он же и сторожит потерянный OnDragStop
+                -- (см. SB.UI.DragGhost в UI/MainFrame.lua). Уборка —
+                -- внутри Stop: там снимается и метка SB.DraggingSpell.
+                if SB.UI.DragGhost then
+                    SB.UI.DragGhost.Start(self._iconPath, self.spellData.name)
+                end
             end)
             row:SetScript("OnDragStop", function(self)
-                ResetCursor()
-                if SB.UI.DragGhost then SB.UI.DragGhost:Hide() end
-                if SB.DraggingSpell then
+                -- Метку читаем ДО остановки призрака: он её снимает.
+                local dragged = SB.DraggingSpell
+                if SB.UI.DragGhost then
+                    SB.UI.DragGhost.Stop()
+                else
+                    ResetCursor()
+                    SB.DraggingSpell = nil
+                end
+                -- Курсор почти не сдвинулся — это был клик, а не вынос
+                -- заклинания в окно (см. CLICK_SLOP).
+                local x, y = GetCursorPosition()
+                local dx   = x - (self._dragX or x)
+                local dy   = y - (self._dragY or y)
+                if dx * dx + dy * dy <= CLICK_SLOP * CLICK_SLOP then
+                    RowActivate(self, "LeftButton")
+                    return
+                end
+
+                if dragged then
                     -- Не «мышь над SpellbreakerMainFrame», а «мышь над
                     -- областью подготовки» — колонку «Способности» можно
                     -- открепить в отдельное окно, и тогда главного фрейма
@@ -159,25 +205,13 @@ function SB.Library.UpdateList()
                         over = SpellbreakerMainFrame and SpellbreakerMainFrame:IsMouseOver()
                     end
                     if over and SB.UI and SB.UI.PrepareSpell then
-                        SB.UI.PrepareSpell(SB.DraggingSpell)
+                        SB.UI.PrepareSpell(dragged)
                     end
                     SB.DraggingSpell = nil
                 end
             end)
 
-            row:SetScript("OnMouseUp", function(self, btn)
-                -- Shift+ЛКМ — показать заклинание группе кликабельной
-                -- ссылкой (см. SB.UI.ShareSpellLink).
-                if btn == "LeftButton" and IsShiftKeyDown() and self.spellData then
-                    SB.UI.ShareSpellLink(self.spellData)
-                elseif btn == "LeftButton" and self.spellData then
-                    if SB.Library and SB.Library.ShowDetail then
-                        SB.Library.ShowDetail(self.spellData)
-                    end
-                elseif btn == "RightButton" and self.spellData and self.spellData.isCustom then
-                    if SB.CustomSpells then SB.CustomSpells.OpenEdit(self.spellData.id) end
-                end
-            end)
+            row:SetScript("OnMouseUp", RowActivate)
 
             spellRows[rowIdx] = row
         end
@@ -249,22 +283,20 @@ function SB.Library.ShowDetail(spell)
         spell.key or "—")
     f.metaLeft:SetText(leftText)
 
-    -- Правая часть: только дальность
-    local distStr
-    local dist = spell.distance
-    if not dist or dist == 0 then
-        distStr = "На себя"
-    elseif dist == 1.5 then
-        distStr = "Ближний бой"
-    else
-        distStr = dist .. "м"
-    end
-    f.metaDistance:SetText("|cFFFFD100Дальность:|r " .. distStr)
+    -- Правая часть: только дальность. Действующая, с учётом эффектов —
+    -- см. SB.Logic.FormatSpellRange.
+    f.metaDistance:SetText("|cFFFFD100Дальность:|r " ..
+        SB.Logic.FormatSpellRange(spell))
 
     -- Площадь — ОТДЕЛЬНОЙ строкой под дальностью, а не приписью справа:
     -- в одну строку с дальностью она не помещалась и лезла на текст.
     local radius = SB.Logic.GetAoeRadius and SB.Logic.GetAoeRadius(spell) or 0
     if radius > 0 then
+        -- Где гремит площадь, карточка не подписывает: это однозначно
+        -- следует из дальности, которая стоит строкой выше (есть
+        -- дальность — в цели, «На себя» — вокруг себя, см.
+        -- SB.Logic.IsAoeAtTarget), а лишняя скобка на каждой карточке —
+        -- шум.
         f.metaArea:SetText(string.format("|cFFFF8844Область: %g м|r", radius))
     else
         f.metaArea:SetText("")

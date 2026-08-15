@@ -35,7 +35,12 @@
 -- состояние персонажа. Данные клиента не трогаются — только то, что
 -- нарисовано; выключение оверлея возвращает всё на место.
 --
--- Переключатель: галочка в настройках либо «/sb overlay».
+-- ВТОРАЯ ПОЛОВИНА МОДУЛЯ — подмена игровых баффов/дебаффов эффектами
+-- аддона (см. раздел «ОВЕРЛЕЙ АУР» ниже). Настройка у неё СВОЯ и по
+-- умолчанию выключена, «мирный режим» — общий.
+--
+-- Переключатели: галочки в настройках либо «/sb overlay» (числа) и
+-- «/sb overlay auras» (ауры).
 -- ============================================================
 local addonName, SB = ...
 SB.Overlay = SB.Overlay or {}
@@ -74,6 +79,24 @@ local FRAME_DEFS = {
         loss     = "TargetFrameHealthBarAnimatedLoss",
         hpAlt    = function() return TargetFrame and TargetFrame.healthbar end,
         powerAlt = function() return TargetFrame and TargetFrame.manabar   end,
+    },
+    {
+        -- ЦЕЛЬ ЦЕЛИ. Маленькая рамка справа от рамки цели, и по ней в
+        -- сцене читают ровно одно: кого сейчас бьёт тот, на кого ты
+        -- смотришь. С ванильными числами она этому и мешала — рядом
+        -- стояли две шкалы про одного и того же персонажа, и говорили
+        -- они разное.
+        --
+        -- ЧИСЛА ЗДЕСЬ НЕ ПИШЕМ (noText). Полоски двигаем — доля здоровья
+        -- на глаз и есть всё, что от этой рамки нужно, — а «3 / 8»
+        -- поверх неё не помещается: рамка вдвое меньше остальных, и
+        -- подпись налезала и на шкалу, и на портрет соседа.
+        unit     = "targettarget",
+        noText   = true,
+        hp       = "TargetFrameToTHealthBar",
+        power    = "TargetFrameToTManaBar",
+        hpAlt    = function() return TargetFrameToT and TargetFrameToT.healthbar end,
+        powerAlt = function() return TargetFrameToT and TargetFrameToT.manabar   end,
     },
 }
 
@@ -131,18 +154,47 @@ end
 --- Собственная строка поверх полоски. Своя, а не ванильная: показ
 --- ванильной завязан на CVar statusText (у многих он «не показывать»),
 --- и подменять текст, которого нет на экране, бессмысленно.
---- Родителя берём тот же, что у ванильной подписи: у рамки цели текст
---- живёт в TargetFrameTextureFrame поверх рамочного арта, и FontString,
---- созданная на самой полоске, ушла бы под него.
+---
+--- ВСЁ ОФОРМЛЕНИЕ КОПИРУЕТСЯ У ВАНИЛЬНОЙ ПОДПИСИ — родитель, шрифт,
+--- точки привязки, выравнивание. Раньше здесь стояли свои значения
+--- («по центру полосы, TextStatusBarText, белый»), и это промахивалось
+--- везде, кроме своей рамки: у каждой рамки подпись стоит по-своему —
+--- на рамке цели со сдвигом и поверх рамочного арта, на рамках группы
+--- прижата иначе, — а шрифт и тень заданы объектом шрифта, а не руками.
+--- Копируя, мы попадаем ровно туда, где ванильная строка и была бы, на
+--- любой рамке и в любой раскладке клиента.
+---
+--- Свои значения остаются запасным путём: если подписи у полоски нет
+--- вовсе (нестандартный клиент), ставим по центру, как и раньше.
 local function MakeText(bar)
-    local host = (bar.TextString and bar.TextString:GetParent()) or bar
-    local fs = host:CreateFontString(nil, "OVERLAY")
-    fs:SetFontObject(_G.TextStatusBarText or "GameFontHighlightSmall")
-    fs:SetPoint("CENTER", bar, "CENTER", 0, 0)
-    fs:SetJustifyH("CENTER")
-    fs:SetTextColor(1, 1, 1)
-    fs:SetShadowOffset(1, -1)
-    fs:SetShadowColor(0, 0, 0, 1)
+    local blizz = bar.TextString
+    local host  = (blizz and blizz:GetParent()) or bar
+    local fs    = host:CreateFontString(nil, "OVERLAY")
+
+    if blizz then
+        fs:SetFontObject(blizz:GetFontObject() or _G.TextStatusBarText)
+        -- Точек может быть несколько (например, растянутая по ширине
+        -- подпись) — переносим все, иначе строка «схлопнется» в точку.
+        local points = blizz:GetNumPoints() or 0
+        if points > 0 then
+            for i = 1, points do
+                fs:SetPoint(blizz:GetPoint(i))
+            end
+        else
+            fs:SetPoint("CENTER", bar, "CENTER", 0, 0)
+        end
+        fs:SetJustifyH(blizz:GetJustifyH() or "CENTER")
+        -- Цвет и тень НЕ трогаем: они пришли с объектом шрифта, и
+        -- перебивать их своими значило бы снова разойтись с клиентом.
+    else
+        fs:SetFontObject(_G.TextStatusBarText or "GameFontHighlightSmall")
+        fs:SetPoint("CENTER", bar, "CENTER", 0, 0)
+        fs:SetJustifyH("CENTER")
+        fs:SetTextColor(1, 1, 1)
+        fs:SetShadowOffset(1, -1)
+        fs:SetShadowColor(0, 0, 0, 1)
+    end
+
     fs:Hide()
     return fs
 end
@@ -152,7 +204,7 @@ local function BuildEntry(def)
     local powerBar = _G[def.power] or (def.powerAlt and def.powerAlt())
     if not hpBar and not powerBar then return nil end
 
-    local e = { unit = def.unit, applied = false, slots = {} }
+    local e = { unit = def.unit, applied = false, noText = def.noText == true, slots = {} }
     if hpBar then
         table.insert(e.slots, {
             bar  = hpBar,
@@ -220,14 +272,25 @@ end
 --- Спросить статус игрока, которого мы только что взяли в таргет.
 --- Сокомандников не трогаем: они рассылают STATUS сами. Частоту
 --- ограничивает сама сеть (см. SB.Net.ProbePlayerStatus).
-local function ProbeTarget()
-    if not SB.Overlay.IsEnabled() then return end
-    if not SB.Net or not SB.Net.ProbePlayerStatus then return end
-    if not UnitExists("target") or not UnitIsPlayer("target") then return end
-    if UnitIsUnit("target", "player") then return end
-    if UnitInParty("target") or UnitInRaid("target") then return end
-    local name = FullName("target")
+---
+--- Спрашиваем и про ЦЕЛЬ ЦЕЛИ: её рамка показывает те же числа, а сама
+--- она в группе бывает не всегда — чаще всего это как раз тот, с кем
+--- дерётся твоя цель.
+local function ProbeUnit(unit)
+    if not UnitExists(unit) or not UnitIsPlayer(unit) then return end
+    if UnitIsUnit(unit, "player") then return end
+    if UnitInParty(unit) or UnitInRaid(unit) then return end
+    local name = FullName(unit)
     if name then SB.Net.ProbePlayerStatus(name) end
+end
+
+local function ProbeTarget()
+    -- Спрашиваем, если работает хоть одна половина оверлея: аурам цели
+    -- нужен ровно тот же чужой статус, что и её числам.
+    if not SB.Overlay.IsEnabled() and not SB.Overlay.AreAurasEnabled() then return end
+    if not SB.Net or not SB.Net.ProbePlayerStatus then return end
+    ProbeUnit("target")
+    ProbeUnit("targettarget")
 end
 
 --- Догоняем сокомандников, про которых мы вообще ничего не знаем.
@@ -238,7 +301,7 @@ end
 --- используются, а 30 шёпотов разом — ровно тот шторм, от которого
 --- Core/Network.lua избавлялся.
 local function ProbeGroupGaps()
-    if not SB.Overlay.IsEnabled() then return end
+    if not SB.Overlay.IsEnabled() and not SB.Overlay.AreAurasEnabled() then return end
     if not SB.Net or not SB.Net.ProbePlayerStatus then return end
     if not IsInGroup() or IsInRaid() then return end
     local known = SB.Data.PlayersStatus or {}
@@ -270,6 +333,28 @@ function SB.Overlay.SetEnabled(v)
     if SBOverlayChk then SBOverlayChk:SetChecked(v) end
 end
 
+--- Подмена ванильных БАФФОВ/ДЕБАФФОВ эффектами аддона — настройка
+--- ОТДЕЛЬНАЯ от подмены чисел и выключена по умолчанию. Убрать с экрана
+--- всю панель баффов — вмешательство заметнее, чем поправить подпись на
+--- полоске, и включать его игрок должен сам.
+function SB.Overlay.AreAurasEnabled()
+    local db = SpellbreakerAccountDB
+    return db ~= nil and db.blizzAuras == true
+end
+
+function SB.Overlay.SetAurasEnabled(v)
+    v = v and true or false
+    if SpellbreakerAccountDB then
+        SpellbreakerAccountDB.blizzAuras = v
+    end
+    if SBOverlayAuraChk then SBOverlayAuraChk:SetChecked(v) end
+end
+
+function SB.Overlay.ToggleAuras()
+    SB.Overlay.SetAurasEnabled(not SB.Overlay.AreAurasEnabled())
+    return SB.Overlay.AreAurasEnabled()
+end
+
 function SB.Overlay.Toggle()
     SB.Overlay.SetEnabled(not SB.Overlay.IsEnabled())
     return SB.Overlay.IsEnabled()
@@ -280,14 +365,21 @@ function SB.Overlay.Suppress(seconds)
     suppressUntil = math.max(suppressUntil, GetTime() + (seconds or SUPPRESS_SECONDS))
 end
 
---- Должен ли оверлей быть виден прямо сейчас (общее условие на все рамки).
-local function ShouldBeActive()
-    if not SB.Overlay.IsEnabled() then return false end
+--- «Мирный режим»: время, когда аддон вправе занимать чужой интерфейс.
+--- Условие общее и для чисел, и для аур — отличаются они только своими
+--- переключателями.
+local function IsPeaceful()
     -- Модель ещё не поднялась (до ADDON_LOADED) — показывать нечего.
     if not SpellbreakerCharDB or not SB.PlayerModel then return false end
     if UnitAffectingCombat("player") then return false end
     if GetTime() < suppressUntil then return false end
     return true
+end
+
+--- Должен ли оверлей ЧИСЕЛ быть виден прямо сейчас (общее условие на все рамки).
+local function ShouldBeActive()
+    if not SB.Overlay.IsEnabled() then return false end
+    return IsPeaceful()
 end
 
 -- ============================================================
@@ -298,21 +390,43 @@ end
 -- SetValue не принял их за чужие и не ушёл в бесконечную рекурсию.
 local writing = false
 
+--- Показать долю аддона на полоске клиента.
+---
+--- ШКАЛУ (SetMinMaxValues) НЕ ТРОГАЕМ — только положение бегунка.
+--- Раньше здесь стояло bar:SetMinMaxValues(0, нашМаксимум), и это ломало
+--- накладки клиента, которые рисуются поверх полосок: полоска входящего
+--- лечения, полоска поглощения и полоска расхода маны считают свою
+--- ШИРИНУ В ПИКСЕЛЯХ как (величина / максимум полоски) * ширина полоски,
+--- а максимум спрашивают у самой полоски. Подменив 5000 маны на 12 очков
+--- аддона, мы заставляли клиент растянуть накладку в четыреста раз — та
+--- самая полоса ресурса на пол-экрана после каста лечения.
+---
+--- Пересчёт в долю чинит весь этот класс разом: у клиента остаются его
+--- настоящие числа, и любая чужая арифметика поверх полоски — хоть
+--- близзардовская, хоть из другого аддона — считает по ним верно.
 local function SetBar(bar, cur, maxVal)
     if not bar then return end
     if maxVal <= 0 then maxVal = 1 end
     cur = math.max(0, math.min(cur, maxVal))
 
+    local lo, hi = bar:GetMinMaxValues()
+    lo, hi = tonumber(lo) or 0, tonumber(hi) or 0
+    -- Клиент ещё не проставил шкалу (или у юнита её нет вовсе) — тогда
+    -- накладывать нечего: подпись с числами аддона и так на месте.
+    if hi <= lo then return end
+
+    local want = lo + (hi - lo) * (cur / maxVal)
+
     -- Уже стоит нужное — не пишем. У полоски здоровья игрока есть своя
     -- сглаживающая анимация, дёргающая SetValue каждый кадр; без этой
     -- проверки перехватчик ниже отвечал бы ей записью на каждый кадр.
-    local lo, hi = bar:GetMinMaxValues()
-    if lo == 0 and hi == maxVal and bar:GetValue() == cur then return end
+    -- Сравнение с допуском, а не точное: значение теперь дробное.
+    local now = tonumber(bar:GetValue()) or 0
+    if math.abs(now - want) <= (hi - lo) * 0.0005 then return end
 
     local prev = writing
     writing = true
-    bar:SetMinMaxValues(0, maxVal)
-    bar:SetValue(cur)
+    bar:SetValue(want)
     writing = prev
 end
 
@@ -420,19 +534,29 @@ local function ApplyEntry(e)
         if slot.kind == "health" then cur, mx = hp, hpMax else cur, mx = res, resMax end
         cur = tonumber(cur) or 0
         mx  = tonumber(mx)  or 0
-        -- Текст переписываем, только когда он реально изменился: тик идёт
-        -- десять раз в секунду на шесть рамок, а значения меняются раз в
-        -- несколько секунд. SetText на каждой из шестидесяти проверок —
-        -- это перерасчёт раскладки строки на ровном месте.
-        local txt = cur .. " / " .. mx
-        if slot.lastText ~= txt then
-            slot.lastText = txt
-            slot.fs:SetText(txt)
+        -- Рамка без подписи (цель цели, см. FRAME_DEFS): полоску двигаем,
+        -- числа не пишем вовсе. Своя строка при этом не просто пустая, а
+        -- скрытая — иначе она держала бы место и ловила мышь.
+        if e.noText then
+            slot.fs:Hide()
+        else
+            -- Текст переписываем, только когда он реально изменился: тик
+            -- идёт десять раз в секунду на шесть рамок, а значения
+            -- меняются раз в несколько секунд. SetText на каждой из
+            -- шестидесяти проверок — это перерасчёт раскладки строки на
+            -- ровном месте.
+            local txt = cur .. " / " .. mx
+            if slot.lastText ~= txt then
+                slot.lastText = txt
+                slot.fs:SetText(txt)
+            end
+            slot.fs:Show()
         end
-        slot.fs:Show()
-        -- Ванильные подписи гасим: иначе они лягут друг на друга с нашей.
-        -- И скрытием, и прозрачностью — одного Hide() не хватало, тень
-        -- глифов успевала проступить (см. GuardBlizzText).
+        -- Ванильные подписи гасим В ЛЮБОМ СЛУЧАЕ: полоска показывает
+        -- значения аддона, и ванильные числа рядом с ней говорили бы
+        -- о другом персонаже. И скрытием, и прозрачностью — одного
+        -- Hide() не хватало, тень глифов успевала проступить
+        -- (см. GuardBlizzText).
         ForEachBlizzText(slot.bar, function(fs)
             fs:SetAlpha(0)
             fs:Hide()
@@ -442,10 +566,508 @@ local function ApplyEntry(e)
     end
 end
 
+-- ============================================================
+-- ОВЕРЛЕЙ АУР: вместо ванильных баффов/дебаффов — эффекты аддона
+--
+-- ЗАЧЕМ. Панель баффов — второе место после рамок, куда игрок смотрит,
+-- не задумываясь. В отыгрыше на ней висит ровно то, что к отыгрышу
+-- отношения не имеет: еда, свитки, ауры паладина из настоящей игры. А
+-- то, что действительно висит на персонаже по правилам аддона, живёт в
+-- отдельном окне.
+--
+-- ЧТО ПОДМЕНЯЕТСЯ:
+--   своя панель — прячем ванильный BuffFrame целиком (и баффы, и
+--                 дебаффы) и рисуем на его месте свои иконки;
+--   рамка цели  — ванильные ауры цели прячем и рисуем эффекты аддона,
+--                 которые она сама разослала (SB.Data.PlayersStatus).
+--
+-- КОГДА НЕ ПОДМЕНЯЕТСЯ. Про цель нет данных аддона (нет аддона, не
+-- делится, ещё не ответила) — её ауры не трогаем вовсе, там остаются
+-- настоящие. Тот же принцип, что и у чисел на рамках.
+--
+-- Условие «мирного режима» общее с числами: в механическом бою и
+-- SUPPRESS_SECONDS после него на экране настоящие ауры. В бою они и
+-- нужны — там уже не отыгрыш.
+--
+-- ДАННЫЕ КЛИЕНТА НЕ ТРОГАЕМ: ванильные кнопки только прячутся, аур с
+-- персонажа никто не снимает. Выключение возвращает всё на место.
+--
+-- Настройка ОТДЕЛЬНАЯ от подмены чисел (blizzAuras) и по умолчанию
+-- выключена — см. SB.Overlay.AreAurasEnabled.
+-- ============================================================
+
+local AURA_SIZE    = 28    -- сторона иконки
+local AURA_GAP     = 4     -- зазор между иконками
+local AURA_PER_ROW = 10    -- сколько влезает в ряд, дальше перенос
+local AURA_ROW_GAP = 6     -- зазор между рядами
+
+local auraHosts        = nil     -- { player = Frame, target = Frame }
+local aurasApplied     = false   -- прячем ли сейчас свою ванильную панель
+local targetAurasHidden = false  -- то же для рамки цели
+local blizzBuffShown   = nil     -- какой BuffFrame был ДО нас
+
+--- Подсказка на иконке: то же, что в сетке эффектов аддона, но короче —
+--- здесь нужен ответ «что это и сколько ещё висит», а не полная карточка.
+local function AuraTooltip(self)
+    local sp = SB.Data.Spells and SB.Data.Spells[self._spellID]
+    GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+    GameTooltip:SetText((sp and sp.name) or tostring(self._spellID), 1, 0.82, 0)
+
+    local lines = SB.ActiveEffects and SB.ActiveEffects.GetEffectLines
+        and SB.ActiveEffects.GetEffectLines(self._spellID) or {}
+    for _, line in ipairs(lines) do
+        GameTooltip:AddLine(line, 1, 1, 1, true)
+    end
+
+    -- Бессрочный эффект хранит отрицательное число применений (снимается
+    -- только Долгим Отдыхом) — числом на иконке он и не подписан.
+    if self._uses and self._uses >= 0 then
+        GameTooltip:AddLine("Осталось применений: |cFFFFD100" .. self._uses .. "|r", 1, 1, 1)
+    else
+        GameTooltip:AddLine("Бессрочно — до Долгого Отдыха", 1, 0.82, 0)
+    end
+    if self._isConc then
+        GameTooltip:AddLine("|cFF22BFFFКонцентрация|r", 1, 1, 1)
+    end
+    GameTooltip:Show()
+end
+
+local function MakeAuraIcon(host)
+    local b = CreateFrame("Button", nil, host)
+    b:SetSize(AURA_SIZE, AURA_SIZE)
+
+    -- Рамка цветом типа эффекта — сплошной подложкой чуть больше иконки.
+    -- Цвета берём у сетки эффектов (SB.ActiveEffects.KindColor), чтобы
+    -- «синее — концентрация, красное — дебафф» читалось одинаково и в
+    -- окне аддона, и здесь.
+    b.border = b:CreateTexture(nil, "BACKGROUND")
+    b.border:SetPoint("TOPLEFT", -1, 1)
+    b.border:SetPoint("BOTTOMRIGHT", 1, -1)
+
+    b.icon = b:CreateTexture(nil, "ARTWORK")
+    b.icon:SetAllPoints()
+    b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+    b.count = b:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+    b.count:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", 2, 0)
+
+    b:SetScript("OnEnter", AuraTooltip)
+    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return b
+end
+
+--- Отпечаток списка эффектов: по нему видно, изменилось ли что-нибудь с
+--- прошлого тика. Тик идёт десять раз в секунду, а эффекты меняются раз
+--- в ход — перекладывать иконки на каждый тик незачем.
+local function AuraSignature(list)
+    local parts = {}
+    for _, eff in ipairs(list or {}) do
+        parts[#parts + 1] = tostring(eff.spellID) .. ":" .. tostring(eff.uses) ..
+            (eff.isConc and "c" or "")
+    end
+    return table.concat(parts, "|")
+end
+
+--- Раскладывает список эффектов по иконкам хоста. Иконки переиспользуются:
+--- эффекты меняются каждый ход, а создавать фреймы на ход — расточительно.
+local function LayoutAuraHost(host, list)
+    local sig = AuraSignature(list)
+    if host.sig == sig then return end
+    host.sig = sig
+
+    local n = 0
+    for _, eff in ipairs(list or {}) do
+        local spellID = eff and eff.spellID
+        local sp      = spellID and SB.Data.Spells and SB.Data.Spells[spellID]
+        -- Неизвестный spellID (чужая кастомка, которой у нас нет)
+        -- пропускаем: иконки для него всё равно нет.
+        if sp then
+            n = n + 1
+            local b = host.icons[n] or MakeAuraIcon(host)
+            host.icons[n] = b
+
+            b._spellID = spellID
+            b._uses    = tonumber(eff.uses)
+            b._isConc  = eff.isConc == true
+
+            b.icon:SetTexture(sp.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+            local c = SB.ActiveEffects.KindColor(spellID, b._isConc)
+            b.border:SetColorTexture(c[1], c[2], c[3], c[4] or 1)
+            -- Число — это «сколько ходов ещё висит». У бессрочного
+            -- эффекта uses отрицательный, и подписи он не получает.
+            b.count:SetText((b._uses and b._uses >= 0) and tostring(b._uses) or "")
+
+            local col = (n - 1) % AURA_PER_ROW
+            local row = math.floor((n - 1) / AURA_PER_ROW)
+            local dx  = col * (AURA_SIZE + AURA_GAP)
+            local dy  = -row * (AURA_SIZE + AURA_ROW_GAP)
+            b:ClearAllPoints()
+            if host.growLeft then
+                b:SetPoint("TOPRIGHT", host, "TOPRIGHT", -dx, dy)
+            else
+                b:SetPoint("TOPLEFT", host, "TOPLEFT", dx, dy)
+            end
+            b:Show()
+        end
+    end
+    for i = n + 1, #host.icons do host.icons[i]:Hide() end
+    return n
+end
+
+--- Хосты создаём лениво и привязываем к ванильным рамкам, а не к экрану:
+--- игрок мог двигать и панель баффов, и рамку цели (в том числе чужим
+--- аддоном), и наши иконки должны ехать за ними.
+---
+--- Родитель — UIParent, а не сама ванильная рамка: её мы прячем, а дети
+--- скрытого фрейма скрываются вместе с ним.
+local function EnsureAuraHosts()
+    if auraHosts then return auraHosts end
+    auraHosts = {}
+
+    local p = CreateFrame("Frame", nil, UIParent)
+    p:SetSize(1, 1)
+    p.icons, p.growLeft = {}, true
+    if _G.BuffFrame then
+        p:SetPoint("TOPRIGHT", _G.BuffFrame, "TOPRIGHT", 0, 0)
+    else
+        -- Запасной якорь на случай, если панели баффов на этом клиенте
+        -- нет под привычным именем: те же отступы, что у неё самой.
+        p:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -205, -13)
+    end
+    p:Hide()
+    auraHosts.player = p
+
+    local t = CreateFrame("Frame", nil, UIParent)
+    t:SetSize(1, 1)
+    t.icons, t.growLeft = {}, false
+    if _G.TargetFrame then
+        t:SetPoint("TOPLEFT", _G.TargetFrame, "BOTTOMLEFT", 20, -2)
+    else
+        t:SetPoint("TOPLEFT", UIParent, "CENTER", 0, 0)
+    end
+    t:Hide()
+    auraHosts.target = t
+
+    return auraHosts
+end
+
+-- ── Ванильные ауры: спрятать и вернуть ───────────────────────
+
+--- Клиент показывает панель баффов заново по своим событиям — держим
+--- её скрытой тем же приёмом, что и ванильные подписи (GuardBlizzText).
+local function GuardBlizzAuraFrame(frame)
+    if not frame or frame.__sbAuraGuarded then return end
+    frame.__sbAuraGuarded = true
+    local function guard(self)
+        if aurasApplied then self:Hide() end
+    end
+    hooksecurefunc(frame, "Show", guard)
+    if frame.SetShown then
+        hooksecurefunc(frame, "SetShown", function(self, shown)
+            if shown then guard(self) end
+        end)
+    end
+end
+
+local function SetOwnBlizzAuras(hidden)
+    local bf = _G.BuffFrame
+    if not bf then return end
+
+    if hidden then
+        if not aurasApplied then
+            -- Запоминаем состояние ДО нас: панель могла быть скрыта и
+            -- чужим аддоном, и возвращать её «всегда показанной» нельзя.
+            blizzBuffShown = bf:IsShown()
+            GuardBlizzAuraFrame(bf)
+            aurasApplied = true
+        end
+        bf:Hide()
+    elseif aurasApplied then
+        aurasApplied = false   -- ДО Show(), иначе страж спрячет обратно
+        if blizzBuffShown ~= false then bf:Show() end
+    end
+end
+
+-- Кнопки аур на рамке цели создаются клиентом по мере надобности и
+-- живут под предсказуемыми именами. Потолки — ванильные BUFF_MAX_DISPLAY
+-- и DEBUFF_MAX_DISPLAY; берём их у клиента, если он их объявил.
+local function ForEachTargetAuraButton(fn)
+    for i = 1, (_G.BUFF_MAX_DISPLAY or 32) do
+        local b = _G["TargetFrameBuff" .. i]
+        if b then fn(b) end
+    end
+    for i = 1, (_G.DEBUFF_MAX_DISPLAY or 16) do
+        local b = _G["TargetFrameDebuff" .. i]
+        if b then fn(b) end
+    end
+end
+
+local function HideTargetBlizzAuras()
+    ForEachTargetAuraButton(function(b) b:Hide() end)
+end
+
+-- Взводится, если вернуть ауры цели попросили в бою: дёргать ванильную
+-- функцию оттуда нельзя, и возврат откладывается до выхода из боя.
+local pendingTargetRestore = false
+
+--- Возврат ванильных аур цели: не показываем кнопки руками, а просим
+--- клиент пересобрать их сам — он один знает, каких аур сейчас сколько.
+---
+--- В БОЮ НЕ ЗОВЁМ. Рамка цели защищённая, а вызов кода Blizzard из
+--- аддона «пачкает» его (taint) — в бою это оборачивается «Interface
+--- action failed because of an AddOn». Ждём выхода из боя; сами по себе
+--- ауры в бою всё равно пересобираются на каждое изменение.
+local function RestoreTargetBlizzAuras()
+    if InCombatLockdown() then
+        pendingTargetRestore = true
+        return
+    end
+    pendingTargetRestore = false
+    if type(_G.TargetFrame_UpdateAuras) == "function" and _G.TargetFrame then
+        pcall(_G.TargetFrame_UpdateAuras, _G.TargetFrame)
+    end
+end
+
+-- Клиент пересобирает ауры цели на каждое их изменение и на смену цели —
+-- после каждой пересборки прячем их заново.
+if type(_G.TargetFrame_UpdateAuras) == "function" then
+    hooksecurefunc("TargetFrame_UpdateAuras", function(self)
+        if targetAurasHidden and self == _G.TargetFrame then
+            HideTargetBlizzAuras()
+        end
+    end)
+end
+
+--- Эффекты аддона, висящие на цели. nil — данных нет (нет аддона, не
+--- делится, ещё не ответила): такую рамку не трогаем.
+local function TargetAddonAuras()
+    if not UnitExists("target") or not UnitIsPlayer("target") then return nil end
+    if UnitIsUnit("target", "player") then
+        return SB.ActiveEffects and SB.ActiveEffects.GetAll() or nil
+    end
+
+    local name = FullName("target")
+    local st   = name and SB.Data.PlayersStatus and SB.Data.PlayersStatus[name]
+    -- Запись есть — значит аддон у неё есть и список актуален; пустой
+    -- список означает «эффектов нет», а не «данных нет».
+    if not st then return nil end
+    return st.activeEffects or {}
+end
+
+--- Тот же принцип, что у чисел: накладываем заново каждый тик, потому
+--- что клиент в любой момент показывает свои ауры обратно.
+local function RefreshAuras()
+    -- Свой переключатель, но тот же «мирный режим»: подмена чисел может
+    -- быть выключена, а подмена аур — работать, и наоборот.
+    local want = SB.Overlay.AreAurasEnabled() and IsPeaceful()
+
+    -- Ни разу не включали — не трогаем чужой интерфейс вовсе.
+    if not want and not auraHosts then return end
+    local hosts = EnsureAuraHosts()
+
+    if want then
+        LayoutAuraHost(hosts.player, SB.ActiveEffects and SB.ActiveEffects.GetAll())
+        hosts.player:Show()
+        SetOwnBlizzAuras(true)
+    else
+        hosts.player:Hide()
+        SetOwnBlizzAuras(false)
+    end
+
+    local list = want and TargetAddonAuras() or nil
+    if list then
+        LayoutAuraHost(hosts.target, list)
+        hosts.target:Show()
+        targetAurasHidden = true
+        HideTargetBlizzAuras()
+    else
+        hosts.target:Hide()
+        if targetAurasHidden or pendingTargetRestore then
+            targetAurasHidden = false
+            RestoreTargetBlizzAuras()
+        end
+    end
+end
+
+-- ============================================================
+-- ОТМЕТКИ ХОДА НА РАМКАХ ГРУППЫ
+--
+-- В пошаговом режиме главный вопрос к составу — «кто уже отходил». В
+-- панели Ведущего это видно, но смотреть туда посреди боя приходится
+-- всем и постоянно, а рамки группы и так перед глазами.
+--
+-- ЗНАЧКИ ВЗЯТЫ У ПРОВЕРКИ ГОТОВНОСТИ, и это не экономия на текстурах:
+-- зелёная галочка и красный отказ на рамке уже означают ровно то, что
+-- нужно, — «этот ответил» и «этот нет», — и объяснять их никому не надо.
+--   галочка — походил сам;
+--   отказ   — хода лишился: Ведущий передал очередь дальше.
+--
+-- НАСТОЯЩАЯ ПРОВЕРКА ГОТОВНОСТИ ИМЕЕТ ПРИОРИТЕТ. Пока она идёт, свои
+-- отметки убираем целиком: те же значки в тех же местах означали бы в
+-- этот момент совсем другое, и перепутать их — вопрос секунды.
+--
+-- «МИРНЫЙ РЕЖИМ» ЗДЕСЬ НЕ ДЕЙСТВУЕТ, в отличие от чисел и аур. Числа
+-- уступают дорогу настоящему бою, потому что в нём важнее ванильное
+-- здоровье; очередь ходов в бою важна ровно так же, как вне его, — иначе
+-- отметки пропадали бы в тот единственный момент, ради которого нужны.
+-- ============================================================
+
+-- Размер разный, и это не придирка: на портрете своей рамки и рамки
+-- группы значок висит поверх крупного арта и с 22 пикселей теряется, а
+-- в компактной рейдовой рамке высотой в полсотни пикселей он ровно на
+-- своём месте.
+local ICON_SIZE_CLASSIC = 34
+local ICON_SIZE_COMPACT = 24
+local ICON_ACTED     = "Interface\\RaidFrame\\ReadyCheck-Ready"
+local ICON_SKIPPED   = "Interface\\RaidFrame\\ReadyCheck-NotReady"
+
+-- Сколько ещё молчать после проверки готовности: клиент держит её
+-- результат на рамках несколько секунд, и влезать в это время нельзя.
+local READY_CHECK_LINGER = 6
+local readyCheckUntil = 0
+
+local turnIcons = nil   -- [рамка] = наш значок
+
+--- Что показать по этому имени: "acted" | "skipped" | nil.
+local function TurnMarkFor(name)
+    local TO = SB.TurnOrder
+    if not name or not TO or not TO.IsActive() then return nil end
+    if TO.WasSkipped(name) then return "skipped" end
+    if TO.HasActed(name)   then return "acted"   end
+    return nil
+end
+
+--- Рамки, на которых имеет смысл рисовать отметку.
+---
+--- ПЕРЕЧИСЛЯЕМ ВСЕ, А НЕ ТОЛЬКО ЗАНЯТЫЕ. Компактная рамка, освободившаяся
+--- после выхода игрока из рейда, теряет свой unit — и если пропускать
+--- такие, значок на ней просто некому будет спрятать: он останется
+--- висеть в пустоте. Поэтому unit передаём каким есть, хоть nil, а
+--- решает уже вызываемый.
+---
+--- @param fn function(ownerFrame, unit, anchorTo, size)
+---        anchorTo — К ЧЕМУ привязывать значок. У своей рамки и рамок
+---        группы это ПОРТРЕТ: в центре рамки значок ложится на полоски и
+---        читается плохо, а на портрете он ровно там, где игрок и ищет
+---        отметку готовности.
+local function EachUnitFrame(fn)
+    if PlayerFrame then
+        fn(PlayerFrame, "player",
+           _G.PlayerPortrait or PlayerFrame.portrait or PlayerFrame, ICON_SIZE_CLASSIC)
+    end
+    for i = 1, (MAX_PARTY_MEMBERS or 4) do
+        local f = _G["PartyMemberFrame" .. i]
+        if f then
+            fn(f, "party" .. i,
+               _G["PartyMemberFrame" .. i .. "Portrait"] or f.portrait or f,
+               ICON_SIZE_CLASSIC)
+        end
+    end
+    for i = 1, 40 do
+        local f = _G["CompactRaidFrame" .. i]
+        if f then fn(f, f.unit, f, ICON_SIZE_COMPACT) end
+    end
+    for i = 1, 5 do
+        local f = _G["CompactPartyFrameMember" .. i]
+        if f then fn(f, f.unit, f, ICON_SIZE_COMPACT) end
+    end
+end
+
+--- Значок живёт на UIParent и лишь ПРИВЯЗАН к рамке, а не сделан её
+--- ребёнком. Рамки юнитов защищённые, и не трогать их дочерний список
+--- вовсе — самый дешёвый способ не поймать taint в бою.
+local function EnsureTurnIcon(frame, anchorTo, size)
+    turnIcons = turnIcons or {}
+    local icon = turnIcons[frame]
+    if not icon then
+        icon = CreateFrame("Frame", nil, UIParent)
+        icon.tex = icon:CreateTexture(nil, "OVERLAY")
+        icon.tex:SetAllPoints()
+        icon:Hide()
+        turnIcons[frame] = icon
+    end
+
+    -- СЛОЙ БЕРЁМ У САМОЙ РАМКИ, а не задаём константой.
+    --
+    -- Значок обязан лежать выше своей рамки — и не выше чего бы то ни
+    -- было ещё. Пока здесь стояло жёсткое "HIGH", галочки и крестики
+    -- всплывали поверх окон аддона: главное окно тоже HIGH, а значок,
+    -- созданный позже, оказывался над ним — и висел прямо на карточках
+    -- атрибутов, ничего не помечая.
+    --
+    -- Читать чужой слой безопасно: taint даёт запись в защищённую рамку,
+    -- а не чтение из неё (свои значения мы ставим на СВОЙ фрейм).
+    -- Уровень с запасом: у рамки поверх портрета лежат ещё её
+    -- собственные слои, и +5 гарантированно выше них, оставаясь ниже
+    -- любого окна из старшего слоя.
+    local host = anchorTo or frame
+    if host.GetFrameStrata then
+        icon:SetFrameStrata(host:GetFrameStrata() or "MEDIUM")
+    end
+    if host.GetFrameLevel then
+        icon:SetFrameLevel((host:GetFrameLevel() or 0) + 5)
+    end
+
+    -- Размер и привязку задаём каждый раз: якорь может появиться позже
+    -- самой рамки (портрет создаётся вместе с ней, но глобаль под него
+    -- на разных клиентах называется по-разному).
+    icon:SetSize(size, size)
+    icon:ClearAllPoints()
+    icon:SetPoint("CENTER", anchorTo, "CENTER", 0, 0)
+    return icon
+end
+
+local function HideAllTurnIcons()
+    if not turnIcons then return end
+    for _, icon in pairs(turnIcons) do icon:Hide() end
+end
+
+local function RefreshTurnMarks()
+    local want = SB.Overlay.IsEnabled()
+        and SB.TurnOrder and SB.TurnOrder.IsActive()
+        and GetTime() >= readyCheckUntil
+
+    if not want then
+        HideAllTurnIcons()
+        return
+    end
+
+    EachUnitFrame(function(frame, unit, anchorTo, size)
+        -- Значок висит на UIParent и о судьбе своей рамки сам не узнает,
+        -- поэтому все причины «показывать нечего» проверяем здесь:
+        -- рамка скрыта (пустой слот группы, спрятанный интерфейс),
+        -- освободилась после выхода игрока (unit стал nil) или там уже
+        -- не игрок.
+        local mark
+        if unit and frame:IsVisible() and UnitExists(unit) and UnitIsPlayer(unit) then
+            -- Имя КОРОТКОЕ: очередь ходов ключуется тем же UnitName, что и
+            -- список участников (см. Participants в Core/TurnOrder.lua).
+            mark = TurnMarkFor(UnitName(unit))
+        end
+
+        local existing = turnIcons and turnIcons[frame]
+        if not mark then
+            if existing then existing:Hide() end
+            return
+        end
+
+        local icon = EnsureTurnIcon(frame, anchorTo, size)
+        icon.tex:SetTexture(mark == "skipped" and ICON_SKIPPED or ICON_ACTED)
+        icon:Show()
+    end)
+end
+
 --- Единственная точка смены состояния — и переключатель, и таймер
 --- подавления, и боевой флаг ходят через неё.
 local function Refresh()
     local want = ShouldBeActive()
+
+    -- Ауры — отдельная настройка и отдельный проход: их подменяют без
+    -- оглядки на то, включена ли подмена чисел.
+    RefreshAuras()
+    -- Отметки хода — третий независимый проход: у них своё условие
+    -- («идёт пошаговый режим»), не связанное с мирным режимом.
+    RefreshTurnMarks()
 
     -- Пока оверлей ни разу не включался, рамки даже не разбираем: до
     -- ADDON_LOADED их может ещё не быть, а трогать чужой UI без нужды
@@ -485,7 +1107,14 @@ driver:RegisterEvent("PLAYER_ENTERING_WORLD")
 driver:RegisterEvent("PLAYER_REGEN_DISABLED")
 driver:RegisterEvent("PLAYER_REGEN_ENABLED")
 driver:RegisterEvent("PLAYER_TARGET_CHANGED")
+-- Цель СМЕНИЛА цель: рамка «цель цели» показывает уже другого игрока, и
+-- про него нужно спросить статус так же, как про саму цель.
+driver:RegisterUnitEvent("UNIT_TARGET", "target")
 driver:RegisterEvent("GROUP_ROSTER_UPDATE")
+-- Проверка готовности: пока она идёт, свои отметки хода убираем — те же
+-- значки в тех же местах означали бы совсем другое (см. RefreshTurnMarks).
+driver:RegisterEvent("READY_CHECK")
+driver:RegisterEvent("READY_CHECK_FINISHED")
 driver:RegisterUnitEvent("UNIT_HEALTH", "player")
 -- UNIT_HEALTH_FREQUENT есть не на всех клиентах: ловим падение здоровья
 -- как можно раньше там, где оно есть, и обходимся без него там, где нет.
@@ -498,14 +1127,29 @@ driver:SetScript("OnEvent", function(_, event)
         -- даём клиенту устояться, прежде чем что-то подменять.
         SB.Overlay.Suppress(2)
 
-    elseif event == "PLAYER_TARGET_CHANGED" then
+    elseif event == "PLAYER_TARGET_CHANGED" or event == "UNIT_TARGET" then
         ProbeTarget()
 
     elseif event == "GROUP_ROSTER_UPDATE" then
+        -- Состав изменился — рамки под ним перетасуются, и значок,
+        -- привязанный к освободившейся рамке, окажется в пустоте.
+        -- Гасим все разом: ближайший тик покажет заново то, что нужно.
+        HideAllTurnIcons()
         -- С задержкой: сначала пусть дойдут обычные рассылки STATUS
         -- (Network.lua шлёт их через 0.5-2с после того же события), и
         -- спрашивать останется только тех, кто действительно молчит.
         C_Timer.After(4, ProbeGroupGaps)
+
+    elseif event == "READY_CHECK" then
+        -- Своё окно молчания с запасом: клиент даёт на ответ полминуты,
+        -- а событие об окончании придёт и снимет запрет раньше.
+        readyCheckUntil = GetTime() + 60
+        HideAllTurnIcons()
+
+    elseif event == "READY_CHECK_FINISHED" then
+        -- Не сразу: результат проверки висит на рамках ещё несколько
+        -- секунд, и влезать в это время своими значками нельзя.
+        readyCheckUntil = GetTime() + READY_CHECK_LINGER
 
     elseif event == "PLAYER_REGEN_DISABLED" then
         -- Вошли в бой: до его конца на рамках настоящие цифры.
@@ -541,3 +1185,6 @@ SB.Events.On(SB.E.PLAYER_MODEL_CHANGED,   Refresh)
 SB.Events.On(SB.E.ACTIVE_EFFECTS_CHANGED, Refresh)
 -- Пришёл чужой статус — на рамке цели/группы появились новые числа.
 SB.Events.On(SB.E.PLAYERS_STATUS_UPDATED, Refresh)
+-- Очередь сдвинулась — отметки на рамках должны переехать сразу, а не
+-- через тик: «походил» видно по чужой рамке в тот же миг.
+SB.Events.On(SB.E.TURN_ORDER_CHANGED,     Refresh)

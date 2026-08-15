@@ -25,6 +25,9 @@ local C  -- shortcut к палитре
 -- чем UpdateSpellCards, и локаль, объявленная там, для них была бы
 -- глобальной (то есть nil навсегда).
 local cardsDirty = false
+-- Карточка, которую сейчас тащат мышью, либо nil. Пока она не nil,
+-- пересборка карточек ОТКЛАДЫВАЕТСЯ — см. SB.UI.UpdateSpellCards.
+local draggingCard = nil
 local function CardsVisible()
     if sbFrame and sbFrame:IsShown() then return true end
     return (abilColumn and not abilColumn.isDocked and abilColumn:IsShown()) or false
@@ -466,10 +469,16 @@ local function BuildMainFrame()
         -- «Особенности класса (вне боя)» (SoftBonusKeys) — но health и
         -- resource входят в ОБА набора, и класс с -1 здоровья честно
         -- показывал минус дважды, будто их два разных.
+        -- Порядок перечисления, он же ФИЛЬТР: рычага нет в списке —
+        -- значит его не видно вовсе, как бы он ни был выставлен в
+        -- профиле. Так из подсказки и выпало передвижение: moveCap есть
+        -- у Таурена, Воргена, Разбойника и Охотника, честно работает
+        -- (см. SB.Movement.GetDefaultCap), но здесь его не перечислили —
+        -- и +6 метров таурену игрок нигде не видел.
         local ROW_ORDER = {
             "health", "resource", "attack", "defense",
             "prepared", "rollFloor", "armor", "skillPoints",
-            "restHeal", "restCharges",
+            "restHeal", "restCharges", "moveCap",
         }
         local EXTRA_LABELS = {
             attack   = "Бросок атаки",
@@ -534,10 +543,10 @@ local function BuildMainFrame()
     end)
     portFrame:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    healthBar = SB.Theme.Bar(header, 155, 15, "health")
-    healthBar:SetPoint("TOPLEFT", portFrame, "TOPRIGHT", 8, -10)
+    healthBar = SB.Theme.Bar(header, 155, 13, "health")
+    healthBar:SetPoint("TOPLEFT", portFrame, "TOPRIGHT", 8, -20)
  
-    manaBar = SB.Theme.Bar(header, 155, 15, "mana")
+    manaBar = SB.Theme.Bar(header, 155, 13, "mana")
     manaBar:SetPoint("TOPLEFT", healthBar, "BOTTOMLEFT", 0, -4)
     manaBar:EnableMouse(true)
     manaBar:SetScript("OnEnter", function(self)
@@ -1006,7 +1015,9 @@ local function BuildMainFrame()
                 return
             end
             if link:match("^sbamt:") then
-                -- Ссылка на урон/исцеление — разбивка по наводке.
+                -- Ссылка урона со старого клиента: сам аддон её больше не
+                -- делает (см. SB.UI.AmountText), но пришедшую гасим —
+                -- иначе клик по ней уйдёт в обработчик предметов.
                 return
             end
         end
@@ -1014,6 +1025,19 @@ local function BuildMainFrame()
     end
  
     -- ── Призрак перетаскивания ────────────────────────────────
+    --
+    -- СТОРОЖ. OnDragStop приходит НЕ ВСЕГДА. Если фрейм, который тащат,
+    -- в этот момент спрятали (а пересборка карточек прячет их все —
+    -- см. UpdateSpellCards), клиент теряет перетаскивание и обработчик
+    -- не вызывается вовсе. Тогда призрак оставался висеть на курсоре, а
+    -- вместе с ним клиент считал левую кнопку зажатой — клики не
+    -- проходили до /reload. Закономерности в этом не видно: всё зависит
+    -- от того, пришло ли за полсекунды перетаскивания какое-нибудь
+    -- событие (чужой статус, тик эффекта, смена хода).
+    --
+    -- Причину убирает отложенная пересборка, а сторож ниже — страховка
+    -- на все остальные способы потерять OnDragStop: кнопку отпустили, а
+    -- нас не остановили — прибираемся сами.
     SB.UI.DragGhost = (function()
         local g = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
         g:SetSize(160, 36)
@@ -1029,6 +1053,54 @@ local function BuildMainFrame()
         g.label:SetJustifyH("LEFT")
         g:EnableMouse(false)
         g:Hide()
+
+        -- Скрытый фрейм OnUpdate не получает, так что обработчик можно
+        -- поставить один раз навсегда: пока призрака не видно, он ничего
+        -- не стоит.
+        g:SetScript("OnUpdate", function(self)
+            local x, y = GetCursorPosition()
+            local s = UIParent:GetEffectiveScale()
+            self:ClearAllPoints()
+            self:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x / s, y / s)
+
+            -- Кнопка отпущена, а Stop никто не позвал. Двум кадрам форы
+            -- достаточно, чтобы нормальный OnDragStop успел сработать
+            -- сам; дальше считаем перетаскивание потерянным.
+            if IsMouseButtonDown("LeftButton") then
+                self.lostFrames = 0
+            else
+                self.lostFrames = (self.lostFrames or 0) + 1
+                if self.lostFrames > 2 then g.Stop() end
+            end
+        end)
+
+        --- Показать призрак. onStop — уборка того, кто начал таскать:
+        --- вызовется и при обычном завершении, и по сторожу.
+        function g.Start(iconPath, label, onStop)
+            g.icon:SetTexture(iconPath or "Interface\\Icons\\INV_Misc_QuestionMark")
+            g.label:SetText(label or "?")
+            g.onStop     = onStop
+            g.lostFrames = 0
+            g:Show()
+        end
+
+        --- Убрать призрак. Идемпотентна: звать можно и из OnDragStop, и
+        --- из сторожа, и оба раза подряд.
+        function g.Stop()
+            if not g:IsShown() then return end
+            g:Hide()
+            local fn = g.onStop
+            g.onStop = nil
+            -- Курсор мог быть подменён иконкой (так делает библиотека);
+            -- вернуть стрелку безопасно в любом случае — ResetCursor
+            -- трогает только картинку, а не то, что «лежит» на курсоре.
+            ResetCursor()
+            -- Перетаскивание из библиотеки помечает себя глобально;
+            -- потерянный OnDragStop оставлял метку висеть навсегда.
+            SB.DraggingSpell = nil
+            if fn then pcall(fn) end
+        end
+
         return g
     end)()
 
@@ -1048,7 +1120,12 @@ local function BuildMainFrame()
     -- не считаем ничего.
     local rangeWatcher = CreateFrame("Frame")
     rangeWatcher:RegisterEvent("PLAYER_TARGET_CHANGED")
-    rangeWatcher:SetScript("OnEvent", function() SB.UI.RefreshCastButtons() end)
+    rangeWatcher:SetScript("OnEvent", function()
+        SB.UI.RefreshCastButtons()
+        if SB.SpellBar and SB.SpellBar.RefreshState then
+            SB.SpellBar.RefreshState()
+        end
+    end)
 
     local sinceRangeCheck = 0
     rangeWatcher:SetScript("OnUpdate", function(_, dt)
@@ -1058,6 +1135,11 @@ local function BuildMainFrame()
         local cardsVisible = sbFrame:IsShown()
             or (abilColumn and not abilColumn.isDocked and abilColumn:IsShown())
         if cardsVisible then SB.UI.RefreshCastButtons() end
+        -- Компактная панель живёт отдельно от окна и обязана гаснуть по
+        -- дистанции сама, даже когда всё остальное закрыто.
+        if SB.SpellBar and SB.SpellBar.RefreshState then
+            SB.SpellBar.RefreshState()
+        end
     end)
 end
 -- ============================================================
@@ -1128,6 +1210,9 @@ function SB.UI.UpdateAll()
     if moveBadge and SB.Movement then
         local walked = SB.Movement.GetDistance()
         if SB.Movement.HasLimit() then
+            -- Перебег в бейдже НЕ показываем: об усталости сообщает
+            -- строка в чате, а «12/12 +6» в шапке — это второе число там,
+            -- где решение принимает первое.
             moveBadge.text:SetText(string.format("%.0f/%.0f", walked, SB.Movement.GetCap()))
         else
             -- Предел снят Ведущим: показываем пройденное и бесконечность,
@@ -1192,6 +1277,82 @@ end
 -- на кнопки справа.
 local CONC_LABEL_W = 48
 
+-- Насколько далеко курсор вправе уехать, чтобы это всё ещё считалось
+-- КЛИКОМ, а не перетаскиванием (в экранных точках).
+--
+-- Клиент начинает drag от пары пикселей, а начав его, обычного клика по
+-- фрейму уже не присылает вовсе — OnMouseUp за перетаскиванием не
+-- приходит. Поэтому дрожание руки во время клика съедало нажатие на
+-- карточку. Ниже этого порога разбираем нажатие сами.
+--
+-- 10 точек безопасно: осмысленное перетаскивание — это либо другая
+-- карточка (шаг 60 точек по высоте), либо вынос за пределы окна.
+local CLICK_SLOP = 10
+
+-- ============================================================
+-- ОТПЕЧАТОК НАБОРА КАРТОЧЕК
+--
+-- Карточки рисуют ТОЛЬКО статику: имя, круг, дальность, длительность,
+-- метку концентрации. Ничего из того, что меняется по ходу игры
+-- (здоровье, ресурс, эффекты, дистанция до цели, чей ход), на них нет —
+-- это живёт в RefreshCastButtons, которая карточки не пересобирает.
+--
+-- А пересобирались они на КАЖДОЕ изменение модели: наложили эффект,
+-- тикнул урон, пришёл чужой статус, сдвинулся шагомер. Последнее —
+-- пять раз в секунду, пока персонаж просто идёт (см. NOTIFY_INTERVAL в
+-- Core/Movement.lua).
+--
+-- И это не просто лишняя работа. В пересборке заново меряется ширина
+-- имени (GetStringWidth) и по ней ставится метка «(Конц.)», а движок
+-- пересчитывает якоря лишь к следующему кадру — то есть замер идёт по
+-- ПРОШЛОЙ раскладке. Пока пересборка случалась изредка, это было
+-- незаметно; пять раз в секунду подряд метка начинает дрожать, и вместе
+-- с ней вся колонка. У кого именно это видно, зависит от длины имён,
+-- ширины окна и наличия заклинаний с концентрацией — поэтому у одного
+-- игрока интерфейс «дёргается», а у другого нет.
+--
+-- Лечится тем, что пересборка идёт только когда набор карточек реально
+-- изменился.
+-- ============================================================
+local lastCardsSig = nil
+
+local function CardsSignature(prepared, width)
+    local parts = { tostring(math.floor(tonumber(width) or 0)) }
+    for _, id in ipairs(prepared) do
+        local sp = SB.Data.Spells[id]
+        parts[#parts + 1] = table.concat({
+            tostring(id),
+            (sp and sp.name) or "?",
+            tostring(sp and sp.level or 0),
+            -- Действующая дальность, а не записанная: наложенный эффект
+            -- на дальность обязан перерисовать подписи карточек.
+            tostring(SB.Logic.GetSpellRange(sp)),
+            tostring(sp and sp.duration or 0),
+            tostring(sp and sp.icon or ""),
+            (sp and sp.isConcentration) and "c" or "",
+        }, ":")
+    end
+    return table.concat(parts, "|")
+end
+
+--- Что делает нажатие на карточку. Отдельной функцией, потому что
+--- вызывать это приходится из двух мест: обычного OnMouseUp и разбора
+--- «дрожащего» перетаскивания (см. CLICK_SLOP).
+local function CardActivate(self, btn)
+    local sp = GetSpellData(self._spellID)
+    if not sp then return end
+    -- Shift+ЛКМ — показать заклинание группе (см. SB.UI.ShareSpellLink).
+    -- Проверяем ДО обычного ЛКМ, иначе поверх ссылки открылась бы ещё и
+    -- карточка.
+    if btn == "LeftButton" and IsShiftKeyDown() then
+        SB.UI.ShareSpellLink(sp)
+    elseif btn == "LeftButton" and SB.Library and SB.Library.ShowDetail then
+        SB.Library.ShowDetail(sp)
+    elseif btn == "RightButton" and sp.isCustom and SB.CustomSpells then
+        SB.CustomSpells.OpenEdit(sp.id)
+    end
+end
+
 function SB.UI.UpdateSpellCards()
     if not SB.PlayerModel then return end
 
@@ -1202,10 +1363,30 @@ function SB.UI.UpdateSpellCards()
         cardsDirty = true
         return
     end
+
+    -- Карточку тащат — не трогаем НИЧЕГО. Ниже стоит `c:Hide()` на все
+    -- карточки разом, и попади сюда любое событие во время
+    -- перетаскивания (чужой статус, тик эффекта, смена хода), клиент
+    -- потерял бы утащенную карточку вместе с самим перетаскиванием:
+    -- OnDragStop не приходит, призрак прилипает к курсору, клики
+    -- перестают доходить до /reload. Отложим до отпускания кнопки.
+    if draggingCard then
+        cardsDirty = true
+        return
+    end
     cardsDirty = false
 
     local prepared = SB.PlayerModel.GetPreparedSpells()
- 
+
+    -- Набор карточек тот же — пересобирать нечего (см. CardsSignature).
+    -- Динамика карточек живёт в RefreshCastButtons, её зовём всегда.
+    local sig = CardsSignature(prepared, scrollChild and scrollChild:GetWidth())
+    if sig == lastCardsSig then
+        SB.UI.RefreshCastButtons()
+        return
+    end
+    lastCardsSig = sig
+
     for _, c in ipairs(spellCards) do c:Hide() end
  
     local yOff = 0
@@ -1266,9 +1447,8 @@ function SB.UI.UpdateSpellCards()
                     GameTooltip:SetOwner(self, "ANCHOR_TOP")
                     SB.Theme.StyleTooltip(GameTooltip)
                     GameTooltip:SetText("Слишком далеко", 1, 0.3, 0.3)
-                    local d = sp and sp.distance or 0
                     GameTooltip:AddLine("Дальность заклинания — " ..
-                        ((d == 1.5) and "ближний бой" or string.format("%g м", d)) ..
+                        SB.Logic.FormatSpellRange(sp, true) ..
                         ". Подойдите к цели.", 0.9, 0.9, 0.9, true)
                     GameTooltip:Show()
                 end)
@@ -1287,26 +1467,43 @@ function SB.UI.UpdateSpellCards()
  
                 card:SetScript("OnDragStart", function(self)
                     self._isDragging = true
+                    draggingCard     = self
+                    self._dragX, self._dragY = GetCursorPosition()
                     if SB.UI.DragGhost then
-                        SB.UI.DragGhost.icon:SetTexture(self._iconTex)
-                        SB.UI.DragGhost.label:SetText(self._spellName)
-                        SB.UI.DragGhost:Show()
-                        SB.UI.DragGhost:SetScript("OnUpdate", function(g)
-                            local x, y = GetCursorPosition()
-                            local s = UIParent:GetEffectiveScale()
-                            g:ClearAllPoints()
-                            g:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x/s, y/s)
+                        SB.UI.DragGhost.Start(self._iconTex, self._spellName, function()
+                            self._isDragging = false
+                            draggingCard     = nil
+                            -- Пересборку, отложенную на время перетаскивания,
+                            -- догоняем СЛЕДУЮЩИМ кадром: сначала должен
+                            -- отработать разбор броска ниже, и разбирать он
+                            -- обязан ту раскладку, которую игрок видел.
+                            if cardsDirty then
+                                C_Timer.After(0, function()
+                                    if cardsDirty and not draggingCard then
+                                        SB.UI.UpdateSpellCards()
+                                    end
+                                end)
+                            end
                         end)
                     end
                 end)
- 
+
                 card:SetScript("OnDragStop", function(self)
                     self._isDragging = false
-                    if SB.UI.DragGhost then
-                        SB.UI.DragGhost:Hide()
-                        SB.UI.DragGhost:SetScript("OnUpdate", nil)
+                    draggingCard     = nil
+                    if SB.UI.DragGhost then SB.UI.DragGhost.Stop() end
+
+                    -- Курсор почти не сдвинулся — это был клик (см.
+                    -- CLICK_SLOP). Разбираем его здесь: после начатого
+                    -- перетаскивания OnMouseUp уже не придёт.
+                    local x, y = GetCursorPosition()
+                    local dx   = x - (self._dragX or x)
+                    local dy   = y - (self._dragY or y)
+                    if dx * dx + dy * dy <= CLICK_SLOP * CLICK_SLOP then
+                        CardActivate(self, "LeftButton")
+                        return
                     end
- 
+
                     local draggedID = self._spellID
                     local targetCard = nil
                     for _, c2 in ipairs(spellCards) do
@@ -1326,17 +1523,7 @@ function SB.UI.UpdateSpellCards()
  
                 card:SetScript("OnMouseUp", function(self, btn)
                     if self._isDragging then return end
-                    local sp = GetSpellData(self._spellID)
-                    -- Shift+ЛКМ — показать заклинание группе (см.
-                    -- SB.UI.ShareSpellLink). Проверяем ДО обычного ЛКМ,
-                    -- иначе поверх ссылки открылась бы ещё и карточка.
-                    if btn == "LeftButton" and IsShiftKeyDown() and sp then
-                        SB.UI.ShareSpellLink(sp)
-                    elseif btn == "LeftButton" and sp and SB.Library and SB.Library.ShowDetail then
-                        SB.Library.ShowDetail(sp)
-                    elseif btn == "RightButton" and sp and sp.isCustom and SB.CustomSpells then
-                        SB.CustomSpells.OpenEdit(sp.id)
-                    end
+                    CardActivate(self, btn)
                 end)
  
                 spellCards[idx] = card
@@ -1354,15 +1541,9 @@ function SB.UI.UpdateSpellCards()
             local lvlS = (lvl == 0) and SB.Logic.GetCantripLabel(spell.class) or ("Порядок: " .. lvl)
             card.desc:SetText(lvlS)
             local parts = {}
-            -- Расстояние
-            local dist = spell.distance
-            if not dist or dist == 0 then
-                table.insert(parts, "Дальность: На себя")
-            elseif dist == 1.5 then
-                table.insert(parts, "Дальность: Ближний бой")
-            else
-                table.insert(parts, "Дальность: " .. dist .. "м.")
-            end
+            -- Расстояние — действующее: его двигают эффекты
+            -- (см. SB.Logic.GetSpellRange).
+            table.insert(parts, "Дальность: " .. SB.Logic.FormatSpellRange(spell))
             -- Длительность. -1 значит бессрочно (до Долгого Отдыха);
             -- положительное число — база при касте в свой круг, апкаст
             -- удваивает её за каждый круг сверх.
@@ -1438,14 +1619,33 @@ local function CanReachTargetWith(spell, dist)
     return SB.Logic.IsSpellInRange(spell, dist)
 end
 
+--- Можно ли вообще нажимать «Применить» прямо сейчас. Дистанция — не
+--- единственная причина отказа: в пошаговом режиме кнопки гаснут у
+--- всех, чей ход ещё не настал или уже прошёл (см. Core/TurnOrder.lua).
+--- Отказ по очереди общий на все карточки, поэтому считается один раз
+--- на проход, а не на каждую.
+local function CanCastNow(spell, dist, turnOk)
+    if not turnOk then return false end
+    return CanReachTargetWith(spell, dist)
+end
+
+--- Тот же ответ, но наружу: компактная панель (UI/SpellBar.lua) гасит
+--- свои иконки по тому же правилу, и второй копии этого правила быть не
+--- должно — разойдясь, они показывали бы разное про одно заклинание.
+--- «Quiet» в имени — про то, что функция ничего не печатает, в отличие
+--- от SB.Logic.CanCastNow.
+SB.UI.CanCastNowQuiet = CanCastNow
+
 function SB.UI.RefreshCastButtons()
     -- Дистанцию меряем ОДИН раз на весь проход, а не внутри каждой
     -- карточки: там это два UnitPosition и корень, и при дюжине
     -- подготовленных заклинаний счёт шёл на сотни вызовов в секунду.
     local dist = SB.Logic.GetTargetDistance and SB.Logic.GetTargetDistance() or nil
+    -- Очередь ходов одна на все карточки — спрашиваем её тоже один раз.
+    local turnOk = not SB.TurnOrder or SB.TurnOrder.CanActLocal()
     for _, card in ipairs(spellCards) do
         if card:IsShown() and card.castBtn then
-            local ok = CanReachTargetWith(GetSpellData(card._spellID), dist)
+            local ok = CanCastNow(GetSpellData(card._spellID), dist, turnOk)
             -- Только на смену состояния: функция вызывается по таймеру,
             -- а Enable/Disable перекрашивают backdrop и шрифт.
             if ok ~= card._inRange then
@@ -1576,7 +1776,10 @@ function SB.UI.ShowSlotPicker(spellID)
     -- этого пикер показывал бы одну и ту же базовую единицу на всех
     -- кругах и обещал бы, что вливать бессмысленно.
     local function GainTag(level)
-        local dmg, hit = SB.Logic.GetCastPower(spell, level)
+        -- База у лечения своя и есть на любом круге (см.
+        -- SB.Logic.GetHealPower): считать её здесь по урону значило бы
+        -- обещать в пикере «2 ХП» там, где резолв восстановит 3.
+        local dmg, hit = (spell.isHeal and SB.Logic.GetHealPower or SB.Logic.GetCastPower)(spell, level)
         if hit > 0 then
             return string.format(" (+%d атака)", hit)
         end
@@ -1585,7 +1788,13 @@ function SB.UI.ShowSlotPicker(spellID)
             return string.format(" (%d ХП)", scaled)
         end
         if spell.canCrit then
-            return string.format(" (%d урона)", scaled)
+            -- Нижняя грань та же, что в резолве (Config.MinDamageOnHit):
+            -- одна единица проходит всегда, даже если база с скейлингом
+            -- дали ноль. Без неё пикер обещал «0 урона» там, где удар
+            -- снимет 1 — и вливание выглядело единственным способом
+            -- нанести хоть что-то.
+            local floorDmg = SB.Data.Config.MinDamageOnHit or 1
+            return string.format(" (%d урона)", math.max(floorDmg, scaled))
         end
         return ""
     end
@@ -1605,7 +1814,7 @@ function SB.UI.ShowSlotPicker(spellID)
     -- ── Собираем ТОЛЬКО доступные варианты ──────────────────
     -- Верхняя граница перебора — не ранг игрока, а потолок реалма:
     -- иначе не отличить «круг не открыт рангом» от «такого круга нет».
-    local realmMaxOrder = SB.Data.MaxOrderFor(SB.Data.GetMaxMastery())
+    local realmMaxOrder = SB.Data.GetRealmMaxOrder()
     local options = {}
     local lackResource, lackRank = false, false
 
@@ -1795,6 +2004,10 @@ SB.Events.On("SB_INIT", function()
     -- пока игрок движется (см. Core/Movement.lua), а очередь на кадр
     -- схлопывает это в одну перерисовку.
     SB.Events.On(SB.E.MOVEMENT_CHANGED,        SB.UI.RequestUpdate)
+    -- Очередь ходов сдвинулась — кнопки применения гаснут или оживают.
+    -- Опрос дальности подхватил бы это и сам, но через треть секунды, а
+    -- «мой ход» игрок должен увидеть в тот же миг.
+    SB.Events.On(SB.E.TURN_ORDER_CHANGED,      SB.UI.RefreshCastButtons)
  
     -- Лог-сообщения из сети — идут и в окно логов, и локальным
     -- системным сообщением в чат (никуда не отправляются по сети,
@@ -1807,8 +2020,8 @@ SB.Events.On("SB_INIT", function()
     end)
  
     -- GM-запрос из сети
-    SB.Events.On("GM_REQUEST_RECEIVED", function(caster, spellID, slotLevel, targetLabel)
-        SB.UI.ShowGMRequest(caster, spellID, slotLevel, targetLabel)
+    SB.Events.On("GM_REQUEST_RECEIVED", function(caster, spellID, slotLevel, targetLabel, mod)
+        SB.UI.ShowGMRequest(caster, spellID, slotLevel, targetLabel, mod)
     end)
  
     -- Статус игроков обновился

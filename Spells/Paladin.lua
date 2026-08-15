@@ -459,6 +459,7 @@ Add({
     isCantrip = false,
     resistable = true,
     distance = 1.5,
+    dispel = { "poison", "disease" },
 	scaling = {
 		hit    = { ["Рвение"] = 1, ["Религия"] = 0.5 },
 	},

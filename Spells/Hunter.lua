@@ -19,9 +19,9 @@ Add({
     canCrit = true,
     distance = 30,
 	scaling = {
-		hit    = { ["Точность"] = 1 },
+		hit    = { ["Точность"] = 1.5 },
 		crit   = { ["Точность"] = 1 },
-		damage = { ["Ловкость"] = 1 },
+		damage = { ["Ловкость"] = 1, ["Интеллект"] = 1 },
 	},
 })
 
@@ -40,7 +40,6 @@ Add({
     distance = 1.5,
 	scaling = {
 		hit    = { ["Акробатика"] = 1 },
-		crit   = { ["Точность"] = 1 },
 		damage = { ["Ловкость"] = 1 },
 	},
 })
@@ -61,9 +60,7 @@ Add({
     distance = 1.5,
     duration = 3,
 	scaling = {
-		hit    = { ["Акробатика"] = 1 },
-		crit   = { ["Точность"] = 1 },
-		damage = { ["Ловкость"] = 1 },
+		hit    = { ["Акробатика"] = 2 },
 	},
 })
 
@@ -81,10 +78,9 @@ Add({
     canCrit = true,
 	debuff = "eff_bleeding_serpent_sting",
     distance = 30,
-    duration = 4,
+    duration = 2,
 	scaling = {
 		hit    = { ["Точность"] = 1 },
-		crit   = { ["Точность"] = 1 },
 		damage = { ["Ловкость"] = 1 },
 	},
 })
@@ -347,26 +343,25 @@ Add({
     duration = 5,
     debuff = "eff_vulnerable_hunters_mark",
     scaling = {
-    	hit    = { ["Анализ"] = 1, ["Точность"] = 0.5 },
+    	hit    = { ["Интуиция"] = 1, ["Точность"] = 0.5 },
     },
 })
 
 Add({
     id = "steady_shot",
-    name = "Ровный выстрел",
+    name = "Верный выстрел",
     key = "Стрельба",
     icon = "Interface\\Icons\\Ability_hunter_steadyshot",
-    level = 1,
+    level = 0,
     class = "Охотник",
     description = "Выстрел без спешки: охотник выдыхает, ловит паузу между ударами сердца и спускает тетиву. Ничего эффектного, зато стрела ложится туда, куда смотрел стрелок. Требует твёрдой опоры — с бега так не стреляют.",
     isCantrip = false,
     resistable = true,
     canCrit = true,
-    distance = 40,
+    distance = 18,
     scaling = {
-    	hit    = { ["Точность"] = 1, ["Выживание"] = 0.5 },
-    	crit   = { ["Точность"] = 1 },
-    	damage = { ["Ловкость"] = 1 },
+    	hit    = { ["Точность"] = 2 },
+    	damage = { ["Ловкость"] = 0.7 },
     },
 })
 
@@ -402,9 +397,9 @@ Add({
     distance = 30,
     aoe = { radius = 6 },
     scaling = {
-    	hit    = { ["Точность"] = 1 },
+    	hit    = { ["Точность"] = 0.5 },
     	crit   = { ["Точность"] = 0.5 },
-    	damage = { ["Ловкость"] = 0.5 },
+    	damage = { ["Ловкость"] = 1.5 },
     },
 })
 
@@ -415,12 +410,12 @@ Add({
     icon = "Interface\\Icons\\Ability_hunter_aimedshot",
     level = 2,
     class = "Охотник",
-    description = "Наконечник смазан вытяжкой, которая бьёт не по телу, а по способности сосредоточиться. Заклинатель теряет нить каста, а собранная сила рассеивается впустую. На тех, кто не колдует, яд действует лишь как жгучая боль.",
+    description = "Наконечник смазан вытяжкой, которая бьёт не по телу, а по способности сосредоточиться. Заклинатель теряет нить сотворяемого заклинания, а собранная сила рассеивается впустую. На тех, кто не колдует, яд действует лишь как жгучая боль.",
     isCantrip = false,
     resistable = true,
     distance = 30,
-    duration = 4,
-    debuff = "eff_mana_burn_viper_sting",
+    duration = 3,
+    debuff = "eff_viper_sting",
     scaling = {
     	hit    = { ["Точность"] = 1, ["Выживание"] = 0.5 },
     },
@@ -437,12 +432,10 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-    isConcentration = true,
     distance = 40,
     scaling = {
     	hit    = { ["Точность"] = 1, ["Концентрация"] = 1 },
-    	crit   = { ["Точность"] = 2 },
-    	damage = { ["Ловкость"] = 1.5 },
+    	damage = { ["Ловкость"] = 2.5 },
     },
 })
 

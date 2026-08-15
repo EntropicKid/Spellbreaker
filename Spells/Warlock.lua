@@ -13,9 +13,9 @@ Add({
     isCantrip = true,
     resistable = true,
     canCrit = true,
-	distance = 27,
+	distance = 18,
 	scaling = {
-		hit    = { ["Исток"] = 2 },
+		hit    = { ["Живучесть"] = 2 },
 		crit   = { ["Точность"] = 1 },
 		damage = { ["Характер"] = 0.5 },
 	},
@@ -34,10 +34,10 @@ Add({
     canCrit = true,
 	duration = 2,
     isConcentration = false,
-	distance = 1.5,
+	distance = 12,
     debuff = "eff_immolation",
 	scaling = {
-		hit    = { ["Исток"] = 1 },
+		hit    = { ["Живучесть"] = 1.5 },
 		crit   = { ["Рвение"] = 1 },
 		damage = { ["Характер"] = 0.5 },
 	},
@@ -53,12 +53,13 @@ Add({
 	description = "Чернокнижник произносит нечестивые слова, и истратив свою, или чужую кровь призывает демоническое пламя, направляя его в сторону своего недруга через касание; цель получает урон огнём каждый раз, когда начинается её ход; эффект длится 2 хода цели;\n\nЖертвенный огонь эффективен против живых субъектов, и объектов, например: растений, людей, или чего-либо что содержит жизненную силу, при попытках потушить себя преждевременно без помощи воды, живые существа совершают это действие с помехой, а нежить - с преимуществом.",
     isCantrip = false,
     resistable = true,
+	duration = 2,
+	debuff = "eff_immolation",
     canCrit = true,
-	distance = 9,
+	distance = 2.5,
 	scaling = {
-		hit    = { ["Исток"] = 1 },
+		hit    = { ["Живучесть"] = 1 },
 		crit   = { ["Рвение"] = 1 },
-		damage = { ["Характер"] = 0.5 },
 	},
 })
 Add({
@@ -73,10 +74,10 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-	distance = 9,
+	distance = 12,
 	scaling = {
-		hit    = { ["Исток"] = 1 },
-		crit   = { ["Рвение"] = 1 },
+		hit    = { ["Живучесть"] = 1 },
+		crit   = { ["Рвение"] = 2 },
 		damage = { ["Характер"] = 1 },
 	},
 })
@@ -94,11 +95,10 @@ Add({
     canCrit = true,
 	duration = 3,
     isConcentration = false,
-	distance = 9,
 	aoe = { radius = 9 },
     container = "eff_hell_incinerate",
 	scaling = {
-		hit    = { ["Исток"] = 1 },
+		hit    = { ["Живучесть"] = 1 },
 		crit   = { ["Рвение"] = 1 },
 		damage = { ["Характер"] = 0.5 },
 	},
@@ -115,15 +115,21 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-	duration = 2,
     isConcentration = false,
-	distance = 9,
-	aoe = { radius = 9 },
-    container = "eff_rain_of_fire",
+	distance = 12,
+	aoe = { radius = 6 },
+	channel = 2,
+    onCast = { damage = 1 },
+    -- debuff, а НЕ container. container означает «эффект, который
+    -- физически нельзя навести ни на кого, кроме себя» — стойки, ауры,
+    -- обличья, — и вешается он на ЗАКЛИНАТЕЛЯ (см. Core/Logic/Aoe.lua).
+    -- Ливень же горит на задетых: дебафф уходит каждому, кто попал в
+    -- радиус и не отбился (см. HandlePvpAttackReceived).
+    debuff = "eff_rain_of_fire",
 	scaling = {
-		hit    = { ["Исток"] = 1 },
+		hit    = { ["Живучесть"] = 1 },
 		crit   = { ["Рвение"] = 1 },
-		damage = { ["Характер"] = 0.5 },
+		damage = { ["Характер"] = 1.5 },
 	},
 })
 Add({
@@ -140,10 +146,10 @@ Add({
     canCrit = true,
 	duration = 2,
     isConcentration = true,
-	distance = 9,
+	distance = 12,
     container = "eff_demonic_swarm",
 	scaling = {
-		hit    = { ["Исток"] = 2 },
+		hit    = { ["Живучесть"] = 2 },
 		crit   = { ["Рвение"] = 1 },
 	},
 })
@@ -163,7 +169,7 @@ Add({
 	distance = 9,
     container = "eff_summon_imp",
 	scaling = {
-		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+		hit    = { ["Религия"] = 1 },
 	},
 })
 Add({
@@ -197,7 +203,7 @@ Add({
     resistable = true,
 	distance = 9,
 	scaling = {
-		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+		hit    = { ["Религия"] = 1 },
 	},
 })
 Add({
@@ -235,7 +241,7 @@ Add({
 	distance = 1.5,
     container = "eff_healthstone",
 	scaling = {
-		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+		hit    = { ["Религия"] = 1 },
 	},
 })
 Add({
@@ -273,7 +279,7 @@ Add({
 	distance = 9,
     container = "eff_summon_sayaada",
 	scaling = {
-		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+		hit    = { ["Религия"] = 1 },
 	},
 })
 Add({
@@ -292,7 +298,7 @@ Add({
 	distance = 9,
     container = "eff_summon_voidwalker",
 	scaling = {
-		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+		hit    = { ["Религия"] = 1 },
 	},
 })
 Add({
@@ -311,7 +317,7 @@ Add({
 	distance = 9,
     container = "eff_eye_of_kilrogg",
 	scaling = {
-		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+		hit    = { ["Религия"] = 1 },
 	},
 })
 Add({
@@ -331,7 +337,7 @@ Add({
 	distance = 12,
     debuff = "eff_banishment",
 	scaling = {
-		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+		hit    = { ["Религия"] = 1 },
 	},
 })
 Add({
@@ -347,7 +353,7 @@ Add({
     resistable = true,
 	distance = 12,
 	scaling = {
-		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+		hit    = { ["Религия"] = 1 },
 	},
 })
 Add({
@@ -365,7 +371,7 @@ Add({
     isConcentration = false,
     container = "eff_create_soulstone",
 	scaling = {
-		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+		hit    = { ["Религия"] = 1 },
 	},
 })
 Add({
@@ -382,7 +388,7 @@ Add({
 	canCrit = false,
 	distance = 10000,
 	scaling = {
-		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+		hit    = { ["Религия"] = 1 },
 	},
 })
 Add({
@@ -400,7 +406,7 @@ Add({
     isConcentration = false,
     container = "eff_create_magic_stone",
 	scaling = {
-		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+		hit    = { ["Религия"] = 1 },
 	},
 })
 Add({
@@ -420,7 +426,7 @@ Add({
 	distance = 12,
     debuff = "eff_enslave_demon",
 	scaling = {
-		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+		hit    = { ["Религия"] = 1 },
 	},
 })
 Add({
@@ -439,7 +445,7 @@ Add({
 	distance = 9,
     container = "eff_summon_felhunter",
 	scaling = {
-		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+		hit    = { ["Религия"] = 1 },
 	},
 })
 Add({
@@ -458,7 +464,7 @@ Add({
 	distance = 9,
     container = "eff_summon_felmaunt",
 	scaling = {
-		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+		hit    = { ["Религия"] = 1 },
 	},
 })
 Add({
@@ -478,7 +484,7 @@ Add({
 	distance = 9,
     debuff = "eff_planar_chain",
 	scaling = {
-		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+		hit    = { ["Религия"] = 1 },
 	},
 })
 Add({
@@ -490,17 +496,14 @@ Add({
     class = "Чернокнижник",
     caura = 100,
 	description = "Чернокнижник произносит нечестивые слова, и в ритуальном жесте касается своей жертвы, вкладывая в её суть простую, и надежную порчу; субъект становится жертвой тлетворного проклятия который начнет поглощать его жизненную силу, что будет проявляться в общем ухудшении самочувствия, головокружении; малая порча способна напугать взрослого человека, но без каких-либо проблем сгубить при должной настойчивости дворовую собаку, кошку, или скажем новорожденного младенца.\n\nПорча делает субъекта уязвимым к болезням, потому чахотка или ещё какая мерзость: идеальный помощник для лихой колдуньи.",
-    isCantrip = true,
+    isCantrip = false,
     resistable = true,
-	canCrit = true,
-	duration = 2,
+	duration = 3,
     isConcentration = false,
 	distance = 18,
-	debuff = "eff_bleeding_corruption",
+	debuff = "eff_corruption",
 	scaling = {
-		hit    = { ["Внушение"] = 1 },
-		crit   = { ["Рвение"] = 1 },
-		damage = { ["Характер"] = 0.5 },
+		hit    = { ["Внушение"] = 1.5 },
 	},
 })
 Add({
@@ -518,7 +521,7 @@ Add({
 	duration = 4,
     isConcentration = false,
 	distance = 27,
-	debuff = "eff_weakness_curse_of_weakness",
+	debuff = "eff_curse_of_weakness",
 	scaling = {
 		hit    = { ["Внушение"] = 1, ["Воля"] = 0.5 },
 	},
@@ -559,7 +562,7 @@ Add({
 	canCrit = true,
 	distance = 9,
 	scaling = {
-		hit    = { ["Внушение"] = 1 },
+		hit    = { ["Внушение"] = 2 },
 		crit   = { ["Рвение"] = 1 },
 		damage = { ["Характер"] = 0.5 },
 	},
@@ -577,6 +580,7 @@ Add({
     resistable = true,
 	canCrit = true,
 	distance = 9,
+    leech = 1,
 	scaling = {
 		hit    = { ["Внушение"] = 1 },
 		crit   = { ["Рвение"] = 1 },
@@ -600,7 +604,7 @@ Add({
 	distance = 27,
 	debuff = "eff_clumsy",
 	scaling = {
-		hit    = { ["Внушение"] = 1, ["Воля"] = 0.5 },
+		hit    = { ["Внушение"] = 1 },
 	},
 })
 Add({
@@ -620,7 +624,7 @@ Add({
 	distance = 18,
 	debuff = "eff_vulnerable_curse_of_elements",
 	scaling = {
-		hit    = { ["Внушение"] = 1, ["Воля"] = 0.5 },
+		hit    = { ["Внушение"] = 1 },
 	},
 })
 Add({
@@ -640,7 +644,7 @@ Add({
 	aoe = { radius = 9 },
     duration = 3,
 	scaling = {
-		hit    = { ["Внушение"] = 1, ["Воля"] = 0.5 },
+		hit    = { ["Внушение"] = 1 },
 	},
 })
 Add({
@@ -660,7 +664,7 @@ Add({
 	distance = 12,
     debuff = "eff_curse_of_tounges",
 	scaling = {
-		hit    = { ["Внушение"] = 1, ["Воля"] = 0.5 },
+		hit    = { ["Внушение"] = 1 },
 	},
 })
 Add({
@@ -680,7 +684,7 @@ Add({
 	distance = 12,
 	debuff = "eff_vulnerable_curse_of_darkness",
 	scaling = {
-		hit    = { ["Внушение"] = 1, ["Воля"] = 0.5 },
+		hit    = { ["Внушение"] = 1 },
 	},
 })
 Add({
@@ -688,18 +692,37 @@ Add({
     name = "Жизнеотвод",
 	key = "Колдовство",
 	icon = "Interface\\Icons\\Spell_shadow_burningspirit",
-    level = 3,
+    level = 2,
     class = "Чернокнижник",
     caura = 100,
 	description = "Чернокнижники всегда ищут большей силы, и готовы уплатить за неё любую цену. Это заклинание воплощает её лучше, чем что-либо; когда колдун желает сотворить жизнеотвод, он должен воспользоваться ритуальным оружием и нанести себе повреждения; каждый раз когда колдун наносит себе повреждение, он должен совершать спасбросок, чтобы поддерживать концентрацию, сложность равна 9, и с каждой ячейкой становится всё больше на 2 пункта; в случае если чернокнижник в тяжелом состоянии, то сложность равна 14.\n\nПервыми заполняются ячейки первого круга по одной, потом: второго круга. Третий круг не восстанавливается.\n\nПовреждения наносимые жизнеотводом должны быть значительными, включающими в себя глубокие колющие удары; вскрытие артерий или вен; колющие удары в область груди, живота, и т. д, в ином случае чернокнижник не восстановит своих ячеек.",
     isCantrip = false,
-    resistable = true,
+    -- БЕЗ БРОСКА. Жизнеотвод — не проверка навыка, а сделка: колдун
+    -- режет себя и получает силу. Промахнуться тут не по чему, поэтому
+    -- resistable = false, и заклинание резолвится локально (см.
+    -- SB.Logic.GetTargetedEffect: «без сопротивления» больше не уходит
+    -- в бросок против порога).
+    resistable = false,
 	canCrit = false,
 	duration = -1,
     isConcentration = false,
-    container = "eff_burningspirit",
+    -- ПОТОК без счёта: duration = -1 делает и сам жизнеотвод, и его
+    -- держатель бессрочными (см. SB.Data.GetChannelUses). Ограничивает
+    -- повторы не счётчик, а цена — ход и единица здоровья за раз.
+    channel = true,
+    -- Сама сделка: ход, единица здоровья — три единицы МАНЫ. Считается
+    -- на КАЖДОМ применении, включая повторы потока, потому что живёт на
+    -- заклинании, а не на эффекте (см. SB.ActiveEffects.ApplyPayload).
+    -- Выгоднее пропуска хода, который возвращает единицу, — в этом и
+    -- смысл платить кровью.
+    --
+    -- Канал именно mana: жизнеотвод торгует кровью за ману и ни за что
+    -- другое. Пока канал был один, «ресурс каста», то же заклинание в
+    -- руках некастера наливало бы ему ярость (см. врезку о пулах в
+    -- Core/PlayerModel.lua).
+    onCast = { damage = 1, mana = 2 },
 	scaling = {
-		hit    = { ["Внушение"] = 1, ["Воля"] = 0.5 },
+		hit    = { ["Внушение"] = 1 },
 	},
 })
 Add({
@@ -719,7 +742,7 @@ Add({
 	distance = 1.5,
     buff = "eff_warlock_shadow_of_warrior",
 	scaling = {
-		hit    = { ["Внушение"] = 1, ["Воля"] = 0.5 },
+		hit    = { ["Внушение"] = 1 },
 	},
 })
 Add({
@@ -739,6 +762,6 @@ Add({
 	distance = 12,
 	debuff = "eff_fear_warlock_fear",
 	scaling = {
-		hit    = { ["Внушение"] = 1, ["Воля"] = 0.5 },
+		hit    = { ["Внушение"] = 1 },
 	},
 })

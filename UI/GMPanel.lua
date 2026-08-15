@@ -1,18 +1,25 @@
 -- ============================================================
 -- UI/GMPanel.lua
--- Панель Ведущего: список игроков и очередь заявок.
+-- Панель Ведущего: список игроков, очередь заявок и настройки сцены.
 -- Вынесена из UI.lua в отдельный файл.
+--
+-- Третья вкладка («Настройки») видна ТОЛЬКО Ведущему: там лежат рычаги,
+-- задающие темп и порядок для всей группы — см. RefreshGMAccess.
 -- ============================================================
 local addonName, SB = ...
 SB.UI = SB.UI or {}
 
 local gmFrame
-local playersTab, queueTab
+local playersTab, queueTab, settingsTab
 local playersPanel, playersChild
 local queuePanel,  queueChild
--- Плашка «Симуляция реалтайм эффектов» — видна только Ведущему,
--- см. SB.UI.IsGameMaster и RefreshRealtimeRow ниже.
-local rtBg, rtChk
+-- Вкладка «Настройки» — управление сценой. Видна ТОЛЬКО Ведущему,
+-- см. SB.UI.IsGameMaster и RefreshGMAccess ниже.
+local settingsPanel
+-- Виджеты вкладки «Настройки»: переключатель пошагового режима, его
+-- статус, две кнопки управления очередью и радиогруппа порядка хода.
+local turnBtn, turnStatus, nextBtn, roundBtn, turnChecks, timerEB, moveFreeChk
+local versionHeader, versionLine
 local queueRows  = {}
 local playerRows = {}
 local playerSubs = {}   -- подстрока-плашка с иконками под каждым игроком
@@ -41,34 +48,285 @@ local portraitEventFrame
 -- потому что смысл другой: там «кому можно раздать отдых», здесь «кому
 -- вообще показывать управление сценой».
 -- ============================================================
+-- Синоним общего правила из Core/Init.lua — там же объяснено, почему
+-- оно переехало туда. Здесь оставлено имя, которым пользуется интерфейс.
 function SB.UI.IsGameMaster()
-    return not IsInGroup() or UnitIsGroupLeader("player")
+    return SB.IsGameMaster()
 end
 
---- Показать/скрыть плашку реалтайм-симуляции по праву Ведущего и
---- подтянуть под неё нижнюю границу списков.
----
---- ПОЧЕМУ ЭТО ВАЖНО, А НЕ КОСМЕТИКА. Галочка запускает таймер, который
---- КАЖДЫЕ ШЕСТЬ СЕКУНД списывает ход всем активным эффектам в группе
---- (SendRealtimeDecrement). Это управление темпом всей сцены, и рычаг от
---- него должен быть ровно один — у того, кто сцену ведёт. Раньше плашку
---- видел любой, кто открыл панель, и второй включивший начинал тикать
---- эффекты параллельно с Ведущим.
-local function RefreshRealtimeRow()
-    if not rtBg then return end
-    local isGM = SB.UI.IsGameMaster()
-    rtBg:SetShown(isGM)
+--- Переключение вкладок панели. Одна точка на все три: раньше каждая
+--- вкладка гасила соседнюю вручную, и третья превратила бы это в шесть
+--- строк на каждый обработчик.
+local function SelectTab(which)
+    if not playersTab then return end
+    playersTab:SetActive(which == "players")
+    queueTab:SetActive(which == "queue")
+    settingsTab:SetActive(which == "settings")
+    playersPanel:SetShown(which == "players")
+    queuePanel:SetShown(which == "queue")
+    settingsPanel:SetShown(which == "settings")
+end
 
-    -- Списки занимают освободившееся место: без этого у не-Ведущего
-    -- внизу панели висела бы пустая полоса в 36 пикселей.
-    local bottom = isGM and 36 or 10
-    for _, panel in ipairs({ playersPanel, queuePanel }) do
-        if panel then
-            panel:SetPoint("BOTTOMRIGHT", gmFrame, "BOTTOMRIGHT", -10, bottom)
+--- Показать/скрыть вкладку «Настройки» по праву Ведущего.
+---
+--- ПОЧЕМУ ЭТО ВАЖНО, А НЕ КОСМЕТИКА. Здесь лежат рычаги, управляющие
+--- ТЕМПОМ ВСЕЙ СЦЕНЫ: реалтайм-симуляция каждые шесть секунд списывает
+--- ход всем активным эффектам в группе (SendRealtimeDecrement), режим
+--- хода и бой задают порядок для всех. Такой рычаг должен быть ровно
+--- один — у того, кто сцену ведёт. Раньше галочку реалтайма видел любой,
+--- кто открыл панель, и второй включивший начинал тикать эффекты
+--- параллельно с Ведущим.
+local function RefreshGMAccess()
+    if not settingsTab then return end
+    local isGM = SB.UI.IsGameMaster()
+    settingsTab:SetShown(isGM)
+
+    -- Лид передали, пока вкладка была открыта — уводим с неё сразу, а не
+    -- ждём, пока бывший Ведущий что-нибудь нажмёт.
+    if not isGM and settingsPanel and settingsPanel:IsShown() then
+        SelectTab("players")
+        SB.UI.UpdateGMPlayers()
+    end
+end
+SB.UI.RefreshGMAccess = RefreshGMAccess
+-- Старое имя: под ним функция уехала в чужой код (макросы, заметки).
+SB.UI.RefreshGMRealtimeRow = RefreshGMAccess
+
+--- Подтягивает виджеты вкладки «Настройки» под текущее состояние.
+--- Одна функция на всё содержимое вкладки: состояние живёт в
+--- Core/TurnOrder.lua, а не в виджетах, и после любого изменения
+--- вкладка перерисовывается целиком.
+--- Строка о версиях в группе. Показываем ТОЛЬКО расхождения: «у всех
+--- совпадает» — не новость, а вот «у двоих старее» объясняет, почему у
+--- них не работает половина механик.
+local function RefreshVersionLine()
+    if not versionLine then return end
+    versionHeader:SetText("Версия " .. (SB.Data.Version or "?"))
+
+    local older, newer, silent = SB.Net.GetVersionReport()
+    local parts = {}
+    if #older > 0 then
+        parts[#parts + 1] = "|cFFFFCC00Старее у " .. #older .. ": " ..
+            table.concat(older, ", ") .. "|r"
+    end
+    if #newer > 0 then
+        parts[#parts + 1] = "|cFFFF6666Ваша версия старее, чем у: " ..
+            table.concat(newer, ", ") .. "|r"
+    end
+    -- Молчащих называем числом, а не поимённо: в рейде это чаще всего
+    -- просто люди без аддона, и список на тридцать имён бесполезен.
+    if #silent > 0 then
+        parts[#parts + 1] = "не отвечают: " .. #silent
+    end
+
+    versionLine:SetText(#parts > 0 and table.concat(parts, ". ")
+        or "У всех, кто отвечает, версия совпадает.")
+end
+
+-- ============================================================
+-- «НОВЫЙ ХОД» ЗОВЁТ ВЕДУЩЕГО
+--
+-- Пульсация — не украшение: круг пройден, и сцена стоит до тех пор,
+-- пока Ведущий не нажмёт кнопку. Пока подсказки не было, это выглядело
+-- как зависший аддон, а не как «от тебя ждут хода».
+--
+-- Мигаем прозрачностью самой кнопки, а не подложкой: у неё уже есть
+-- своя раскраска по варианту (см. SB.Theme.Button), и второй слой поверх
+-- спорил бы с ней при наведении.
+-- ============================================================
+local roundUrgent = false
+
+local function StopRoundPulse()
+    if not roundBtn then return end
+    roundBtn:SetScript("OnUpdate", nil)
+    roundBtn:SetAlpha(roundBtn:IsEnabled() and 1 or 0.45)
+end
+
+local function StartRoundPulse()
+    if not roundBtn then return end
+    local t = 0
+    roundBtn:SetScript("OnUpdate", function(self, elapsed)
+        t = t + elapsed
+        -- Секунда на полный цикл, размах от 0.45 до 1: заметно боковым
+        -- зрением и не мельтешит.
+        self:SetAlpha(0.725 + 0.275 * math.sin(t * math.pi * 2))
+    end)
+end
+
+--- Включить/выключить «зов» кнопки нового хода.
+--- @param urgent boolean  можно ли объявлять новый ход прямо сейчас
+function SB.UI.SetRoundButtonUrgent(urgent)
+    urgent = urgent and true or false
+    if urgent == roundUrgent then return end
+    roundUrgent = urgent
+
+    if not urgent then
+        StopRoundPulse()
+        return
+    end
+
+    StartRoundPulse()
+    SB.Theme.PlaySound("attention")
+
+    -- Открываем панель на вкладке настроек: кнопка там, и без этого
+    -- звонок означал бы «иди сам ищи, где нажать». Только Ведущему —
+    -- вкладка у остальных и не существует (см. RefreshGMAccess).
+    if SB.UI.IsGameMaster() then
+        if not gmFrame then SB.UI.BuildGMPanel() end
+        if gmFrame then
+            gmFrame:Show()
+            SelectTab("settings")
         end
     end
 end
-SB.UI.RefreshGMRealtimeRow = RefreshRealtimeRow
+
+function SB.UI.RefreshGMSettings()
+    if not turnChecks then return end
+    local TO     = SB.TurnOrder
+    local active = TO.IsActive()
+
+    RefreshVersionLine()
+
+    -- Кнопка подписана ТЕКУЩИМ состоянием, а не действием: Ведущему
+    -- важнее видеть, в каком режиме сцена, чем что случится по нажатию.
+    turnBtn:SetText(active and "Пошаговый режим" or "Свободный ход")
+
+    for _, chk in ipairs(turnChecks) do
+        chk:SetChecked(chk._mode == TO.GetMode())
+    end
+
+    -- Поле времени не трогаем, пока Ведущий в нём печатает: иначе
+    -- перерисовка от чужого статуса стирала бы набранное на полуслове.
+    if timerEB and not timerEB:HasFocus() then
+        timerEB:SetText(SB.TurnOrder.IsTimedTurn()
+            and tostring(SB.TurnOrder.GetTurnTimeLimit()) or "")
+    end
+    if moveFreeChk then moveFreeChk:SetChecked(SB.TurnOrder.IsMoveFree()) end
+
+    -- Кнопки очереди доступны по очереди, а не обе разом: пока круг
+    -- идёт — «Передать ход», когда пройден — «Новый ход». Иначе один
+    -- промах мыши обрывает круг на середине.
+    --
+    -- РАНЬШЕ ТАЙМЕР ГАСИЛ «ПЕРЕДАТЬ ХОД» СОВСЕМ — считалось, что два
+    -- рычага на одну очередь спорят друг с другом. На практике вышло
+    -- наоборот: зависший в очереди игрок останавливал бой намертво, а
+    -- единственная кнопка, которая это чинит, была недоступна. Спора
+    -- при этом нет — отсчёт запомнил, ЧЕЙ ход он ведёт, и на чужом уже
+    -- не срабатывает (см. TO.RestartTurnTimer), а после ручной передачи
+    -- заводится заново под новый слот.
+    --
+    -- Время хода живёт в личных настройках (SpellbreakerAccountDB), и
+    -- потому симптом выглядел как «у меня кнопка не работает, а у нового
+    -- лидера работает»: у него просто не был выставлен свой отсчёт.
+    local roundOver = SB.TurnOrder.IsRoundOver()
+    local timed     = SB.TurnOrder.IsTimedTurn()
+    local function SetEnabled(btn, on)
+        if on then btn:Enable(); btn:SetAlpha(1)
+        else btn:Disable(); btn:SetAlpha(0.45) end
+    end
+    SetEnabled(nextBtn,  active and not roundOver)
+
+    -- «НОВЫЙ ХОД» СПРАШИВАЕТ САМ. Круг пройден — сцена стоит и ждёт
+    -- ровно одного нажатия, и ждать его молча означает «все смотрят в
+    -- чат и не понимают, почему ничего не происходит». Поэтому на
+    -- переходе «стало можно» панель открывается на нужной вкладке,
+    -- звенит один раз и кнопка начинает пульсировать.
+    --
+    -- Именно НА ПЕРЕХОДЕ, а не «пока можно»: RefreshGMSettings зовётся
+    -- на каждое чужое действие, и звенело бы оно тогда без остановки.
+    local canRound = active and roundOver
+    SetEnabled(roundBtn, canRound)
+    -- Звонок и пульсация — ТОЛЬКО Ведущему: состояние очереди зеркалят
+    -- все, а нажимать кнопку некому, кроме него.
+    SB.UI.SetRoundButtonUrgent(canRound and SB.UI.IsGameMaster())
+
+    if not active then
+        turnStatus:SetText("Время идёт само: эффекты тикают каждые 6 секунд, " ..
+            "ходят все и в любом порядке.")
+        return
+    end
+
+    local who = TO.GetCurrentNames()
+    if #who > 0 then
+        turnStatus:SetText("Ход " .. TO.GetRound() .. ". Ходит: |cFFFFD100" ..
+            table.concat(who, ", ") .. "|r" ..
+            (timed and (" (до " .. TO.GetTurnTimeLimit() .. " с)") or ""))
+    else
+        turnStatus:SetText("Ход " .. TO.GetRound() ..
+            ". Круг пройден — нажмите «Новый ход».")
+    end
+end
+
+-- ============================================================
+-- РЕАЛТАЙМ-СИМУЛЯЦИЯ ЭФФЕКТОВ
+--
+-- Каждые шесть секунд списывает ход всем активным эффектам в группе.
+-- Это НЕ настройка, а обратная сторона пошагового режима: время либо
+-- идёт само, либо стоит и двигается ходами. Поэтому отдельной галочки
+-- больше нет — тик включён ровно тогда, когда пошаговый режим выключен
+-- (см. SyncRealtimeToTurnMode ниже и Core/TurnOrder.lua).
+--
+-- Работает только у Ведущего: рычаг темпа сцены должен быть один. Два
+-- клиента с таймером тикали бы эффекты вдвое быстрее.
+-- ============================================================
+local realtimeTimer = nil
+
+local function StopRealtimeTimer()
+    if realtimeTimer then
+        local AceTimerLib = LibStub and LibStub("AceTimer-3.0", true)
+        if AceTimerLib then AceTimerLib:CancelTimer(realtimeTimer) end
+        realtimeTimer = nil
+    end
+end
+
+local function RealtimeTick()
+    if not (SpellbreakerAccountDB and SpellbreakerAccountDB.realtimeEffects) then return false end
+    -- TickAll, а не ручной цикл: пачка вместо пакета на каждый эффект,
+    -- одна строка в чат вместо строки на эффект и защита эффектов друг
+    -- от друга (см. Core/ActiveEffects.lua).
+    if SB.ActiveEffects then
+        SB.ActiveEffects.TickAll()
+    end
+    if IsInGroup() and SB.Net and SB.Net.SendRealtimeDecrement then
+        SB.Net.SendRealtimeDecrement()
+    end
+    return true
+end
+
+local function StartRealtimeTimer()
+    StopRealtimeTimer()
+    local AceTimerLib = LibStub and LibStub("AceTimer-3.0", true)
+    if not AceTimerLib then
+        -- Запасной путь на клиенте без AceTimer: обычный повтор C_Timer.
+        local function tick()
+            if not RealtimeTick() then return end
+            C_Timer.After(6, tick)
+        end
+        C_Timer.After(6, tick)
+        return
+    end
+    realtimeTimer = AceTimerLib:ScheduleRepeatingTimer(function()
+        if not RealtimeTick() then StopRealtimeTimer() end
+    end, 6)
+end
+
+--- Привести тик эффектов в соответствие с пошаговым режимом. Зовётся
+--- отовсюду, где меняется одно из двух: сам режим, состав группы, право
+--- Ведущего.
+local function SyncRealtimeToTurnMode()
+    local enabled = SB.UI.IsGameMaster() and not (SB.TurnOrder and SB.TurnOrder.IsActive())
+    local was     = SpellbreakerAccountDB and SpellbreakerAccountDB.realtimeEffects or false
+    if SpellbreakerAccountDB then SpellbreakerAccountDB.realtimeEffects = enabled end
+
+    if enabled then StartRealtimeTimer() else StopRealtimeTimer() end
+
+    -- Группе сообщаем только о СМЕНЕ и только от Ведущего: пакет
+    -- информационный, а принимают его всё равно лишь от лидера.
+    if was ~= enabled and IsInGroup() and SB.UI.IsGameMaster()
+       and SB.Net and SB.Net.SendRealtimeSync then
+        SB.Net.SendRealtimeSync(enabled)
+    end
+end
 
 local function RebuildNameToUnit()
     table.wipe(nameToUnit)
@@ -112,139 +370,234 @@ function SB.UI.BuildGMPanel()
         end
     end)
 
-    playersTab = SB.Theme.Tab(gmFrame, "Игроки", 180, 24, true)
+    -- Три вкладки в ширину рамки: 8 + 118*3 + 4*2 = 370 при ширине 380.
+    -- Отсюда и короткое «Заявки» вместо «Очередь заявок» — в треть
+    -- ширины прежняя подпись не помещается.
+    local TAB_W = 118
+
+    playersTab = SB.Theme.Tab(gmFrame, "Игроки", TAB_W, 24, true)
     playersTab:SetPoint("TOPLEFT", gmFrame, "TOPLEFT", 8, gmFrame.contentY)
     playersTab:SetScript("OnClick", function()
-        playersTab:SetActive(true)
-        queueTab:SetActive(false)
         SB.Theme.PlaySound("click")
-        playersPanel:Show(); queuePanel:Hide()
+        SelectTab("players")
         SB.UI.UpdateGMPlayers()
         if IsInGroup() and SB.Net and SB.Net.BroadcastStatus then
             SB.Net.BroadcastStatus(true)
         end
     end)
 
-    queueTab = SB.Theme.Tab(gmFrame, "Очередь заявок", 180, 24, false)
+    queueTab = SB.Theme.Tab(gmFrame, "Заявки", TAB_W, 24, false)
     queueTab:SetPoint("LEFT", playersTab, "RIGHT", 4, 0)
     queueTab:SetScript("OnClick", function()
-        queueTab:SetActive(true)
-        playersTab:SetActive(false)
         SB.Theme.PlaySound("click")
-        queuePanel:Show(); playersPanel:Hide()
+        SelectTab("queue")
         SB.UI.UpdateGMQueue()
     end)
 
-    playersPanel, playersChild = SB.Theme.Scroll(gmFrame, 10, gmFrame.contentY - 30, -10, 36)
-    playersPanel:Show()
-
-    queuePanel, queueChild = SB.Theme.Scroll(gmFrame, 10, gmFrame.contentY - 30, -10, 36)
-    queuePanel:Hide()
-
-    -- Галочка реалтайм-симуляции эффектов — ТОЛЬКО ВЕДУЩЕМУ
-    -- (см. RefreshRealtimeRow выше; локали объявлены в шапке файла).
-    rtBg = CreateFrame("Frame", nil, gmFrame, "BackdropTemplate")
-    rtBg:SetSize(gmFrame:GetWidth() - 20, 26)
-    rtBg:SetPoint("BOTTOM", gmFrame, "BOTTOM", 0, 10)
-    rtBg:SetBackdrop(SB.Theme.BD.card)
-    rtBg:SetBackdropColor(0.05, 0.04, 0.08, 0.80)
-    rtBg:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
-
-    rtChk = CreateFrame("CheckButton", "SBRealtimeEffectChk", rtBg, "UICheckButtonTemplate")
-    rtChk:SetSize(20, 20)
-    rtChk:SetPoint("LEFT", rtBg, "LEFT", 6, 0)
-    rtChk:SetChecked(SpellbreakerAccountDB and SpellbreakerAccountDB.realtimeEffects or false)
-
-    local rtLbl = rtBg:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    rtLbl:SetPoint("LEFT", rtChk, "RIGHT", 4, 0)
-    rtLbl:SetText("Симуляция реалтайм эффектов (каждые 6 сек)")
-    rtLbl:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
-
-    local realtimeTimer = nil
-
-    local function StopRealtimeTimer()
-        if realtimeTimer then
-            local AceTimerLib = LibStub and LibStub("AceTimer-3.0", true)
-            if AceTimerLib and realtimeTimer then AceTimerLib:CancelTimer(realtimeTimer) end
-            realtimeTimer = nil
-        end
-    end
-
-    local function StartRealtimeTimer()
-        StopRealtimeTimer()
-        local AceTimerLib = LibStub and LibStub("AceTimer-3.0", true)
-        if not AceTimerLib then
-            -- Fallback: простой C_Timer повтор
-            local function tick()
-                if not (SpellbreakerAccountDB and SpellbreakerAccountDB.realtimeEffects) then return end
-                -- Уменьшить всем локально
-                if SB.ActiveEffects then
-                    for _, eff in ipairs(SB.ActiveEffects.GetAll()) do
-                        SB.ActiveEffects.DecrementOne(eff.spellID)
-                    end
-                end
-                -- Разослать команду группе
-                if IsInGroup() and SB.Net and SB.Net.SendRealtimeDecrement then
-                    SB.Net.SendRealtimeDecrement()
-                end
-                C_Timer.After(6, tick)
-            end
-            C_Timer.After(6, tick)
-            return
-        end
-        realtimeTimer = AceTimerLib:ScheduleRepeatingTimer(function()
-            if not (SpellbreakerAccountDB and SpellbreakerAccountDB.realtimeEffects) then
-                StopRealtimeTimer(); return
-            end
-            if SB.ActiveEffects then
-                for _, eff in ipairs(SB.ActiveEffects.GetAll()) do
-                    SB.ActiveEffects.DecrementOne(eff.spellID)
-                end
-            end
-            if IsInGroup() and SB.Net and SB.Net.SendRealtimeDecrement then
-                SB.Net.SendRealtimeDecrement()
-            end
-        end, 6)
-    end
-
-    rtChk:SetScript("OnClick", function(self)
-        -- Второй замок, помимо скрытой плашки: состав группы мог
-        -- смениться между показом панели и нажатием (лидер передал
-        -- лид), и снятая галочка не должна успеть запустить таймер.
-        if not SB.UI.IsGameMaster() then
-            self:SetChecked(SpellbreakerAccountDB
-                and SpellbreakerAccountDB.realtimeEffects or false)
-            RefreshRealtimeRow()
-            return
-        end
-
-        local enabled = self:GetChecked()
-        if SpellbreakerAccountDB then
-            SpellbreakerAccountDB.realtimeEffects = enabled
-        end
-        if enabled and (not IsInGroup() or UnitIsGroupLeader("player")) then
-            StartRealtimeTimer()
-        else
-            StopRealtimeTimer()
-        end
-        -- Уведомить группу о смене параметра
-        if IsInGroup() and SB.Net and SB.Net.SendRealtimeSync then
-            SB.Net.SendRealtimeSync(enabled)
-        end
+    settingsTab = SB.Theme.Tab(gmFrame, "Настройки", TAB_W, 24, false)
+    settingsTab:SetPoint("LEFT", queueTab, "RIGHT", 4, 0)
+    settingsTab:SetScript("OnClick", function()
+        -- Второй замок, помимо скрытой вкладки: лид могли передать между
+        -- показом панели и щелчком.
+        if not SB.UI.IsGameMaster() then RefreshGMAccess() return end
+        SB.Theme.PlaySound("click")
+        SelectTab("settings")
+        SB.UI.RefreshGMSettings()
     end)
 
-    -- Восстановить таймер если был включён до релога
-    SB.Events.On("SB_INIT", function()
-        if SpellbreakerAccountDB and SpellbreakerAccountDB.realtimeEffects then
-            if SB.UI.IsGameMaster() then
-                StartRealtimeTimer()
+    -- Нижняя граница списков — 10, а не 36: плашка реалтайма съехала со
+    -- дна панели во вкладку «Настройки», и резервировать место незачем.
+    playersPanel, playersChild = SB.Theme.Scroll(gmFrame, 10, gmFrame.contentY - 30, -10, 10)
+    playersPanel:Show()
+
+    queuePanel, queueChild = SB.Theme.Scroll(gmFrame, 10, gmFrame.contentY - 30, -10, 10)
+    queuePanel:Hide()
+
+    settingsPanel = CreateFrame("Frame", nil, gmFrame)
+    settingsPanel:SetPoint("TOPLEFT", gmFrame, "TOPLEFT", 10, gmFrame.contentY - 30)
+    settingsPanel:SetPoint("BOTTOMRIGHT", gmFrame, "BOTTOMRIGHT", -10, 10)
+    settingsPanel:Hide()
+
+    -- ── Пошаговый режим ──────────────────────────────────────
+    --
+    -- Главный рычаг вкладки, поэтому он первый и во всю ширину. Внутри
+    -- всё делает Core/TurnOrder.lua; панель только жмёт на кнопку и
+    -- показывает, что получилось.
+    -- Три кнопки в ряд по ширине вкладки: 140 + 105 + 105 и два зазора
+    -- по 5 — ровно 360, то есть вся её ширина.
+    turnBtn = SB.Theme.Button(settingsPanel, "Свободный ход", 140, 26, "primary")
+    turnBtn:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 0, 0)
+    turnBtn:SetScript("OnClick", function()
+        if not SB.UI.IsGameMaster() then RefreshGMAccess() return end
+        SB.TurnOrder.Toggle()
+        SB.UI.RefreshGMSettings()
+    end)
+
+    -- Две кнопки на случаи, которые аддон сам не разберёт: игрок ушёл
+    -- или завис (передать ход дальше) и круг закончился (новый ход).
+    nextBtn = SB.Theme.Button(settingsPanel, "Передать ход", 105, 26, "secondary")
+    nextBtn:SetPoint("LEFT", turnBtn, "RIGHT", 5, 0)
+    nextBtn:SetScript("OnClick", function()
+        if not SB.UI.IsGameMaster() then RefreshGMAccess() return end
+        SB.TurnOrder.Advance()
+        SB.UI.RefreshGMSettings()
+    end)
+
+    roundBtn = SB.Theme.Button(settingsPanel, "Новый ход", 105, 26, "secondary")
+    roundBtn:SetPoint("LEFT", nextBtn, "RIGHT", 5, 0)
+    roundBtn:SetScript("OnClick", function()
+        if not SB.UI.IsGameMaster() then RefreshGMAccess() return end
+        SB.TurnOrder.NewRound()
+        SB.UI.RefreshGMSettings()
+    end)
+
+    turnStatus = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    turnStatus:SetPoint("TOPLEFT", turnBtn, "BOTTOMLEFT", 0, -6)
+    turnStatus:SetPoint("RIGHT", settingsPanel, "RIGHT", -4, 0)
+    turnStatus:SetJustifyH("LEFT")
+    turnStatus:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
+
+    -- ── Порядок хода ─────────────────────────────────────────
+    --
+    -- Три взаимоисключающих режима. Сделаны обычными галочками, а не
+    -- выпадающим списком: их всего три, и видеть все варианты разом
+    -- Ведущему полезнее, чем экономить строку.
+    local turnHeader = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    turnHeader:SetPoint("TOPLEFT", turnStatus, "BOTTOMLEFT", 2, -14)
+    turnHeader:SetText("Порядок хода")
+    turnHeader:SetTextColor(C.accent[1], C.accent[2], C.accent[3])
+
+    turnChecks = {}
+    -- Каждая строка — галочка и подсказка под ней. Позиции считаем от
+    -- ОДНОГО якоря с накопленным сдвигом, а не цепочкой «следующая под
+    -- предыдущей»: подсказка отбита вправо на 24, и цепочка утаскивала
+    -- бы каждую следующую галочку на 24 пикселя правее.
+    local ROW_H  = 42
+    local rowY   = -6
+    for _, mode in ipairs(SB.Data.TurnModes) do
+        local chk = CreateFrame("CheckButton", nil, settingsPanel, "UICheckButtonTemplate")
+        chk:SetSize(20, 20)
+        chk:SetPoint("TOPLEFT", turnHeader, "BOTTOMLEFT", 0, rowY)
+
+        local lbl = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        lbl:SetPoint("LEFT", chk, "RIGHT", 4, 0)
+        lbl:SetText(mode.label)
+        lbl:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+
+        local hint = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        hint:SetPoint("TOPLEFT", chk, "BOTTOMLEFT", 24, 2)
+        hint:SetPoint("RIGHT", settingsPanel, "RIGHT", -4, 0)
+        hint:SetJustifyH("LEFT")
+        hint:SetText(mode.hint)
+        hint:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
+
+        chk._mode = mode.key
+        chk:SetScript("OnClick", function(self)
+            if not SB.UI.IsGameMaster() then
+                RefreshGMAccess()
+                return
             end
-        end
-        if SBRealtimeEffectChk then
-            SBRealtimeEffectChk:SetChecked(
-                SpellbreakerAccountDB and SpellbreakerAccountDB.realtimeEffects or false)
-        end
-        RefreshRealtimeRow()
+            -- Режим ровно один: щелчок по уже выбранному не снимает его,
+            -- иначе получилось бы состояние «порядка нет вообще».
+            SB.TurnOrder.SetMode(self._mode)
+            SB.Theme.PlaySound("click")
+            SB.UI.RefreshGMSettings()
+        end)
+
+        table.insert(turnChecks, chk)
+        rowY = rowY - ROW_H
+    end
+
+    -- ── Время на ход ─────────────────────────────────────────
+    -- Не галочка, а число секунд: темп сцены разный, перестрелке хватает
+    -- тридцати секунд, разговору мало и трёх минут. Границы и смысл
+    -- «выше максимума = не ограничен» — в Core/TurnOrder.lua.
+    local timerLbl = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    timerLbl:SetPoint("TOPLEFT", turnHeader, "BOTTOMLEFT", 0, rowY - 6)
+    timerLbl:SetText("Секунд на ход")
+    timerLbl:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+
+    local timerWrap
+    timerWrap, timerEB = SB.Theme.Input(settingsPanel, nil, 54, 20)
+    timerWrap:SetPoint("LEFT", timerLbl, "RIGHT", 8, 0)
+    timerEB:SetNumeric(true)
+
+    -- Применяем по Enter и по потере фокуса: ввод числа не имеет момента
+    -- «нажал», и заставлять Ведущего искать кнопку ради двух цифр глупо.
+    local function ApplyTurnTime(self)
+        if not SB.UI.IsGameMaster() then RefreshGMAccess() return end
+        self:ClearFocus()
+        -- Показываем ПРИНЯТОЕ значение, а не набранное: 5 секунд молча
+        -- станут минимумом, и поле обязано это показать, иначе Ведущий
+        -- останется уверен, что у него пять.
+        SB.TurnOrder.SetTurnTimeLimit(self:GetNumber())
+        SB.UI.RefreshGMSettings()
+    end
+    timerEB:SetScript("OnEnterPressed", ApplyTurnTime)
+    timerEB:SetScript("OnEditFocusLost", ApplyTurnTime)
+
+    local timerHint = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    timerHint:SetPoint("TOPLEFT", timerLbl, "BOTTOMLEFT", 0, -4)
+    timerHint:SetPoint("RIGHT", settingsPanel, "RIGHT", -4, 0)
+    timerHint:SetJustifyH("LEFT")
+    timerHint:SetText(string.format(
+        "Ход уходит дальше сам; «Передать ход» при этом работает и " ..
+        "передаёт раньше срока. Меньше %d нельзя, больше %d — ход не ограничен.",
+        SB.TurnOrder.TURN_TIME_MIN, SB.TurnOrder.TURN_TIME_MAX))
+    timerHint:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
+
+    -- ── Свободное передвижение ───────────────────────────────
+    -- Решение на сцену, а не личная настройка: и запрет действия, и
+    -- усталость считает каждый клиент у себя, поэтому флаг едет всем
+    -- вместе с очередью (см. SB.TurnOrder.SetMoveFree).
+    moveFreeChk = CreateFrame("CheckButton", nil, settingsPanel, "UICheckButtonTemplate")
+    moveFreeChk:SetSize(20, 20)
+    moveFreeChk:SetPoint("TOPLEFT", timerHint, "BOTTOMLEFT", 0, -10)
+    moveFreeChk:SetScript("OnClick", function(self)
+        if not SB.UI.IsGameMaster() then RefreshGMAccess() return end
+        SB.TurnOrder.SetMoveFree(self:GetChecked())
+        SB.UI.RefreshGMSettings()
+    end)
+
+    local moveFreeLbl = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    moveFreeLbl:SetPoint("LEFT", moveFreeChk, "RIGHT", 4, 0)
+    moveFreeLbl:SetText("Не ограничивать передвижение")
+    moveFreeLbl:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+
+    local moveFreeHint = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    moveFreeHint:SetPoint("TOPLEFT", moveFreeChk, "BOTTOMLEFT", 24, 2)
+    moveFreeHint:SetPoint("RIGHT", settingsPanel, "RIGHT", -4, 0)
+    moveFreeHint:SetJustifyH("LEFT")
+    moveFreeHint:SetText(string.format(
+        "Метры считаются и видны, но упор ничего не запрещает: способности " ..
+        "доступны, усталость не начисляется. Обычно же каждые %d м сверх " ..
+        "предела стоят %d ХП.",
+        (SB.Data.Config and SB.Data.Config.MoveFatigueStep) or 3,
+        (SB.Data.Config and SB.Data.Config.MoveFatigueDamage) or 1))
+    moveFreeHint:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
+
+    -- ── Версии в группе ──────────────────────────────────────
+    -- Строка внизу вкладки: она отвечает на вопрос «почему у него не
+    -- работает», который иначе решается получасом догадок
+    -- (см. SB.Net.GetVersionReport).
+    versionHeader = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    versionHeader:SetPoint("TOPLEFT", moveFreeHint, "BOTTOMLEFT", -24, -14)
+    versionHeader:SetTextColor(C.accent[1], C.accent[2], C.accent[3])
+
+    versionLine = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    versionLine:SetPoint("TOPLEFT", versionHeader, "BOTTOMLEFT", 0, -4)
+    versionLine:SetPoint("RIGHT", settingsPanel, "RIGHT", -4, 0)
+    versionLine:SetJustifyH("LEFT")
+    versionLine:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
+
+    -- Состояние сцены восстанавливаем после загрузки базы: пошаговый
+    -- режим сам по себе не переживает перезаход (очередь имеет смысл
+    -- только пока в сети те, кто в ней стоит), а вот реалтайм-тик
+    -- обязан завестись сразу — он и есть «обычное течение времени».
+    SB.Events.On("SB_INIT", function()
+        SyncRealtimeToTurnMode()
+        RefreshGMAccess()
+        SB.UI.RefreshGMSettings()
     end)
 
     -- Лид могли передать, пока панель открыта. Пересчитываем видимость
@@ -254,14 +607,40 @@ function SB.UI.BuildGMPanel()
     rosterWatch:RegisterEvent("GROUP_ROSTER_UPDATE")
     rosterWatch:RegisterEvent("PARTY_LEADER_CHANGED")
     rosterWatch:SetScript("OnEvent", function()
-        RefreshRealtimeRow()
-        -- Перестал быть Ведущим — гасим и сам таймер: иначе бывший лидер
-        -- продолжал бы списывать ходы эффектам всей группы.
-        if not SB.UI.IsGameMaster() then StopRealtimeTimer() end
+        RefreshGMAccess()
+        -- Перестал быть Ведущим — таймер гаснет тут же: иначе бывший
+        -- лидер продолжал бы списывать ходы эффектам всей группы.
+        SyncRealtimeToTurnMode()
+        SB.UI.RefreshGMSettings()
     end)
-    gmFrame:HookScript("OnShow", RefreshRealtimeRow)
+    gmFrame:HookScript("OnShow", function()
+        RefreshGMAccess()
+        SB.UI.RefreshGMSettings()
+    end)
 
-    RefreshRealtimeRow()
+    -- Очередь изменилась (у Ведущего — своими руками, у остальных —
+    -- пакетом TURN): перерисовываем вкладку и список игроков, где стоят
+    -- номера инициативы.
+    SB.Events.On(SB.E.TURN_ORDER_CHANGED, function()
+        -- Пошаговый режим включили/выключили — вместе с ним переключается
+        -- и течение времени для эффектов.
+        SyncRealtimeToTurnMode()
+        SB.UI.RefreshGMSettings()
+        if playersPanel and playersPanel:IsShown() then
+            SB.UI.UpdateGMPlayers()
+        end
+    end)
+
+    -- Чужие статусы приходят пачками, и до первого ответа про версии в
+    -- группе не известно ничего — строку надо пересобрать по приходу.
+    SB.Events.On(SB.E.PLAYERS_STATUS_UPDATED, function()
+        if settingsPanel and settingsPanel:IsShown() then
+            SB.UI.RefreshGMSettings()
+        end
+    end)
+
+    RefreshGMAccess()
+    SB.UI.RefreshGMSettings()
 end
 
 -- ============================================================
@@ -369,6 +748,24 @@ function SB.UI.UpdateGMQueue()
         local hasCrit = spell and spell.canCrit == true
         row.forceCritS:SetShown(hasCrit)
         row.forceCritF:SetShown(hasCrit)
+
+        -- СПРАВЕДЛИВАЯ СЛ В ПОЛЕ. Ставится ОДИН РАЗ на заявку — по её
+        -- ключу, а не на каждую перерисовку: очередь обновляется от
+        -- любого чужого статуса, и затирать набранное Ведущим число было
+        -- бы хуже, чем не подсказывать вовсе.
+        --
+        -- Цифра — не приговор, а точка отсчёта: это СЛ, которую именно
+        -- ЭТОТ персонаж берёт примерно в половине случаев (см.
+        -- SB.Logic.FairDC). Дальше Ведущий двигает её в обе стороны,
+        -- уже понимая, от чего пляшет.
+        local reqKey = tostring(req.caster) .. "|" .. tostring(req.spellID) ..
+                       "|" .. tostring(req.slotLevel) .. "|" .. tostring(req.ts)
+        if row._reqKey ~= reqKey then
+            row._reqKey = reqKey
+            -- Клиент старой версии модификатор не пришлёт — оставляем
+            -- поле пустым, как было до этой подсказки.
+            row.dcInput:SetText(req.mod and tostring(SB.Logic.FairDC(req.mod)) or "")
+        end
 
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", queueChild, "TOPLEFT", 0, -yOff)
@@ -498,6 +895,21 @@ function SB.UI.UpdateGMPlayers()
         })
     end
 
+    -- ПОРЯДОК СПИСКА В ПОШАГОВОМ РЕЖИМЕ — по очереди хода, а не по
+    -- составу группы: номер перед именем должен читаться сверху вниз
+    -- («1. Майк, 2. Ирина»), иначе он превращается в ребус.
+    if SB.TurnOrder and SB.TurnOrder.IsActive() then
+        for _, p in ipairs(allPlayers) do
+            p.init = SB.TurnOrder.GetInitiative(p.name)
+        end
+        table.sort(allPlayers, function(a, b)
+            -- Кого в очереди нет (вошёл посреди круга) — в конец списка.
+            if (a.init ~= nil) ~= (b.init ~= nil) then return a.init ~= nil end
+            if a.init and b.init and a.init ~= b.init then return a.init < b.init end
+            return (a.name or "") < (b.name or "")
+        end)
+    end
+
     local rowH        = 60
     local subH        = 30
     local gapRowSub   = 2
@@ -555,8 +967,21 @@ function SB.UI.UpdateGMPlayers()
             playerRows[index] = row
         end
 
-        -- Текст лейблов
-        row.nameLabel:SetText((p.name or "?"))
+        -- Текст лейблов. В пошаговом режиме имени предшествует номер в
+        -- очереди, а тот, чей ход идёт прямо сейчас, подсвечен: список
+        -- игроков — то место, куда Ведущий смотрит чаще всего, и держать
+        -- очередь только во вкладке «Настройки» значит заставлять его
+        -- прыгать между вкладками весь бой.
+        local nameText = p.name or "?"
+        if SB.TurnOrder and SB.TurnOrder.IsActive() then
+            if p.init then nameText = p.init .. ". " .. nameText end
+            if SB.TurnOrder.HasActed(p.name) then
+                nameText = "|cFF808080" .. nameText .. "|r"
+            elseif SB.TurnOrder.IsCurrent(p.name) or SB.TurnOrder.GetMode() == "all" then
+                nameText = "|cFFFFD100" .. nameText .. "|r"
+            end
+        end
+        row.nameLabel:SetText(nameText)
 		
 		row.infoLabel:SetText((p.class or "?") .. " * " .. (p.mastery or "?"))
 
@@ -639,9 +1064,44 @@ function SB.UI.UpdateGMPlayers()
                     if self._isConc then
                         GameTooltip:AddLine("|cFF22BFFFКонцентрация|r", 1, 1, 1)
                     end
+                    if SB.UI.IsGameMaster() then
+                        GameTooltip:AddLine(" ")
+                        GameTooltip:AddLine("Двойной клик — снять эффект.", 0.6, 0.6, 0.6)
+                    end
                     GameTooltip:Show()
                 end)
                 ic:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+                -- ДВОЙНОЙ КЛИК СНИМАЕТ ЭФФЕКТ.
+                --
+                -- Двойной, а не одинарный: иконки стоят вплотную рядом с
+                -- портретом, по которому открывают выдачу ресурсов, и
+                -- случайный промах мышью снимал бы чужую концентрацию.
+                -- Двойной клик по ошибке не делают.
+                --
+                -- Снимает не панель, а сам носитель: эффекты живут на его
+                -- клиенте (см. ParseREMEFF в Core/Network.lua). Своё
+                -- снимаем напрямую — пакет до себя не доходит.
+                ic:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+                ic:SetScript("OnDoubleClick", function(self)
+                    if not SB.UI.IsGameMaster() then
+                        print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " ..
+                            SB.Theme.MSG_BAD ..
+                            "Снимать эффекты может только лидер группы.|r")
+                        return
+                    end
+                    if not self._spID or not self._owner then return end
+                    if self._owner == UnitName("player") then
+                        SB.ActiveEffects.Remove(self._spID)
+                    else
+                        SB.Net.SendRemoveEffect(self._owner, self._spID)
+                        -- Гасим иконку сразу: настоящий список приедет
+                        -- пакетом AEFFECT от игрока через долю секунды, а
+                        -- до тех пор клик выглядел бы не сработавшим.
+                        self:Hide()
+                        GameTooltip:Hide()
+                    end
+                end)
                 row.effectIcons[iIdx] = ic
             end
 
@@ -649,6 +1109,9 @@ function SB.UI.UpdateGMPlayers()
             ic._spID  = eff.spellID
             ic._uses  = eff.uses
             ic._isConc = eff.isConc
+            -- Владелец нужен снятию: иконки переиспользуются между
+            -- строками, и без явной привязки эффект ушёл бы не тому.
+            ic._owner = p.name
             ic._tex:SetTexture(sp and sp.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
             ic._ib:SetBackdropBorderColor(0.15, 0.75, 1.0, 0.9)
             ic._ib:SetShown(eff.isConc or false)
@@ -871,7 +1334,7 @@ end
 -- ============================================================
 local MAX_REQUEST_QUEUE = 50  -- защита от переполнения
 
-function SB.UI.ShowGMRequest(caster, spellID, slotLevel, targetLabel)
+function SB.UI.ShowGMRequest(caster, spellID, slotLevel, targetLabel, mod)
     if not SpellbreakerAccountDB.requestQueue then
         SpellbreakerAccountDB.requestQueue = {}
     end
@@ -892,6 +1355,9 @@ function SB.UI.ShowGMRequest(caster, spellID, slotLevel, targetLabel)
         spellID   = spellID,
         slotLevel = tonumber(slotLevel) or 0,
         target    = targetLabel,
+        -- Модификатор заклинателя: из него считается справедливая СЛ,
+        -- которую Ведущий увидит в поле (см. SB.Logic.FairDC).
+        mod       = tonumber(mod),
         ts        = time(),  -- для диагностики / авто-чистки
     })
     -- Авто-открытие панели ГМа на вкладке «Очередь заявок».
@@ -904,10 +1370,7 @@ function SB.UI.ShowGMRequest(caster, spellID, slotLevel, targetLabel)
         gmFrame:Show()
     end
     -- Переключаемся на вкладку очереди
-    playersTab:SetActive(false)
-    queueTab:SetActive(true)
-    playersPanel:Hide()
-    queuePanel:Show()
+    SelectTab("queue")
     SB.UI.UpdateGMQueue()
 end
 -- ============================================================
