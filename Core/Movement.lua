@@ -30,9 +30,12 @@
 -- ПРАВИЛА:
 --   • упёрся в предел — способность применить нельзя, можно только
 --     пропустить ход (см. SB.Logic.ConfirmCast);
---   • ЛЮБОЙ потраченный ход обнуляет путь — каст, лечение, наложение
---     эффекта, Короткий Отдых, пропуск хода. Сброс живёт в одном месте,
---     в SB.Logic.SpendTurn, через которое проходят все восемь путей;
+--   • путь обнуляется В НАЧАЛЕ СВОЕГО ХОДА, а не действием. Предел
+--     задан «столько метров за ход», значит и отсчёт идёт от начала
+--     хода: иначе метры, пройденные ПОСЛЕ собственного действия,
+--     съедали бы следующий ход. Сброс живёт в одном месте — там, где
+--     очередь объявляет «твой ход» (см. NotifyTransitions в
+--     Core/TurnOrder.lua);
 --   • пропуск хода вдобавок возвращает единицу ресурса — это плата за
 --     ход, в котором персонаж ничего не применил
 --     (см. SB.Logic.SpendTurnManually).
@@ -55,7 +58,7 @@ local NOTIFY_INTERVAL = 0.2
 -- «Предела нет вовсе» — отдельное значение, а НЕ ноль.
 --
 -- Сначала ноль и означал «ограничение снято», и это было ошибкой:
--- эффекты умеют двигать кап (канал moveCap), и достаточно сильный
+-- эффекты умеют двигать кап (канал movePct), и достаточно сильный
 -- дебафф на замедление обнулял бы предел — то есть СНИМАЛ ограничение
 -- вместо того, чтобы обездвижить. Теперь ноль честно значит ноль
 -- («шагнул — и действовать уже нечем»), а снятие предела задаётся
@@ -100,13 +103,46 @@ function SB.Movement.GetCap()
     if stored and stored < 0 then return NO_LIMIT end
 
     local base = stored or SB.Movement.GetDefaultCap()
+
+    -- ЭФФЕКТЫ ДВИГАЮТ ПРЕДЕЛ В ПРОЦЕНТАХ, а не в метрах, и считаются они
+    -- от УЖЕ СОБРАННОГО предела — вместе с «Атлетикой», расой и классом.
+    --
+    -- Раньше канал был метровым, и одно и то же замедление значило
+    -- разное: −6 м отнимало половину хода у обычного персонажа и
+    -- четверть у таурена-разбойника с развитой «Атлетикой». То есть
+    -- замедление тем слабее, чем быстрее цель, — ровно наоборот тому,
+    -- зачем его вешают. Процент бьёт одинаково по всем.
+    local slowed = base
     if SB.ActiveEffects and SB.ActiveEffects.GetMod then
-        base = base + (SB.ActiveEffects.GetMod("moveCap"))
+        local pct = SB.ActiveEffects.GetMod("movePct")
+        if pct ~= 0 then
+            -- Округляем к ближайшему: половина от 15 — это 8 метров, а
+            -- не 7.5, и в шапке должно стоять целое число.
+            slowed = math.floor(base * (1 + pct / 100) + 0.5)
+        end
     end
-    -- Ноль — законный итог: полное обездвиживание. Ниже нуля не уходим,
-    -- иначе значение столкнулось бы с NO_LIMIT и замедление внезапно
-    -- превратилось бы в свободу передвижения.
-    return math.max(0, base)
+
+    -- ЗАМЕДЛЕНИЕ НЕ ОБЕЗДВИЖИВАЕТ ПОЛНОСТЬЮ. Предел в ноль означает, что
+    -- персонаж упёрся, ещё не сделав шага, — то есть не может ни
+    -- применить способность, ни сделать что-либо кроме пропуска хода
+    -- (см. IsExhausted и SB.Logic.CanCastNow). Два-три сложившихся
+    -- замедления доводили до этого сами собой, и игрок выпадал из сцены
+    -- без единого броска на спасение: его ход просто уходил дальше.
+    --
+    -- Поэтому снизу стоит Config.MoveCapMin: сколько бы ни сложилось
+    -- помех, шаг остаётся. Это не поблажка — это разница между «медленно»
+    -- и «выбыл».
+    --
+    -- ГМ-ПРАВКУ ПОЛ НЕ ПОДНИМАЕТ. Если Ведущий выдал персонажу предел
+    -- меньше минимума (в том числе ноль — «связан, лежит, вморожен»),
+    -- это решение сцены, а не побочный итог арифметики, и переигрывать
+    -- его нечем. Пол не может поднять предел выше того, что было ДО
+    -- замедления.
+    local floorCap = math.min(base, tonumber(SB.Data.Config.MoveCapMin) or 3)
+
+    -- Ниже нуля не уходим, иначе значение столкнулось бы с NO_LIMIT и
+    -- замедление внезапно превратилось бы в свободу передвижения.
+    return math.max(0, floorCap, slowed)
 end
 
 --- Есть ли вообще предел (false — Ведущий его снял).
@@ -137,6 +173,11 @@ end
 --- Выбран ли лимит передвижения. Именно это спрашивает ConfirmCast,
 --- прежде чем пустить заклинание.
 function SB.Movement.IsExhausted()
+    -- Ведущий снял предел на сцену: метры считаются и видны, но упор в
+    -- них ничего не запрещает (см. TO.SetMoveFree).
+    if SB.TurnOrder and SB.TurnOrder.IsMoveFree and SB.TurnOrder.IsMoveFree() then
+        return false
+    end
     local cap = SB.Movement.GetCap()
     if cap == NO_LIMIT then return false end
     -- cap == 0 — полное обездвиживание: 0 >= 0, значит упёрся сразу, ещё
@@ -162,11 +203,150 @@ function SB.Movement.CheckCanAct()
     return not SB.Movement.IsExhausted()
 end
 
+-- ============================================================
+-- УСТАЛОСТЬ: БЕГ СВЕРХ ПРЕДЕЛА СТОИТ ЗДОРОВЬЯ
+--
+-- Предел сам по себе запрещает только действие: выбрал двенадцать
+-- метров — либо стой, либо пропускай ход. Убежать при этом можно было
+-- куда угодно и бесплатно, и «отступить на тридцать метров» ничем не
+-- отличалось от «отступить на двенадцать».
+--
+-- Правило: каждые Config.MoveFatigueStep метров, пройденные ПОСЛЕ
+-- упора, стоят Config.MoveFatigueDamage здоровья.
+--
+-- ЧТО ЗДЕСЬ НЕОЧЕВИДНО:
+--
+--  • Перебег считается ОТДЕЛЬНЫМ счётчиком (moveOver), а основной путь
+--    по-прежнему зажат капом. Иначе в шапке появилось бы «118/12», а
+--    решение показывать упор как 12/12 принималось не просто так.
+--
+--  • Заплаченное запоминается (moveFatiguePaid), а не вычисляется из
+--    остатка. Счётчик тикает каждый кадр, и без памяти о выплаченном
+--    один и тот же метр списывал бы здоровье снова и снова.
+--
+--  • Предупреждение приходит РАНЬШЕ первого урона — в момент упора.
+--    Бег в игре это примерно 6.4 метра в секунду: при шаге в три метра
+--    расплата идёт дважды в секунду, и без окна «остановись сейчас»
+--    правило работало бы как ловушка, а не как цена.
+--
+--  • Павший больше не устаёт. Ноль здоровья — это выход из сцены, и
+--    добивать лежащего за то, что его тащат, незачем.
+--
+--  • Сообщения копятся и уходят пачкой (FATIGUE_REPORT). Две строки в
+--    секунду про −1 ХП — это не отчёт, а помеха.
+-- ============================================================
+
+-- Как часто отчитываться об усталости в чат, секунд.
+local FATIGUE_REPORT = 1.0
+
+local fatigueWarned  = false   -- предупреждали ли в этом ходу
+local fatiguePending = 0       -- ХП, о которых ещё не отчитались
+local fatigueDueAt   = 0
+
+--- Действует ли усталость сейчас.
+---
+--- ПО УМОЛЧАНИЮ — ДА, и отдельной галочки «включить усталость» нет.
+--- Это не украшение, а половина смысла предела: без цены за бег ПвП
+--- сводится к «убегаю и не отвечаю», и никакая очередь ходов этого не
+--- ловит. Выключается вместе с самим пределом, одним решением Ведущего
+--- на сцену (см. TO.SetMoveFree), — потому что «предела нет» и «за бег
+--- сверх предела платят» противоречили бы друг другу.
+function SB.Movement.IsFatigueOn()
+    if SB.TurnOrder then
+        -- В свободной игре метры не копятся вовсе (см. ShouldCount), и
+        -- цены за бег там быть не может: персонаж просто идёт по миру.
+        if SB.TurnOrder.IsActive and not SB.TurnOrder.IsActive() then return false end
+        if SB.TurnOrder.IsMoveFree and SB.TurnOrder.IsMoveFree() then return false end
+    end
+    return true
+end
+
+--- Сколько метров пройдено СВЕРХ предела в этом ходу.
+function SB.Movement.GetOverrun()
+    local d = db()
+    return (d and tonumber(d.moveOver)) or 0
+end
+
+--- Отчёт об усталости — МЕСТНЫЙ, не в рассылку.
+---
+--- Само изменение здоровья группа и так увидит: PM.GrantHealth шлёт
+--- STATUS_CHANGED. А вот строка про метры интересна только тому, кто
+--- бежит, и в рейде десяток бегущих превратил бы её в десяток сообщений
+--- в секунду — ровно тот шторм, от которого канал уводили.
+local function FlushFatigueReport()
+    if fatiguePending <= 0 then return end
+    local lost = fatiguePending
+    fatiguePending = 0
+    print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BAD ..
+        string.format("усталость: -%d ХП|r", lost) .. SB.Theme.MSG_BODY ..
+        string.format(" (%.0f м сверх предела).|r", SB.Movement.GetOverrun()))
+end
+
+--- Записать метры, пройденные сверх предела, и взять за них плату.
+---
+--- Отдельной функцией, а не строчками внутри шагомера: сюда смотрит
+--- прогон без игры (кадров там нет, а правило проверить надо), и здесь
+--- же видно всё правило целиком.
+--- @param meters number  сколько метров прошли сверх предела за этот кадр
+--- @return number  сколько ХП снято этим вызовом
+function SB.Movement.AddOverrun(meters)
+    meters = tonumber(meters) or 0
+    if meters <= 0 or not SB.Movement.IsFatigueOn() then return 0 end
+
+    local d = db()
+    if not d then return 0 end
+
+    local PM = SB.PlayerModel
+    -- Павший не устаёт: ноль здоровья — уже выход из сцены.
+    if PM and PM.IsDowned and PM.IsDowned() then return 0 end
+
+    local cfg   = SB.Data.Config or {}
+    local step  = math.max(0.1, tonumber(cfg.MoveFatigueStep) or 3)
+    local per   = math.max(0, tonumber(cfg.MoveFatigueDamage) or 1)
+
+    local over = (tonumber(d.moveOver) or 0) + meters
+    d.moveOver = over
+
+    local paid  = tonumber(d.moveFatiguePaid) or 0
+    local due   = math.floor(over / step)
+    local owed  = due - paid
+    if owed <= 0 or per <= 0 then return 0 end
+
+    d.moveFatiguePaid = due
+    local lost = owed * per
+    if PM and PM.GrantHealth then PM.GrantHealth(-lost) end
+
+    fatiguePending = fatiguePending + lost
+    local now = GetTime()
+    if now >= fatigueDueAt then
+        fatigueDueAt = now + FATIGUE_REPORT
+        FlushFatigueReport()
+    end
+    return lost
+end
+
+--- Предупредить, что дальше начинается плата. Один раз за ход.
+local function WarnFatigue()
+    if fatigueWarned or not SB.Movement.IsFatigueOn() then return end
+    fatigueWarned = true
+    if UIErrorsFrame then
+        UIErrorsFrame:AddMessage(
+            "Предел передвижения выбран — дальше пойдёт усталость.", 1, 0.5, 0.2, 1, 4)
+    end
+end
+
 --- Обнулить пройденный путь. Вызывается пропуском хода и отдыхом.
 function SB.Movement.ResetDistance()
     local d = db()
     if not d then return end
-    if (d.moveDistance or 0) == 0 then return end
+    -- Долг усталости снимается вместе с путём: перебег — это событие
+    -- ОДНОГО хода, и тащить его в следующий значило бы брать плату
+    -- дважды за одни и те же метры.
+    fatigueWarned = false
+    FlushFatigueReport()
+    local hadOver = (d.moveOver or 0) ~= 0 or (d.moveFatiguePaid or 0) ~= 0
+    d.moveOver, d.moveFatiguePaid = 0, 0
+    if (d.moveDistance or 0) == 0 and not hadOver then return end
     d.moveDistance = 0
     SB.Events.Fire(SB.E.MOVEMENT_CHANGED)
 end
@@ -205,6 +385,13 @@ local wasExhausted = nil
 --- вообще не участвует в сцене. Оба случая иначе выбирали бы кап
 --- мгновенно и запирали игрока сразу после воскрешения.
 local function ShouldCount()
+    -- ПРЕДЕЛ ПЕРЕДВИЖЕНИЯ СУЩЕСТВУЕТ ТОЛЬКО В ПОШАГОВОМ РЕЖИМЕ. Ход
+    -- состоит из перемещения и действия, а «ход» есть только там, где
+    -- время стоит и двигается очередью (см. Core/TurnOrder.lua). В
+    -- свободной игре персонаж просто ходит по миру, и считать ему метры
+    -- незачем — счётчик всё равно упирался бы в предел на первой же
+    -- пробежке через город и запирал бы касты до пропуска хода.
+    if SB.TurnOrder and not SB.TurnOrder.IsActive() then return false end
     if UnitOnTaxi and UnitOnTaxi("player") then return false end
     if UnitIsDeadOrGhost and UnitIsDeadOrGhost("player") then return false end
     return true
@@ -238,24 +425,45 @@ tracker:SetScript("OnUpdate", function(self, elapsed)
     local cap    = cachedCap
     local walked = tonumber(d.moveDistance) or 0
 
-    -- УПЁРСЯ — БОЛЬШЕ НЕ КОПИМ. Путь зажимается ровно капом и там
-    -- остаётся: сверх предела число ничего не значит (запрет один и тот
+    -- УПЁРСЯ — ПУТЬ БОЛЬШЕ НЕ РАСТЁТ. Он зажимается ровно капом и там
+    -- остаётся: сверх предела число ничего не решает (запрет один и тот
     -- же), зато на экране 118/12 выглядело бы сломанным счётчиком.
-    -- Заодно это вторая половина экономии: пока игрок бежит с выбранным
-    -- пределом, кадр обходится без арифметики и без записи в сохранёнки.
+    --
+    -- Метры при этом не выбрасываются: если Ведущий включил усталость,
+    -- они уходят в отдельный счётчик перебега и стоят здоровья (см.
+    -- SB.Movement.AddOverrun). Выключена — AddOverrun выходит на первой
+    -- строке, и кадр остаётся ровно таким же дешёвым, как был.
     local limited = (cap ~= NO_LIMIT)
     local capped  = (limited and walked >= cap)
 
-    if speed > 0 and not capped and ShouldCount() then
+    if speed > 0 and ShouldCount() then
         -- GetUnitSpeed отдаёт ярды в секунду; текущая скорость — первый
         -- возврат. Накапливаем КАЖДЫЙ кадр (а не раз в 0.2 с): остановка
         -- в середине интервала иначе засчитывалась бы как полный интервал
         -- бега, и путь врал бы в большую сторону на метр с лишним за
         -- каждый рывок.
-        walked = walked + speed * elapsed * YARDS_TO_METERS
-        if limited and walked > cap then walked = cap end
-        d.moveDistance = walked
-        capped = (limited and walked >= cap)
+        local step = speed * elapsed * YARDS_TO_METERS
+
+        if not capped then
+            walked = walked + step
+            if limited and walked > cap then
+                -- Часть шага, ушедшая ЗА предел, — это уже усталость, а
+                -- не путь. Без этого кусочка первый метр перебега всегда
+                -- терялся бы, а на быстром беге терялось бы до трёх.
+                local over = walked - cap
+                walked = cap
+                SB.Movement.AddOverrun(over)
+            end
+            d.moveDistance = walked
+            capped = (limited and walked >= cap)
+            if capped then WarnFatigue() end
+        else
+            -- УПЁРСЯ. Путь больше не растёт (см. врезку ниже), но метры
+            -- продолжают считаться — теперь в долг усталости. Правило
+            -- выключено — AddOverrun выйдет на первой строке, и кадр
+            -- останется таким же дешёвым, как был.
+            SB.Movement.AddOverrun(step)
+        end
     end
 
     if not due then return end
@@ -283,9 +491,73 @@ SB.Data.Tooltips = SB.Data.Tooltips or {}
 SB.Data.Tooltips["movement"] = {
     title = "Передвижение за ход",
     lines = {
+        "Считается только в пошаговом режиме: в свободной игре метры не копятся.",
         "Сколько метров персонаж уже прошёл и сколько ему положено за ход.",
         "Упёрся в предел — применить способность нельзя, только пропустить ход.",
-        "Любое действие обнуляет путь: каст, лечение, отдых, пропуск хода.",
-        "Пропуск хода вдобавок возвращает единицу ресурса.",
+        "Счётчик обнуляется в начале вашего хода, а не действием.",
+        "Пропуск хода вдобавок возвращает единицу ресурса каста.",
+        -- РАЗБИВКА ПРЕДЕЛА, а не пересказ правил. Число в шапке
+        -- складывается из четырёх источников сразу, и «почему у меня 21,
+        -- а у него 12» иначе не выяснить: расовый и классовый рычаги не
+        -- показаны больше нигде, кроме подсказки портрета, а «Спринт»
+        -- меняет число на ходу и выглядит как сбой счётчика.
+        --
+        -- Слагаемые перечисляем ТОЛЬКО ненулевые: строка «раса +0» ничего
+        -- не сообщает, а место занимает.
+        function()
+            local cfg   = SB.Data.Config or {}
+            local base  = tonumber(cfg.MoveCap) or 12
+            local parts = { string.format("база %d", base) }
+
+            local athletics = (SB.Skills and SB.Skills.GetAthleticsMoveBonus
+                and SB.Skills.GetAthleticsMoveBonus()) or 0
+            if athletics ~= 0 then
+                parts[#parts + 1] = string.format("«Атлетика» %+d", athletics)
+            end
+
+            local soft = (SB.Data.GetSoftBonus and SB.Data.GetSoftBonus("moveCap")) or 0
+            if soft ~= 0 then
+                parts[#parts + 1] = string.format("раса и класс %+d", soft)
+            end
+
+            local pct = (SB.ActiveEffects and SB.ActiveEffects.GetMod
+                and SB.ActiveEffects.GetMod("movePct")) or 0
+            if pct ~= 0 then
+                parts[#parts + 1] = string.format("эффекты %+d%%", pct)
+            end
+
+            local cap = SB.Movement.GetCap()
+            -- Замедление упёрлось в пол — говорим об этом прямо. Иначе
+            -- игрок видит «−150%» рядом с тремя метрами и считает, что
+            -- счётчик врёт (см. Config.MoveCapMin).
+            local floor = tonumber(cfg.MoveCapMin) or 3
+            if pct < 0 and cap == floor and cap ~= NO_LIMIT then
+                parts[#parts + 1] = string.format("но не ниже %d м", floor)
+            end
+            if cap == NO_LIMIT then
+                return "Предел снят Ведущим лично для вас."
+            end
+            return string.format("Ваш предел: %d м (%s).", cap, table.concat(parts, ", "))
+        end,
+        -- Ведущий вправе снять предел на сцену (см. TO.SetMoveFree).
+        -- Строка появляется только когда это действительно так: иначе
+        -- она сообщала бы о правиле, которого сейчас нет.
+        function()
+            if not (SB.TurnOrder and SB.TurnOrder.IsMoveFree
+                    and SB.TurnOrder.IsMoveFree()) then return "" end
+            return "|cFF66CCFFВедущий снял предел на этой сцене:|r метры считаются, но ничего не запрещают."
+        end,
+        -- Строкой-функцией: собирается в момент показа (см.
+        -- SB.UI.ShowInfoTooltip). Про цену бега молчим, пока Ведущий не
+        -- включил правило, — обещать урон, которого нет, так же плохо,
+        -- как не предупредить о том, который есть. Пустая строка не
+        -- рисуется вовсе.
+        function()
+            if not SB.Movement.IsFatigueOn() then return "" end
+            local cfg = SB.Data.Config or {}
+            return string.format(
+                "|cFFFF6666Усталость:|r каждые %d м сверх предела стоят %d ХП.",
+                cfg.MoveFatigueStep or 3, cfg.MoveFatigueDamage or 1)
+        end,
     },
 }

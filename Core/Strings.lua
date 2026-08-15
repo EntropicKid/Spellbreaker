@@ -26,21 +26,31 @@ SB.Data.Tooltips = {
     rank = {
         title = "Ранг",
         lines = {
-            "Открывает круги заклинаний и даёт пассивный бонус броска.",
-            "Растёт сам: у заклинателей от предмета, у остальных от уровня.",
-            -- Сколько всего рангов — зависит от реалма (см.
-            -- SB.Data.RealmProfiles.maxMastery), поэтому строка собирается
-            -- в момент показа, а не выписана здесь константой.
+            "Растёт сам, вручную не выбирается: у заклинателей — от предмета в сумке, у остальных — от уровня персонажа.",
+            -- Все три строки ниже собираются в момент показа: рангов три
+            -- на Origins и пять на Sanctuary (см. RealmProfiles.maxMastery),
+            -- а числа лежат в Config — выписывать их здесь константами
+            -- значило бы врать на одном из реалмов и разъезжаться при
+            -- первой же правке баланса.
             function()
                 return "Ранги реалма: " .. table.concat(SB.Data.GetMasteryList(), ", ") .. "."
             end,
+            function()
+                return "Бонус к броску: " .. SB.Data.RankValues(SB.Data.Config.Modifiers) .. "."
+            end,
+            function()
+                return "Открывает круги до " .. SB.Data.RankValues(SB.Data.Config.MaxOrder) ..
+                    " и ячеек подготовки: " .. SB.Data.RankValues(SB.Data.Config.MaxPrepared) .. "."
+            end,
+            "Чужая школа доступна на круг ниже своей.",
         },
     },
     longRest = {
         title = "Долгий Отдых",
         lines = {
-            "Полностью восстанавливает Здоровье и ресурс каста всей группе.",
-            "Объявляет только лидер.",
+            "Конец сцены: всей группе полностью возвращает здоровье и ресурс каста.",
+            "Снимает все активные эффекты — и баффы, и дебаффы.",
+            "Объявляет только лидер и только вне пошагового режима.",
         },
     },
     shortRest = {
@@ -81,7 +91,13 @@ function SB.UI.ShowInfoTooltip(owner, key, anchor)
     -- а не при загрузке файла — см. SB.Data.Tooltips в Core/Logic.lua.
     for _, line in ipairs(data.lines) do
         if type(line) == "function" then line = line() end
-        GameTooltip:AddLine(line, 0.85, 0.85, 0.85, true)
+        -- Пустая строка — это «сейчас нечего сказать», а не строка: так
+        -- строка-функция может исчезать вместе с условием, которое её
+        -- породило (например цена бега без включённой усталости), не
+        -- оставляя в подсказке зияющей пустоты.
+        if line ~= nil and line ~= "" then
+            GameTooltip:AddLine(line, 0.85, 0.85, 0.85, true)
+        end
     end
     GameTooltip:Show()
 end
@@ -104,11 +120,17 @@ end
 --- видно, что нажатие вообще сработало.
 function SB.UI.ShareSpellLink(spell)
     if not spell or not spell.id then return end
+    -- Показ заклинания — такая же рассылка в общий канал, как бросок, и
+    -- жмётся он мышью ещё легче. Общий с бросками счётчик темпа
+    -- (см. Core/Cooldowns.lua).
+    if SB.Cooldowns and not SB.Cooldowns.Check(SB.Cooldowns.ROLL) then return end
+    if SB.Cooldowns then SB.Cooldowns.Start(SB.Cooldowns.ROLL) end
+
     local G   = SB.Theme.MSG_BODY
     local msg = SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " ..
         G .. UnitName("player") .. " показывает заклинание |r" .. SB.UI.MakeSpellLink(spell)
     if IsInGroup() then
-        SB.Events.Fire("BROADCAST_LOG", msg)
+        SB.Events.Fire("BROADCAST_LOG", msg, SB.LogRank.ACTION)
     else
         SB.Events.Fire("LOG_MESSAGE_RECEIVED", msg)
     end
@@ -164,107 +186,38 @@ function SB.UI.RollText(roll)
 end
 
 -- ============================================================
--- Ссылка на ИЗМЕНЕНИЕ ЗДОРОВЬЯ (урон / исцеление).
+-- ЧИСЛО ИЗМЕНЕНИЯ ЗДОРОВЬЯ (урон / исцеление).
 --
--- Тот же приём, что у sbmod: в чат уходит одно короткое число,
--- а вся арифметика (база, крит, скейлинг, броня, минимум) прячется
--- в подсказку. До этого разбивка печаталась прямо в строку — вида
--- "Урон: 3 ХП (5/7) (5 урона - 2 броня)" — и в бою на несколько
--- участников чат превращался в сплошную стену цифр.
+-- РАНЬШЕ ЗДЕСЬ БЫЛА ССЫЛКА С ПОДСКАЗКОЙ. В неё зашивалась вся арифметика
+-- удара — база, крит, скейлинг, броня, — чтобы любой мог навести мышь и
+-- убедиться, что цифра не выдумана. Идея верная, цена — нет: строка
+-- «|Hsbamt:dmg~4~6~10~base=3~Сила=2~crit=2~броня=-3|h[4]|h» это 76 байт
+-- против 15 у голого числа, и едет она в КАЖДОМ боевом сообщении, то
+-- есть занимает около четверти строки. Канал аддонов узкий, и платить
+-- четвертью каждого удара за подсказку, в которую заглядывают раз в
+-- сцену, дорого.
 --
--- Ключи разбивки — короткие ASCII-токены, а не готовые подписи:
--- строка едет по сети (см. SanitizeIncomingLog в Core/Network.lua),
--- и русский текст в ней раздувал бы пакет вчетверо. Ключ, которого
--- нет в таблице, показывается как есть — этим пользуется сводка по
--- эффектам, где «ключ» — это название эффекта.
+-- ЧЕСТНОСТЬ ОТ ЭТОГО НЕ ПОСТРАДАЛА, потому что держалась она не на
+-- подсказке. Числа соседа проверяет SB.Logic.VerifyIncomingCast: он
+-- пересчитывает чужой бросок по статусу, который тот и так рассылает, и
+-- ловит и кубик вне диапазона, и итог, не равный сумме, и вложенный
+-- ресурс сверх круга. Проверка автоматическая, идёт у каждого получателя
+-- и не стоит ни байта — в отличие от подсказки, в которую надо было
+-- догадаться навести мышь.
 -- ============================================================
-SB.UI.AmountPartLabels = {
-    base  = "Базовый урон",
-    crit  = "Критический бонус",
-    scal  = "Скейлинг характеристик",
-    armor = "Поглощено бронёй",
-    floor = "Добор до минимума",
-    hbase = "Базовое исцеление",
-    heff  = "Бонус от эффектов",
-}
-
-SB.UI.AmountTitles = {
-    dmg  = "Урон",
-    heal = "Исцеление",
-    eff  = "Бонус к эффекту",
-}
 
 --- @param kind   string  "dmg" (урон), "heal" (исцеление) или "eff"
 ---        (произвольный сдвиг — знак берётся у самого amount)
 --- @param amount number  итоговая величина; для dmg/heal положительная
---- @param hp     number  здоровье ПОСЛЕ применения (0 — строку не рисуем)
---- @param maxHp  number  максимум здоровья
---- @param parts  table   { {key=..., value=...}, ... } — слагаемые
-function SB.UI.MakeAmountLink(kind, amount, hp, maxHp, parts)
-    local segs = { kind, tostring(amount), tostring(hp or 0), tostring(maxHp or 0) }
-    for _, p in ipairs(parts or {}) do
-        if (tonumber(p.value) or 0) ~= 0 then
-            -- ~ и = — разделители самой ссылки, | ломает разметку чата.
-            local key = tostring(p.key or "?"):gsub("[~=|]", " ")
-            table.insert(segs, key .. "=" .. p.value)
-        end
-    end
+function SB.UI.AmountText(kind, amount)
     local positive = (kind == "heal") or (kind == "eff" and amount >= 0)
     local color = positive and "|cFF44DD66" or "|cFFFF5555"
     -- Знак рисуем только у "eff": там число само по себе, без окружающего
     -- текста. У урона и лечения направление уже сказано словом рядом
     -- («Урон:», «теряет», «восполняет»), и «Урон: [-3]» читалось бы как
-    -- масло масляное. В подсказке знак есть в любом случае.
+    -- масло масляное.
     local sign = (kind == "eff" and amount >= 0) and "+" or ""
-    return color .. "|Hsbamt:" .. table.concat(segs, "~") ..
-           "|h[" .. sign .. amount .. "]|h|r"
-end
-
---- Разбирает данные из sbamt-ссылки обратно в (kind, amount, hp, maxHp, parts).
-function SB.UI.ParseAmountLink(data)
-    local segs = { strsplit("~", data) }
-    local kind   = segs[1] or "dmg"
-    local amount = tonumber(segs[2]) or 0
-    local hp     = tonumber(segs[3]) or 0
-    local maxHp  = tonumber(segs[4]) or 0
-    local parts  = {}
-    for i = 5, #segs do
-        local key, value = strsplit("=", segs[i])
-        if key and value then
-            table.insert(parts, { key = key, value = tonumber(value) or 0 })
-        end
-    end
-    return kind, amount, hp, maxHp, parts
-end
-
-function SB.UI.ShowAmountTooltip(owner, data)
-    local kind, amount, hp, maxHp, parts = SB.UI.ParseAmountLink(data)
-    local positive = (kind == "heal") or (kind == "eff" and amount >= 0)
-
-    GameTooltip:SetOwner(owner, "ANCHOR_CURSOR")
-    SB.Theme.StyleTooltip(GameTooltip)
-    GameTooltip:SetText(SB.UI.AmountTitles[kind] or "Итог", 1, 1, 1)
-    if #parts == 0 then
-        GameTooltip:AddLine("Нет данных о разбивке.", 0.7, 0.7, 0.7)
-    else
-        for _, p in ipairs(parts) do
-            local label = SB.UI.AmountPartLabels[p.key] or p.key
-            local sign  = (p.value >= 0) and "+" or ""
-            -- Красным всё, что уводит величину вниз: броня в разбивке
-            -- урона читается как «минус», а не как ещё одна прибавка.
-            local r, g, b = 1, 1, 1
-            if p.value < 0 then r, g, b = 1, 0.45, 0.45 end
-            GameTooltip:AddDoubleLine(label, sign .. p.value, 0.9, 0.9, 0.9, r, g, b)
-        end
-    end
-    GameTooltip:AddLine(" ")
-    local totalSign = (kind == "eff") and ((amount >= 0) and "+" or "")
-                      or (positive and "+" or "-")
-    GameTooltip:AddDoubleLine("Итого", totalSign .. amount, 1, 0.82, 0, 1, 0.82, 0)
-    if maxHp > 0 then
-        GameTooltip:AddDoubleLine("Здоровье", hp .. "/" .. maxHp, 0.9, 0.9, 0.9, 1, 1, 1)
-    end
-    GameTooltip:Show()
+    return color .. "[" .. sign .. amount .. "]|r"
 end
 
 -- ============================================================
@@ -305,6 +258,7 @@ SB.Data.Messages = {
     cantRemoveDebuff        = "|cFFFFCC00[Spellbreaker]|r: Дебафф нельзя снять с себя — он спадёт сам или на Долгом Отдыхе.",
     targetNotInGroup        = SB.Theme.MSG_BAD .. "[Spellbreaker]: Цель не в вашей группе — аддон не сможет доставить ей ни удар, ни эффект. Пригласите игрока в группу.|r",
     targetOutOfRange        = SB.Theme.MSG_BAD .. "[Spellbreaker]: Цель слишком далеко для этого заклинания — подойдите ближе.|r",
+    targetNotVisible        = SB.Theme.MSG_BAD .. "[Spellbreaker]: Вы не видите цель — она за пределом прорисовки, в другой фазе или вышла из мира.|r",
     panelFull               = "|cFFFFCC00[Spellbreaker]|r: Панель заполнена (макс. 14).",
     effectDeleted           = "|cFFFFCC00[Spellbreaker]|r: Эффект удален.",
     spellAndEffectDeleted   = "|cFFFFCC00[Spellbreaker]|r: Заклинание и эффект удалены.",
@@ -321,10 +275,55 @@ SB.Data.Messages = {
     classHiddenOnRealm      = SB.Theme.MSG_BAD .. "[Spellbreaker]: Этот класс недоступен на вашем сервере — заклинание нельзя подготовить.|r",
     noUnlearnAfterCast      = SB.Theme.MSG_BAD .. "[Spellbreaker]: Нельзя разучивать заклинания после применения. Отдохни.|r",
     mainFrameBuildFailed    = SB.Theme.MSG_BAD .. "[Spellbreaker]:|r Не удалось построить главное окно.",
+    -- Пошаговый режим (см. Core/TurnOrder.lua)
+    turnNotYours            = SB.Theme.MSG_BAD .. "[Spellbreaker]: Сейчас не ваш ход — идёт пошаговый режим. Дождитесь своей очереди.|r",
+    turnAlreadyActed        = SB.Theme.MSG_BAD .. "[Spellbreaker]: Вы уже походили. Следующее действие — когда очередь дойдёт снова.|r",
+    noLongRestInTurnMode    = SB.Theme.MSG_BAD .. "[Spellbreaker]: Идёт пошаговый режим — Долгий Отдых объявить нельзя. Сначала переведите сцену в свободный ход.|r",
+    turnRequestPending      = SB.Theme.MSG_BAD .. "[Spellbreaker]: Ваша заявка ещё у Ведущего. Ход перейдёт дальше, когда он её рассмотрит.|r",
+    downedCantAct           = SB.Theme.MSG_BAD .. "[Spellbreaker]: Ваше здоровье на нуле — действовать нельзя. Дождитесь лечения или Отдыха.|r",
 }
 
 --- Печатает статичное сообщение по ключу из SB.Data.Messages.
 function SB.UI.PrintMsg(key)
     local msg = SB.Data.Messages[key]
     if msg then print(msg) end
+end
+
+-- ============================================================
+-- ОБЪЯВЛЕНИЕ НА ВЕСЬ ЭКРАН
+--
+-- Есть вещи, которые нельзя пропустить: сцена перешла в пошаговый режим,
+-- дошла очередь хода. В чате они теряются мгновенно — особенно в бою,
+-- где строк много и они идут потоком.
+--
+-- Берём ШТАТНУЮ рамку рейд-предупреждений, а не рисуем свою: она уже
+-- стоит там, куда игрок привык смотреть, умеет очередь сообщений, гасит
+-- их по времени и выглядит ровно как объявление рейд-лидера — то есть
+-- читается как «это важно» без всякого обучения.
+--
+-- Всё в pcall и через проверки: имена рамок и звуков у Blizzard от
+-- версии к версии переезжают, и объявление, которое роняет каст, хуже
+-- отсутствующего объявления.
+-- ============================================================
+
+--- @param text  string   что показать
+--- @param quiet boolean|nil  true — без звука (для мелких уведомлений)
+function SB.UI.ScreenNotice(text, quiet)
+    if not text or text == "" then return end
+
+    if RaidNotice_AddMessage and RaidWarningFrame then
+        local info = ChatTypeInfo and ChatTypeInfo["RAID_WARNING"]
+        pcall(RaidNotice_AddMessage, RaidWarningFrame, text,
+            info or { r = 1, g = 0.82, b = 0 })
+    elseif UIErrorsFrame then
+        pcall(UIErrorsFrame.AddMessage, UIErrorsFrame, text, 1, 0.82, 0, 1, 5)
+    end
+
+    if quiet then return end
+    local kit = SOUNDKIT and SOUNDKIT.RAID_WARNING
+    if kit then
+        pcall(PlaySound, kit, "Master")
+    else
+        pcall(PlaySoundFile, "Sound\\Interface\\RaidWarning.ogg", "Master")
+    end
 end

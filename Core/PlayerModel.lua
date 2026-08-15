@@ -65,9 +65,33 @@ local function HasAnyItem(list)
     return false
 end
 
+-- ============================================================
+-- СУМКИ ЧИТАЮТСЯ НЕ СРАЗУ
+--
+-- В момент загрузки аддона (ADDON_LOADED, наш SB_INIT) GetItemCount
+-- отвечает нулём по всему, что лежит в сумках: их содержимое приходит
+-- от сервера позже. Ранг кастера считается ИМЕННО по предметам — и
+-- получалось, что при входе в игру аддон видел пустые сумки, не находил
+-- вещь на ранг и опускал игрока до низшего. Помогало «переложить
+-- предмет в другой слот»: это первый за сеанс настоящий BAG_UPDATE,
+-- после которого вещь наконец находилась.
+--
+-- Лечится двумя вещами сразу:
+--   * пересчёт по BAG_UPDATE_DELAYED и по входу в мир — то есть тогда,
+--     когда сумки заведомо прочитаны;
+--   * запрет ПОНИЖАТЬ ранг, пока сумки не подтверждены. Повышать можно:
+--     нашлась вещь — значит, данные уже есть. А «вещи нет» до
+--     подтверждения означает не «её нет», а «мы ещё не знаем».
+-- ============================================================
+local bagsReady = false
+
+--- Прочитаны ли сумки. Наружу — чтобы прогон без игры мог проверить
+--- само правило, а не только его последствия (см. Tests/run.lua).
+function PM.AreBagsReady() return bagsReady end
+
 --- Пересчитывает ранг (по предметам у кастеров, по уровню у
 --- некастеров) и применяет его, если он изменился. Вызывается при
---- инициализации, по BAG_UPDATE и по PLAYER_LEVEL_UP.
+--- инициализации, по BAG_UPDATE, по входу в мир и по PLAYER_LEVEL_UP.
 function PM.RefreshMastery()
     -- Список рангов даёт реалм: на Origins их три, на Sanctuary пять
     -- (см. SB.Data.GetMasteryList). Перебор идёт ОТ ВЫСШЕГО К НИЗШЕМУ,
@@ -93,10 +117,19 @@ function PM.RefreshMastery()
         newMastery = SB.Data.GetMasteryForLevel(UnitLevel("player") or 1)
     end
 
-    if PM.GetMastery() ~= newMastery then
-        PM.SetMastery(newMastery)
-        print("|cFF9933FF[Spellbreaker]|r: Ранг обновлён автоматически — " .. newMastery .. ".")
+    local current = PM.GetMastery()
+    if current == newMastery then return end
+
+    -- Понижение до подтверждения сумок — почти наверняка не «вещь
+    -- потеряна», а «сумки ещё не прочитаны». Ждём (см. bagsReady).
+    if PM.IsCaster() and not bagsReady
+       and (SB.Data.MasteryIndex(newMastery) or 0)
+         < (SB.Data.MasteryIndex(current) or 0) then
+        return
     end
+
+    PM.SetMastery(newMastery)
+    print("|cFF9933FF[Spellbreaker]|r: Ранг обновлён автоматически — " .. newMastery .. ".")
 end
 
 -- ============================================================
@@ -137,15 +170,42 @@ local function RefreshForLevel()
     SB.Events.Fire(SB.E.STATUS_CHANGED)
 end
 
+local function RefreshMasteryNow()
+    if SB.PlayerModel and SB.PlayerModel.RefreshMastery then
+        SB.PlayerModel.RefreshMastery()
+    end
+end
+
 local masteryWatcher = CreateFrame("Frame")
 masteryWatcher:RegisterEvent("BAG_UPDATE")
+masteryWatcher:RegisterEvent("BAG_UPDATE_DELAYED")
+masteryWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
 masteryWatcher:RegisterEvent("PLAYER_LEVEL_UP")
 masteryWatcher:RegisterEvent("PLAYER_LEVEL_CHANGED")
 masteryWatcher:SetScript("OnEvent", function(_, event)
+    -- Сумки досчитаны: с этого момента отсутствие вещи — это правда
+    -- отсутствие, и ранг можно не только повышать.
+    if event == "BAG_UPDATE_DELAYED" then
+        bagsReady = true
+        RefreshMasteryNow()
+        return
+    end
+
     if event == "BAG_UPDATE" then
-        if SB.PlayerModel and SB.PlayerModel.RefreshMastery then
-            SB.PlayerModel.RefreshMastery()
-        end
+        RefreshMasteryNow()
+        return
+    end
+
+    -- Вход в мир (и каждая загрузка экрана). BAG_UPDATE_DELAYED обычно
+    -- приходит сразу следом и снимет запрет раньше — но полагаться
+    -- только на него нельзя: событие необязательное, а без снятия
+    -- запрета ранг нельзя было бы понизить до конца сеанса.
+    if event == "PLAYER_ENTERING_WORLD" then
+        RefreshMasteryNow()
+        C_Timer.After(5, function()
+            bagsReady = true
+            RefreshMasteryNow()
+        end)
         return
     end
     -- Следующим кадром: сейчас UnitLevel ещё старый (см. комментарий выше).
@@ -219,9 +279,11 @@ function PM.GetMaxZeal()
     if SB.Skills and SB.Skills.GetResourceBonus then
         base = base + SB.Skills.GetResourceBonus()
     end
-    -- Висящие баффы/дебаффы (канал "maxResource").
+    -- Висящие баффы/дебаффы: адресный канал маны плюс общий канал
+    -- «ресурс каста» (см. PM.CastPool и раздел о пулах ниже).
     if SB.ActiveEffects and SB.ActiveEffects.GetMod then
-        base = base + (SB.ActiveEffects.GetMod("maxResource"))
+        base = base + (SB.ActiveEffects.GetMod("maxMana"))
+                    + (SB.ActiveEffects.GetMod("maxCastResource"))
     end
     -- Раса И класс разом: GetSoftBonus складывает оба профиля (см.
     -- SB.Data.GetSoftBonus). Здесь раньше стояло ещё и отдельное
@@ -269,9 +331,11 @@ end
 --- Config.ClassResourceByMastery) + профиль класса.
 function PM.GetMaxClassResource()
     local base = SB.Data.MaxClassResourceFor(PM.GetMastery())
-    -- Висящие баффы/дебаффы (канал "maxResource").
+    -- Висящие баффы/дебаффы: адресный канал классового ресурса плюс
+    -- общий «ресурс каста» (см. PM.CastPool).
     if SB.ActiveEffects and SB.ActiveEffects.GetMod then
         base = base + (SB.ActiveEffects.GetMod("maxResource"))
+                    + (SB.ActiveEffects.GetMod("maxCastResource"))
     end
     -- Раса + класс одним слагаемым (см. комментарий в PM.GetMaxZeal).
     base = base + SB.Data.GetSoftBonus("resource")
@@ -351,19 +415,18 @@ end
 -- ============================================================
 
 --- Человекочитаемое имя текущего ресурса каста.
+--- Правило «у кого как называется» живёт в одном месте — в таблице
+--- пулов ниже (PM.PoolName), иначе имён было бы две копии.
 function PM.GetResourceName()
-    if PM.IsCaster() then return "Мана" end
-    return (SB.Data.ClassResourceNames and SB.Data.ClassResourceNames[PM.GetClass()]) or "Энергия"
+    return PM.PoolName(PM.CastPool())
 end
 
 function PM.GetCastResource()
-    if PM.IsCaster() then return PM.GetZeal() end
-    return PM.GetClassResource()
+    return PM.GetPool(PM.CastPool())
 end
 
 function PM.GetMaxCastResource()
-    if PM.IsCaster() then return PM.GetMaxZeal() end
-    return PM.GetMaxClassResource()
+    return PM.GetMaxPool(PM.CastPool())
 end
 
 --- Тратит ресурс каста на amount единиц. false, если не хватает.
@@ -385,16 +448,108 @@ end
 function PM.RegainCastResource(amount)
     amount = math.floor(tonumber(amount) or 0)
     if amount <= 0 then return 0 end
+    -- Правила прибавки (потолок; выданное ГМом сверх максимума не
+    -- срезается) — в PM.AdjustPool, одни на все источники.
+    return PM.AdjustPool(PM.CastPool(), amount)
+end
 
-    local before = PM.GetCastResource()
-    local max    = PM.GetMaxCastResource()
-    -- Ресурс, выданный ГМом сверх максимума, не срезаем: min(max, ...)
-    -- при before > max вернул бы значение НИЖЕ текущего (та же ловушка,
-    -- что описана в ApplyGain, см. Core/ClassMechanics.lua).
-    local after  = math.max(before, math.min(max, before + amount))
-    if after <= before then return 0 end
+-- ============================================================
+-- ДВА РАЗНЫХ ПУЛА: МАНА И РЕСУРС КЛАССА
+--
+-- Раньше весь аддон знал только «ресурс каста» — то, чем персонаж
+-- платит за заклинание: Мана у кастеров, Ярость/Энергия/Фокус у
+-- остальных. Для СТОИМОСТИ КАСТА это правильно и остаётся как было.
+--
+-- Но эффекты и заклинания оперируют этими пулами и по смыслу, а не
+-- только по роли: «Вода маны» возвращает ману, а не ярость; выжигание
+-- маны выжигает ману, а Воину с его яростью не делает ничего;
+-- «Жизнеотвод» покупает кровью ману. Пока канал был один, всё это
+-- попадало «в то, чем ты кастуешь», и мана с ресурсом были одним и тем
+-- же понятием под двумя именами.
+--
+-- Отсюда три адреса вместо одного:
+--   "mana"     — только Мана. У некастера пула нет, изменение = 0.
+--   "resource" — только собственный ресурс класса. У кастера пула нет.
+--   каст-пул   — тот из двух, которым персонаж платит за заклинания
+--                (PM.CastPool). Прежнее полиморфное поведение.
+--
+-- Функции ниже — единственное место, где знание «у кого какой пул»
+-- записано в коде; всё остальное обращается по имени пула.
+-- ============================================================
 
-    if PM.IsCaster() then PM.SetZeal(after) else PM.SetClassResource(after) end
+--- Каким пулом персонаж платит за заклинания.
+--- @return string  "mana" | "resource"
+function PM.CastPool()
+    return PM.IsCaster() and "mana" or "resource"
+end
+
+local POOLS = {
+    mana = {
+        get = function() return PM.GetZeal() end,
+        max = function() return PM.GetMaxZeal() end,
+        set = function(v) PM.SetZeal(v) end,
+        name = function() return "Мана" end,
+    },
+    resource = {
+        get = function() return PM.GetClassResource() end,
+        max = function() return PM.GetMaxClassResource() end,
+        set = function(v) PM.SetClassResource(v) end,
+        name = function()
+            return (SB.Data.ClassResourceNames and SB.Data.ClassResourceNames[PM.GetClass()])
+                or "Энергия"
+        end,
+    },
+}
+
+--- Есть ли у персонажа такой пул вообще. У Мага нет ярости, у Воина нет
+--- маны — и попытка их изменить обязана быть НЕ ошибкой, а нулём: одно и
+--- то же заклинание может лечь на кого угодно.
+function PM.HasPool(pool)
+    return POOLS[pool] ~= nil and pool == PM.CastPool()
+end
+
+function PM.PoolName(pool)
+    local p = POOLS[pool]
+    return p and p.name() or "?"
+end
+
+function PM.GetPool(pool)
+    local p = POOLS[pool]
+    if not p or not PM.HasPool(pool) then return 0 end
+    return p.get()
+end
+
+function PM.GetMaxPool(pool)
+    local p = POOLS[pool]
+    if not p or not PM.HasPool(pool) then return 0 end
+    return p.max()
+end
+
+--- Изменить пул на ЗНАКОВУЮ величину по правилам эффектов: плюс не
+--- уходит выше максимума, минус упирается в ноль.
+---
+--- Минус здесь не Spend*: тот ОТКАЗЫВАЕТ целиком, если не хватает, и
+--- выжигание маны на почти пустом запасе не сняло бы ничего вместо того,
+--- чтобы снять остаток.
+---
+--- Плюс не срезает выданное ГМом сверх максимума — та же оговорка, что
+--- в PM.RegainCastResource.
+--- @return number  насколько пул реально изменился (0 — пула нет)
+function PM.AdjustPool(pool, delta)
+    delta = math.floor(tonumber(delta) or 0)
+    if delta == 0 or not PM.HasPool(pool) then return 0 end
+
+    local p      = POOLS[pool]
+    local before = p.get()
+    local after
+    if delta > 0 then
+        after = math.max(before, math.min(p.max(), before + delta))
+    else
+        after = math.max(0, before + delta)
+    end
+    if after == before then return 0 end
+
+    p.set(after)
     return after - before
 end
 
@@ -458,6 +613,15 @@ end
 
 function PM.GetHealth()
     return db().health or PM.GetMaxHealth()
+end
+
+--- Персонаж «павший» — здоровье на нуле. Действовать в этом состоянии
+--- нельзя ничем: ни заклинанием, ни отдышкой, ни пропуском хода
+--- (см. проверки в SB.Logic). Отдельным предикатом, а не сравнением по
+--- месту: точек проверки несколько, и «ноль» здесь понятие механики, а
+--- не арифметики — однажды сюда добавится, например, оглушение.
+function PM.IsDowned()
+    return PM.GetHealth() <= 0
 end
 
 --- Максимум здоровья, вычисленный по текущему уровню персонажа
@@ -718,6 +882,15 @@ function PM.PrepareSpell(spellID)
         return "class_hidden"
     end
 
+    -- Круга выше реалмового потолка на сервере не существует вовсе, и в
+    -- библиотеке его не видно. Проверка отдельно от ранговой: ранг ещё
+    -- можно поднять, а этот круг не откроется никогда — и заклинание
+    -- сюда способно прийти мимо библиотеки (перетаскивание карточки,
+    -- кастом с чужого реалма по сети).
+    if spell and SB.Data.IsOrderBeyondRealm(spell.level) then
+        return "order_too_high"
+    end
+
     -- Потолок круга зависит не только от ранга, но и от того, свой ли это
     -- класс: чужая школа доступна на круг ниже (см. PM.GetMaxPrepareOrder).
     local maxOrder = PM.GetMaxPrepareOrder(spell and spell.class)
@@ -816,6 +989,11 @@ function PM.GetStatusSnapshot()
         -- бафф работал против своих же дебаффов и не работал против чужих —
         -- то есть ровно в том случае, ради которого его и накладывают.
         will           = SB.Skills and SB.Skills.GetEffective("Воля") or nil,
+        -- Модификатор Ловкости: по нему Ведущий бросает инициативу за
+        -- всех разом и молча (см. Core/TurnOrder.lua). Едет готовым
+        -- модификатором, а не значением атрибута, по той же причине, что
+        -- и «Воля»: считает его не хозяин числа, а тот, кому оно нужно.
+        agi            = SB.Attributes and SB.Attributes.GetModifier("Ловкость") or nil,
     }
 end
 

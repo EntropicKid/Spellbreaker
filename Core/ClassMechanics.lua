@@ -283,7 +283,8 @@ function SB.ClassMechanics.TryPersonalShortRest()
     -- Личный отдых теперь ВИДЕН группе: «N переводит дух». Раньше он
     -- печатался только себе, и для остальных игрок просто молча
     -- поправлял здоровье — отыгрывать такое было нечем.
-    SB.Events.Fire(SB.E.BROADCAST_LOG, SB.Logic.MakeShortRestMessage(healed or 0, true, regained))
+    SB.Events.Fire(SB.E.BROADCAST_LOG, SB.Logic.MakeShortRestMessage(healed or 0, true, regained),
+        SB.LogRank.ACTION)
 
     print(string.format(
         "|cFF33FF99[Spellbreaker]|r: Вы используете личный Короткий Отдых (осталось зарядов: %d/%d).",

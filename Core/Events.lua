@@ -47,15 +47,19 @@ SB.E = {
     -- некастера), пересчитывалось по прошлому уровню — до /reload.
     LEVEL_CHANGED           = "LEVEL_CHANGED",           -- (newLevel)
 
+    -- Пошаговый режим: очередь ходов изменилась (включён/выключен,
+    -- новый круг, ход перешёл дальше). См. Core/TurnOrder.lua.
+    TURN_ORDER_CHANGED      = "TURN_ORDER_CHANGED",      -- ()
+
     -- Синхронизация с группой
     STATUS_CHANGED          = "STATUS_CHANGED",          -- ()
     PLAYERS_STATUS_UPDATED  = "PLAYERS_STATUS_UPDATED",  -- ()
-    BROADCAST_LOG           = "BROADCAST_LOG",           -- (msg)
+    BROADCAST_LOG           = "BROADCAST_LOG",           -- (msg, rank)
     BROADCAST_REST          = "BROADCAST_REST",          -- ("LONG"|"SHORT")
     LOG_MESSAGE_RECEIVED    = "LOG_MESSAGE_RECEIVED",    -- (msg)
 
     -- Каст
-    CAST_REQUEST            = "CAST_REQUEST",            -- (spellID, slotLevel, targetLabel)
+    CAST_REQUEST            = "CAST_REQUEST",            -- (spellID, slotLevel, targetLabel, mod)
     CAST_PENDING            = "CAST_PENDING",            -- (spellID)
     CAST_CONFIRMED          = "CAST_CONFIRMED",          -- (spellID, slotLevel)
     CAST_RESOLVED           = "CAST_RESOLVED",           -- (spellID, succeeded, resultStatus, detail)
@@ -69,6 +73,43 @@ SB.E = {
 
     -- Передвижение (шагомер, см. Core/Movement.lua)
     MOVEMENT_CHANGED        = "MOVEMENT_CHANGED",        -- ()
+}
+
+-- ============================================================
+-- ПОРЯДОК СТРОК В ЛОГЕ
+--
+-- Одно действие рождает несколько сообщений, и рождаются они в РАЗНЫХ
+-- местах кода: заголовок пишет резолв заклинания, тик эффектов —
+-- Core/ActiveEffects.lua, «ходит следующий» — Core/TurnOrder.lua. Кто
+-- первым дошёл до строки, тот первым её и печатал, а дошёл первым обычно
+-- тот, кто ниже по стеку. В логе это выглядело задом наперёд:
+--
+--     Мемныйтест — Жизнеотвод: +2 Мана
+--     Мемныйтест — Жизнеотвод: 1 урона
+--     Мемныйтест под действием эффектов теряет 1 ХП
+--     Ходит: Алиссия.
+--     Мемныйтест применяет [Жизнеотвод]. Успех.      ← причина В КОНЦЕ
+--
+-- Поэтому у каждой строки есть РАНГ, а сообщения одного кадра
+-- печатаются по рангу (внутри ранга — в порядке появления). Ранг
+-- отвечает на вопрос «на каком этапе действия это сказано»:
+--
+--   ACTION — что вообще произошло: бросок, каст, залп, отдых;
+--   RESULT — чем это кончилось для участников: урон, лечение, вампиризм,
+--            выданный ресурс;
+--   TICK   — что списалось следом: тики эффектов, прощальные выплаты;
+--   TURN   — как сдвинулась сцена: чей теперь ход, круг пройден.
+--
+-- Порядок работает В ПРЕДЕЛАХ КАДРА, и этого достаточно: всё, что
+-- порождает одно действие, случается в одном кадре. Строки, приехавшие
+-- от других игроков по сети, встают туда, куда попали, — их время
+-- определяет сеть, а не мы (см. FlushLogQueue в Core/Network.lua).
+-- ============================================================
+SB.LogRank = {
+    ACTION = 1,
+    RESULT = 2,
+    TICK   = 3,
+    TURN   = 4,
 }
 
 local handlers = {}   -- { eventName = { fn, fn, ... } }

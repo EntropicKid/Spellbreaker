@@ -149,6 +149,60 @@ function SB.Net.GetUnitByName(name)
     return info and info.unit or nil
 end
 
+--- Кто в группе с какой версией аддона.
+---
+--- РАЗЛИЧАЕМ ТРИ СОСТОЯНИЯ, и это важно: «версия старее» — это повод
+--- обновиться, а «молчит» — это чаще всего «аддона нет вовсе», и
+--- требовать от такого игрока обновления бессмысленно.
+---
+--- Клиент, приславший статус БЕЗ поля версии, считается старым без
+--- сравнения: поле появилось вместе с этой проверкой, и его отсутствие
+--- само по себе ответ.
+---
+--- @return table older, table newer, table silent  списки имён
+function SB.Net.GetVersionReport()
+    local older, newer, silent = {}, {}, {}
+    if not IsInGroup() then return older, newer, silent end
+
+    local mine   = SB.Data.Version
+    local myName = UnitName("player")
+    local prefix = IsInRaid() and "raid" or "party"
+    local n      = IsInRaid() and 40 or 4
+
+    for i = 1, n do
+        local unit = prefix .. i
+        if UnitExists(unit) and UnitIsPlayer(unit) then
+            local name = UnitName(unit)
+            if name and name ~= myName then
+                local st = SB.Data.PlayersStatus and SB.Data.PlayersStatus[name]
+                if not st then
+                    silent[#silent + 1] = name
+                elseif not st.ver then
+                    older[#older + 1] = name
+                else
+                    local cmp = SB.Data.CompareVersions(st.ver, mine)
+                    if cmp < 0 then older[#older + 1] = name
+                    elseif cmp > 0 then newer[#newer + 1] = name end
+                end
+            end
+        end
+    end
+
+    table.sort(older); table.sort(newer); table.sort(silent)
+    return older, newer, silent
+end
+
+--- Имя лидера группы (Ведущего) или nil. Нужно для адресных пакетов в
+--- его сторону — например, «я походил» (см. SB.Net.SendTurnActed).
+function SB.Net.GetLeaderName()
+    if not IsInGroup() then return nil end
+    if not rosterCacheBuilt then RebuildRosterCache() end
+    for name, info in pairs(rosterCache) do
+        if info.isLeader then return name end
+    end
+    return nil
+end
+
 local function IsFromLeader(sender)
     if not IsInGroup() then
         return sender == UnitName("player")
@@ -186,7 +240,7 @@ local MarkStatusDirty
 local function ParseREQ(t)
     -- Я получаю REQ если: я лидер группы, ИЛИ я не в группе (тестирую соло).
     if UnitIsGroupLeader("player") or not IsInGroup() then
-        SB.Events.Fire("GM_REQUEST_RECEIVED", t.caster, t.spellID, t.slotLevel, t.targetLabel)
+        SB.Events.Fire("GM_REQUEST_RECEIVED", t.caster, t.spellID, t.slotLevel, t.targetLabel, t.mod)
     end
 end
 
@@ -221,7 +275,9 @@ local function ParseREST(sender, t)
         -- число печатается локально, а не рассылается: иначе на рейд из
         -- 40 человек в лог улетело бы 40 почти одинаковых строк.
         -- Ресурс каста Короткий Отдых больше не восполняет.
-        local healed, regained = SB.Logic.LocalShortRest()
+        -- true — «отдых объявлен Ведущим»: восстановление и тик эффектов
+        -- проходят, а ход в пошаговой очереди не тратится.
+        local healed, regained = SB.Logic.LocalShortRest(true)
         local resTxt = ""
         if (regained or 0) > 0 then
             resTxt = string.format(", +%d %s", regained, SB.PlayerModel.GetResourceName())
@@ -241,6 +297,47 @@ local function ParseGRANT(sender, t)
     end
 end
 
+-- ============================================================
+-- ЭПИЦЕНТР ПЛОЩАДИ В ПАКЕТЕ
+--
+-- Площадное заклинание гремит либо вокруг заклинателя, либо в его цели
+-- (см. SB.Logic.GetAoeEpicenter). Точка едет координатами: имя цели
+-- получателю может быть бесполезно — её может не быть в его группе, —
+-- а координаты он сверяет со своими сам.
+--
+-- Поля короткие намеренно: пакет уходит ВСЕЙ группе на каждый площадной
+-- каст, а ChatThrottleLib считает каждый байт.
+-- ============================================================
+
+--- Дописывает эпицентр в готовый пакет. Старый клиент этих полей не
+--- увидит и посчитает площадь вокруг заклинателя — ровно как аддон
+--- работал до появления эпицентра.
+local function PackEpicenter(t, epi)
+    if type(epi) ~= "table" then return t end
+    t.epiN = epi.name
+    t.epiS = epi.isSelf and true or false
+    t.epiY = epi.y
+    t.epiX = epi.x
+    t.epiI = epi.inst
+    return t
+end
+
+--- Обратная сборка у получателя. Данные приходят из чужого клиента,
+--- поэтому типы проверяем: имя обязано быть строкой, координаты —
+--- числами. Кривое поле не должно ронять разбор боевого пакета.
+--- @return table|nil  nil означает «эпицентра в пакете нет» (старый
+---         клиент) — вызывающий трактует это как «вокруг заклинателя».
+local function UnpackEpicenter(t)
+    if t.epiN == nil and t.epiY == nil then return nil end
+    return {
+        name   = (type(t.epiN) == "string") and t.epiN or nil,
+        isSelf = t.epiS == true,
+        y      = tonumber(t.epiY),
+        x      = tonumber(t.epiX),
+        inst   = tonumber(t.epiI),
+    }
+end
+
 -- ПвП и лечение — peer-to-peer, без проверки на лидера группы.
 -- Приоритет NORMAL (см. SendToGroup) — эти пакеты не должны стоять
 -- в очереди позади массовой рассылки статусов.
@@ -252,13 +349,9 @@ local function ParsePVPATK(t)
     end
 end
 
--- Имена и названия эффектов из чужих пакетов попадают прямо в чат:
--- режем длину, чтобы одна кривая посылка не растянула строку отчёта.
-local function ShortText(s, limit)
-    if type(s) ~= "string" then return nil end
-    if #s > (limit or 40) then return s:sub(1, limit or 40) end
-    return s
-end
+-- ShortText отсюда убран вместе со своей работой: названия эффектов из
+-- чужих пакетов больше не приходят вовсе — в ответе PVPRES едут признаки
+-- «дебафф наложен» / «Воля отвела», а не строки. Обрезать нечего.
 
 local function ParsePVPRES(t)
     if t.attacker ~= UnitName("player") then return end
@@ -268,8 +361,10 @@ local function ParsePVPRES(t)
     if t.isAoe then
         aoe = {
             landed   = t.landed == true,
-            debuff   = ShortText(t.debuff),
-            resisted = ShortText(t.resisted),
+            -- Признаки, а не имена эффектов: имена перестали и печататься,
+            -- и ездить по сети (см. HandlePvpAttackReceived).
+            debuff   = t.debuff == true,
+            resisted = t.resisted == true,
         }
     end
     SB.Logic.HandlePvpResultReceived(t.target, t.defRoll, t.defMod, t.defTotal,
@@ -311,23 +406,221 @@ end
 local function ParseAOEATK(t)
     if not SB.Logic or not SB.Logic.HandleAoeAttackReceived then return end
     SB.Logic.HandleAoeAttackReceived(t.caster, t.spellID, t.roll, t.mod, t.total,
-        t.isCrit == true, t.dmgBonus or 0, t.baseDmg, t.radius, t.slot)
+        t.isCrit == true, t.dmgBonus or 0, t.baseDmg, t.radius, t.slot,
+        UnpackEpicenter(t))
+end
+
+--- Рассеивание: «сними у себя вот эти школы, не больше стольких».
+--- Peer-to-peer, как лечение и баффы: очищать союзника вправе кто
+--- угодно. Что именно ушло, знает только получатель — он же и пишет
+--- строку в лог (см. SB.Logic.HandleDispelReceived).
+local function ParseDISPEL(t)
+    if t.target ~= UnitName("player") then return end
+    if not SB.Logic or not SB.Logic.HandleDispelReceived then return end
+
+    -- Множество школ приезжает из чужого клиента: пропускаем только
+    -- объявленные имена, иначе кривой пакет снял бы что попало.
+    local schools = {}
+    if type(t.schools) == "table" then
+        for key, v in pairs(t.schools) do
+            if v == true and SB.Data.EffectSchools[key] then schools[key] = true end
+        end
+    end
+    if next(schools) == nil then return end
+
+    SB.Logic.HandleDispelReceived(t.caster, t.spellID, schools,
+        tonumber(t.count) or 1, t.effectID, tonumber(t.slot) or 0)
+end
+
+--- Площадное лечение. Как и площадная атака, уходит всей группе: в
+--- радиусе ли ты и прошёл ли бросок ТВОЙ порог — решаешь ты сам
+--- (см. SB.Logic.HandleAoeHealReceived).
+local function ParseAOEHL(t)
+    if not SB.Logic or not SB.Logic.HandleAoeHealReceived then return end
+    SB.Logic.HandleAoeHealReceived(t.caster, t.spellID, t.effectID, t.radius,
+        t.slot, t.roll, t.mod, t.total, t.amount, UnpackEpicenter(t))
+end
+
+--- Ответ исцелённого — заклинателю, для общего блока залпа.
+local function ParseAOEHLR(t)
+    if t.caster ~= UnitName("player") then return end
+    if not SB.Logic or not SB.Logic.HandleAoeHealResultReceived then return end
+    SB.Logic.HandleAoeHealResultReceived(t.target, t.spellID, t.threshold,
+        t.ok == true, t.healed or 0, t.hp or 0, t.maxHp or 0)
 end
 
 --- Площадной эффект: аура или площадной дебафф.
 local function ParseAOEEFF(t)
     if not SB.Logic or not SB.Logic.HandleAoeEffectReceived then return end
     SB.Logic.HandleAoeEffectReceived(t.caster, t.spellID, t.effectID, t.radius, t.slot,
-        t.roll, t.mod, t.total)
+        t.roll, t.mod, t.total, UnpackEpicenter(t))
 end
 
-local function ParseADDEFF(sender, t)
+--- Очередь ходов от Ведущего. Проверка ровно одна и она здесь: пакет
+--- принимается ТОЛЬКО от лидера группы. Дальше Core/TurnOrder.lua
+--- заменяет своё состояние присланным целиком.
+local function ParseTURN(sender, t)
     if not IsFromLeader(sender) then return end
-    if t.target == UnitName("player") then
-        if SB.ActiveEffects and SB.ActiveEffects.Add then
-            SB.ActiveEffects.Add(t.contID, t.duration or 1, t.isConc == true)
+    if SB.TurnOrder and SB.TurnOrder.ApplyRemoteState then
+        SB.TurnOrder.ApplyRemoteState(t.turn)
+    end
+end
+
+--- Короткая пометка в очереди от Ведущего (см. SB.Net.SendTurnMark).
+local function ParseTURNM(sender, t)
+    if not IsFromLeader(sender) then return end
+    if SB.TurnOrder and SB.TurnOrder.ApplyRemoteMark then
+        SB.TurnOrder.ApplyRemoteMark(t)
+    end
+end
+
+--- «Я походил» — от игрока Ведущему. Отправитель берётся из конверта, а
+--- не из тела: иначе можно было бы закрыть ход за другого.
+local function ParseTURNACT(sender, t)
+    if not SB.IsGameMaster() then return end
+    if SB.TurnOrder and SB.TurnOrder.MarkActed then
+        SB.TurnOrder.MarkActed(sender)
+    end
+end
+
+-- ============================================================
+-- СВОДКА РЕАЛТАЙМ-ТИКА (пакет RTICK)
+--
+-- Каждый клиент, тикнув свои эффекты по команде Ведущего, шлёт ЕМУ
+-- короткий отчёт: сколько здоровья и сколько ресурса у него сдвинулось.
+-- Ведущий копит отчёты и печатает ОДНУ строку на всю группу.
+--
+-- Окно ожидания нужно потому, что отчёты приезжают вразнобой: команда
+-- уходит всем сразу, но ChatThrottleLib отдаёт ответы по мере места в
+-- канале. Полторы секунды — тот же запас, что у отчёта о площадном
+-- залпе (см. REPORT_WINDOW в Core/Logic/Aoe.lua), и он вдвое меньше
+-- шага самой симуляции: сводка не догонит следующий тик.
+-- ============================================================
+local RTICK_WINDOW = 1.5
+
+local rtickBuf, rtickDue = nil, false
+
+local function FlushRealtimeTicks()
+    rtickDue = false
+    local buf = rtickBuf
+    rtickBuf = nil
+    if not buf or #buf == 0 then return end
+
+    local G, parts = SB.Theme.MSG_BODY, {}
+    for _, r in ipairs(buf) do
+        local bits = {}
+        if r.hp and r.hp ~= 0 then
+            bits[#bits + 1] = ((r.hp > 0) and SB.Theme.MSG_GOOD or SB.Theme.MSG_BAD) ..
+                string.format("%+d ХП|r", r.hp)
+        end
+        if r.res and r.res ~= 0 then
+            bits[#bits + 1] = ((r.res > 0) and SB.Theme.MSG_GOOD or SB.Theme.MSG_BAD) ..
+                string.format("%+d %s|r", r.res, r.pool or "ресурса")
+        end
+        if #bits > 0 then
+            parts[#parts + 1] = G .. r.name .. " |r" .. table.concat(bits, G .. ", |r")
         end
     end
+    if #parts == 0 then return end
+
+    SB.Events.Fire(SB.E.BROADCAST_LOG,
+        SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. "тик эффектов — |r" ..
+        table.concat(parts, G .. "; |r") .. G .. ".|r",
+        SB.LogRank.TICK)
+end
+
+--- Принять отчёт (свой или чужой) и завести окно на сводку.
+local function CollectTickReport(name, hp, res, pool)
+    if not SB.IsGameMaster() then return end
+    rtickBuf = rtickBuf or {}
+    rtickBuf[#rtickBuf + 1] = { name = name, hp = hp, res = res, pool = pool }
+    if not rtickDue then
+        rtickDue = true
+        C_Timer.After(RTICK_WINDOW, FlushRealtimeTicks)
+    end
+end
+
+local function ParseRTICK(sender, t)
+    CollectTickReport(sender, tonumber(t.hp) or 0, tonumber(t.res) or 0, t.pool)
+end
+
+--- Отчитаться Ведущему о своём реалтайм-тике.
+--- @param report table  { hp = число, pool = { [имяПула] = число } }
+function SB.Net.SendTickReport(report)
+    if type(report) ~= "table" then return end
+
+    -- Ресурс сводим к одной паре «сколько и чего»: у персонажа ровно
+    -- один пул, которым он платит (см. PM.CastPool), и слать таблицу
+    -- ради единственной строки незачем.
+    local res, poolName = 0, nil
+    for pool, v in pairs(report.pool or {}) do
+        if v ~= 0 then
+            res = res + v
+            poolName = SB.PlayerModel and SB.PlayerModel.PoolName(pool) or nil
+        end
+    end
+    local hp = tonumber(report.hp) or 0
+    if hp == 0 and res == 0 then return end
+
+    -- Сам Ведущий никуда не пишет: он и есть получатель.
+    if SB.IsGameMaster() then
+        CollectTickReport(UnitName("player"), hp, res, poolName)
+        return
+    end
+    local leader = SB.Net.GetLeaderName()
+    if not leader then return end
+    SendToPlayer({ action = "RTICK", hp = hp, res = res, pool = poolName },
+        leader, "BULK")
+end
+
+--- Эффект, выданный Ведущим вручную (панель выдачи ресурсов).
+---
+--- ТОЛЬКО ОТ ЛИДЕРА, и это принципиально: пакет вешает на чужого
+--- персонажа что угодно из библиотеки, без броска и без права отказа.
+--- Всё остальное, что до кого-то дотягивается, требует хотя бы
+--- заклинания и попадания.
+local function ParseADDEFF(sender, t)
+    if not IsFromLeader(sender) then return end
+    if t.target ~= UnitName("player") then return end
+    if not (SB.ActiveEffects and SB.ActiveEffects.Add) then return end
+    if not (t.contID and SB.Data.Spells[t.contID]) then return end
+
+    SB.ActiveEffects.Add(t.contID, tonumber(t.duration) or 1, t.isConc == true)
+
+    -- Строку пишет ПОЛУЧАТЕЛЬ: у Ведущего эффект не висит, и «сколько
+    -- ходов осталось» знает только тот, на ком он теперь.
+    --
+    -- КРОМЕ РАЗДАЧИ НА ВСЕХ (quiet): там таких строк было бы по одной на
+    -- каждого в рейде, и все об одном и том же. Её пишет Ведущий, одну
+    -- (см. SB.ResourceGrant «Наложить на всех»).
+    if t.quiet ~= true and SB.ResourceGrant and SB.ResourceGrant.AnnounceEffect then
+        SB.ResourceGrant.AnnounceEffect(sender, t.contID, tonumber(t.duration) or 1)
+    end
+end
+
+--- Ведущий снимает эффект вручную (двойной клик по иконке в его панели).
+---
+--- Тот же уровень доверия, что у ADDEFF, и по той же причине: снять с
+--- чужого персонажа держащуюся концентрацию или выгодный бафф — такое же
+--- вмешательство в чужую модель, как навязать дебафф.
+local function ParseREMEFF(sender, t)
+    if not IsFromLeader(sender) then return end
+    if t.target ~= UnitName("player") then return end
+    if not (SB.ActiveEffects and SB.ActiveEffects.Remove) then return end
+    if not t.contID then return end
+
+    local sp = SB.Data.Spells[t.contID]
+    -- quiet = true: своё «эффект снят» печатать не даём, вместо него в
+    -- общий лог уходит строка о том, КТО снял (иначе для группы это
+    -- выглядело бы как самопроизвольно спавший эффект).
+    SB.ActiveEffects.Remove(t.contID, true)
+
+    local G = SB.Theme.MSG_BODY
+    SB.Events.Fire(SB.E.BROADCAST_LOG,
+        SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G ..
+        (sender or "Ведущий") .. " снимает с " .. UnitName("player") .. " |r" ..
+        (sp and SB.UI.MakeSpellLink(sp) or (G .. "эффект|r")) .. G .. ".|r",
+        SB.LogRank.ACTION)
 end
 
 local function ParseCUSTOM(sender, t)
@@ -355,8 +648,11 @@ local function ParseSTATUS(sender, t)
         ((SB.Data.NonCasterClasses and SB.Data.NonCasterClasses[t.class])
             and SB.Data.MaxClassResourceFor(t.mastery)
             or (SB.Data.Config.MaxZeal[t.mastery] or 1))
-    existing.health         = t.health or 20
-    existing.maxHealth      = t.maxHealth or 20
+    -- Отсутствующее поле не затираем нулём и вообще не выдумываем: было
+    -- известно старое значение — оно и остаётся. Пакет без здоровья
+    -- значит «не сказали», а не «умер» (см. BuildStatusPayload).
+    existing.health         = t.health or existing.health or 20
+    existing.maxHealth      = t.maxHealth or existing.maxHealth or 20
     -- Не «or {}»: короткий пакет PEER (см. BuildPeerStatusPayload) списка
     -- подготовленных не несёт, и затирать им уже известный список
     -- сокомандника значило бы гасить панель Ведущего каждый раз, когда
@@ -367,6 +663,12 @@ local function ParseSTATUS(sender, t)
     -- клиента will не придёт вовсе — тогда дебафф считается по порогу без
     -- прибавки, как и раньше.
     existing.will           = tonumber(t.will) or existing.will
+    -- Как и will: со старого клиента поля нет, и инициатива тогда
+    -- считается без прибавки Ловкости (см. Core/TurnOrder.lua).
+    existing.agi            = tonumber(t.agi) or existing.agi
+    -- Версия. Отсутствие поля — само по себе ответ: до этой версии его
+    -- не было вовсе, значит клиент старее (см. SB.Net.GetVersionReport).
+    existing.ver            = (type(t.ver) == "string" and t.ver) or existing.ver
     existing.updatedAt      = GetTime()
 
     -- Не дёргаем перерисовку здесь: помечаем данные изменившимися, а
@@ -390,6 +692,10 @@ function SanitizeIncomingLog(text)
     -- ссылкой: бросок теперь едет голым числом (см. SB.UI.RollText), то
     -- есть в каждой строке боевого лога стало на 20+ символов меньше, а
     -- у санитайзера — на один тип меньше.
+    --
+    -- sbamt оставлен намеренно, хотя аддон её больше не создаёт: со
+    -- старых клиентов такие строки ещё приходят, и вырезать ссылку
+    -- значило бы испортить им текст сообщения.
     text = text:gsub("|H([^|]+)|h", function(link)
         if link:find("^spellbreaker:") or link:find("^sbamt:") then
             return "|H" .. link .. "|h"
@@ -560,9 +866,17 @@ local IMMEDIATE_ACTIONS = {
     AOEATK = true,
     AOEEFF = true,
     AOEEFR = true,
+    AOEHL  = true,
+    AOEHLR = true,
+    DISPEL = true,
     RES    = true,
     FORCE  = true,
     REJECT = true,
+    -- Очередь ходов: задержка в пару тиков здесь означает, что игрок
+    -- ещё секунду видит чужой ход своим (или наоборот).
+    TURN    = true,
+    TURNM   = true,
+    TURNACT = true,
 }
 
 Dispatch = function(sender, t)
@@ -589,24 +903,38 @@ Dispatch = function(sender, t)
     elseif action == "AOEATK"  then ParseAOEATK(t)
     elseif action == "AOEEFF"  then ParseAOEEFF(t)
     elseif action == "AOEEFR"  then ParseAOEEFR(t)
+    elseif action == "AOEHL"   then ParseAOEHL(t)
+    elseif action == "AOEHLR"  then ParseAOEHLR(t)
+    elseif action == "DISPEL"  then ParseDISPEL(t)
+    elseif action == "TURN"    then ParseTURN(sender, t)
+    elseif action == "TURNM"   then ParseTURNM(sender, t)
+    elseif action == "TURNACT" then ParseTURNACT(sender, t)
     elseif action == "CUSTOM"  then ParseCUSTOM(sender, t)
     elseif action == "AEFFECT" then ParseAEFFECT(sender, t)
     elseif action == "ADDEFF"  then ParseADDEFF(sender, t)
+    elseif action == "REMEFF"  then ParseREMEFF(sender, t)
+    elseif action == "RTICK"   then ParseRTICK(sender, t)
     elseif action == "STATUS"  then ParseSTATUS(sender, t)
     elseif action == "RTDECR" then
+        -- Через TickAll, а не ручным циклом по эффектам. Ручной цикл шёл
+        -- без пачки: каждый эффект слал группе свой пакет AEFFECT, и
+        -- реалтайм на пятерых с тремя эффектами давал пятнадцать
+        -- рассылок каждые шесть секунд. Заодно TickAll собирает тики в
+        -- одну строку и защищает эффекты друг от друга.
+        -- Вторым доводом — «это реалтайм»: строки такого тика уходят
+        -- не в общий лог, а сводкой Ведущему (см. SendTickReport).
         if IsFromLeader(sender) and SB.ActiveEffects then
-            for _, eff in ipairs(SB.ActiveEffects.GetAll()) do
-                SB.ActiveEffects.DecrementOne(eff.spellID)
-            end
+            SB.ActiveEffects.TickAll(nil, true)
         end
     elseif action == "RTSYNC" then
+        -- Ведущий сообщает, идёт ли время само (тик эффектов раз в шесть
+        -- секунд) или стоит и двигается ходами. Галочки под это больше
+        -- нет — состояние держит переключатель пошагового режима, см.
+        -- SyncRealtimeToTurnMode в UI/GMPanel.lua, — но флаг у себя
+        -- обновляем: по нему видно, в каком режиме сцена.
         if UnitIsGroupLeader(Ambiguate(sender, "none")) then
-            local enabled = t.enabled == true
             if SpellbreakerAccountDB then
-                SpellbreakerAccountDB.realtimeEffects = enabled
-            end
-            if SBRealtimeEffectChk then
-                SBRealtimeEffectChk:SetChecked(enabled)
+                SpellbreakerAccountDB.realtimeEffects = t.enabled == true
             end
         end
     end
@@ -638,13 +966,15 @@ SB.Net:RegisterComm(COMM_PREFIX, OnCommReceived)
 -- ============================================================
 
 --- Отправить запрос на разрешение каста ГМу.
-function SB.Net.SendCastRequest(spellID, slotLevel, targetLabel)
-    if not IsInGroup() then
-        SB.Events.Fire("GM_REQUEST_RECEIVED", UnitName("player"), spellID, slotLevel, targetLabel)
-        return
-    end
-    if UnitIsGroupLeader("player") then
-        SB.Events.Fire("GM_REQUEST_RECEIVED", UnitName("player"), spellID, slotLevel, targetLabel)
+--- @param mod number|nil  модификатор броска заклинателя. Едет с
+---        заявкой, чтобы Ведущий увидел справедливую СЛ (см.
+---        SB.Logic.FairDC): своих характеристик и эффектов у него нет.
+---        Клиент старой версии его не пришлёт — поле у Ведущего просто
+---        останется пустым, как было раньше.
+function SB.Net.SendCastRequest(spellID, slotLevel, targetLabel, mod)
+    if not IsInGroup() or UnitIsGroupLeader("player") then
+        SB.Events.Fire("GM_REQUEST_RECEIVED", UnitName("player"), spellID,
+            slotLevel, targetLabel, mod)
         return
     end
     SendToGroup({
@@ -653,6 +983,7 @@ function SB.Net.SendCastRequest(spellID, slotLevel, targetLabel)
         spellID     = spellID,
         slotLevel   = slotLevel,
         targetLabel = targetLabel or "",
+        mod         = tonumber(mod),
     }, "NORMAL")
     print("|cFF9933FF[Spellbreaker]|r: Ожидание решения ведущего...")
 end
@@ -686,6 +1017,54 @@ function SB.Net.BroadcastLogLines(lines)
         SB.Events.Fire("LOG_MESSAGE_RECEIVED", msg)
     end
     SendToGroup({ action = "LOGM", msgs = lines }, "NORMAL")
+end
+
+-- ============================================================
+-- ОЧЕРЕДЬ СТРОК ЛОГА (порядок — по рангу, см. SB.LogRank)
+--
+-- Копим строки текущего кадра и печатаем их одним махом, отсортировав по
+-- рангу. Сортировка УСТОЙЧИВАЯ: внутри ранга порядок остаётся тем, в
+-- котором строки родились, — table.sort таким не является, поэтому
+-- сравнение доигрывается по порядковому номеру.
+--
+-- Рассылка в группу идёт из того же места и тем же порядком: соседи
+-- обязаны прочитать сцену так же, как её автор.
+-- ============================================================
+local logQueue, logQueued, logSeq = {}, false, 0
+
+local function FlushLogQueue()
+    logQueued = false
+    local q = logQueue
+    logQueue = {}
+    if #q == 0 then return end
+
+    table.sort(q, function(a, b)
+        if a.rank ~= b.rank then return a.rank < b.rank end
+        return a.seq < b.seq
+    end)
+    for _, item in ipairs(q) do
+        SB.Net.BroadcastLog(item.msg)
+    end
+end
+
+--- Поставить строку в очередь кадра.
+---
+--- Публичная (а не только подписка на событие) ради прогона без игры:
+--- подписка живёт внутри SB_INIT, которого там нет, и порядок строк
+--- иначе было бы нечем проверить.
+--- @param rank number|nil  см. SB.LogRank; без ранга — RESULT, самое
+---        безобидное место: после заголовка действия, до тиков.
+function SB.Net.QueueLogLine(msg, rank)
+    logSeq = logSeq + 1
+    logQueue[#logQueue + 1] = {
+        msg  = msg,
+        rank = tonumber(rank) or SB.LogRank.RESULT,
+        seq  = logSeq,
+    }
+    if not logQueued then
+        logQueued = true
+        C_Timer.After(0, FlushLogQueue)
+    end
 end
 
 --- @param priority string|nil  по умолчанию NORMAL
@@ -745,10 +1124,11 @@ end
 --- Площадная атака: тот же набор чисел, что и у PVPATK, но в групповой
 --- канал и с радиусом. Одиночный вариант шлётся шёпотом ровно одной
 --- цели; здесь целей заранее нет, их определяет дистанция у получателя.
-function SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, radius, slot)
+--- @param epi table|nil  эпицентр площади (см. SB.Logic.GetAoeEpicenter)
+function SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, radius, slot, epi)
     if not IsInGroup() then return end
 
-    SendToGroup({
+    SendToGroup(PackEpicenter({
         action   = "AOEATK",
         caster   = UnitName("player"),
         spellID  = spellID,
@@ -760,7 +1140,7 @@ function SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseD
         baseDmg  = baseDmg,
         radius   = radius or 0,
         slot     = tonumber(slot) or 0,
-    }, "NORMAL")
+    }, epi), "NORMAL")
 end
 
 --- Площадной эффект (аура / площадной дебафф).
@@ -769,9 +1149,10 @@ end
 --- @param total number|nil  итог броска. nil означает «броска не было» —
 ---        так площадной эффект вёл себя раньше (закреплялся у всех
 ---        безусловно), и старые клиенты продолжат работать по-прежнему.
-function SB.Net.SendAoeEffect(spellID, effectID, radius, slot, roll, mod, total)
+--- @param epi   table|nil  эпицентр площади (см. SB.Logic.GetAoeEpicenter)
+function SB.Net.SendAoeEffect(spellID, effectID, radius, slot, roll, mod, total, epi)
     if not IsInGroup() then return end
-    SendToGroup({
+    SendToGroup(PackEpicenter({
         action   = "AOEEFF",
         caster   = UnitName("player"),
         spellID  = spellID,
@@ -781,7 +1162,7 @@ function SB.Net.SendAoeEffect(spellID, effectID, radius, slot, roll, mod, total)
         roll     = roll,
         mod      = mod,
         total    = total,
-    }, "NORMAL")
+    }, epi), "NORMAL")
 end
 
 --- Наложить эффект на союзника (spell.buff, см. SB.Logic.ApplyBuffToTarget).
@@ -820,11 +1201,68 @@ function SB.Net.SendPvpResult(attackerName, targetName, defRoll, defMod, defTota
     }
     if aoe then
         t.landed   = aoe.landed and true or false
-        t.debuff   = aoe.debuff
-        t.resisted = aoe.resisted
+        t.debuff   = aoe.debuff and true or false
+        t.resisted = aoe.resisted and true or false
         t.isAoe    = true
     end
     SendToPlayer(t, attackerName, "NORMAL")
+end
+
+--- Рассеивание союзнику. Снимает получатель у себя: эффекты живут на
+--- его клиенте, и никакой другой их не видит.
+--- @param schools table  множество школ { magic = true, ... }
+--- @param count number   потолок снятого за этот каст
+--- @param effectID string|nil  бонусный бафф заклинания, если он есть
+function SB.Net.SendDispel(targetName, spellID, schools, count, effectID, slot)
+    if not IsInGroup() then return end
+    SendToPlayer({
+        action   = "DISPEL",
+        caster   = UnitName("player"),
+        target   = targetName,
+        spellID  = spellID,
+        schools  = schools,
+        count    = count or 1,
+        effectID = effectID,
+        slot     = tonumber(slot) or 0,
+    }, targetName, "NORMAL")
+end
+
+--- Площадное ЛЕЧЕНИЕ: один бросок на всех, объём посчитан заклинателем.
+--- Порог каждый проверяет у себя — он от СОБСТВЕННОГО уровня
+--- (см. SB.Logic.ResolveAoeHeal).
+--- @param effectID string|nil  бафф заклинания: ложится тем, на ком
+---        лечение сработало (Целительный ливень, Спокойствие)
+function SB.Net.SendAoeHeal(spellID, effectID, radius, slot, roll, mod, total, amount, epi)
+    if not IsInGroup() then return end
+    SendToGroup(PackEpicenter({
+        action   = "AOEHL",
+        caster   = UnitName("player"),
+        spellID  = spellID,
+        effectID = effectID,
+        radius   = radius or 0,
+        slot     = tonumber(slot) or 0,
+        roll     = roll,
+        mod      = mod,
+        total    = total,
+        amount   = amount or 0,
+    }, epi), "NORMAL")
+end
+
+--- Ответ исцелённого: свой порог, исход и с чем остался. Строку собирает
+--- заклинатель — так весь залп печатается одним блоком.
+function SB.Net.SendAoeHealResult(casterName, spellID, threshold, ok, healed, hp, maxHp)
+    if not IsInGroup() then return end
+    SendToPlayer({
+        action    = "AOEHLR",
+        caster    = casterName,
+        target    = UnitName("player"),
+        spellID   = spellID,
+        threshold = threshold,
+        ok        = ok and true or false,
+        healed    = healed or 0,
+        hp        = hp,
+        maxHp     = maxHp,
+    }, casterName, "NORMAL")
 end
 
 --- Ответ на площадной ЭФФЕКТ (не атаку): задетый сообщает заклинателю
@@ -838,6 +1276,50 @@ function SB.Net.SendAoeEffectResult(casterName, threshold, ok)
         threshold = threshold,
         ok        = ok and true or false,
     }, casterName, "NORMAL")
+end
+
+--- Очередь ходов — от Ведущего всей группе, целиком (см. Core/TurnOrder.lua).
+--- Приоритет NORMAL: пакет редкий (несколько раз за круг), но от него
+--- зависит, кому сейчас можно действовать.
+function SB.Net.SendTurnState(turn)
+    if not IsInGroup() then return end
+    SendToGroup({ action = "TURN", turn = turn }, "NORMAL")
+end
+
+--- ПОМЕТКА В ОЧЕРЕДИ — короткий пакет вместо полного состояния.
+---
+--- ЗАЧЕМ ОН НУЖЕН. Очередь на рейд из сорока человек весит около 2.5 КБ
+--- (сорок имён в слотах плюс столько же в отметках). Рассылать её на
+--- КАЖДОЕ действие — это сто килобайт за круг из клиента Ведущего, а
+--- ChatThrottleLib отдаёт порядка 800 байт в секунду: очередь уезжает
+--- на минуты, и за ней встают удары, лечение и отдых.
+---
+--- Слоты между действиями не меняются — меняются только «кто походил» и
+--- «чей сейчас ход». Их и шлём: сотня байт вместо двух с половиной
+--- тысяч. Полное состояние по-прежнему уходит на границах круга
+--- (старт, новый ход, смена вида очереди, выключение), и оно же
+--- лечит любую потерянную пометку.
+---
+--- @param names table  чьи ходы закрылись (в режиме «по группе» их
+---        несколько разом)
+function SB.Net.SendTurnMark(round, index, names, skipped)
+    if not IsInGroup() then return end
+    SendToGroup({
+        action  = "TURNM",
+        round   = round,
+        index   = index,
+        names   = names,
+        skipped = skipped and true or false,
+    }, "NORMAL")
+end
+
+--- «Я походил» — адресно Ведущему. Имя в теле не шлём: отправителя даёт
+--- сам конверт, и подделать чужой ход поэтому нечем.
+function SB.Net.SendTurnActed()
+    if not IsInGroup() then return end
+    local leader = SB.Net.GetLeaderName()
+    if not leader then return end
+    SendToPlayer({ action = "TURNACT" }, leader, "NORMAL")
 end
 
 --- Целитель сообщает исцеляемому (и группе) результат лечения.
@@ -903,7 +1385,7 @@ local lastStatusSig, lastAEffectSig
 local function StatusSignature(p)
     return table.concat({
         p.class or "", p.mastery or "", p.zeal or 0, p.maxZeal or 0,
-        p.health or 0, p.maxHealth or 0, p.will or 0,
+        p.health or 0, p.maxHealth or 0, p.will or 0, p.agi or 0,
         table.concat(p.preparedSpells or {}, ","),
     }, "|")
 end
@@ -916,13 +1398,25 @@ local function BuildStatusPayload()
         mastery        = snap.mastery,
         zeal           = snap.zeal,
         maxZeal        = snap.maxZeal,
-        health         = snap.health or 0,
+        -- НЕ «or 0». Ноль здоровья теперь не просто число на полоске: по
+        -- нему персонажа считают павшим — очередь ходов пролистывает его
+        -- (см. TO.IsDowned), а сам он не может действовать. Значит
+        -- запасное значение «мы не знаем» обязано быть каким угодно, но
+        -- не нулём: неизвестность не равна смерти.
+        health         = snap.health or snap.maxHealth or 20,
         maxHealth      = snap.maxHealth or 20,
         preparedSpells = snap.preparedSpells or {},
         -- Навык «Воля»: поднимает порог, который надо взять, чтобы
         -- навесить на этого игрока дебафф (см. SB.Skills.GetWillDebuffBonus).
         -- Порог считает заклинатель, поэтому значение должно быть у него.
         will           = snap.will,
+        -- Модификатор Ловкости — для броска инициативы у Ведущего
+        -- (см. Core/TurnOrder.lua).
+        agi            = snap.agi,
+        -- Версия аддона: по ней Ведущий видит, у кого клиент старее и
+        -- почему у того «не работает» свежая механика (см. SB.Data.Version
+        -- в Core/Init.lua и SB.Net.GetVersionReport ниже).
+        ver            = SB.Data.Version,
     }
 end
 
@@ -976,7 +1470,7 @@ local function BuildPeerStatusPayload()
         mastery   = snap.mastery,
         zeal      = snap.zeal,
         maxZeal   = snap.maxZeal,
-        health    = snap.health or 0,
+        health    = snap.health or snap.maxHealth or 20,   -- см. BuildStatusPayload
         maxHealth = snap.maxHealth or 20,
         will      = snap.will,
     }
@@ -1107,6 +1601,36 @@ function SB.Net.SendGrant(targetName, grantType, v1, v2, v3)
     }, targetName, "NORMAL")
 end
 
+--- Ведущий вешает эффект на игрока вручную (см. SB.ResourceGrant).
+--- Адресно: пакет нужен только тому, на кого вешают, а строку в лог
+--- напишет он сам (см. ParseADDEFF).
+--- @param duration number  ходов; отрицательное — бессрочно
+--- @param quiet boolean|nil  получателю не писать строку в лог: раздача
+---        на всех объявляется одной строкой у Ведущего, а не сорока у
+---        получателей
+function SB.Net.SendAddEffect(targetName, effectID, duration, isConc, quiet)
+    if not IsInGroup() or not targetName or targetName == "" then return end
+    SendToPlayer({
+        action   = "ADDEFF",
+        target   = targetName,
+        contID   = effectID,
+        duration = tonumber(duration) or 1,
+        isConc   = isConc and true or false,
+        quiet    = quiet and true or nil,
+    }, targetName, "NORMAL")
+end
+
+--- Ведущий снимает с игрока конкретный эффект. Снимает его сам игрок:
+--- эффекты живут на его клиенте, и никакой другой их не видит.
+function SB.Net.SendRemoveEffect(targetName, effectID)
+    if not IsInGroup() or not targetName or targetName == "" then return end
+    SendToPlayer({
+        action = "REMEFF",
+        target = targetName,
+        contID = effectID,
+    }, targetName, "NORMAL")
+end
+
 --- ГМ командует всем клиентам уменьшить реалтайм-эффекты на 1.
 function SB.Net.SendRealtimeDecrement()
     SendToGroup({ action = "RTDECR" }, "NORMAL")
@@ -1130,11 +1654,28 @@ end
 -- ============================================================
 SB.Events.On("SB_INIT", function()
 
-    SB.Events.On("CAST_REQUEST", function(spellID, slotLevel, targetLabel)
-        SB.Net.SendCastRequest(spellID, slotLevel, targetLabel)
+    SB.Events.On("CAST_REQUEST", function(spellID, slotLevel, targetLabel, mod)
+        SB.Net.SendCastRequest(spellID, slotLevel, targetLabel, mod)
     end)
 
     SB.Events.On("STATUS_CHANGED", function()
+        ScheduleStatusBroadcast()
+    end)
+
+    -- ЗДОРОВЬЕ УЕЗЖАЕТ ВСЕГДА, ОТКУДА БЫ ОНО НИ ИЗМЕНИЛОСЬ.
+    --
+    -- Раньше рассылку заводила каждая точка урона отдельно, вручную
+    -- дописывая рядом с PM.GrantHealth ещё и Fire(STATUS_CHANGED). Пока
+    -- урон приходил только от заклинаний, это работало; усталость от
+    -- бега (см. SB.Movement.AddOverrun) такой строки не имела — и ХП у
+    -- бегущего падало только на его собственном экране, а на рамках у
+    -- остальных оставалось прежним до ближайшего каста.
+    --
+    -- Событие приходит РОВНО на реальное изменение (PM.SetHealth/
+    -- GrantHealth/Heal сверяют до и после), а дальше общий дебаунс и
+    -- сверка подписи гасят повторы — то есть привязка ничего не удорожает
+    -- даже там, где STATUS_CHANGED уже слали руками.
+    SB.Events.On(SB.E.HEALTH_CHANGED, function()
         ScheduleStatusBroadcast()
     end)
 
@@ -1151,8 +1692,12 @@ SB.Events.On("SB_INIT", function()
         ScheduleStatusBroadcast()
     end)
 
-    SB.Events.On("BROADCAST_LOG", function(msg)
-        SB.Net.BroadcastLog(msg)
+    -- Не сразу, а в конце кадра и ПО РАНГУ — см. врезку про SB.LogRank в
+    -- Core/Events.lua. Задержка в один кадр невидима, а порядок строк
+    -- становится причинно-следственным: сначала действие, потом его
+    -- последствия, потом тики, потом сдвиг очереди.
+    SB.Events.On("BROADCAST_LOG", function(msg, rank)
+        SB.Net.QueueLogLine(msg, rank)
     end)
 
     SB.Events.On("BROADCAST_REST", function(restType)

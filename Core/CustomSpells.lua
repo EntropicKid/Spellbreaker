@@ -499,7 +499,7 @@ local function BuildCreateFrame()
     -- их три, на Sanctuary — пять. Раньше здесь стояло жёсткое % 4, и
     -- создать кастомное заклинание четвёртого круга было нечем.
     levelBtn:SetScript("OnClick", function()
-        fLevelVal = (fLevelVal + 1) % (SB.Data.MaxOrderFor(SB.Data.GetMaxMastery()) + 1)
+        fLevelVal = (fLevelVal + 1) % (SB.Data.GetRealmMaxOrder() + 1)
         RefreshLevelBtnText()
     end)
     fLevel = levelBtn
@@ -695,7 +695,7 @@ local function BuildContainerFrame()
     local levelBtn = SB.Theme.Button(contFrame, "Порядок: 0", fw-28, 24, "secondary")
     levelBtn:SetPoint("TOPLEFT", iconBtn, "BOTTOMLEFT", 0, -8)
     levelBtn:SetScript("OnClick", function()
-        fC_LevelVal = ((fC_LevelVal or 0) + 1) % (SB.Data.MaxOrderFor(SB.Data.GetMaxMastery()) + 1)
+        fC_LevelVal = ((fC_LevelVal or 0) + 1) % (SB.Data.GetRealmMaxOrder() + 1)
         levelBtn:SetText(fC_LevelVal == 0 and "Порядок: Заговор" or ("Порядок: " .. fC_LevelVal))
     end)
     fC_Level = levelBtn

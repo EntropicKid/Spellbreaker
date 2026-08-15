@@ -18,38 +18,48 @@ SB.Data        = SB.Data or {}
 -- ============================================================
 -- Поля hyperName/hyperText удалены вместе с механикой гипертрофии:
 -- она ничего не давала, кроме предупреждающей строки внизу колонки.
+-- ПОЛЕ combat ОПИСЫВАЕТ ТО, ЧТО РЕАЛЬНО СЧИТАЕТСЯ. Раньше здесь стоял
+-- текст из design-документа — «пробивание брони», «порог травмы»,
+-- «генерация угрозы», — и ни одна из этих механик в аддоне не
+-- существует. Подсказка обещала систему, которой нет, а настоящий вклад
+-- характеристики (скейлинг заклинаний и пассивки её навыков) не называла
+-- вовсе. Теперь строка отвечает ровно на один вопрос: что изменится в
+-- цифрах, если вложить сюда очко.
 SB.Data.Attributes = {
     { key = "Сила",
       trigger   = "Взлом преград, перемещение тяжестей, физическое запугивание.",
-      combat    = "Пробивание брони, модификатор тяжелого оружия, удержание позиции.",
-	  skills    = { "Атлетика", "Запугивание", "Мощь", "Ремесло" } },
+      combat    = "Урон заклинаний, которые от неё скейлятся. Через «Ношение брони» — снижение входящего урона.",
+	  -- «Ношение брони» стоит под Силой, а не под Выносливостью: доспех
+	  -- носят силой, а не запасом дыхания. «Атлетика» ушла к
+	  -- Выносливости встречным обменом.
+	  skills    = { "Ношение брони", "Запугивание", "Мощь", "Ремесло" } },
 
     { key = "Ловкость",
       trigger   = "Преодоление препятствий, карманная кража, скрытность, уклонение.",
-      -- Уход от атак здесь больше не упомянут намеренно: автоматической
+      -- Уход от атак здесь не упомянут намеренно: автоматической
       -- прибавки к защите от Ловкости нет, уклонение даёт только навык
       -- «Акробатика» (см. реестр источников в Core/Logic.lua).
-      combat    = "Инициатива, шанс критического попадания, точность приёмов.",
+      combat    = "Инициатива в пошаговом режиме. Через «Акробатику» — бросок защиты.",
 	  skills    = { "Скрытность", "Ловкость рук", "Акробатика", "Точность" } },
 
     { key = "Выносливость",
       trigger   = "Сопротивление токсинам, перенос экстремальных условий, марш-бросок.",
-      combat    = "Объём здоровья (HP), порог травмы, сопротивление оглушению.",
-	  skills    = { "Живучесть", "Выживание", "Концентрация", "Ношение брони" } },
+      combat    = "Через «Живучесть» — максимум здоровья, через «Атлетику» — предел передвижения за ход.",
+	  skills    = { "Живучесть", "Выживание", "Концентрация", "Атлетика" } },
 
     { key = "Интеллект",
       trigger   = "Расшифровка древних текстов, поиск улик, анализ магии, опознание слабых мест.",
-      combat    = "Точность атак, эффективность использования предметов, поиск уязвимостей.",
+      combat    = "Через «Исток» — максимум Маны у заклинателей.",
 	  skills    = { "Анализ", "Исток", "Эрудиция", "Наука" } },
 
     { key = "Дух",
       trigger   = "Сопротивление допросам, преодоление страха, стойкость к чужой воле.",
-      combat    = "Порог ментального здоровья, сопротивление контролю (CC), ресурс умений.",
+      combat    = "Через «Волю» — порог против чужих дебаффов: настолько выше приходится бросать тому, кто их вешает.",
 	  skills    = { "Воля", "Рвение", "Интуиция", "Религия" } },
 
     { key = "Характер",
       trigger   = "Дипломатия, проницательность, воодушевление, считывание эмоций.",
-      combat    = "Эффективность исцеления, генерация и перенаправление угрозы (Threat).",
+      combat    = "Через «Милосердие» — бросок лечения, через «Внушение» — атака заклинаний без урона.",
 	  skills    = { "Внушение", "Лидерство", "Дипломатия", "Милосердие" } },
 }
 
@@ -67,6 +77,14 @@ for _, def in ipairs(SB.Data.Attributes) do
         lines = {
             "Вне боя: " .. def.trigger,
             "В бою: " .. def.combat,
+            -- Два общих правила, одинаковых для всех шести. Числа —
+            -- из констант рядом, а не выписаны в текст: MOD_PER_POINT и
+            -- MAX_ATTR правятся при балансировке, и подсказка обязана
+            -- ехать вместе с ними.
+            ("Каждое очко сверх 1 даёт +%d к проверкам этой характеристики и к заклинаниям, которые от неё скейлятся.")
+                :format(MOD_PER_POINT),
+            ("Максимум %d очков (эффекты могут поднять предел на время). Свои навыки нельзя развить выше неё.")
+                :format(MAX_ATTR),
         },
     }
 end
@@ -129,9 +147,12 @@ function SB.Attributes.Commit()
     if SB.PlayerModel and SB.PlayerModel.IsLocked() then return false, "locked" end
     if not SB.Attributes.HasPending() then return false, "nothing" end
 
+    -- Предел проверяется ЕЩЁ РАЗ, на записи: между «нажал плюс» и «нажал
+    -- галочку» эффект, поднявший предел, мог спасть (см. GetMaxValue).
+    local cap = SB.Attributes.GetMaxValue()
     d.attributes = d.attributes or {}
     for key, value in pairs(pending) do
-        d.attributes[key] = value
+        d.attributes[key] = math.min(tonumber(value) or MIN_ATTR, cap)
     end
     wipe(pending)
 
@@ -182,6 +203,79 @@ function SB.Attributes.GetEffective(key)
     return math.max(0, val)
 end
 
+-- ============================================================
+-- ПРЕДЕЛ ВЛОЖЕНИЯ
+--
+-- MAX_ATTR — это потолок РАСПРЕДЕЛЕНИЯ: сколько очков персонаж вправе
+-- вложить в одну характеристику. К значению в бою он отношения не имеет
+-- (GetEffective потолка не знает вовсе — магия и так поднимает
+-- характеристику выше прокачанного).
+--
+-- Активные эффекты вправе этот потолок поднять — канал attrCap, см.
+-- Core/ActiveEffects.lua. Смысл ровно в «на время действия»: очко
+-- вкладывается из обычного пула, а когда эффект спадёт, лишнее
+-- поджимается обратно и очко возвращается в пул (см. ClampToMax).
+-- Иначе любой такой бафф означал бы «надел, вложил, снял» — то есть
+-- бесплатную шестую ступень навсегда.
+-- ============================================================
+
+--- Текущий предел вложения в один атрибут — с учётом эффектов.
+function SB.Attributes.GetMaxValue()
+    local bonus = (SB.ActiveEffects and SB.ActiveEffects.GetMod)
+        and (SB.ActiveEffects.GetMod("attrCap")) or 0
+    return math.max(MIN_ATTR, MAX_ATTR + (tonumber(bonus) or 0))
+end
+
+--- Предел без эффектов — панели он нужен, чтобы отличить «предел»
+--- от «предел, поднятый баффом».
+function SB.Attributes.GetBaseMaxValue()
+    return MAX_ATTR
+end
+
+--- Поджать вложенное под текущий предел. Зовётся, когда эффект спал:
+--- пул очков считается по самим значениям (см. GetSpentPoints), поэтому
+--- понижение значения и есть возврат очка в пул.
+function SB.Attributes.ClampToMax()
+    local d = db()
+    if not d or not d.attributes then return end
+    local cap, changed = SB.Attributes.GetMaxValue(), false
+
+    for _, def in ipairs(SB.Data.Attributes) do
+        -- Черновик поджимаем ОТДЕЛЬНО от подтверждённого значения: очко
+        -- могли занести в панель под баффом и подтвердить уже после того,
+        -- как он спал, — Commit пишет черновик как есть.
+        if pending[def.key] and pending[def.key] > cap then
+            pending[def.key] = cap
+            if pending[def.key] == (tonumber(d.attributes[def.key]) or MIN_ATTR) then
+                pending[def.key] = nil   -- вернулись к подтверждённому
+            end
+            changed = true
+        end
+
+        local v = tonumber(d.attributes[def.key])
+        if v and v > cap then
+            d.attributes[def.key] = cap
+            changed = true
+            print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BODY ..
+                def.key .. " возвращается к " .. cap ..
+                ": предел держался эффектом. Очко вернулось в пул.|r")
+        end
+    end
+
+    if changed then
+        SB.Events.Fire(SB.E.ATTRIBUTES_CHANGED)
+        SB.Events.Fire("PLAYER_MODEL_CHANGED")
+        SB.Events.Fire("STATUS_CHANGED")
+    end
+end
+
+-- Эффект мог как поднять предел, так и спасть — проверяем на любое
+-- изменение списка. Подъём предела сам по себе ничего не поджимает:
+-- условие внутри срабатывает только на значения ВЫШЕ предела.
+SB.Events.On("ACTIVE_EFFECTS_CHANGED", function()
+    SB.Attributes.ClampToMax()
+end)
+
 --- Все шесть значений разом, в фиксированном порядке SB.Data.Attributes.
 --- @return table  { [key] = value, ... }
 function SB.Attributes.GetAll()
@@ -221,7 +315,9 @@ function SB.Attributes.Spend(key)
     if SB.PlayerModel and SB.PlayerModel.IsLocked() then return false, "locked" end
     if SB.Attributes.GetUnspentPoints() <= 0 then return false, "no_points" end
     local cur = SB.Attributes.GetPending(key)
-    if cur >= MAX_ATTR then return false, "maxed" end
+    -- Предел, а не константа: эффект с каналом attrCap открывает
+    -- следующую ступень на время своего действия (см. GetMaxValue).
+    if cur >= SB.Attributes.GetMaxValue() then return false, "maxed" end
 
     pending[key] = cur + 1
     SB.Events.Fire(SB.E.ATTRIBUTES_CHANGED)
@@ -258,7 +354,7 @@ end
 function SB.Attributes.Set(key, value)
     local d = db()
     if not d then return false end
-    value = math.max(MIN_ATTR, math.min(MAX_ATTR, tonumber(value) or MIN_ATTR))
+    value = math.max(MIN_ATTR, math.min(SB.Attributes.GetMaxValue(), tonumber(value) or MIN_ATTR))
     d.attributes = d.attributes or {}
     d.attributes[key] = value
     SB.Events.Fire("ATTRIBUTES_CHANGED")

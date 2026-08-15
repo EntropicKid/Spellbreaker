@@ -94,10 +94,21 @@ local BD = {
         insets = { left = 2, right = 2, top = 2, bottom = 2 },
     },
 
+    -- ПОДЛОЖКА ТУЛТИПА — ПЛОСКАЯ ЗАЛИВКА, А НЕ ТЕКСТУРА.
+    --
+    -- Раньше здесь стоял UI-DialogBox-Background — каменное полотно с
+    -- собственным рисунком. Под мелким текстом подсказки этот рисунок
+    -- мешает сильнее, чем прозрачность: глаз цепляется за фактуру, а
+    -- буквы в подсказках и так набраны самым мелким шрифтом аддона.
+    -- Ровная заливка даёт спокойный фон, на котором читается всё.
+    --
+    -- Рамка — стандартная тултиповая, та же, что у окон аддона
+    -- (см. BD.frame): подсказка должна выглядеть частью интерфейса, а
+    -- не диалогом Blizzard посреди него.
     tooltip = {
-        bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
-        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-        tile = true, tileSize = 32, edgeSize = 16,
+        bgFile   = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = false, edgeSize = 16,
         insets = { left = 4, right = 4, top = 4, bottom = 4 },
     },
 }
@@ -112,9 +123,18 @@ SB.Theme.BD = BD
 -- единственный источник истины — тут.
 -- ============================================================
 SB.Theme.MSG_TAG  = "|cFF9933FF" -- тег [Spellbreaker]
-SB.Theme.MSG_BODY = "|cFFFFD100" -- основной текст сообщения (тёплое золото)
+SB.Theme.MSG_BODY = "|cFFCFAFDA" -- основной текст сообщения (бледная сирень)
 SB.Theme.MSG_GOOD = "|cFF33FF99" -- успех/положительный исход
 SB.Theme.MSG_BAD  = "|cFFFF4444" -- урон/провал/предупреждение
+
+-- ОЧЕРЕДЬ ХОДОВ ГОВОРИТ ЖЁЛТЫМ, и это единственное исключение из общего
+-- цвета тела сообщения.
+--
+-- Причина не в красоте: «чей сейчас ход», «ход перешёл дальше», «круг
+-- пройден» — это не рассказ о происходящем, а команда к действию, и
+-- искать её глазами в потоке одноцветных строк боя нельзя. Раньше
+-- жёлтым говорило всё подряд, и именно поэтому оно ничего не выделяло.
+SB.Theme.MSG_TURN = "|cFFFFD100" -- очередь ходов: чей ход, передача, пропуск
 
 local VARIANTS = {
     primary   = {bg=C.pBg, border=C.pBorder, text=C.pText, hBg=C.pHBg, hBd=C.pHBd, press=C.pPress},
@@ -158,7 +178,15 @@ local function EnsureTipSkin()
     tipSkin:SetPoint("TOPLEFT",     GameTooltip, "TOPLEFT",     -1,  1)
     tipSkin:SetPoint("BOTTOMRIGHT", GameTooltip, "BOTTOMRIGHT",  1, -1)
     tipSkin:SetBackdrop(BD.tooltip)
-    tipSkin:SetBackdropColor(C.frameBg[1], C.frameBg[2], C.frameBg[3], 0.97)
+    -- ФОН НЕПРОЗРАЧНЫЙ И ЦВЕТА ЗАГОЛОВКА. Подсказку читают поверх чего
+    -- угодно — снега, костра, светящейся травы, — и любая просвечивающая
+    -- подложка означает, что часть строк будет читаться хуже других.
+    -- Цвет берём у титульной полосы (titleBg): она заметно теплее
+    -- полотна окна, и подсказка на её фоне не сливается с самим окном,
+    -- когда всплывает поверх него.
+    tipSkin:SetBackdropColor(C.titleBg[1], C.titleBg[2], C.titleBg[3], 1)
+    -- Рамка — та же латунь, что у окон аддона (SB.Theme.Frame), чтобы
+    -- подсказка читалась как его часть.
     tipSkin:SetBackdropBorderColor(C.frameBorder[1], C.frameBorder[2], C.frameBorder[3], 1)
 
     -- Внутренний кант: тонкая тёплая линия сразу под рамкой. Даёт
@@ -231,6 +259,11 @@ local SOUNDS = {
     success    = SOUNDKIT and SOUNDKIT.LEVEL_UP                 or 888,
     fail       = SOUNDKIT and SOUNDKIT.IG_QUEST_FAILED          or 847,
     reject     = SOUNDKIT and SOUNDKIT.IG_PLAYER_INVITE_DECLINE or 882,
+
+    -- «Круг пройден, объявите новый ход» — Ведущему и только ему.
+    -- Готовность к проверке подходит по смыслу: короткий звонок «от тебя
+    -- ждут решения», и он не путается ни с уроном, ни с вердиктом.
+    attention  = SOUNDKIT and SOUNDKIT.READY_CHECK              or 8960,
 }
  
 function SB.Theme.PlaySound(variant)

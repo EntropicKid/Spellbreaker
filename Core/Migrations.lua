@@ -27,7 +27,7 @@ local addonName, SB = ...
 SB.Migrations = SB.Migrations or {}
 
 --- Текущая версия схемы. Поднимать на +1 при добавлении миграции ниже.
-SB.SCHEMA_VERSION = 5
+SB.SCHEMA_VERSION = 7
 
 -- ============================================================
 -- ХЕЛПЕРЫ НОРМАЛИЗАЦИИ
@@ -241,6 +241,52 @@ SB.Migrations.List = {
             if db.rollMin ~= nil or db.rollMax ~= nil then
                 db.rollMin, db.rollMax = nil, nil
                 report("удалены настройки границ броска — кубик всегда 1-100")
+            end
+        end,
+    },
+
+    {
+        version = 6,
+        note = "уборка после 2.1: мёртвые ключи и протухшая очередь ходов",
+
+        -- moveFrozen остался от механики обездвиживания на исчерпанном
+        -- передвижении: она была сделана и откачена, а ключ у тех, кто
+        -- успел её застать, лежит в сохранёнках и никем не читается.
+        char = function(db, report)
+            if db.moveFrozen ~= nil then
+                db.moveFrozen = nil
+                report("удалён мёртвый признак обездвиживания")
+            end
+        end,
+
+        -- Очередь ходов пишется на каждое изменение и сама себя чистит по
+        -- сроку годности (см. STATE_TTL в Core/TurnOrder.lua). Но снимок,
+        -- сделанный ДО 2.1, не знает поля skipped, и восстановленная из
+        -- него очередь показала бы отметки не тем: галочку вместо отказа.
+        -- Дешевле выбросить — очередь сцены живёт минуты, а не дни.
+        account = function(db, report)
+            if type(db.turnState) == "table" and db.turnState.skipped == nil then
+                db.turnState = nil
+                report("выброшена очередь ходов из прошлой версии")
+            end
+        end,
+    },
+
+    {
+        version = 7,
+        note = "время хода в секундах вместо галочки",
+
+        -- Таймер хода был двухминутным и включался галочкой (turnTimer);
+        -- теперь Ведущий задаёт секунды сам (см. TO.SetTurnTimeLimit).
+        -- Переносим решение, а не настройку: у кого таймер был включён,
+        -- у того он и останется — прежними двумя минутами.
+        account = function(db, report)
+            if db.turnTimer ~= nil then
+                if db.turnTimeLimit == nil then
+                    db.turnTimeLimit = (db.turnTimer == true) and 120 or 301
+                    report("таймер хода перенесён в секунды: " .. db.turnTimeLimit)
+                end
+                db.turnTimer = nil
             end
         end,
     },
