@@ -312,6 +312,38 @@ end
 --- Дописывает эпицентр в готовый пакет. Старый клиент этих полей не
 --- увидит и посчитает площадь вокруг заклинателя — ровно как аддон
 --- работал до появления эпицентра.
+-- ============================================================
+-- СПИСОК СВОИХ В ПЛОЩАДНОМ ПАКЕТЕ
+--
+-- Кого НЕ задевает залп, решает заклинатель, а не получатель (см. врезку
+-- «Свои и чужие» в Core/Database.lua). Значит его решение обязано ехать
+-- вместе с залпом: получатель ищет в списке СЕБЯ и по этому решает,
+-- участвует ли он вообще.
+--
+-- Поле короткое (fr) намеренно: имя ключа едет в каждом площадном
+-- пакете, а сами имена и так занимают место. Список ограничен теми, кто
+-- в группе, — до остальных площадь не доставляется.
+-- ============================================================
+local function PackFriends(t)
+    local list = SB.Data.GetGroupFriends and SB.Data.GetGroupFriends() or nil
+    -- Пустой список не шлём вовсе: nil в сериализаторе не стоит ничего,
+    -- а пустая таблица — стоит.
+    if list and #list > 0 then t.fr = list end
+    return t
+end
+
+--- Назвал ли заклинатель ЭТОГО игрока своим. Данные приходят из чужого
+--- клиента, поэтому типы проверяем: кривое поле не должно решать за нас,
+--- задело нас или нет.
+local function CasterCallsMeFriend(t)
+    if type(t.fr) ~= "table" then return false end
+    local me = UnitName("player")
+    for _, name in ipairs(t.fr) do
+        if name == me then return true end
+    end
+    return false
+end
+
 local function PackEpicenter(t, epi)
     if type(epi) ~= "table" then return t end
     t.epiN = epi.name
@@ -407,7 +439,7 @@ local function ParseAOEATK(t)
     if not SB.Logic or not SB.Logic.HandleAoeAttackReceived then return end
     SB.Logic.HandleAoeAttackReceived(t.caster, t.spellID, t.roll, t.mod, t.total,
         t.isCrit == true, t.dmgBonus or 0, t.baseDmg, t.radius, t.slot,
-        UnpackEpicenter(t))
+        UnpackEpicenter(t), CasterCallsMeFriend(t))
 end
 
 --- Рассеивание: «сними у себя вот эти школы, не больше стольких».
@@ -438,7 +470,8 @@ end
 local function ParseAOEHL(t)
     if not SB.Logic or not SB.Logic.HandleAoeHealReceived then return end
     SB.Logic.HandleAoeHealReceived(t.caster, t.spellID, t.effectID, t.radius,
-        t.slot, t.roll, t.mod, t.total, t.amount, UnpackEpicenter(t))
+        t.slot, t.roll, t.mod, t.total, t.amount, UnpackEpicenter(t),
+        CasterCallsMeFriend(t))
 end
 
 --- Ответ исцелённого — заклинателю, для общего блока залпа.
@@ -453,7 +486,7 @@ end
 local function ParseAOEEFF(t)
     if not SB.Logic or not SB.Logic.HandleAoeEffectReceived then return end
     SB.Logic.HandleAoeEffectReceived(t.caster, t.spellID, t.effectID, t.radius, t.slot,
-        t.roll, t.mod, t.total, UnpackEpicenter(t))
+        t.roll, t.mod, t.total, UnpackEpicenter(t), CasterCallsMeFriend(t))
 end
 
 --- Очередь ходов от Ведущего. Проверка ровно одна и она здесь: пакет
@@ -1128,7 +1161,7 @@ end
 function SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, radius, slot, epi)
     if not IsInGroup() then return end
 
-    SendToGroup(PackEpicenter({
+    SendToGroup(PackFriends(PackEpicenter({
         action   = "AOEATK",
         caster   = UnitName("player"),
         spellID  = spellID,
@@ -1140,7 +1173,7 @@ function SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseD
         baseDmg  = baseDmg,
         radius   = radius or 0,
         slot     = tonumber(slot) or 0,
-    }, epi), "NORMAL")
+    }, epi)), "NORMAL")
 end
 
 --- Площадной эффект (аура / площадной дебафф).
@@ -1152,7 +1185,7 @@ end
 --- @param epi   table|nil  эпицентр площади (см. SB.Logic.GetAoeEpicenter)
 function SB.Net.SendAoeEffect(spellID, effectID, radius, slot, roll, mod, total, epi)
     if not IsInGroup() then return end
-    SendToGroup(PackEpicenter({
+    SendToGroup(PackFriends(PackEpicenter({
         action   = "AOEEFF",
         caster   = UnitName("player"),
         spellID  = spellID,
@@ -1162,7 +1195,7 @@ function SB.Net.SendAoeEffect(spellID, effectID, radius, slot, roll, mod, total,
         roll     = roll,
         mod      = mod,
         total    = total,
-    }, epi), "NORMAL")
+    }, epi)), "NORMAL")
 end
 
 --- Наложить эффект на союзника (spell.buff, см. SB.Logic.ApplyBuffToTarget).
@@ -1234,7 +1267,7 @@ end
 ---        лечение сработало (Целительный ливень, Спокойствие)
 function SB.Net.SendAoeHeal(spellID, effectID, radius, slot, roll, mod, total, amount, epi)
     if not IsInGroup() then return end
-    SendToGroup(PackEpicenter({
+    SendToGroup(PackFriends(PackEpicenter({
         action   = "AOEHL",
         caster   = UnitName("player"),
         spellID  = spellID,
@@ -1245,7 +1278,7 @@ function SB.Net.SendAoeHeal(spellID, effectID, radius, slot, roll, mod, total, a
         mod      = mod,
         total    = total,
         amount   = amount or 0,
-    }, epi), "NORMAL")
+    }, epi)), "NORMAL")
 end
 
 --- Ответ исцелённого: свой порог, исход и с чем остался. Строку собирает

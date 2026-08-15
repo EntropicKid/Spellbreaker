@@ -630,6 +630,10 @@ local function BuildMainFrame()
         GameTooltip:Show()
     end
 
+    -- Наружу: те же бейджи есть на компактной панели (UI/SpellBar.lua), и
+    -- вторая копия разбивки разошлась бы с этой на первой же правке.
+    SB.UI.ShowScopeTooltip = ShowScopeTooltip
+
     -- Бейджи — не просто индикаторы, а кнопки: у обоих есть действие,
     -- которое иначе пришлось бы делать руками (см. onClick у вызовов
     -- ниже). Размер и вид не меняются — только подсветка под курсором,
@@ -741,6 +745,9 @@ local function BuildMainFrame()
             SB.PlayerModel.GetResourceName() .. ", эффекты тикают.", 0.6, 0.6, 0.6, true)
         GameTooltip:Show()
     end
+
+    -- Наружу по той же причине, что и ShowScopeTooltip.
+    SB.UI.ShowMoveTooltip = ShowMoveTooltip
 
     moveBadge:SetScript("OnEnter", function(self)
         self:SetBackdropBorderColor(0.6, 1, 0.6, 1)

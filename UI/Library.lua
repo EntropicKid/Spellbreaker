@@ -7,7 +7,7 @@ local addonName, SB = ...
 SB.Library = SB.Library or {}
 
 -- Константы разметки
-local SPELL_ROW_W   = 203
+local SPELL_ROW_W   = 190
 local SPELL_COL_GAP = 0
 local SPELL_ROW_H   = 42
 
@@ -141,7 +141,7 @@ function SB.Library.UpdateList()
             -- текст многоточием, а полное имя всё равно видно в карточке.
             row.name = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
             row.name:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 6, -2)
-            row.name:SetWidth(147); row.name:SetJustifyH("LEFT")
+            row.name:SetWidth(145); row.name:SetJustifyH("LEFT")
             row.name:SetWordWrap(false)
             row.name:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
 
@@ -488,7 +488,7 @@ function SB.Library.BuildFrame()
     -- (см. SB.Theme.Scroll), и на прежней ширине вторая колонка
     -- карточек (2 x SPELL_ROW_W) переставала помещаться.
     libFrame = SB.Theme.Frame("SpellbreakerLibraryFrame", UIParent,
-        "Библиотека Заклинаний", 445, 510)
+        "Библиотека Заклинаний", 410, 510)
     SB.Theme.AttachPositionMemory(libFrame, "libFramePos", -200, 0)
 
     -- Кнопка класса
@@ -519,7 +519,7 @@ function SB.Library.BuildFrame()
 
     -- Поле поиска
     local searchWrap, searchEBLocal = SB.Theme.Input(libFrame,
-        "Поиск названия или дескриптора...", 185, 24)
+        "Поиск способностей...", 165, 24)
     searchWrap:SetPoint("LEFT", classBtn, "RIGHT", 6, 0)
     searchEB = searchEBLocal
     searchEB:SetScript("OnTextChanged", function(self)
@@ -620,41 +620,12 @@ function SB.Library.BuildFrame()
         end
     end)
 	
-	    -- ── Чекбокс «Игнорировать .caura» ────────────────────────
-    -- Справа от кнопки «Очистить кастом». Хранится в
-    -- SpellbreakerAccountDB.ignoreCaura — учитывается в Logic.lua
-    -- при ConfirmCast и ExecuteForcedOutcome.
-    local cauraBg = CreateFrame("Frame", nil, libFrame, "BackdropTemplate")
-    cauraBg:SetSize(143, 26)
-    cauraBg:SetPoint("LEFT", purgeBtn, "RIGHT", 4, 0)
-    cauraBg:SetBackdrop(SB.Theme.BD.card)
-    cauraBg:SetBackdropColor(0.05, 0.04, 0.08, 0.80)
-    cauraBg:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
-
-    local cauraChk = CreateFrame("CheckButton", "SBIgnoreCauraChk",
-        cauraBg, "UICheckButtonTemplate")
-    cauraChk:SetSize(20, 20)
-    cauraChk:SetPoint("LEFT", cauraBg, "LEFT", 6, 0)
-    cauraChk:SetChecked(SpellbreakerAccountDB and SpellbreakerAccountDB.ignoreCaura or false)
-
-    local cauraLbl = cauraBg:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    cauraLbl:SetPoint("LEFT", cauraChk, "RIGHT", 4, 0)
-    cauraLbl:SetText("Игнорировать .caura")
-    cauraLbl:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
-
-    cauraChk:SetScript("OnClick", function(self)
-        if SpellbreakerAccountDB then
-            SpellbreakerAccountDB.ignoreCaura = self:GetChecked()
-        end
-    end)
-
-    -- Синхронизировать чекбокс после инициализации AceDB
-    SB.Events.On("SB_INIT", function()
-        if SBIgnoreCauraChk then
-            SBIgnoreCauraChk:SetChecked(
-                SpellbreakerAccountDB and SpellbreakerAccountDB.ignoreCaura or false)
-        end
-    end)
+    -- Галочка «Игнорировать .caura» отсюда УБРАНА. Это настройка
+    -- клиента, а не инструмент библиотеки: она не про заклинания, а про
+    -- то, шлёт ли аддон визуалы серверу. Её место — в настройках
+    -- модификации, где она теперь и живёт одна
+    -- (см. UI/Options.lua); вторая копия на рабочем окне только
+    -- занимала место и расходилась с первой.
 
     -- #6: Переключатель фильтра (все / кастом / вшитые)
     filterBtn = SB.Theme.Button(libFrame, FILTER_LABELS[filterMode], 110, 24, "secondary")

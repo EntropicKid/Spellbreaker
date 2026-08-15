@@ -1373,22 +1373,27 @@ do
     -- Эпицентр названного собой — это «расстояние ноль» даже там, где
     -- координат нет вовсе (см. DistanceToEpicenter).
     local here = { name = stub.world.playerName, isSelf = false }
+    -- Последним аргументом — вердикт лекаря «этот мне свой». Без него
+    -- лечение отсеялось бы фильтром сторон (см. врезку «Свои и чужие»),
+    -- и проверки мерили бы не лечение, а фильтр.
     _G.SpellbreakerCharDB.health = 5
     sent.SendAoeHealResult = nil
     SB.Logic.HandleAoeHealReceived("Ирина", "t_aoeheal", nil, 9, 1,
-                                   100, 0, 100, 3, here)
+                                   100, 0, 100, 3, here, true)
     check("исцеление дошло до задетого", SB.PlayerModel.GetHealth(), 8)
     checkTrue("задетый отчитался заклинателю", sent.SendAoeHealResult)
 
     -- Не прошедший порог не лечится вовсе.
     _G.SpellbreakerCharDB.health = 5
     SB.Logic.HandleAoeHealReceived("Ирина", "t_aoeheal", nil, 9, 1,
-                                   1, 0, 1, 3, here)
+                                   1, 0, 1, 3, here, true)
     check("низкий бросок не лечит", SB.PlayerModel.GetHealth(), 5)
 
     -- ── ПАВШИХ ПЛОЩАДЬ НЕ ЗАДЕВАЕТ ──────────────────────────
     -- Ноль здоровья выводит из боя: ни урона, ни эффекта, ни лечения, и
-    -- главное — ни одного ответного пакета.
+    -- главное — ни одного ответного пакета. Добро шлём как «своему», а
+    -- вред как «чужому» — иначе всё отсеялось бы фильтром сторон, и
+    -- проверки показали бы правильный итог по неправильной причине.
     SB.ActiveEffects.Clear()
     _G.SpellbreakerCharDB.activeEffects = {}
     _G.SpellbreakerCharDB.health = 0
@@ -1396,21 +1401,89 @@ do
 
     sent.SendAoeHealResult = nil
     SB.Logic.HandleAoeHealReceived("Ирина", "t_aoeheal", nil, 9, 1,
-                                   100, 0, 100, 3, here)
+                                   100, 0, 100, 3, here, true)
     check("павшего площадь не лечит", SB.PlayerModel.GetHealth(), 0)
     checkTrue("и ответа от него не идёт", not sent.SendAoeHealResult)
 
     sent.SendAoeEffectResult = nil
     SB.Logic.HandleAoeEffectReceived("Ирина", "t_aoebuff", "t_eff", 9, 1,
-                                     100, 0, 100, here)
+                                     100, 0, 100, here, true)
     check("павшему площадной эффект не лёг", #SB.ActiveEffects.GetAll(), 0)
     checkTrue("и здесь ответа нет", not sent.SendAoeEffectResult)
 
     sent.SendPvpResult = nil
     SB.Logic.HandleAoeAttackReceived("Ирина", "t_aoe", 90, 0, 90,
-                                     false, 0, 2, 9, 1, here)
+                                     false, 0, 2, 9, 1, here, false)
     checkTrue("павшего площадью не добивают", not sent.SendPvpResult)
 
+    _G.SpellbreakerCharDB.health = 10
+
+    -- ── СВОИ И ЧУЖИЕ ────────────────────────────────────────
+    -- РЕШАЕТ ЗАКЛИНАТЕЛЬ: его вердикт приезжает вместе с залпом
+    -- последним аргументом (в игре — поле fr, см. PackFriends). Проверки
+    -- стоят ДО ответа, поэтому мерим именно отсутствие пакета: в этом и
+    -- экономия неткода.
+    checkTrue("сам себе друг", SB.Data.IsFriend(stub.world.playerName))
+    check("незнакомый не друг", SB.Data.IsFriend("Никогданевстречались"), false)
+
+    SB.Data.SetFriend("Ирина", true)
+    checkTrue("отметка запомнилась", SB.Data.IsFriend("Ирина"))
+    checkTrue("и легла в сохранёнки",
+        _G.SpellbreakerAccountDB.friends["Ирина"] == true)
+    SB.Data.SetFriend("Ирина", false)
+    check("снятие чистит запись",
+        _G.SpellbreakerAccountDB.friends["Ирина"], nil)
+
+    -- В залп попадают только те друзья, кто СЕЙЧАС в группе: до
+    -- остальных площадь не доставляется, и гонять их имена незачем.
+    stub.world.inGroup = true
+    stub.world.units["party1"] = stub.world.units["target"]
+    SB.Data.SetFriend("Ирина", true)
+    SB.Data.SetFriend("Ктотоневгруппе", true)
+    do
+        local list = SB.Data.GetGroupFriends()
+        check("в залп едет один друг", #list, 1)
+        check("и это тот, кто в группе", list[1], "Ирина")
+    end
+    SB.Data.SetFriend("Ктотоневгруппе", false)
+
+    -- Заклинатель НАЗВАЛ нас своим: его залп нас не задевает…
+    sent.SendPvpResult = nil
+    SB.Logic.HandleAoeAttackReceived("Ирина", "t_aoe", 90, 0, 90,
+                                     false, 0, 2, 9, 1, here, true)
+    checkTrue("названного своим залп не задевает", not sent.SendPvpResult)
+
+    -- …а его лечение — доходит.
+    _G.SpellbreakerCharDB.health = 5
+    SB.Logic.HandleAoeHealReceived("Ирина", "t_aoeheal", nil, 9, 1,
+                                   100, 0, 100, 3, here, true)
+    checkTrue("лечение своим доходит", SB.PlayerModel.GetHealth() > 5)
+
+    -- НЕ назвал — всё зеркально.
+    _G.SpellbreakerCharDB.health = 5
+    sent.SendAoeHealResult = nil
+    SB.Logic.HandleAoeHealReceived("Ирина", "t_aoeheal", nil, 9, 1,
+                                   100, 0, 100, 3, here, false)
+    check("лечение чужим не достаётся", SB.PlayerModel.GetHealth(), 5)
+    checkTrue("и ответа на него нет", not sent.SendAoeHealResult)
+
+    sent.SendPvpResult = nil
+    SB.Logic.HandleAoeAttackReceived("Ирина", "t_aoe", 90, 0, 90,
+                                     false, 0, 2, 9, 1, here, false)
+    checkTrue("а неотмеченного залп задевает", sent.SendPvpResult)
+
+    -- Площадной ЭФФЕКТ: вред это или добро, решает сам эффект.
+    SB.ActiveEffects.Clear()
+    _G.SpellbreakerCharDB.activeEffects = {}
+    SB.Logic.HandleAoeEffectReceived("Ирина", "t_aoebuff", "t_eff", 9, 1,
+                                     100, 0, 100, here, false)
+    check("бафф чужим не ложится", #SB.ActiveEffects.GetAll(), 0)
+    SB.Logic.HandleAoeEffectReceived("Ирина", "t_aoebuff", "t_eff", 9, 1,
+                                     100, 0, 100, here, true)
+    check("бафф своим ложится", #SB.ActiveEffects.GetAll(), 1)
+    SB.ActiveEffects.Clear()
+    _G.SpellbreakerCharDB.activeEffects = {}
+    SB.Data.SetFriend("Ирина", false)
     _G.SpellbreakerCharDB.health = 10
 
     -- Заклинания, которым площадь подвязана в данных.
@@ -1797,7 +1870,7 @@ do
 
     local db = _G.SpellbreakerAccountDB
     local saved = { db.spellBar, db.spellBarSize, db.spellBarRows,
-                    db.spellBarLocked, db.spellBarMove }
+                    db.spellBarLocked, db.spellBarMove, db.spellBarVertical }
 
     db.spellBar = nil
     checkTrue("панель включена по умолчанию", SB.SpellBar.IsEnabled())
@@ -1820,13 +1893,17 @@ do
     db.spellBarRows = 0
     check("и снизу", SB.SpellBar.GetRows(), SB.SpellBar.ROWS_MIN)
 
-    -- Замок по умолчанию снят, счётчик передвижения — показан.
-    db.spellBarLocked, db.spellBarMove = nil, nil
+    -- Замок по умолчанию снят, сводка показана, панель горизонтальная.
+    db.spellBarLocked, db.spellBarMove, db.spellBarVertical = nil, nil, nil
     checkTrue("позиция по умолчанию не заперта", not SB.SpellBar.IsLocked())
-    checkTrue("счётчик передвижения по умолчанию виден", SB.SpellBar.IsMoveShown())
+    checkTrue("сводка по умолчанию видна", SB.SpellBar.IsMoveShown())
+    checkTrue("панель по умолчанию горизонтальная", not SB.SpellBar.IsVertical())
+    db.spellBarVertical = true
+    checkTrue("вертикальный режим включается", SB.SpellBar.IsVertical())
+    db.spellBarVertical = nil
 
     db.spellBar, db.spellBarSize, db.spellBarRows,
-        db.spellBarLocked, db.spellBarMove = unpack(saved)
+        db.spellBarLocked, db.spellBarMove, db.spellBarVertical = unpack(saved)
 
     -- СОСТАВ КОЛОНКИ СВОДКИ. Метры считаются только в пошаговом режиме,
     -- и вне его плашка обязана исчезнуть ВМЕСТЕ с местом под неё —
@@ -1869,8 +1946,17 @@ do
         db.spellBarMove = false
         SB.SpellBar.Relayout()
     end)
+    -- Вертикальная раскладка — второй, полностью отдельный расчёт
+    -- координат: сетка идёт по столбцам, сводка переезжает наверх.
+    smoke("вертикальная раскладка строится", function()
+        db.spellBarVertical, db.spellBarMove = true, true
+        db.spellBarRows = 2
+        SB.SpellBar.Relayout()
+        db.spellBarRows = 1
+        SB.SpellBar.Relayout()
+    end)
     db.spellBar, db.spellBarSize, db.spellBarRows,
-        db.spellBarLocked, db.spellBarMove = unpack(saved)
+        db.spellBarLocked, db.spellBarMove, db.spellBarVertical = unpack(saved)
 end
 
 -- ============================================================

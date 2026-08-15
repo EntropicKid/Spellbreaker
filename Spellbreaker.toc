@@ -2,17 +2,14 @@
 ## Title: |cff865BF2Spellbreaker|r
 ## Notes: Модульная RP-система заклинаний
 ## Notes-enUS: Modular RP spell system for World of Warcraft: Aviana RP
-## Version: 2.1
+## Version: 2.2
 ## Author: Spellbreaker contributors
 ## X-License: MIT
 ## SavedVariables: SpellbreakerDB SpellbreakerCustomDB
 
 # ── Библиотеки ───────────────────────────────────────────────
 # LibStub и CallbackHandler грузятся ПЕРВЫМИ и ровно один раз: от них
-# зависят все остальные Ace-библиотеки. Раньше обе строки стояли в
-# файле дважды (второй раз перед LibRangeCheck) — повторная загрузка
-# ничего не ломала, потому что LibStub идемпотентен, но и смысла в ней
-# не было никакого.
+# зависят все остальные Ace-библиотеки.
 Libs\LibStub\LibStub.lua
 Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
 Libs\AceAddon-3.0\AceAddon-3.0.xml

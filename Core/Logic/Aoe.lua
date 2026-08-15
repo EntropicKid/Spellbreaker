@@ -315,6 +315,35 @@ local function DownedIgnoresAoe()
     return (PM and PM.IsDowned and PM.IsDowned()) or false
 end
 
+-- ============================================================
+-- СВОИ И ЧУЖИЕ
+--
+-- РЕШАЕТ ЗАКЛИНАТЕЛЬ. Галочка «Друг» стоит в ЕГО панели и означает «по
+-- этому человеку я не бью»: отметил — и своей площадью его больше не
+-- задеть. Список едет вместе с залпом (поле fr, см. PackFriends в
+-- Core/Network.lua), а получатель ищет в нём себя.
+--
+-- Правило симметричное (полностью см. врезку в Core/Database.lua):
+--   • вред НЕ доходит до тех, кого заклинатель назвал своими;
+--   • добро доходит ТОЛЬКО до них.
+--
+-- Проверка стоит ДО ответа отправителю, рядом с проверкой на павшего, и
+-- ровно за тем же: не «применить и не показать», а не участвовать вовсе.
+-- На залп по десятку человек, из которых половина своих, уходит вдвое
+-- меньше ответных пакетов.
+--
+-- ЧТО СЧИТАЕТСЯ ВРЕДОМ, решает не заклинание, а сам эффект (его kind) и
+-- тип пакета: площадная атака — всегда вред, площадное лечение — всегда
+-- добро, площадной эффект — по тому, бафф это или дебафф.
+--- @param imFriend boolean  назвал ли меня заклинатель своим
+--- @param harmful  boolean  вредит ли то, что прилетело
+local function FriendIgnoresAoe(imFriend, harmful)
+    -- Своя же площадь до себя по сети не доходит (отправитель себя
+    -- отсеивает раньше), так что этот случай сюда не попадает.
+    if harmful then return imFriend == true end
+    return imFriend ~= true
+end
+
 -- Один общий «висящий» размен на площадное заклинание: цели заранее
 -- неизвестны, поэтому ответ приходит от кого угодно из задетых.
 local pendingAoe = nil
@@ -408,9 +437,13 @@ end
 --- Получатель площадной атаки. Вся разница с одиночной — проверка
 --- дистанции; дальше зовём ровно тот же обработчик, что и для шёпота.
 function SB.Logic.HandleAoeAttackReceived(attackerName, spellID, atkRoll, atkMod, atkTotal,
-                                          atkCrit, atkDmgBonus, atkBaseDmg, radius, atkSlot, epi)
+                                          atkCrit, atkDmgBonus, atkBaseDmg, radius, atkSlot,
+                                          epi, imFriend)
     if attackerName == UnitName("player") then return end   -- по себе не бьём
     if DownedIgnoresAoe() then return end
+    -- Заклинатель отметил нас своим — его залп нас не задевает
+    -- (см. FriendIgnoresAoe).
+    if FriendIgnoresAoe(imFriend, true) then return end
     if not SB.Logic.IsInAoeEpicenter(epi, attackerName, radius) then return end
     -- Последним аргументом — «это площадь»: от него зависит только форма
     -- сообщения в чат (короткая строка вместо полного абзаца), вся
@@ -518,9 +551,16 @@ end
 ---        старого клиента либо путь через Ведущего (ProcessRollAndCast →
 ---        InitiateAoeEffect): там броска нет, и эффект ложится безусловно,
 ---        ровно как работало раньше.
-function SB.Logic.HandleAoeEffectReceived(casterName, spellID, effectID, radius, slotLevel, roll, mod, total, epi)
+function SB.Logic.HandleAoeEffectReceived(casterName, spellID, effectID, radius, slotLevel,
+                                          roll, mod, total, epi, imFriend)
     if casterName == UnitName("player") then return end
     if DownedIgnoresAoe() then return end
+    -- Вредит ли эффект — спрашиваем у него самого, а не у заклинания:
+    -- поле buff/debuff в заклинании говорит, КУДА его вешают, а kind —
+    -- что он делает (см. SB.ActiveEffects.GetKind).
+    local harmful = SB.ActiveEffects and SB.ActiveEffects.GetKind
+        and SB.ActiveEffects.GetKind(effectID) == "debuff"
+    if FriendIgnoresAoe(imFriend, harmful) then return end
     if not SB.Logic.IsInAoeEpicenter(epi, casterName, radius) then return end
 
     if not total then
@@ -680,11 +720,13 @@ end
 --- себя и отчитывается заклинателю. Печатать свою строку не надо —
 --- она встанет в общий блок у него.
 function SB.Logic.HandleAoeHealReceived(casterName, spellID, effectID, radius,
-                                        slotLevel, roll, mod, total, amount, epi)
+                                        slotLevel, roll, mod, total, amount, epi, imFriend)
     if casterName == UnitName("player") then return end
     -- Павшего площадь не поднимает: для этого есть направленное лечение
     -- (см. врезку «Павших площадь не задевает»).
     if DownedIgnoresAoe() then return end
+    -- Лечение — добро, и достаётся только тем, кого лекарь назвал своими.
+    if FriendIgnoresAoe(imFriend, false) then return end
     if not SB.Logic.IsInAoeEpicenter(epi, casterName, radius) then return end
 
     -- Та же сверка цифр, что у удара и площадного эффекта: присланный

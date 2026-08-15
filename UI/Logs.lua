@@ -146,28 +146,11 @@ function SB.Logs.BuildFrame()
         end
     end)
 	
-	local emoteBg = CreateFrame("Frame", nil, logFrame, "BackdropTemplate")
-    emoteBg:SetSize(132, 26)
-    emoteBg:SetPoint("BOTTOMRIGHT", checkBg, "BOTTOMLEFT", -3, 0)
-    emoteBg:SetBackdrop(SB.Theme.BD.card)
-    emoteBg:SetBackdropColor(0.05, 0.04, 0.08, 0.80)
-    emoteBg:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
-
-    local emoteChk = CreateFrame("CheckButton", "SBSendEmoteChk", emoteBg, "UICheckButtonTemplate")
-    emoteChk:SetSize(20, 20)
-    emoteChk:SetPoint("LEFT", emoteBg, "LEFT", 6, 0)
-    emoteChk:SetChecked(SpellbreakerAccountDB and SpellbreakerAccountDB.sendEmotes ~= false)
-
-    local emoteLbl = emoteBg:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    emoteLbl:SetPoint("LEFT", emoteChk, "RIGHT", 4, 0)
-    emoteLbl:SetText("Отправлять отписи")
-    emoteLbl:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
-
-    emoteChk:SetScript("OnClick", function(self)
-        if SpellbreakerAccountDB then
-            SpellbreakerAccountDB.sendEmotes = self:GetChecked()
-        end
-    end)
+    -- Галочка «Отправлять отписи» отсюда УБРАНА и живёт теперь только в
+    -- настройках модификации (см. UI/Options.lua). Это настройка того,
+    -- как персонаж отыгрывается, а не окна логов; выставляют её один раз
+    -- и больше не трогают, а место на рабочем окне она занимала
+    -- постоянно.
 
     -- Синхронизировать чекбокс после инициализации AceDB
     SB.Events.On("SB_INIT", function()

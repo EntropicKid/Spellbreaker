@@ -80,9 +80,21 @@ function SB.SpellBar.IsLocked()
     return (db() and db().spellBarLocked) == true
 end
 
---- Показывать ли колонку сводки слева.
+--- Показывать ли сводку.
 function SB.SpellBar.IsMoveShown()
     return (db() and db().spellBarMove) ~= false
+end
+
+--- Вертикальная ли панель. Горизонтальная по умолчанию: она встаёт над
+--- игровой панелью снизу, где для неё и есть место.
+---
+--- ЧТО МЕНЯЕТСЯ. Настройка «линий» одна на оба вида и означает буквально
+--- «на сколько полос разложить иконки»: в горизонтальном это строки,
+--- в вертикальном — столбцы. Сводка едет вместе с ориентацией: сбоку у
+--- горизонтальной, сверху у вертикальной, — иначе она диктовала бы
+--- панели ширину, которой у вертикальной нет.
+function SB.SpellBar.IsVertical()
+    return (db() and db().spellBarVertical) == true
 end
 
 -- ============================================================
@@ -104,6 +116,11 @@ end
 -- пошагового режима не считаются вовсе, и место под них не резервируем:
 -- пустая рамка в свободной игре была ровно тем, что мешало.
 -- ============================================================
+-- ЩЕЛЧКИ ТЕ ЖЕ, ЧТО У БЕЙДЖЕЙ В ШАПКЕ ГЛАВНОГО ОКНА, и это не
+-- совпадение: панель — второй вид того же самого, и одно и то же число
+-- обязано делать одно и то же, где бы игрок на него ни нажал. Функции
+-- берём готовые (SB.UI.ShowScopeTooltip, SB.UI.ShowMoveTooltip) — вторая
+-- копия разбивки разошлась бы с первой на первой же правке.
 local INFO_SLOTS = {
     {   -- Передвижение: единственное, что прямо запрещает действовать.
         label = "метры",
@@ -119,7 +136,10 @@ local INFO_SLOTS = {
         -- Красным, когда предел выбран: в этот момент иконки рядом
         -- гаснут, и цвет объясняет почему.
         bad = function() return SB.Movement.IsExhausted() end,
-        tip = "movement",
+        tooltip = function(owner)
+            if SB.UI.ShowMoveTooltip then SB.UI.ShowMoveTooltip(owner) end
+        end,
+        click = function() SB.Logic.SpendTurnManually() end,
     },
     {   -- Общий модификатор броска. БЕЗ заклинания: ранг, уровень,
         -- класс и висящие эффекты — то, что прибавится к любому касту.
@@ -129,32 +149,42 @@ local INFO_SLOTS = {
             local v = SB.Logic.GetModifierBreakdown("attack")
             return ((v >= 0) and "+" or "") .. v
         end,
-        title = "Бросок атаки",
-        hint  = "Общая прибавка к броску любого каста: ранг, уровень, класс, " ..
-                "навыки и висящие эффекты. Вклад конкретного заклинания — " ..
-                "в подсказке его иконки.",
+        tooltip = function(owner)
+            if SB.UI.ShowScopeTooltip then
+                SB.UI.ShowScopeTooltip(owner, "Модификатор атаки", "attack", 1, 0.6, 0.3)
+            end
+        end,
+        click = function() SB.Logic.RollManualAttack() end,
     },
     {   label = "защита",
         value = function()
             local v = SB.Logic.GetModifierBreakdown("defense")
             return ((v >= 0) and "+" or "") .. v
         end,
-        title = "Бросок защиты",
-        hint  = "Прибавка к вашему броску защиты в ПвП: класс, «Акробатика», " ..
-                "«Концентрация» под концентрацией и висящие эффекты.",
+        tooltip = function(owner)
+            if SB.UI.ShowScopeTooltip then
+                SB.UI.ShowScopeTooltip(owner, "Модификатор защиты", "defense", 0.4, 0.8, 1)
+            end
+        end,
+        click = function() SB.Logic.RollManualDefense() end,
     },
     {   -- Единицы брони; во сколько они превращаются, говорит подсказка.
         label = "броня",
         value = function()
             return tostring(SB.Skills and SB.Skills.GetArmorPoints() or 0)
         end,
-        title = "Броня",
-        hint  = function()
+        -- У брони в шапке главного окна бейджа нет, и щелчка тоже нет:
+        -- бросать её не за чем, она не бросок, а вычет.
+        tooltip = function(owner)
             local pts = (SB.Skills and SB.Skills.GetArmorPoints()) or 0
             local dr  = (SB.Skills and SB.Skills.GetDamageReduction()) or 0
-            return string.format(
+            GameTooltip:SetOwner(owner, "ANCHOR_TOP")
+            SB.Theme.StyleTooltip(GameTooltip)
+            GameTooltip:SetText("Броня", 1, 0.82, 0)
+            GameTooltip:AddLine(string.format(
                 "%d единиц брони — это −%d к каждому прошедшему удару. " ..
-                "Один урон проходит всегда.", pts, dr)
+                "Один урон проходит всегда.", pts, dr), 0.85, 0.85, 0.85, true)
+            GameTooltip:Show()
         end,
     },
 }
@@ -260,43 +290,66 @@ end
 -- ============================================================
 local function MakeInfoTag(i)
     local C = SB.Theme.C
-    local f = CreateFrame("Frame", nil, bar, "BackdropTemplate")
+    -- Button, а не Frame: у трёх из четырёх плашек есть щелчок — тот же,
+    -- что у бейджа в шапке главного окна.
+    local f = CreateFrame("Button", nil, bar, "BackdropTemplate")
     f:SetBackdrop(SB.Theme.BD.card)
     f:SetBackdropColor(0, 0, 0, 0.5)
     f:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.8)
 
+    -- Две раскладки на одну плашку: в столбце сбоку подпись под
+    -- значением (места по вертикали хватает), в полосе сверху — слева от
+    -- него (по вертикали там всего два десятка пикселей). Точки задаёт
+    -- LayoutInfoTag, здесь только создаём.
     f.valueFS = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    f.valueFS:SetPoint("CENTER", f, "CENTER", 0, 6)
-
     f.labelFS = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    f.labelFS:SetPoint("CENTER", f, "CENTER", 0, -7)
     f.labelFS:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
 
+    local hl = f:CreateTexture(nil, "HIGHLIGHT")
+    hl:SetAllPoints(); hl:SetColorTexture(1, 1, 0.6, 0.12)
+
     f:EnableMouse(true)
+    f:RegisterForClicks("LeftButtonUp")
     f:SetScript("OnEnter", function(self)
-        -- Подсказка есть не у всех: у метров она своя и подробная, у
-        -- остальных пояснение короткое и собирается здесь.
-        if self._tip then
-            SB.UI.ShowInfoTooltip(self, self._tip, "ANCHOR_TOP")
-            return
-        end
-        if not self._hint then return end
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        SB.Theme.StyleTooltip(GameTooltip)
-        GameTooltip:SetText(self._title or "", 1, 0.82, 0)
-        -- Подсказка бывает функцией: у брони в ней живые числа, и
-        -- собирать их можно только в момент показа.
-        local hint = self._hint
-        if type(hint) == "function" then
-            local ok, res = pcall(hint)
-            hint = ok and res or nil
-        end
-        if hint then GameTooltip:AddLine(hint, 0.85, 0.85, 0.85, true) end
-        GameTooltip:Show()
+        if self._slot and self._slot.tooltip then self._slot.tooltip(self) end
     end)
     f:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    f:SetScript("OnClick", function(self)
+        if not (self._slot and self._slot.click) then return end
+        self._slot.click()
+        -- Подсказку пересобираем: бросок и пропуск хода меняют то, что в
+        -- ней написано, и оставшаяся на экране разбивка врала бы (та же
+        -- причина, что у бейджей в шапке главного окна).
+        if self:IsMouseOver() and self._slot.tooltip then self._slot.tooltip(self) end
+    end)
     infoTags[i] = f
     return f
+end
+
+-- Высота полосы сводки в вертикальном режиме: две строки текста туда не
+-- влезут, поэтому значение и подпись идут в одну.
+local INFO_STRIP_H = 18
+
+--- Поставить плашку под текущую ориентацию панели.
+--- @param i number  номер по порядку, от 0 сверху/слева
+local function LayoutInfoTag(f, i, size, vertical, gridW)
+    f.valueFS:ClearAllPoints()
+    f.labelFS:ClearAllPoints()
+    f:ClearAllPoints()
+
+    if vertical then
+        -- Полосой во всю ширину панели, над сеткой: «метры 24/24».
+        f:SetSize(gridW, INFO_STRIP_H)
+        f:SetPoint("TOPLEFT", bar, "TOPLEFT", PAD, -(PAD + i * (INFO_STRIP_H + 2)))
+        f.labelFS:SetPoint("LEFT",  f, "LEFT",  5, 0)
+        f.valueFS:SetPoint("RIGHT", f, "RIGHT", -5, 0)
+    else
+        -- Столбцом слева, каждая плашка в высоту своей строки иконок.
+        f:SetSize(MOVE_W, size)
+        f:SetPoint("TOPLEFT", bar, "TOPLEFT", PAD, -(PAD + i * (size + BTN_GAP)))
+        f.valueFS:SetPoint("CENTER", f, "CENTER", 0,  6)
+        f.labelFS:SetPoint("CENTER", f, "CENTER", 0, -7)
+    end
 end
 
 --- Сколько плашек показывать прямо сейчас: не больше числа строк, не
@@ -410,6 +463,7 @@ local function Signature(prepared)
     local parts = {
         tostring(SB.SpellBar.GetIconSize()),
         tostring(SB.SpellBar.GetRows()),
+        SB.SpellBar.IsVertical() and "v" or "h",
         -- Именно СОСТАВ колонки, а не «включена ли она»: метры уходят и
         -- приходят вместе с пошаговым режимом, и панель обязана
         -- пересобраться, иначе на месте пропавшей плашки остаётся дыра.
@@ -491,12 +545,10 @@ function SB.SpellBar.Refresh()
     if sig ~= lastSig then
         lastSig = sig
 
-        local size  = SB.SpellBar.GetIconSize()
-        local rows  = SB.SpellBar.GetRows()
-        local slots = VisibleInfoSlots()
-        -- Место под колонку резервируем, ТОЛЬКО если в ней что-то есть.
-        -- Пустая рамка в свободном ходе — это и была та самая дыра.
-        local leftPad = PAD + ((#slots > 0) and (MOVE_W + BTN_GAP) or 0)
+        local size     = SB.SpellBar.GetIconSize()
+        local lines    = SB.SpellBar.GetRows()
+        local vertical = SB.SpellBar.IsVertical()
+        local slots    = VisibleInfoSlots()
         bar._infoKey = InfoKey()
 
         for _, btn in ipairs(buttons) do btn:Hide() end
@@ -521,42 +573,64 @@ function SB.SpellBar.Refresh()
             end
         end
 
-        -- РАСКЛАДКА. Число строк задаёт игрок, а ширина считается сама:
-        -- «сколько в строке» — величина производная, и спрашивать её
-        -- отдельно значит дать два рычага от одного и того же.
-        local perRow = math.max(1, math.ceil(shown / rows))
-        local usedRows = math.max(1, math.ceil(shown / perRow))
-        for i = 1, shown do
-            local col = (i - 1) % perRow
-            local row = math.floor((i - 1) / perRow)
-            buttons[i]:ClearAllPoints()
-            buttons[i]:SetPoint("TOPLEFT", bar, "TOPLEFT",
-                leftPad + col * (size + BTN_GAP),
-                -(PAD + row * (size + BTN_GAP)))
+        -- РАСКЛАДКА. Игрок задаёт число ПОЛОС (строк у горизонтальной
+        -- панели, столбцов у вертикальной), а вторая сторона считается
+        -- сама: «сколько в полосе» — величина производная, и спрашивать
+        -- её отдельно значит дать два рычага от одного и того же.
+        local perLine  = math.max(1, math.ceil(shown / lines))
+        local usedLines = math.max(1, math.ceil(shown / perLine))
+
+        -- Сколько плашек сводки поместится. Столбец сбоку не может быть
+        -- выше сетки, полоса сверху такого ограничения не знает — она
+        -- добавляет панели высоту.
+        local infoCount = vertical and #slots
+            or math.min(#slots, usedLines)
+        local hasInfo = infoCount > 0
+
+        local gridW, gridH
+        local gridX, gridY
+        if vertical then
+            -- Столбцы: заполняем сверху вниз, потом вправо.
+            gridW = usedLines * size + (usedLines - 1) * BTN_GAP
+            gridH = perLine * size + (perLine - 1) * BTN_GAP
+            gridX = PAD
+            gridY = PAD + (hasInfo and (infoCount * (INFO_STRIP_H + 2) + BTN_GAP) or 0)
+            for i = 1, shown do
+                local col = math.floor((i - 1) / perLine)
+                local row = (i - 1) % perLine
+                buttons[i]:ClearAllPoints()
+                buttons[i]:SetPoint("TOPLEFT", bar, "TOPLEFT",
+                    gridX + col * (size + BTN_GAP),
+                    -(gridY + row * (size + BTN_GAP)))
+            end
+        else
+            -- Строки: слева направо, потом вниз. Место под столбец
+            -- сводки резервируем, ТОЛЬКО если в нём что-то есть — пустая
+            -- рамка в свободном ходе и была той самой дырой.
+            gridW = perLine * size + (perLine - 1) * BTN_GAP
+            gridH = usedLines * size + (usedLines - 1) * BTN_GAP
+            gridX = PAD + (hasInfo and (MOVE_W + BTN_GAP) or 0)
+            gridY = PAD
+            for i = 1, shown do
+                local col = (i - 1) % perLine
+                local row = math.floor((i - 1) / perLine)
+                buttons[i]:ClearAllPoints()
+                buttons[i]:SetPoint("TOPLEFT", bar, "TOPLEFT",
+                    gridX + col * (size + BTN_GAP),
+                    -(gridY + row * (size + BTN_GAP)))
+            end
         end
 
-        local gridW = perRow * size + (perRow - 1) * BTN_GAP
-        local gridH = usedRows * size + (usedRows - 1) * BTN_GAP
         -- Панель ужимается под то, что реально подготовлено: пустые
         -- клетки на экране занимают место ровно так же, как полные.
-        bar:SetSize(leftPad + gridW + PAD, gridH + PAD * 2)
+        bar:SetSize(gridX + gridW + PAD, gridY + gridH + PAD)
 
-        -- КОЛОНКА СВОДКИ: по плашке на строку иконок, ровно в её высоту.
-        -- Плашек не больше, чем реально занятых строк, — иначе колонка
-        -- снова оказалась бы выше сетки.
-        for i = 1, math.min(#slots, usedRows) do
+        for i = 1, infoCount do
             local f = infoTags[i] or MakeInfoTag(i)
-            local slot = slots[i]
-            f._slot  = slot
-            f._tip   = slot.tip
-            f._title = slot.title
-            f._hint  = slot.hint
+            f._slot = slots[i]
             f._txt, f._bad = nil, nil   -- пересчитать значение и цвет
-            f.labelFS:SetText(slot.label)
-            f:SetSize(MOVE_W, size)
-            f:ClearAllPoints()
-            f:SetPoint("TOPLEFT", bar, "TOPLEFT",
-                PAD, -(PAD + (i - 1) * (size + BTN_GAP)))
+            f.labelFS:SetText(slots[i].label)
+            LayoutInfoTag(f, i - 1, size, vertical, gridW)
             f:Show()
         end
     end

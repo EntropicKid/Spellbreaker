@@ -232,8 +232,22 @@ local barLockChk = MakeCheckRow(barPanel, barShowChk, -6,
         -- начала перетаскивания (см. UI/SpellBar.lua).
     end)
 
-local barMoveChk = MakeCheckRow(barPanel, barLockChk, -6,
-    "Показывать сводку слева",
+local barVertChk = MakeCheckRow(barPanel, barLockChk, -6,
+    "Вертикальная панель",
+    "spellBarVertical",
+    function()
+        if SB.SpellBar then SB.SpellBar.Relayout() end
+    end)
+
+local barVertHint = barPanel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+barVertHint:SetPoint("TOPLEFT", barVertChk, "BOTTOMLEFT", 24, 0)
+barVertHint:SetWidth(480)
+barVertHint:SetJustifyH("LEFT")
+barVertHint:SetText("Иконки идут сверху вниз, «линии» ниже читаются как столбцы, " ..
+    "а сводка переезжает со стороны наверх — полосами во всю ширину.")
+
+local barMoveChk = MakeCheckRow(barPanel, barVertHint, -8,
+    "Показывать сводку",
     "spellBarMove",
     function()
         if SB.SpellBar then SB.SpellBar.Relayout() end
@@ -243,10 +257,11 @@ local barMoveHint = barPanel:CreateFontString(nil, "ARTWORK", "GameFontDisableSm
 barMoveHint:SetPoint("TOPLEFT", barMoveChk, "BOTTOMLEFT", 24, 0)
 barMoveHint:SetWidth(480)
 barMoveHint:SetJustifyH("LEFT")
-barMoveHint:SetText("По плашке на каждую строку иконок, врезаны в левый торец: " ..
-    "метры за ход, бросок атаки, бросок защиты, броня. Метры краснеют, когда " ..
-    "предел выбран, — в этот момент иконки рядом гаснут; в свободном ходе они " ..
-    "не считаются вовсе, и плашка исчезает вместе с местом под неё.")
+barMoveHint:SetText("По плашке на каждую линию иконок: метры за ход, бросок атаки, " ..
+    "бросок защиты, броня. Щелчки те же, что у бейджей в шапке большого окна: " ..
+    "метры — пропустить ход, атака и защита — бросить. Метры краснеют, когда " ..
+    "предел выбран; в свободном ходе они не считаются вовсе, и плашка исчезает " ..
+    "вместе с местом под неё.")
 
 -- ── Ползунки ────────────────────────────────────────────────
 --- Ползунок с подписью и живым значением. Своей обёртки для них в теме
@@ -300,7 +315,7 @@ local barSizeSlider = MakeSliderRow(barPanel, "SBSpellBarSizeSlider",
 
 local barRowsSlider = MakeSliderRow(barPanel, "SBSpellBarRowsSlider",
     barSizeSlider, -34,
-    "Строк", SB.SpellBar.ROWS_MIN, SB.SpellBar.ROWS_MAX,
+    "Линий", SB.SpellBar.ROWS_MIN, SB.SpellBar.ROWS_MAX,
     function() return SB.SpellBar.GetRows() end,
     function(v)
         if SpellbreakerAccountDB then SpellbreakerAccountDB.spellBarRows = v end
@@ -311,8 +326,9 @@ local barRowsHint = barPanel:CreateFontString(nil, "ARTWORK", "GameFontDisableSm
 barRowsHint:SetPoint("TOPLEFT", barRowsSlider, "BOTTOMLEFT", 0, -8)
 barRowsHint:SetWidth(480)
 barRowsHint:SetJustifyH("LEFT")
-barRowsHint:SetText("Сколько в строке — считается само от числа подготовленных: " ..
-    "это величина производная, и второй рычаг от того же спорил бы с первым.")
+barRowsHint:SetText("Строк у горизонтальной панели, столбцов у вертикальной. " ..
+    "Сколько иконок в линии — считается само от числа подготовленных: это " ..
+    "величина производная, и второй рычаг от того же спорил бы с первым.")
 
 local function SyncBarPanel()
     local db = SpellbreakerAccountDB
@@ -321,6 +337,7 @@ local function SyncBarPanel()
     -- (см. SB.SpellBar.IsEnabled).
     barShowChk:SetChecked(db.spellBar ~= false)
     barLockChk:SetChecked(db.spellBarLocked == true)
+    barVertChk:SetChecked(db.spellBarVertical == true)
     barMoveChk:SetChecked(db.spellBarMove ~= false)
     barSizeSlider._sync()
     barRowsSlider._sync()

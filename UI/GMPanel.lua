@@ -961,6 +961,36 @@ function SB.UI.UpdateGMPlayers()
             row.zealBar:SetPoint("TOPRIGHT", row, "TOPRIGHT", -5, -18)
             row.zealBar:Hide()
 
+            -- ── ГАЛОЧКА «ДРУГ» ───────────────────────────────────
+            -- Под полосками, у правого края. Отмечает тех, по кому Я не
+            -- бью площадью: галочка защищает того, на ком она стоит, от
+            -- МОИХ залпов, и она же открывает ему моё площадное лечение
+            -- (см. врезку «Свои и чужие» в Core/Database.lua).
+            -- Решение личное и ни с кем не согласуется, поэтому галочка
+            -- есть у каждого, а не только у Ведущего.
+            row.friendChk = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
+            row.friendChk:SetSize(20, 20)
+            row.friendChk:SetPoint("TOPRIGHT", row.zealBar, "BOTTOMRIGHT", 2, -1)
+            row.friendLbl = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            row.friendLbl:SetPoint("RIGHT", row.friendChk, "LEFT", -1, 0)
+            row.friendLbl:SetText("Друг")
+            row.friendLbl:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
+            row.friendChk:SetScript("OnClick", function(self)
+                SB.Data.SetFriend(self._owner, self:GetChecked())
+            end)
+            row.friendChk:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+                SB.Theme.StyleTooltip(GameTooltip)
+                GameTooltip:SetText("Свой", 1, 0.82, 0)
+                GameTooltip:AddLine("ВАШИ площадные атаки и дебаффы его больше не задевают, " ..
+                    "а ВАШЕ площадное лечение и баффы достаются только отмеченным. " ..
+                    "Без галочки наоборот.", 0.85, 0.85, 0.85, true)
+                GameTooltip:AddLine("Отметка только ваша: согласовывать её ни с кем не нужно. " ..
+                    "Переживает /reload и смену персонажа.", 0.5, 0.5, 0.5, true)
+                GameTooltip:Show()
+            end)
+            row.friendChk:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
             -- ВНИМАНИЕ: пул row.spellIcons больше не создаём —
             row.effectIcons = {}
 
@@ -994,6 +1024,16 @@ function SB.UI.UpdateGMPlayers()
         end
 
         row.hpBar:SetValue(p.health or 20, p.maxHealth or 20)
+
+        -- Себе галочку не показываем: сам себе друг по определению, и
+        -- своя же площадь по себе не бьёт (см. SB.Data.IsFriend).
+        local isSelf = (p.name == UnitName("player"))
+        row.friendChk._owner = p.name
+        row.friendChk:SetShown(not isSelf)
+        row.friendLbl:SetShown(not isSelf)
+        if not isSelf then
+            row.friendChk:SetChecked(SB.Data.IsFriend(p.name))
+        end
 
         -- Портрет (без изменений)
         if not next(nameToUnit) then RebuildNameToUnit() end
