@@ -495,6 +495,7 @@ Add({
     isHeal = true,
 	scaling = {
 		hit    = { ["Милосердие"] = 1, ["Интуиция"] = 0.5 },
+		crit   = { ["Рвение"] = 1 },
 		damage = { ["Характер"] = 1 },
 	},
 })
@@ -529,6 +530,7 @@ Add({
     isCantrip = false,
     resistable = true,
 	distance = 18,
+	dispel = { "poison" },
 	scaling = {
 		hit    = { ["Милосердие"] = 1, ["Выживание"] = 0.5 },
 	},
@@ -588,6 +590,7 @@ Add({
 	buff = "eff_mercy_blessing_nature_patronage",
 	scaling = {
 		hit    = { ["Милосердие"] = 1.5, ["Выживание"] = 0.5 },
+		crit   = { ["Рвение"] = 1.5 },
 		damage = { ["Характер"] = 1.5 },
 	},
 })
@@ -612,6 +615,7 @@ Add({
     buff = "eff_tranquility",
 	scaling = {
 		hit    = { ["Милосердие"] = 1.5, ["Интуиция"] = 0.5 },
+		crit   = { ["Рвение"] = 1.5 },
 		damage = { ["Характер"] = 1.5 },
 	},
 })
@@ -633,6 +637,7 @@ Add({
     buff = "eff_lifebloom",
 	scaling = {
 		hit    = { ["Милосердие"] = 1.5, ["Живучесть"] = 1 },
+		crit   = { ["Рвение"] = 2 },
 		damage = { ["Характер"] = 2 },
 	},
 })

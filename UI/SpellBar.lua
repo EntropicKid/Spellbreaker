@@ -46,6 +46,17 @@ local bar, buttons = nil, {}
 local infoTags = {}   -- по одной плашке на строку иконок
 local lastSig = nil
 
+-- ПЕРЕТАСКИВАНИЕ. dragging — кнопка, которую тащат прямо сейчас;
+-- barDirty — «ряд просили пересобрать, пока тащили». Пересборка на лету
+-- увела бы кнопку из-под курсора вместе с её _spellID, и бросок попал бы
+-- не туда (та же защита, что у карточек в UI/MainFrame.lua).
+local dragging, barDirty = nil, false
+
+-- Сколько пикселей курсор вправе проехать, чтобы это всё ещё считалось
+-- щелчком: клиент начинает drag от пары пикселей, и без этого запаса
+-- обычный клик по иконке уходил бы в разучивание.
+local CLICK_SLOP = 10
+
 local function db() return SpellbreakerAccountDB end
 
 -- ============================================================
@@ -177,13 +188,16 @@ local INFO_SLOTS = {
         -- бросать её не за чем, она не бросок, а вычет.
         tooltip = function(owner)
             local pts = (SB.Skills and SB.Skills.GetArmorPoints()) or 0
+            local max = (SB.Skills and SB.Skills.GetArmorMax and SB.Skills.GetArmorMax()) or pts
             local dr  = (SB.Skills and SB.Skills.GetDamageReduction()) or 0
             GameTooltip:SetOwner(owner, "ANCHOR_TOP")
             SB.Theme.StyleTooltip(GameTooltip)
             GameTooltip:SetText("Броня", 1, 0.82, 0)
             GameTooltip:AddLine(string.format(
-                "%d единиц брони — это −%d к каждому прошедшему удару. " ..
-                "Один урон проходит всегда.", pts, dr), 0.85, 0.85, 0.85, true)
+                "Запас %d из %d: доспех поглотит ещё %d единиц урона, целиком. " ..
+                "Каждая поглощённая единица стоит %d брони, и вернуть их может " ..
+                "только Долгий Отдых.", pts, max, dr, SB.Data.ArmorPerDR or 10),
+                0.85, 0.85, 0.85, true)
             GameTooltip:Show()
         end,
     },
@@ -270,6 +284,72 @@ local function MakeButton(i)
     btn:SetScript("OnEnter", ButtonTooltip)
     btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     btn:SetScript("OnClick", ButtonClick)
+
+    -- ── ПЕРЕТАСКИВАНИЕ ──────────────────────────────────────
+    -- Ровно то же, что у карточек в большом окне (см. UI/MainFrame.lua):
+    -- на другую иконку — поменять местами, за пределы области подготовки
+    -- — разучить. Раньше ряд иконок не умел ни того, ни другого:
+    -- переставить заклинание можно было только в списке карточек, то есть
+    -- ради этого приходилось открывать окно, которое панель и заменяет.
+    --
+    -- Ряд НЕ ПЕРЕСОБИРАЕТСЯ, пока тащат: иначе кнопка уезжает из-под
+    -- курсора вместе со своим _spellID, и бросок попадает не туда.
+    btn:RegisterForDrag("LeftButton")
+    btn:SetScript("OnDragStart", function(self)
+        if not self._spellID then return end
+        self._dragX, self._dragY = GetCursorPosition()
+        dragging = self
+        if SB.UI and SB.UI.DragGhost then
+            SB.UI.DragGhost.Start(self._iconPath, self._spellName, function()
+                dragging = nil
+                if barDirty then
+                    -- Отложенную пересборку догоняем следующим кадром:
+                    -- сначала должен отработать разбор броска ниже.
+                    C_Timer.After(0, function()
+                        if barDirty and not dragging then SB.SpellBar.Refresh() end
+                    end)
+                end
+            end)
+        end
+    end)
+
+    btn:SetScript("OnDragStop", function(self)
+        dragging = nil
+        if SB.UI and SB.UI.DragGhost then SB.UI.DragGhost.Stop() end
+
+        local draggedID = self._spellID
+        if not draggedID then return end
+
+        -- Курсор почти не сдвинулся — это был клик: после начатого
+        -- перетаскивания OnClick уже не придёт (см. CLICK_SLOP).
+        local x, y = GetCursorPosition()
+        local dx   = x - (self._dragX or x)
+        local dy   = y - (self._dragY or y)
+        if dx * dx + dy * dy <= CLICK_SLOP * CLICK_SLOP then
+            ButtonClick(self, "LeftButton")
+            return
+        end
+
+        for _, other in ipairs(buttons) do
+            if other ~= self and other._spellID and other:IsShown()
+               and other:IsMouseOver() then
+                SB.PlayerModel.SwapSpells(draggedID, other._spellID)
+                SB.SpellBar.Refresh()
+                if SB.UI and SB.UI.UpdateAll then SB.UI.UpdateAll() end
+                SB.Events.Fire("STATUS_CHANGED")
+                return
+            end
+        end
+
+        -- Мимо всех иконок и мимо области подготовки — разучить. Через
+        -- SB.UI.UnprepareSpell, а не напрямую: там же и запрет на правку
+        -- после первого каста, и перерисовка обоих видов.
+        local overPrepare = SB.UI and SB.UI.IsOverPrepareArea
+            and SB.UI.IsOverPrepareArea()
+        if not overPrepare and SB.UI and SB.UI.UnprepareSpell then
+            SB.UI.UnprepareSpell(draggedID)
+        end
+    end)
 
     buttons[i] = btn
     return btn
@@ -532,7 +612,18 @@ function SB.SpellBar.RefreshState()
     end
 end
 
+--- Курсор над панелью? Для области подготовки: ряд иконок — второй вид
+--- колонки «Способности», и drop из библиотеки обязан работать и здесь
+--- (см. SB.UI.IsOverPrepareArea).
+function SB.SpellBar.IsMouseOver()
+    return (bar and bar:IsShown() and bar:IsMouseOver()) or false
+end
+
 function SB.SpellBar.Refresh()
+    -- Пока тащат — не трогаем ряд: кнопка уехала бы из-под курсора.
+    -- Отметку снимет обработчик завершения перетаскивания.
+    if dragging then barDirty = true; return end
+    barDirty = false
     if not SB.SpellBar.IsEnabled() then
         if bar then bar:Hide() end
         return
@@ -567,7 +658,11 @@ function SB.SpellBar.Refresh()
                 btn._spellID   = id
                 btn._ok        = nil   -- пересчитать затенение
                 btn._cdRunning = false
-                btn.icon:SetTexture(sp.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+                -- Иконку и название держим на кнопке: их показывает
+                -- призрак под курсором, когда заклинание тащат.
+                btn._iconPath  = sp.icon or "Interface\\Icons\\INV_Misc_QuestionMark"
+                btn._spellName = sp.name or "?"
+                btn.icon:SetTexture(btn._iconPath)
                 btn.levelFS:SetText((sp.level or 0) > 0 and tostring(sp.level) or "")
                 btn:Show()
             end

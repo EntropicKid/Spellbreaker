@@ -276,11 +276,20 @@ function SB.Library.ShowDetail(spell)
     if PM and not PM.IsOwnClassSpell(spell.class) then
         classStr = "|cFFFF8844" .. classStr .. "|r"
     end
+    -- Требование к снаряжению приписано к ДЕСКРИПТОРУ, а не отдельной
+    -- строкой: оно из него и следует («Стрельба» — значит нужен лук, см.
+    -- SB.Data.KeyRequirements), и своей строки на это не надо.
+    local keyStr = spell.key or "—"
+    local need   = SB.Data.GetEquipRequirement and SB.Data.GetEquipRequirement(spell)
+    local req    = need and SB.Data.EquipRequirements[need]
+    if req then
+        keyStr = keyStr .. " |cFF9D9D9D(нужно: " .. req.card .. ")|r"
+    end
     local leftText = string.format(
         "|cFFFFD100Класс:|r %s\n|cFFFFD100Порядок:|r %s\n|cFFFFD100Дескриптор:|r %s",
         classStr,
         (spell.level == 0) and SB.Logic.GetCantripLabel(spell.class) or (spell.level .. "-й"),
-        spell.key or "—")
+        keyStr)
     f.metaLeft:SetText(leftText)
 
     -- Правая часть: только дальность. Действующая, с учётом эффектов —
@@ -421,6 +430,23 @@ function SB.Library.ShowDetail(spell)
     f.outcomeLabel:SetShown(showOutcome)
     f.outcomeBox:SetShown(showOutcome)
     if showOutcome then
+        -- ЗАМОК НА ВРЕМЯ ПЕРЕЗАПОЛНЕНИЯ — из-за него и был баг «правильно
+        -- только со второго открытия».
+        --
+        -- SetText поля отписи дёргает OnTextChanged, тот — авто-рост поля,
+        -- а тот — авто-рост ОКНА (см. AttachAutoGrow в BuildFrame). То
+        -- есть высота окна пересчитывалась прямо сейчас, посреди
+        -- перезаполнения, по РАЗМЕТКЕ ПРЕДЫДУЩЕГО заклинания: описание уже
+        -- сменилось, но его строка ещё не переложилась (ровно та причина,
+        -- по которой честный пересчёт отложен на кадр).
+        --
+        -- Отсюда и «первый раз мимо, второй раз верно», и то, что на
+        -- ЗАКРЫТОМ окне бага не было: у закрытого AutoGrowToFit выходит
+        -- сразу (frame:IsShown), и до кривого пересчёта дело не доходило.
+        --
+        -- Замок снимается в отложенном проходе ниже — там разметка уже
+        -- устоялась, и пересчёт единственный и правильный.
+        f._populating = true
         f.outcomeBox.editBox:SetText(SB.SpellOutcomes.Get(spell.id) or "")
     end
 
@@ -455,16 +481,11 @@ function SB.Library.ShowDetail(spell)
     f:SetFrameStrata("DIALOG")
     f:Show()
 
-    -- Авто-рост под длинное описание (#4). GetStringHeight() у только
-    -- что переписанного f.desc (word-wrap) не гарантированно актуален
-    -- В ЭТОМ ЖЕ кадре — пересчёт откладываем на следующий (см.
-    -- SB.Theme.AutoGrowToFit), иначе высота считается по СТАРОМУ тексту
-    -- и коробка вылезает за нижнюю границу окна ровно как в баге.
-    C_Timer.After(0, function()
-        if f._spellID ~= spell.id then return end -- пока ждали кадр, открыли другое заклинание
-        -- Считаем высоту по САМОМУ НИЖНЕМУ ВИДИМОМУ элементу. У эффекта
-        -- поля отписи нет, и мерить по нему нельзя: скрытый фрейм
-        -- сохраняет позицию, так что окно выросло бы под пустоту.
+    -- Считаем высоту по САМОМУ НИЖНЕМУ ВИДИМОМУ элементу. У эффекта поля
+    -- отписи нет, и мерить по нему нельзя: скрытый фрейм сохраняет
+    -- позицию, так что окно выросло бы под пустоту.
+    local function Refit()
+        if f._spellID ~= spell.id then return end   -- уже открыли другое
         if showOutcome then
             -- Сначала поле под свою отпись, потом окно под поле: порядок
             -- важен, иначе окно посчитается по ещё не выросшей коробке.
@@ -474,6 +495,31 @@ function SB.Library.ShowDetail(spell)
             local bottom = f.effectLine:IsShown() and f.effectLine or f.scalingText
             SB.Theme.AutoGrowToFit(f, bottom, 56, 200)
         end
+    end
+
+    -- ДВА ПРОХОДА, И ОБА НУЖНЫ.
+    --
+    -- Первый — на следующем кадре: высота word-wrap строки описания в том
+    -- же кадре, где ей задали текст, ещё старая, а от неё висит вся
+    -- цепочка вниз до поля отписи.
+    --
+    -- Второй — ещё через кадр, и он про длинные описания. Одного кадра
+    -- хватает не всегда: у карточки с описанием на два экрана строка
+    -- перекладывается дольше, окно считалось по недоросшему описанию и
+    -- выходило слишком низким — поле отписи оказывалось под нижней
+    -- рамкой, а кнопка «Подготовить» на нём. Это и есть «иногда
+    -- игнорируется окошко с отписью»: не «иногда», а «когда описание
+    -- длинное».
+    --
+    -- Второй проход идемпотентен: если первый посчитал верно, он ничего
+    -- не меняет, и мигания нет.
+    C_Timer.After(0, function()
+        -- Пока ждали кадр, открыли другое заклинание. Замок не снимаем:
+        -- его поставил и снимет тот, более поздний вызов.
+        if f._spellID ~= spell.id then return end
+        f._populating = nil
+        Refit()
+        C_Timer.After(0, Refit)
     end)
 end
 
@@ -796,6 +842,10 @@ function SB.Library.BuildFrame()
     -- Поле растёт под длинную отпись, а карточка — под поле. Без этого
     -- текст уезжал за нижнюю рамку окна и продолжался в пустоте.
     SB.Theme.AttachAutoGrow(detailFrame.outcomeBox, 58, OUTCOME_MAX_CHARS, function()
+        -- Пока карточку перезаполняют, окно не трогаем: разметка ещё от
+        -- прошлого заклинания (см. f._populating в ShowDetail). Живой
+        -- набор текста сюда по-прежнему доходит — замок к тому моменту снят.
+        if detailFrame._populating then return end
         if detailFrame:IsShown() then
             SB.Theme.AutoGrowToFit(detailFrame, detailFrame.outcomeBox, 56, 200)
         end

@@ -33,6 +33,8 @@ Add({
     canCrit = true,
 	distance = 18,
 	aoe = { radius = 5 },
+	debuff = "eff_burn",
+	duration = 3,
 	scaling = {
 		hit    = { ["Наука"] = 1 },
 		crit   = { ["Точность"] = 1.5 },
@@ -124,10 +126,11 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 18,
+	debuff = "eff_burn",
+	duration = 1,
 	scaling = {
 		hit    = { ["Наука"] = 1, ["Эрудиция"] = 1 },
 		crit   = { ["Точность"] = 1 },
-		damage = { ["Интеллект"] = 0.5 },
 	},
 })
 Add({
@@ -143,12 +146,12 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 18,
-	debuff = "eff_slowed_frost_bolt",
+	debuff = "eff_frozen",
     duration = 3,
 	scaling = {
-		hit    = { ["Наука"] = 1, ["Эрудиция"] = 0.5 },
-		crit   = { ["Точность"] = 1 },
-		damage = { ["Интеллект"] = 0.5 },
+		hit    = { ["Наука"] = 1 },
+		crit   = { ["Точность"] = 2 },
+		damage = { ["Интеллект"] = 1 },
 	},
 })
 Add({
@@ -161,13 +164,11 @@ Add({
     caura = 1142,
     description = "Сгусток чистой чародейской энергии выстреливает из вашего пальца и безошибочно поражает цель, нанося урон тайной магией.\n\nСнаряд поражает безошибочно, даже если цель находится в ближнем бою и,  если цель не имеет полного укрытия или полной маскировки. Вы не можете выбирать для поражения конкретные части существа. Это заклинание не наносит урон неодушевлённым предметам.\n\nЗа каждые два уровня заклинателя после первого вы получаете один дополнительный снаряд: два на уровне адепта, три на уровне эксперта. Если вы выпускаете несколько снарядов, вы можете направить их в одно или в несколько существ. Один снаряд может поразить только одно существо.",
     isCantrip = false,
-    resistable = true,
+    resistable = false,
     canCrit = true,
 	distance = 40,
 	scaling = {
-		hit    = { ["Наука"] = 3, ["Точность"] = 1 },
-		crit   = { ["Точность"] = 1.5 },
-		damage = { ["Интеллект"] = 0.5 },
+		damage = { ["Интеллект"] = 1 },
 	},
 })
 Add({
@@ -184,9 +185,10 @@ Add({
     canCrit = true,
 	distance = 5,
 	aoe = { radius = 5 },
+	debuff = "eff_burn",
+	duration = 2,
 	scaling = {
 		hit    = { ["Наука"] = 1, ["Эрудиция"] = 0.5 },
-		crit   = { ["Рвение"] = 1 },
 		damage = { ["Интеллект"] = 1 },
 	},
 })
@@ -220,12 +222,12 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 5,
-	debuff = "eff_slowed_frost_glacier",
+	debuff = "eff_frozen",
     duration = 3,
 	scaling = {
 		hit    = { ["Наука"] = 1, ["Эрудиция"] = 0.5 },
-		crit   = { ["Рвение"] = 1 },
-		damage = { ["Интеллект"] = 1 },
+		crit   = { ["Рвение"] = 2 },
+		damage = { ["Интеллект"] = 0.5 },
 	},
 })
 Add({
@@ -327,7 +329,7 @@ Add({
 	distance = 40,
 	scaling = {
 		hit    = { ["Наука"] = 1 },
-		crit   = { ["Точность"] = 1.5 },
+		crit   = { ["Точность"] = 2 },
 		damage = { ["Интеллект"] = 1 },
 	},
 })
@@ -539,6 +541,7 @@ Add({
     isCantrip = false,
     resistable = true,
 	distance = 40,
+	dispel = { "magic" },
 	scaling = {
 		hit    = { ["Наука"] = 0.5, ["Концентрация"] = 0.5 },
 	},
@@ -1444,6 +1447,6 @@ Add({
 	distance = 30,
     debuff = "eff_polymorph",
 	scaling = {
-		hit    = { ["Наука"] = 1 },
+		hit    = { ["Наука"] = 1.5 },
 	},
 })

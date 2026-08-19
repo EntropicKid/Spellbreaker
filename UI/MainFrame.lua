@@ -418,7 +418,7 @@ local function BuildMainFrame()
     local FRAME_W = SIDE_PAD*2 + ATTR_COL_W + COL_GAP + ABIL_COL_W + COL_GAP + EFFECTS_COL_W
  
     sbFrame = SB.Theme.Frame("SpellbreakerMainFrame", UIParent,
-        "Aviana Spellbreaker v2.0", FRAME_W, FRAME_H)
+        "Aviana Spellbreaker v2.3", FRAME_W, FRAME_H)
     SB.Theme.AttachPositionMemory(sbFrame, "sbFramePos", -300, 0)
     sbFrame:SetClampedToScreen(true)
  
@@ -773,22 +773,132 @@ local function BuildMainFrame()
         end
     end)
 
-    -- ── Короткий Отдых — тот же ряд, слева от "Библиотека".
-    -- В свободном месте шапки между полосками ресурсов и рангом,
-    -- над колонками. Долгий Отдых сюда намеренно не возвращён —
-    -- он реже нужен под рукой и остаётся в мини-карточке миникарты.
-    shortRestBtn = SB.Theme.Button(header, "Короткий Отдых", 110, 24, "secondary")
+    -- ── Специальное действие — тот же ряд, слева от "Библиотека".
+    --
+    -- РАНЬШЕ ЗДЕСЬ БЫЛ ТОЛЬКО КОРОТКИЙ ОТДЫХ. Пропуск хода при этом жил
+    -- кликом по бейджу передвижения (то есть его надо было угадать), а
+    -- побега не было вовсе. Три действия одного рода — «трачу ход, но не
+    -- заклинанием» — теперь собраны под одной кнопкой, по образцу
+    -- «Очистить кастом» в библиотеке: клик раскрывает список, повторный
+    -- клик или клик мимо его закрывает.
+    --
+    -- Долгий Отдых сюда намеренно не попал: он закрывает сцену целиком,
+    -- это объявление Ведущего, и живёт в мини-карточке миникарты.
+    shortRestBtn = SB.Theme.Button(header, "Специальное действие", 150, 24, "secondary")
     shortRestBtn:SetPoint("RIGHT", libBtn, "LEFT", -6, 0)
-    shortRestBtn:SetScript("OnClick", function()
-        if SB.Logic and SB.Logic.ShortRest then
-            SB.Logic.ShortRest()
+
+    local specialMenu = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+    specialMenu:SetSize(151, 112)
+    specialMenu:SetPoint("TOPRIGHT", shortRestBtn, "BOTTOMRIGHT", 0, -2)
+    specialMenu:SetFrameStrata("DIALOG")
+    specialMenu:SetBackdrop(SB.Theme.BD.frame)
+    specialMenu:SetBackdropColor(C.frameBg[1], C.frameBg[2], C.frameBg[3], C.frameBg[4])
+    specialMenu:SetBackdropBorderColor(C.frameBorder[1], C.frameBorder[2], C.frameBorder[3], 1)
+    specialMenu:Hide()
+    specialMenu:SetScript("OnHide", function(self) self:SetScript("OnUpdate", nil) end)
+
+    local function SpecialItem(text, style, anchor, tipKey, onClick)
+        local b = SB.Theme.Button(specialMenu, text, 137, 22, style)
+        if anchor then
+            b:SetPoint("TOP", anchor, "BOTTOM", 0, -4)
+        else
+            b:SetPoint("TOP", specialMenu, "TOP", 0, -10)
         end
+        b:SetScript("OnClick", function()
+            specialMenu:Hide()
+            onClick()
+        end)
+        if tipKey then
+            b:SetScript("OnEnter", function(self) SB.UI.ShowInfoTooltip(self, tipKey) end)
+            b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        end
+        return b
+    end
+
+    local restItem = SpecialItem("Короткий отдых", "primary", nil, "shortRest", function()
+        if SB.Logic and SB.Logic.ShortRest then SB.Logic.ShortRest() end
+    end)
+    local skipItem = SpecialItem("Пропустить ход", "secondary", restItem, nil, function()
+        if SB.Logic and SB.Logic.SpendTurnManually then SB.Logic.SpendTurnManually() end
+    end)
+    skipItem:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        SB.Theme.StyleTooltip(GameTooltip)
+        GameTooltip:SetText("Пропустить ход", 1, 0.82, 0)
+        GameTooltip:AddLine("Путь обнуляется, +1 " .. SB.PlayerModel.GetResourceName() ..
+            ", эффекты тикают.", 0.6, 0.6, 0.6, true)
+        GameTooltip:Show()
+    end)
+    skipItem:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    -- Побег — «danger»: он необратим до конца сцены, и цвет обязан об
+    -- этом предупредить раньше, чем подсказка.
+    local fleeItem = SpecialItem("Побег из боя", "danger", skipItem, nil, function()
+        if SB.Logic and SB.Logic.Flee then SB.Logic.Flee() end
+    end)
+    fleeItem:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        SB.Theme.StyleTooltip(GameTooltip)
+        GameTooltip:SetText("Побег из боя", 1, 0.82, 0)
+        -- Числа берём у самой механики (SB.Logic.GetFleeOdds), а не
+        -- пересчитываем здесь: подсказка, разошедшаяся с расчётом, хуже
+        -- отсутствующей.
+        local threshold, bonus = SB.Logic.GetFleeOdds()
+        GameTooltip:AddLine(string.format(
+            "Бросок 1-100 + запас хода (%d м) против порога %d.", bonus, threshold),
+            0.6, 0.6, 0.6, true)
+        GameTooltip:AddLine("Чем меньше прошли в этот ход — тем выше шанс уйти.",
+            0.6, 0.6, 0.6, true)
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("Ход тратится в любом случае, даже на провале.",
+            1, 0.4, 0.4, true)
+        GameTooltip:AddLine("Вернуться в строй можно только новым запуском " ..
+            "пошагового режима.", 1, 0.4, 0.4, true)
+        GameTooltip:Show()
+    end)
+    fleeItem:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    -- Доступность считается при КАЖДОМ раскрытии, а не на обновлении
+    -- окна: меню закрыто почти всегда, и трогать его кнопки незачем.
+    local function RefreshSpecialMenu()
+        local canRest = SB.UI.CanGroupShortRest()
+            or (SB.ClassMechanics and SB.ClassMechanics.CanPersonalShortRest())
+        if canRest then restItem:Enable() else restItem:Disable() end
+        local fled = SB.PlayerModel.HasFled and SB.PlayerModel.HasFled()
+        if fled then
+            fleeItem:Disable()
+            fleeItem:SetText("Вы вне боя")
+        else
+            fleeItem:Enable()
+            fleeItem:SetText("Побег из боя")
+        end
+    end
+
+    shortRestBtn:SetScript("OnClick", function()
+        if specialMenu:IsShown() then
+            specialMenu:Hide()
+            return
+        end
+        RefreshSpecialMenu()
+        specialMenu:Show()
+        specialMenu:SetScript("OnUpdate", function(self)
+            if not self:IsMouseOver() and not shortRestBtn:IsMouseOver() then
+                if IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton") then
+                    self:Hide()
+                end
+            end
+        end)
     end)
     shortRestBtn:SetScript("OnEnter", function(self)
-        SB.UI.ShowInfoTooltip(self, "shortRest")
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        SB.Theme.StyleTooltip(GameTooltip)
+        GameTooltip:SetText("Специальное действие", 1, 0.82, 0)
+        GameTooltip:AddLine("Короткий отдых, пропуск хода, побег из боя.",
+            0.6, 0.6, 0.6, true)
+        GameTooltip:Show()
     end)
     shortRestBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
- 
+
     -- ============================================================
     -- ТРИ КОЛОНКИ: Атрибуты | Способности | Активные эффекты
     -- Каждая — DockableColumn: можно потянуть за заголовок, чтобы
@@ -964,6 +1074,14 @@ local function BuildMainFrame()
     function SB.UI.IsOverPrepareArea()
         if abilColumn and not abilColumn.isDocked
             and abilColumn:IsShown() and abilColumn:IsMouseOver() then
+            return true
+        end
+        -- КОМПАКТНАЯ ПАНЕЛЬ — ТА ЖЕ ОБЛАСТЬ ПОДГОТОВКИ. Это второй вид
+        -- той же колонки, живущий отдельным фреймом (см. UI/SpellBar.lua),
+        -- и без него drop из библиотеки на ряд иконок молча не работал, а
+        -- перетаскивание иконки внутри самого ряда считалось «выбросил
+        -- наружу» и разучивало заклинание.
+        if SB.SpellBar and SB.SpellBar.IsMouseOver and SB.SpellBar.IsMouseOver() then
             return true
         end
         return sbFrame and sbFrame:IsShown() and sbFrame:IsMouseOver() or false
@@ -1235,15 +1353,10 @@ function SB.UI.UpdateAll()
         end
     end
  
-    -- Долгий Отдых остался только в мини-карточке миникарты. Короткий
-    -- Отдых продублирован здесь в шапке — доступность та же (вне группы
-    -- или для лидера), плюс личные заряды (см. Core/ClassMechanics.lua)
-    -- обходят требование лидерства только для Короткого Отдыха.
-    if shortRestBtn then
-        local canShortRest = SB.UI.CanGroupShortRest()
-            or (SB.ClassMechanics and SB.ClassMechanics.CanPersonalShortRest())
-        if canShortRest then shortRestBtn:Enable() else shortRestBtn:Disable() end
-    end
+    -- САМА КНОПКА ВСЕГДА ЖИВАЯ. Раньше здесь стоял Короткий Отдых, и
+    -- кнопка гасла вместе с ним — теперь под ней ещё пропуск хода и
+    -- побег, и запирать их из-за недоступного отдыха нельзя. Доступность
+    -- считается по пунктам, в момент раскрытия (RefreshSpecialMenu).
 
     -- Ресурсы (ресурс каста: Рвение у кастеров, свой ресурс у некастеров)
     local zeal = PM.GetCastResource()
@@ -1453,10 +1566,20 @@ function SB.UI.UpdateSpellCards()
                     local sp = GetSpellData(card._spellID)
                     GameTooltip:SetOwner(self, "ANCHOR_TOP")
                     SB.Theme.StyleTooltip(GameTooltip)
-                    GameTooltip:SetText("Слишком далеко", 1, 0.3, 0.3)
-                    GameTooltip:AddLine("Дальность заклинания — " ..
-                        SB.Logic.FormatSpellRange(sp, true) ..
-                        ". Подойдите к цели.", 0.9, 0.9, 0.9, true)
+                    -- Причин погаснуть у кнопки две, и подсказка обязана
+                    -- называть ту, что сработала: «Слишком далеко» под
+                    -- нехватку лука — это подсказка, которая врёт.
+                    local need = SB.Data.GetEquipRequirement and SB.Data.GetEquipRequirement(sp)
+                    local req  = need and SB.Data.EquipRequirements[need]
+                    if req and not req.check() then
+                        GameTooltip:SetText("Нечем", 1, 0.3, 0.3)
+                        GameTooltip:AddLine(req.deny, 0.9, 0.9, 0.9, true)
+                    else
+                        GameTooltip:SetText("Слишком далеко", 1, 0.3, 0.3)
+                        GameTooltip:AddLine("Дальность заклинания — " ..
+                            SB.Logic.FormatSpellRange(sp, true) ..
+                            ". Подойдите к цели.", 0.9, 0.9, 0.9, true)
+                    end
                     GameTooltip:Show()
                 end)
                 card.castBtn:SetScript("OnLeave", function(self)
@@ -1520,7 +1643,9 @@ function SB.UI.UpdateSpellCards()
                     end
  
                     if targetCard then
-                        SB.PlayerModel.ReorderSpell(draggedID, targetCard._spellID)
+                        -- ОБМЕН, а не вставка: игрок целится в конкретное
+                        -- место, а не «куда-то перед этим» (см. PM.SwapSpells).
+                        SB.PlayerModel.SwapSpells(draggedID, targetCard._spellID)
                         SB.UI.UpdateAll()
                         SB.Events.Fire("STATUS_CHANGED")
                     elseif not SB.UI.IsOverPrepareArea() then
@@ -1633,6 +1758,13 @@ end
 --- на проход, а не на каждую.
 local function CanCastNow(spell, dist, turnOk)
     if not turnOk then return false end
+    -- Снаряжение — та же история, что и с дистанцией: узнавать «нужен
+    -- лук» из чата ПОСЛЕ выбора круга поздно. Ответ кэширован до смены
+    -- экипировки, так что спрашивать его на каждую карточку не дорого
+    -- (см. EquipState в Core/Skills.lua).
+    local need = spell and SB.Data.GetEquipRequirement and SB.Data.GetEquipRequirement(spell)
+    local req  = need and SB.Data.EquipRequirements[need]
+    if req and not req.check() then return false end
     return CanReachTargetWith(spell, dist)
 end
 

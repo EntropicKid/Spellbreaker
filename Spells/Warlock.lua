@@ -15,7 +15,7 @@ Add({
     canCrit = true,
 	distance = 18,
 	scaling = {
-		hit    = { ["Живучесть"] = 2 },
+		hit    = { ["Живучесть"] = 1, ["Запугивание"] = 0.5 },
 		crit   = { ["Точность"] = 1 },
 		damage = { ["Характер"] = 0.5 },
 	},
@@ -37,7 +37,7 @@ Add({
 	distance = 12,
     debuff = "eff_immolation",
 	scaling = {
-		hit    = { ["Живучесть"] = 1.5 },
+		hit    = { ["Живучесть"] = 1, ["Запугивание"] = 0.5 },
 		crit   = { ["Рвение"] = 1 },
 		damage = { ["Характер"] = 0.5 },
 	},
@@ -58,8 +58,9 @@ Add({
     canCrit = true,
 	distance = 2.5,
 	scaling = {
-		hit    = { ["Живучесть"] = 1 },
+		hit    = { ["Живучесть"] = 1.5, ["Запугивание"] = 0.5 },
 		crit   = { ["Рвение"] = 1 },
+		damage = { ["Характер"] = 1 },
 	},
 })
 Add({
@@ -76,7 +77,7 @@ Add({
     canCrit = true,
 	distance = 12,
 	scaling = {
-		hit    = { ["Живучесть"] = 1 },
+		hit    = { ["Живучесть"] = 1.5, ["Запугивание"] = 0.5 },
 		crit   = { ["Рвение"] = 2 },
 		damage = { ["Характер"] = 1 },
 	},
@@ -97,10 +98,13 @@ Add({
     isConcentration = false,
 	aoe = { radius = 9 },
     container = "eff_hell_incinerate",
+    -- «Его плоть горит, но не сгорает» — из описания. Плата кровью была
+    -- только словами: заклинание не стоило чернокнижнику ничего.
+    onCast = { damage = 2 },
 	scaling = {
-		hit    = { ["Живучесть"] = 1 },
-		crit   = { ["Рвение"] = 1 },
-		damage = { ["Характер"] = 0.5 },
+		hit    = { ["Живучесть"] = 1.5, ["Запугивание"] = 1 },
+		crit   = { ["Рвение"] = 1.5 },
+		damage = { ["Характер"] = 1.5 },
 	},
 })
 Add({
@@ -127,7 +131,7 @@ Add({
     -- радиус и не отбился (см. HandlePvpAttackReceived).
     debuff = "eff_rain_of_fire",
 	scaling = {
-		hit    = { ["Живучесть"] = 1 },
+		hit    = { ["Живучесть"] = 1.5, ["Запугивание"] = 1 },
 		crit   = { ["Рвение"] = 1 },
 		damage = { ["Характер"] = 1.5 },
 	},
@@ -149,7 +153,7 @@ Add({
 	distance = 12,
     container = "eff_demonic_swarm",
 	scaling = {
-		hit    = { ["Живучесть"] = 2 },
+		hit    = { ["Религия"] = 1, ["Лидерство"] = 0.5 },
 		crit   = { ["Рвение"] = 1 },
 	},
 })
@@ -169,7 +173,7 @@ Add({
 	distance = 9,
     container = "eff_summon_imp",
 	scaling = {
-		hit    = { ["Религия"] = 1 },
+		hit    = { ["Религия"] = 1.5, ["Лидерство"] = 0.5 },
 	},
 })
 Add({
@@ -187,7 +191,7 @@ Add({
     isConcentration = false,
 	container = "eff_demonic_armor",
 	scaling = {
-		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+		hit    = { ["Религия"] = 1, ["Лидерство"] = 0.5 },
 	},
 })
 Add({
@@ -203,7 +207,7 @@ Add({
     resistable = true,
 	distance = 9,
 	scaling = {
-		hit    = { ["Религия"] = 1 },
+		hit    = { ["Религия"] = 1.5, ["Лидерство"] = 0.5 },
 	},
 })
 Add({
@@ -222,7 +226,7 @@ Add({
 	distance = 1.5,
     buff = "eff_demon_breath",
 	scaling = {
-		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+		hit    = { ["Религия"] = 1, ["Лидерство"] = 0.5 },
 	},
 })
 Add({
@@ -241,7 +245,7 @@ Add({
 	distance = 1.5,
     container = "eff_healthstone",
 	scaling = {
-		hit    = { ["Религия"] = 1 },
+		hit    = { ["Религия"] = 1.5, ["Лидерство"] = 0.5 },
 	},
 })
 Add({
@@ -260,7 +264,7 @@ Add({
 	distance = 1.5,
 	buff = "eff_shield_dark_amulet",
 	scaling = {
-		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+		hit    = { ["Религия"] = 1, ["Лидерство"] = 0.5 },
 	},
 })
 Add({
@@ -279,7 +283,7 @@ Add({
 	distance = 9,
     container = "eff_summon_sayaada",
 	scaling = {
-		hit    = { ["Религия"] = 1 },
+		hit    = { ["Религия"] = 2, ["Лидерство"] = 1 },
 	},
 })
 Add({
@@ -298,7 +302,7 @@ Add({
 	distance = 9,
     container = "eff_summon_voidwalker",
 	scaling = {
-		hit    = { ["Религия"] = 1 },
+		hit    = { ["Религия"] = 1.5, ["Лидерство"] = 0.5 },
 	},
 })
 Add({
@@ -317,7 +321,7 @@ Add({
 	distance = 9,
     container = "eff_eye_of_kilrogg",
 	scaling = {
-		hit    = { ["Религия"] = 1 },
+		hit    = { ["Религия"] = 1.5, ["Лидерство"] = 0.5 },
 	},
 })
 Add({
@@ -337,7 +341,7 @@ Add({
 	distance = 12,
     debuff = "eff_banishment",
 	scaling = {
-		hit    = { ["Религия"] = 1 },
+		hit    = { ["Религия"] = 1.5, ["Лидерство"] = 1 },
 	},
 })
 Add({
@@ -353,7 +357,7 @@ Add({
     resistable = true,
 	distance = 12,
 	scaling = {
-		hit    = { ["Религия"] = 1 },
+		hit    = { ["Религия"] = 1.5, ["Лидерство"] = 0.5 },
 	},
 })
 Add({
@@ -371,7 +375,7 @@ Add({
     isConcentration = false,
     container = "eff_create_soulstone",
 	scaling = {
-		hit    = { ["Религия"] = 1 },
+		hit    = { ["Религия"] = 2, ["Лидерство"] = 1 },
 	},
 })
 Add({
@@ -388,7 +392,7 @@ Add({
 	canCrit = false,
 	distance = 10000,
 	scaling = {
-		hit    = { ["Религия"] = 1 },
+		hit    = { ["Религия"] = 1.5, ["Лидерство"] = 1 },
 	},
 })
 Add({
@@ -406,7 +410,7 @@ Add({
     isConcentration = false,
     container = "eff_create_magic_stone",
 	scaling = {
-		hit    = { ["Религия"] = 1 },
+		hit    = { ["Религия"] = 1.5, ["Лидерство"] = 1 },
 	},
 })
 Add({
@@ -426,7 +430,7 @@ Add({
 	distance = 12,
     debuff = "eff_enslave_demon",
 	scaling = {
-		hit    = { ["Религия"] = 1 },
+		hit    = { ["Религия"] = 1.5, ["Лидерство"] = 1 },
 	},
 })
 Add({
@@ -445,7 +449,7 @@ Add({
 	distance = 9,
     container = "eff_summon_felhunter",
 	scaling = {
-		hit    = { ["Религия"] = 1 },
+		hit    = { ["Религия"] = 1.5, ["Лидерство"] = 1 },
 	},
 })
 Add({
@@ -464,7 +468,7 @@ Add({
 	distance = 9,
     container = "eff_summon_felmaunt",
 	scaling = {
-		hit    = { ["Религия"] = 1 },
+		hit    = { ["Религия"] = 2, ["Лидерство"] = 1 },
 	},
 })
 Add({
@@ -484,7 +488,7 @@ Add({
 	distance = 9,
     debuff = "eff_planar_chain",
 	scaling = {
-		hit    = { ["Религия"] = 1 },
+		hit    = { ["Религия"] = 1.5, ["Лидерство"] = 1 },
 	},
 })
 Add({
@@ -503,7 +507,7 @@ Add({
 	distance = 18,
 	debuff = "eff_corruption",
 	scaling = {
-		hit    = { ["Внушение"] = 1.5 },
+		hit    = { ["Внушение"] = 1, ["Воля"] = 0.5 },
 	},
 })
 Add({
@@ -529,7 +533,7 @@ Add({
 Add({
     id = "curse_of_agony",
     name = "Проклятие агонии",
-	key = "Колцовство",
+	key = "Колдовство",
 	icon = "Interface\\Icons\\Spell_shadow_curseofsargeras",
     level = 2,
     class = "Чернокнижник",
@@ -543,7 +547,7 @@ Add({
 	distance = 27,
 	debuff = "eff_bleeding_curse_of_agony",
 	scaling = {
-		hit    = { ["Внушение"] = 1 },
+		hit    = { ["Внушение"] = 1.5, ["Воля"] = 0.5 },
 		crit   = { ["Рвение"] = 1 },
 		damage = { ["Характер"] = 0.5 },
 	},
@@ -562,7 +566,7 @@ Add({
 	canCrit = true,
 	distance = 9,
 	scaling = {
-		hit    = { ["Внушение"] = 2 },
+		hit    = { ["Внушение"] = 1, ["Воля"] = 0.5 },
 		crit   = { ["Рвение"] = 1 },
 		damage = { ["Характер"] = 0.5 },
 	},
@@ -582,7 +586,7 @@ Add({
 	distance = 9,
     leech = 1,
 	scaling = {
-		hit    = { ["Внушение"] = 1 },
+		hit    = { ["Внушение"] = 1.5, ["Воля"] = 0.5 },
 		crit   = { ["Рвение"] = 1 },
 		damage = { ["Характер"] = 0.5 },
 	},
@@ -604,7 +608,7 @@ Add({
 	distance = 27,
 	debuff = "eff_clumsy",
 	scaling = {
-		hit    = { ["Внушение"] = 1 },
+		hit    = { ["Внушение"] = 1.5, ["Воля"] = 0.5 },
 	},
 })
 Add({
@@ -624,7 +628,7 @@ Add({
 	distance = 18,
 	debuff = "eff_vulnerable_curse_of_elements",
 	scaling = {
-		hit    = { ["Внушение"] = 1 },
+		hit    = { ["Внушение"] = 1, ["Воля"] = 0.5 },
 	},
 })
 Add({
@@ -644,7 +648,7 @@ Add({
 	aoe = { radius = 9 },
     duration = 3,
 	scaling = {
-		hit    = { ["Внушение"] = 1 },
+		hit    = { ["Внушение"] = 2, ["Воля"] = 1 },
 	},
 })
 Add({
@@ -664,7 +668,7 @@ Add({
 	distance = 12,
     debuff = "eff_curse_of_tounges",
 	scaling = {
-		hit    = { ["Внушение"] = 1 },
+		hit    = { ["Внушение"] = 1.5, ["Воля"] = 0.5 },
 	},
 })
 Add({
@@ -684,7 +688,7 @@ Add({
 	distance = 12,
 	debuff = "eff_vulnerable_curse_of_darkness",
 	scaling = {
-		hit    = { ["Внушение"] = 1 },
+		hit    = { ["Внушение"] = 1.5, ["Воля"] = 1 },
 	},
 })
 Add({
@@ -722,7 +726,7 @@ Add({
     -- Core/PlayerModel.lua).
     onCast = { damage = 1, mana = 2 },
 	scaling = {
-		hit    = { ["Внушение"] = 1 },
+		hit    = { ["Внушение"] = 1.5, ["Воля"] = 0.5 },
 	},
 })
 Add({
@@ -742,7 +746,7 @@ Add({
 	distance = 1.5,
     buff = "eff_warlock_shadow_of_warrior",
 	scaling = {
-		hit    = { ["Внушение"] = 1 },
+		hit    = { ["Внушение"] = 1.5, ["Воля"] = 1 },
 	},
 })
 Add({

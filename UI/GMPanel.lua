@@ -19,6 +19,7 @@ local settingsPanel
 -- Виджеты вкладки «Настройки»: переключатель пошагового режима, его
 -- статус, две кнопки управления очередью и радиогруппа порядка хода.
 local turnBtn, turnStatus, nextBtn, roundBtn, turnChecks, timerEB, moveFreeChk
+local autoRoundChk
 local versionHeader, versionLine
 local queueRows  = {}
 local playerRows = {}
@@ -202,6 +203,7 @@ function SB.UI.RefreshGMSettings()
             and tostring(SB.TurnOrder.GetTurnTimeLimit()) or "")
     end
     if moveFreeChk then moveFreeChk:SetChecked(SB.TurnOrder.IsMoveFree()) end
+    if autoRoundChk then autoRoundChk:SetChecked(SB.TurnOrder.IsAutoRound()) end
 
     -- Кнопки очереди доступны по очереди, а не обе разом: пока круг
     -- идёт — «Передать ход», когда пройден — «Новый ход». Иначе один
@@ -237,8 +239,11 @@ function SB.UI.RefreshGMSettings()
     local canRound = active and roundOver
     SetEnabled(roundBtn, canRound)
     -- Звонок и пульсация — ТОЛЬКО Ведущему: состояние очереди зеркалят
-    -- все, а нажимать кнопку некому, кроме него.
-    SB.UI.SetRoundButtonUrgent(canRound and SB.UI.IsGameMaster())
+    -- все, а нажимать кнопку некому, кроме него. И только когда нажимать
+    -- ДЕЙСТВИТЕЛЬНО надо: с галочкой «Новый ход сам» круг начнётся и без
+    -- него, а звонок каждый круг — это уже не сигнал, а метроном.
+    SB.UI.SetRoundButtonUrgent(canRound and SB.UI.IsGameMaster()
+        and not SB.TurnOrder.IsAutoRound())
 
     if not active then
         turnStatus:SetText("Время идёт само: эффекты тикают каждые 6 секунд, " ..
@@ -246,14 +251,23 @@ function SB.UI.RefreshGMSettings()
         return
     end
 
+    -- Истощение показываем прямо в строке состояния: оно копится молча, и
+    -- «почему у всех просела броня» должно иметь ответ на виду.
+    local wear = TO.GetHealWear and TO.GetHealWear() or 0
+    local wearTxt = ""
+    if wear > 0 then
+        wearTxt = string.format(" |cFFFF8844Исцеление −%d|r", wear)
+    end
+
     local who = TO.GetCurrentNames()
     if #who > 0 then
         turnStatus:SetText("Ход " .. TO.GetRound() .. ". Ходит: |cFFFFD100" ..
             table.concat(who, ", ") .. "|r" ..
-            (timed and (" (до " .. TO.GetTurnTimeLimit() .. " с)") or ""))
+            (timed and (" (до " .. TO.GetTurnTimeLimit() .. " с)") or "") .. wearTxt)
     else
-        turnStatus:SetText("Ход " .. TO.GetRound() ..
-            ". Круг пройден — нажмите «Новый ход».")
+        turnStatus:SetText("Ход " .. TO.GetRound() .. ". Круг пройден — " ..
+            (SB.TurnOrder.IsAutoRound() and "новый начнётся сам."
+                                         or "нажмите «Новый ход».") .. wearTxt)
     end
 end
 
@@ -540,9 +554,10 @@ function SB.UI.BuildGMPanel()
     timerHint:SetPoint("TOPLEFT", timerLbl, "BOTTOMLEFT", 0, -4)
     timerHint:SetPoint("RIGHT", settingsPanel, "RIGHT", -4, 0)
     timerHint:SetJustifyH("LEFT")
+    -- Подписи здесь и ниже КОРОТКИЕ: вкладка не растягивается, а длинный
+    -- текст переносится и выдавливает нижние строки за её край.
     timerHint:SetText(string.format(
-        "Ход уходит дальше сам; «Передать ход» при этом работает и " ..
-        "передаёт раньше срока. Меньше %d нельзя, больше %d — ход не ограничен.",
+        "Ход уходит дальше сам. Меньше %d нельзя, больше %d — без предела.",
         SB.TurnOrder.TURN_TIME_MIN, SB.TurnOrder.TURN_TIME_MAX))
     timerHint:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
 
@@ -569,19 +584,48 @@ function SB.UI.BuildGMPanel()
     moveFreeHint:SetPoint("RIGHT", settingsPanel, "RIGHT", -4, 0)
     moveFreeHint:SetJustifyH("LEFT")
     moveFreeHint:SetText(string.format(
-        "Метры считаются и видны, но упор ничего не запрещает: способности " ..
-        "доступны, усталость не начисляется. Обычно же каждые %d м сверх " ..
-        "предела стоят %d ХП.",
+        "Метры видны, но упор ничего не запрещает. Обычно %d м сверх — %d ХП.",
         (SB.Data.Config and SB.Data.Config.MoveFatigueStep) or 3,
         (SB.Data.Config and SB.Data.Config.MoveFatigueDamage) or 1))
     moveFreeHint:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
+
+    -- ── Круги сами ───────────────────────────────────────────
+    -- Личная настройка Ведущего, а не решение сцены: новый круг объявляет
+    -- только он, у остальных этой кнопки нет вовсе (см. TO.SetAutoRound).
+    autoRoundChk = CreateFrame("CheckButton", nil, settingsPanel, "UICheckButtonTemplate")
+    autoRoundChk:SetSize(20, 20)
+    autoRoundChk:SetPoint("TOPLEFT", moveFreeHint, "BOTTOMLEFT", 0, -10)
+    autoRoundChk:SetScript("OnClick", function(self)
+        if not SB.UI.IsGameMaster() then RefreshGMAccess() return end
+        SB.TurnOrder.SetAutoRound(self:GetChecked())
+        SB.UI.RefreshGMSettings()
+    end)
+
+    local autoRoundLbl = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    autoRoundLbl:SetPoint("LEFT", autoRoundChk, "RIGHT", 4, 0)
+    autoRoundLbl:SetText("Новый ход сам")
+    autoRoundLbl:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+
+    -- Подписи под этой галочкой нет намеренно: строка «Новый ход сам»
+    -- объясняет себя целиком, а место во вкладке кончилось. Что именно
+    -- она делает — в подсказке по наводке.
+    autoRoundChk:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        SB.Theme.StyleTooltip(GameTooltip)
+        GameTooltip:SetText("Новый ход сам", 1, 0.82, 0)
+        GameTooltip:AddLine("Пройденный круг начинается заново через пару секунд, " ..
+            "без нажатия. Очередь та же — инициатива не перебрасывается. " ..
+            "Если все без сознания, круги останавливаются.", 0.85, 0.85, 0.85, true)
+        GameTooltip:Show()
+    end)
+    autoRoundChk:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     -- ── Версии в группе ──────────────────────────────────────
     -- Строка внизу вкладки: она отвечает на вопрос «почему у него не
     -- работает», который иначе решается получасом догадок
     -- (см. SB.Net.GetVersionReport).
     versionHeader = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    versionHeader:SetPoint("TOPLEFT", moveFreeHint, "BOTTOMLEFT", -24, -14)
+    versionHeader:SetPoint("TOPLEFT", autoRoundChk, "BOTTOMLEFT", 0, -14)
     versionHeader:SetTextColor(C.accent[1], C.accent[2], C.accent[3])
 
     versionLine = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")

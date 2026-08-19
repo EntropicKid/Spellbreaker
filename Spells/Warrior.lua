@@ -42,6 +42,7 @@ Add({
     duration = 3,
 	scaling = {
 		hit    = { ["Мощь"] = 3 },
+		damage = { ["Сила"] = 0.5 },
 	},
 })
 
@@ -206,7 +207,7 @@ Add({
     canCrit = false,
     duration = 3,
     aoe = { radius = 9 },
-    debuff = "eff_demoralized_challenging_shout",
+    debuff = "eff_taunt",
 	scaling = {
 		hit    = { ["Запугивание"] = 1, ["Мощь"] = 0.5 },
 	},
@@ -243,12 +244,14 @@ Add({
     description = "Воин издает резкий, оглушительный вопль, заставляющий врагов невольно вздрогнуть и потерять координацию. Неприятный звук дезориентирует противников, мешает сохранять темп движения и вынуждает их замедлиться, пока они пытаются прийти в себя.",
     isCantrip = false,
     resistable = true,
-    canCrit = false,
+    canCrit = true,
 	debuff = "eff_piercing_howl",
 	aoe = { radius = 9 },
     duration = 3,
 	scaling = {
-		hit    = { ["Запугивание"] = 1, ["Мощь"] = 0.5 },
+		hit    = { ["Запугивание"] = 1 },
+	    crit   = { ["Мощь"] = 0.5 },
+		damage = { ["Сила"] = 0.5 }
 	},
 })
 
@@ -283,16 +286,13 @@ Add({
     icon = "Interface\\Icons\\Ability_racial_bloodrage",
     level = 2,
     class = "Воин",
-    -- caura = 10,
+    caura = 422,
     description = "Воин сознательно разжигает собственную ярость, позволяя боли стать источником боевой мощи. Старые раны вновь открываются, дыхание учащается, а кровь быстрее разносит адреналин по телу, превращая страдания в неудержимое стремление продолжать бой.",
     isCantrip = false,
-    resistable = true,
-	container = "eff_bloodlust_bloodrage",
-    distance = 0,
-    duration = 3,
-	scaling = {
-		hit    = { ["Запугивание"] = 1, ["Атлетика"] = 0.5 },
-	},
+    resistable = false,
+	container = "eff_bloodrage",
+    duration = 2,
+	onCast = { damage = 2, resourse = 2 },
 })
 
 Add({
@@ -306,7 +306,7 @@ Add({
     description = "Воин принимает выверенную оборонительную стойку, надежно укрываясь за щитом и внимательно отслеживая движения противника. Благодаря правильному положению корпуса и точному расчету траектории удара он способен встретить последующие атаки прочной защитой, значительно снижая их эффективность.",
     isCantrip = false,
     resistable = true,
-	container = "eff_shield_shield_block",
+	container = "eff_shield_block",
     distance = 0,
     duration = 3,
 	scaling = {
@@ -326,7 +326,7 @@ Add({
     isCantrip = false,
     resistable = true,
     distance = 18,
-    duration = 2,
+    duration = 1,
     container = "eff_intervene",
 	scaling = {
 		hit    = { ["Атлетика"] = 1, ["Лидерство"] = 0.5 },
@@ -397,7 +397,7 @@ Add({
     id = "taunt",
     name = "Насмешка",
     key = "Воинский дух",
-    icon = "Interface\\Icons\\Ability_bullrush",
+    icon = "Interface\\Icons\\Ability_warrior_commandingshout",
     level = 0,
     class = "Воин",
     description = "Короткий выкрик, рассчитанный не на слух, а на самолюбие: воин находит у противника больное место и бьёт по нему словом. Разумный враг переносит внимание на насмешника и теряет холодную голову. На зверя действует тон, а не смысл.",
@@ -405,9 +405,9 @@ Add({
     resistable = true,
     distance = 18,
     duration = 3,
-    debuff = "eff_demoralized_taunt",
+    debuff = "eff_taunt",
     scaling = {
-    	hit    = { ["Запугивание"] = 1, ["Атлетика"] = 0.5 },
+    	hit    = { ["Запугивание"] = 1, ["Атлетика"] = 1 },
     },
 })
 
@@ -441,12 +441,11 @@ Add({
     resistable = true,
     canCrit = true,
     distance = 6,
-    duration = 3,
-    debuff = "eff_slowed_thunder_clap",
+    duration = 1,
+    debuff = "eff_thunder_clap",
     aoe = { radius = 6 },
     scaling = {
     	hit    = { ["Атлетика"] = 1 },
-    	crit   = { ["Точность"] = 0.5 },
     	damage = { ["Сила"] = 0.5 },
     },
 })
@@ -460,19 +459,13 @@ Add({
     class = "Воин",
     description = "Пока противник падает, воин успевает поймать эту секунду и вдохнуть на полную. Боль отступает, дыхание выравнивается, кровь перестаёт идти. Работает только на подъёме — на выдохшемся или отступающем не даёт ничего.",
     isCantrip = false,
-    -- РАНЬШЕ ЭТО БЫЛО ЧИСТОЕ ЛЕЧЕНИЕ (isHeal, дальность 0, без броска на
-    -- сопротивление): воин лечился сам по себе, без противника. Теперь
-    -- это добивание — удар в ближнем бою, который возвращает воину всё,
-    -- что забрал у падающего (leech = 1). Отсюда и остальные поля:
-    -- resistable/canCrit делают его обычной атакой, а дальность 1.5 —
-    -- ближним боем, иначе цель ему не нужна.
     resistable = true,
     canCrit = true,
     distance = 1.5,
     leech = 1,
     scaling = {
-    	hit    = { ["Запугивание"] = 1, ["Живучесть"] = 0.5 },
-    	damage = { ["Сила"] = 0.5 },
+    	hit    = { ["Мощь"] = 1 },
+    	damage = { ["Сила"] = 1 },
     },
 })
 
@@ -526,7 +519,7 @@ Add({
     resistable = false,
     distance = 0,
     duration = 3,
-    container = "eff_armor_magic_spell_reflection",
+    container = "eff_spell_reflection",
     scaling = {
     	hit    = { ["Ношение брони"] = 1, ["Воля"] = 0.5 },
     },
@@ -544,7 +537,7 @@ Add({
     resistable = false,
     distance = 0,
     duration = 5,
-    container = "eff_fortitude_last_stand",
+    container = "eff_last_stand",
     scaling = {
     	hit    = { ["Воля"] = 1, ["Ношение брони"] = 0.5 },
     },
@@ -605,4 +598,49 @@ Add({
     scaling = {
     	hit    = { ["Запугивание"] = 1, ["Воля"] = 0.5 },
     },
+})
+
+Add({
+    id = "battle_stance",
+    name = "Боевая стойка",
+    key = "Воинский дух",
+    icon = "Interface\\Icons\\Ability_warrior_offensivestance",
+    level = 0,
+    class = "Воин",
+    description = "Воин полностью снимает защиту и вкладывает всё в размен: каждый его удар ищет щель в доспехе, но и любой ответный удар приходит без помех. Приём для того, кто уверен, что успеет закончить бой первым.",
+    isCantrip = true,
+    resistable = false,
+    distance = 0,
+    duration = -1,
+    container = "eff_battle_stance",
+})
+
+Add({
+    id = "defensive_stance",
+    name = "Оборонительная стойка",
+    key = "Воинский дух",
+    icon = "Interface\\Icons\\Ability_warrior_defensivestance",
+    level = 0,
+    class = "Воин",
+    description = "Воин полностью снимает защиту и вкладывает всё в размен: каждый его удар ищет щель в доспехе, но и любой ответный удар приходит без помех. Приём для того, кто уверен, что успеет закончить бой первым.",
+    isCantrip = true,
+    resistable = false,
+    distance = 0,
+    duration = -1,
+    container = "eff_defensive_stance",
+})
+
+Add({
+    id = "berserker_stance",
+    name = "Стойка берсерка",
+    key = "Воинский дух",
+    icon = "Interface\\Icons\\Ability_racial_avatar",
+    level = 0,
+    class = "Воин",
+    description = "Воин полностью снимает защиту и вкладывает всё в размен: каждый его удар ищет щель в доспехе, но и любой ответный удар приходит без помех. Приём для того, кто уверен, что успеет закончить бой первым.",
+    isCantrip = true,
+    resistable = false,
+    distance = 0,
+    duration = -1,
+    container = "eff_berserker_stance",
 })

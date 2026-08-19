@@ -2,7 +2,7 @@
 ## Title: |cff865BF2Spellbreaker|r
 ## Notes: Модульная RP-система заклинаний
 ## Notes-enUS: Modular RP spell system for World of Warcraft: Aviana RP
-## Version: 2.2
+## Version: 2.3
 ## Author: Spellbreaker contributors
 ## X-License: MIT
 ## SavedVariables: SpellbreakerDB SpellbreakerCustomDB
@@ -52,6 +52,9 @@ Spells\DeathKnight.lua
 Spells\Effects.lua
 
 # ── Ядро: модель и правила ───────────────────────────────────
+# Плавность интерфейса. ДО Theme: тема гоняет через неё появление окон,
+# подсветку кнопок и заполнение полосок.
+Core\Animate.lua
 Core\Theme.lua
 Core\Strings.lua
 # Кулдауны — общий предохранитель от спама, ими пользуются и Logic,

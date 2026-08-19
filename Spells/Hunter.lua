@@ -19,9 +19,8 @@ Add({
     canCrit = true,
     distance = 30,
 	scaling = {
-		hit    = { ["Точность"] = 1.5 },
-		crit   = { ["Точность"] = 1 },
-		damage = { ["Ловкость"] = 1, ["Интеллект"] = 1 },
+		hit    = { ["Концентрация"] = 1 },
+		damage = { ["Выносливость"] = 1, ["Интеллект"] = 1 },
 	},
 })
 
@@ -39,8 +38,8 @@ Add({
     canCrit = true,
     distance = 1.5,
 	scaling = {
-		hit    = { ["Акробатика"] = 1 },
-		damage = { ["Ловкость"] = 1 },
+		hit    = { ["Выживание"] = 1 },
+		damage = { ["Выносливость"] = 1 },
 	},
 })
 
@@ -55,12 +54,11 @@ Add({
     description = "Точный удар по мышцам, сухожилиям или суставам ног, пришедший из практики охоты на быстроногую добычу. Даже неглубокое ранение нарушает подвижность цели, заставляя ее хромать, терять скорость и с трудом преследовать охотника или спасаться бегством.",
     isCantrip = true,
     resistable = true,
-    canCrit = true,
-	debuff = "eff_slowed_wing_clip",
+	debuff = "eff_wing_clip",
     distance = 1.5,
-    duration = 3,
+    duration = 2,
 	scaling = {
-		hit    = { ["Акробатика"] = 2 },
+		hit    = { ["Выживание"] = 2 },
 	},
 })
 
@@ -80,8 +78,8 @@ Add({
     distance = 30,
     duration = 2,
 	scaling = {
-		hit    = { ["Точность"] = 1 },
-		damage = { ["Ловкость"] = 1 },
+		hit    = { ["Концентрация"] = 1 },
+		damage = { ["Выносливость"] = 0.7 },
 	},
 })
 
@@ -97,13 +95,13 @@ Add({
     icon = "Interface\\Icons\\Spell_frost_chainsOfIce",
     level = 2,
     class = "Охотник",
-    -- caura = 4,
     description = "Охотник устанавливает тщательно замаскированную механическую ловушку, наполненную алхимическим хладагентом. При срабатывании она мгновенно высвобождает ледяную смесь, заключая жертву в прочную ледяную оболочку и лишая возможности двигаться. Подобные ловушки одинаково хорошо подходят как для охоты, так и для захвата опасной цели живьем.",
     isCantrip = false,
     resistable = true,
     canCrit = false,
 	debuff = "eff_slowed_freezing_trap",
-    distance = 9,
+	distance = 12,
+    aoe = { radius = 6 },
     duration = 3,
 	scaling = {
 		hit    = { ["Ремесло"] = 1, ["Выживание"] = 0.5 },
@@ -122,19 +120,18 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-	debuff = "eff_slowed_concussive_shot",
+	debuff = "eff_concussive_shot",
     distance = 30,
     duration = 3,
 	scaling = {
-		hit    = { ["Точность"] = 1 },
-		crit   = { ["Точность"] = 1 },
-		damage = { ["Ловкость"] = 1 },
+		hit    = { ["Концентрация"] = 1 },
+		damage = { ["Выносливость"] = 0.7 },
 	},
 })
 
 Add({
     id = "scare_beast",
-    name = "Отпугивание зверя",
+    name = "Отпугивание жертвы",
     key = "Выслеживание",
     icon = "Interface\\Icons\\Ability_druid_cower",
     level = 2,
@@ -156,10 +153,9 @@ Add({
     id = "distracting_shot",
     name = "Отвлекающий выстрел",
     key = "Выстрелы",
-    icon = "Interface\\Icons\\Spell_arcane_blink",
+    icon = "Interface\\Icons\\Inv_trickshot",
     level = 2,
     class = "Охотник",
-    -- caura = 4,
     description = "Охотник намеренно производит выстрел так, чтобы привлечь внимание выбранной цели. Свист снаряда, звонкий удар или яркая вспышка вынуждают противника сосредоточиться именно на источнике раздражения, позволяя союзникам выиграть драгоценное время или сменить позицию.",
     isCantrip = false,
     resistable = true,
@@ -168,7 +164,7 @@ Add({
     distance = 30,
     duration = 3,
 	scaling = {
-		hit    = { ["Точность"] = 1, ["Выживание"] = 0.5 },
+		hit    = { ["Концентрация"] = 1 },
 	},
 })
 
@@ -203,16 +199,12 @@ Add({
     icon = "Interface\\Icons\\Spell_nature_ravenform",
     level = 1,
     class = "Охотник",
-    -- caura = 4,
     description = "Охотник входит в особое состояние единения с природой, перенимая необычайную зоркость хищной птицы. Его зрение становится значительно острее, позволяя различать мельчайшие детали на большом расстоянии, замечать скрытые угрозы и внимательно наблюдать за происходящим там, где обычный человек увидел бы лишь неясные силуэты.",
     isCantrip = false,
-    resistable = true,
-	container = "eff_hunters_mark_aspect_of_the_hawk",
-    distance = 0,
-    duration = 10,
-	scaling = {
-		hit    = { ["Выживание"] = 1, ["Интуиция"] = 0.5 },
-	},
+    resistable = false,
+	isConcentration = true,
+	container = "eff_aspect_of_the_hawk",
+    duration = -1,
 })
 
 Add({
@@ -225,13 +217,10 @@ Add({
     -- caura = 4,
     description = "Перенимая стремительность величайших охотников саванны, охотник становится необычайно быстрым и легким на подъем. Его движения приобретают плавность и точность, позволяя стремительно преодолевать большие расстояния, уходить от преследования или быстро менять позицию на поле боя.",
     isCantrip = false,
-    resistable = true,	
-	container = "eff_evasion_aspect_of_the_cheetah",
-    distance = 0,
-    duration = 5,
-	scaling = {
-		hit    = { ["Выживание"] = 1, ["Интуиция"] = 0.5 },
-	},
+    resistable = false,
+	isConcentration = true,
+	container = "eff_aspect_of_the_cheetah",
+    duration = -1,
 })
 
 Add({
@@ -246,6 +235,8 @@ Add({
     isCantrip = true,
     resistable = true,
     distance = 0,
+	duration = -1,
+	container = "eff_call_pet",
 	scaling = {
 		hit    = { ["Выживание"] = 1, ["Интуиция"] = 0.5 },
 	},
@@ -253,18 +244,20 @@ Add({
 
 Add({
     id = "mend_pet",
-    name = "Лечение питомца",
+    name = "Перевязка ран",
     key = "Звери",
     icon = "Interface\\Icons\\Ability_hunter_mendpet",
     level = 0,
     class = "Охотник",
     -- caura = 4,
-    description = "Используя знания о животных, лекарственные травы и многолетнюю связь со своим спутником, охотник обрабатывает его раны и облегчает страдания. Забота хозяина помогает зверю быстрее восстановить силы и вновь вернуться к охоте или сражению.",
+    description = "Используя знания о животных, лекарственные травы и многолетнюю связь со своим спутником, охотник обрабатывает его раны и облегчает страдания. Забота хозяина помогает зверю или союзнику быстрее восстановить силы и вновь вернуться к охоте или сражению.",
     isCantrip = true,
     resistable = true,
-    distance = 9,
+    isHeal = true,
+    distance = 1.5,
 	scaling = {
-		hit    = { ["Выживание"] = 1, ["Интуиция"] = 0.5 },
+		hit    = { ["Выживание"] = 2 },
+		crit   = { ["Точность"] = 1 },
 	},
 })
 
@@ -283,7 +276,7 @@ Add({
     duration = 5,
     container = "eff_eyes_of_the_beast",
 	scaling = {
-		hit    = { ["Выживание"] = 1, ["Интуиция"] = 0.5 },
+		hit    = { ["Выживание"] = 1 },
 	},
 })
 
@@ -298,11 +291,10 @@ Add({
     description = "Охотник полностью расслабляет тело, замедляет дыхание и сердцебиение, мастерски изображая смерть. Даже опытному наблюдателю бывает трудно отличить подобную уловку от настоящей гибели, благодаря чему противники нередко теряют интерес к лежащему без движения телу.",
     isCantrip = false,
     resistable = true,
-    distance = 0,
-    duration = 3,
-    container = "eff_stealth_feign_death",
+    duration = -1,
+    container = "eff_feign_death",
 	scaling = {
-		hit    = { ["Выживание"] = 1, ["Интуиция"] = 0.5 },
+		hit    = { ["Выживание"] = 1 },
 	},
 })
 
@@ -319,9 +311,10 @@ Add({
     resistable = true,
     distance = 30,
     duration = 3,
-    container = "eff_flare",
+    debuff = "eff_flare",
+    aoe = { radius = 6 },
 	scaling = {
-		hit    = { ["Точность"] = 1, ["Выживание"] = 0.5 },
+		hit    = { ["Ремесло"] = 1, ["Выживание"] = 0.5 },
 	},
 })
 
@@ -338,12 +331,11 @@ Add({
     class = "Охотник",
     description = "Охотник читает цель как след: как та переносит вес, куда смотрит, где у неё слабое место в снаряжении. Дальше он бьёт уже не в силуэт, а в найденную щель — и остальные, если он скажет вслух, тоже.",
     isCantrip = true,
-    resistable = true,
     distance = 40,
     duration = 5,
-    debuff = "eff_vulnerable_hunters_mark",
+    debuff = "eff_hunters_mark",
     scaling = {
-    	hit    = { ["Интуиция"] = 1, ["Точность"] = 0.5 },
+    	hit    = { ["Выживание"] = 1, ["Концентрация"] = 1 },
     },
 })
 
@@ -360,8 +352,8 @@ Add({
     canCrit = true,
     distance = 18,
     scaling = {
-    	hit    = { ["Точность"] = 2 },
-    	damage = { ["Ловкость"] = 0.7 },
+    	hit    = { ["Концентрация"] = 2 },
+    	damage = { ["Выносливость"] = 0.7 },
     },
 })
 
@@ -397,9 +389,9 @@ Add({
     distance = 30,
     aoe = { radius = 6 },
     scaling = {
-    	hit    = { ["Точность"] = 0.5 },
+    	hit    = { ["Концентрация"] = 0.5 },
     	crit   = { ["Точность"] = 0.5 },
-    	damage = { ["Ловкость"] = 1.5 },
+    	damage = { ["Выносливость"] = 1.5 },
     },
 })
 
@@ -417,7 +409,7 @@ Add({
     duration = 3,
     debuff = "eff_viper_sting",
     scaling = {
-    	hit    = { ["Точность"] = 1, ["Выживание"] = 0.5 },
+    	hit    = { ["Концентрация"] = 1, ["Выживание"] = 0.5 },
     },
 })
 
@@ -435,7 +427,7 @@ Add({
     distance = 40,
     scaling = {
     	hit    = { ["Точность"] = 1, ["Концентрация"] = 1 },
-    	damage = { ["Ловкость"] = 2.5 },
+    	damage = { ["Выносливость"] = 2.5 },
     },
 })
 
@@ -450,12 +442,13 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-    distance = 9,
+    distance = 12,
     aoe = { radius = 6 },
+	duration = 2,
+	debuff = "eff_explosive_trap",
     scaling = {
-    	hit    = { ["Ремесло"] = 1, ["Выживание"] = 0.5 },
-    	crit   = { ["Точность"] = 0.5 },
-    	damage = { ["Ловкость"] = 1 },
+    	hit    = { ["Ремесло"] = 1 },
+    	damage = { ["Выносливость"] = 1 },
     },
 })
 
@@ -469,19 +462,19 @@ Add({
     description = "Охотник шумит, оставляет запах и метки не там, где идёт сам, а там, где ему нужно, чтобы искали. Преследователи уходят по ложной линии, а союзник получает несколько спокойных минут. Против тех, кто идёт по магии, а не по следу, бесполезно.",
     isCantrip = false,
     resistable = false,
-    distance = 18,
-    duration = 4,
-    buff = "eff_stealth_misdirection",
+    aoe = { radius = 18 },
+    buff = "eff_misdirection",
+	duration = 3,
     scaling = {
-    	hit    = { ["Выживание"] = 1, ["Скрытность"] = 0.5 },
+    	hit    = { ["Выживание"] = 1 },
     },
 })
 
 Add({
     id = "beast_lore",
-    name = "Знание зверя",
+    name = "Знание жертвы",
     key = "Выслеживание",
-    icon = "Interface\\Icons\\Ability_hunter_beastcall",
+    icon = "Interface\\Icons\\Ability_physical_taunt",
     level = 3,
     class = "Охотник",
     description = "Охотник читает существо целиком: чем оно кормится, чего боится, где у него слепое пятно и как оно поведёт себя раненым. Знание работает и на охоте, и в разговоре — с тем, кто не человек, договариваются иначе.",
@@ -491,7 +484,7 @@ Add({
     duration = 10,
     container = "eff_owl_wisdom_beast_lore",
     scaling = {
-    	hit    = { ["Выживание"] = 1, ["Интуиция"] = 0.5 },
+    	hit    = { ["Выживание"] = 1 },
     },
 })
 
@@ -510,9 +503,9 @@ Add({
     duration = 5,
     debuff = "eff_bleeding_black_arrow",
     scaling = {
-    	hit    = { ["Точность"] = 1 },
+    	hit    = { ["Концентрация"] = 1 },
     	crit   = { ["Точность"] = 1 },
-    	damage = { ["Ловкость"] = 1 },
+    	damage = { ["Выносливость"] = 1 },
     },
 })
 
@@ -567,9 +560,9 @@ Add({
     canCrit = true,
     distance = 40,
     scaling = {
-    	hit    = { ["Точность"] = 1, ["Анализ"] = 1 },
+    	hit    = { ["Концентрация"] = 1, ["Анализ"] = 1 },
     	crit   = { ["Точность"] = 2 },
-    	damage = { ["Ловкость"] = 2 },
+    	damage = { ["Выносливость"] = 2 },
     },
 })
 
@@ -588,6 +581,6 @@ Add({
     buff = "eff_bloodlust_call_of_the_wild",
     aoe = { radius = 18 },
     scaling = {
-    	hit    = { ["Выживание"] = 1, ["Лидерство"] = 1 },
+    	hit    = { ["Выживание"] = 1 },
     },
 })

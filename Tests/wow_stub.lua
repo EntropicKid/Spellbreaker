@@ -109,6 +109,10 @@ stub.world = {
     -- прочитаны», ровно то состояние, в котором аддон оказывается при
     -- входе в игру.
     items      = {},
+    -- Надетое: [слот] = { classID, subclassID }. Слоты и числа — те же,
+    -- что у клиента (16 правая рука, 17 левая; класс 2 оружие,
+    -- 4 броня). Читают SB.Skills.HasShield / HasRangedWeapon.
+    equipped   = {},
 }
 
 local W = stub.world
@@ -127,6 +131,11 @@ end
 
 -- ── Глобали клиента ──────────────────────────────────────────
 local G = {}
+
+-- Константы клиента, которые аддон читает как числа. Без них выражение
+-- вида «IsInRaid() and MAX_RAID_MEMBERS or 4» молча даёт nil, и цикл по
+-- составу рейда не выполняется ни разу.
+G.MAX_RAID_MEMBERS = 40
 
 G.UIParent = NewFrame()
 G.WorldFrame = NewFrame()
@@ -187,9 +196,33 @@ function G.wipe(t)
     for k in pairs(t) do t[k] = nil end
     return t
 end
+-- Клиент кладёт wipe и в table — аддон зовёт обе формы.
+table.wipe = table.wipe or G.wipe
 function G.GetItemCount(itemID) return W.items[itemID] or 0 end
+
+-- Экипировка. Ссылка на предмет заглушке не нужна как строка — по ней
+-- сразу же спрашивают GetItemInfoInstant, — поэтому «ссылкой» служит
+-- номер слота, а таблица классов лежит в stub.world.equipped.
+function G.GetInventoryItemLink(unit, slot)
+    if unit ~= "player" then return nil end
+    return W.equipped[slot] and ("item:slot" .. slot) or nil
+end
+function G.GetItemInfoInstant(link)
+    local slot = tonumber(tostring(link):match("^item:slot(%d+)$"))
+    local item = slot and W.equipped[slot]
+    if not item then return nil end
+    -- Порядок возврата — как у клиента: classID шестой, subclassID седьмой.
+    return link, nil, nil, nil, nil, item[1], item[2]
+end
 function G.GetUnitSpeed() return 0 end
-function G.GetRaidRosterInfo() return nil end
+-- Состав рейда — только то, что читает аддон: имя и номер рейдовой
+-- группы (см. SubgroupOf в Core/TurnOrder.lua). Задаётся как
+-- stub.world.raidRoster = { { name = "Ирина", subgroup = 2 }, ... }.
+function G.GetRaidRosterInfo(i)
+    local row = W.raidRoster and W.raidRoster[i]
+    if not row then return nil end
+    return row.name, row.rank or 0, row.subgroup or 1
+end
 function G.Ambiguate(name) return (name or ""):gsub("%-.*", "") end
 function G.SendChatMessage(msg, channel)
     table.insert(stub.chat, { msg = msg, channel = channel })

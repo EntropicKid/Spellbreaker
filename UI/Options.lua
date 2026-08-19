@@ -99,12 +99,25 @@ local hideOptChk = MakeCheckRow(optPanel, emoteOptChk, -8,
         if SpellbreakerHideChatCheck then SpellbreakerHideChatCheck:SetChecked(val) end
     end)
 
+-- Плавность интерфейса (см. Core/Animate.lua)
+local animOptChk = MakeCheckRow(optPanel, hideOptChk, -8,
+    "Плавные переходы в интерфейсе",
+    "animations")
+
+local animHint = optPanel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+animHint:SetPoint("TOPLEFT", animOptChk, "BOTTOMLEFT", 24, 0)
+animHint:SetWidth(480)
+animHint:SetJustifyH("LEFT")
+animHint:SetText("Появление окон, подсветка кнопок, переключение вкладок и " ..
+    "заполнение полосок. Выключенные переходы ничего не ломают: значения " ..
+    "просто ставятся сразу.")
+
 -- Панель способностей переехала в собственную вкладку (см. в конце
 -- файла): у неё пять настроек, и в общем списке они забивали всё
 -- остальное.
 
 -- Оверлей на стандартных рамках (см. UI/Overlay.lua)
-local overlayOptChk = MakeCheckRow(optPanel, hideOptChk, -8,
+local overlayOptChk = MakeCheckRow(optPanel, animHint, -10,
     "Показывать ХП/ресурс аддона на стандартных рамках (своей, цели, группы)",
     "blizzOverlay",
     function(val)
@@ -166,6 +179,8 @@ local function SyncOptionsFromDB()
     cauraOptChk:SetChecked(db.ignoreCaura or false)
     emoteOptChk:SetChecked(db.sendEmotes ~= false)
     hideOptChk:SetChecked(db.hideSystemMessages or false)
+    -- Как и SB.Animate.IsEnabled: отсутствующее значение = включено.
+    animOptChk:SetChecked(db.animations ~= false)
     -- Как и в SB.Overlay.IsEnabled: отсутствующее значение = включено.
     overlayOptChk:SetChecked(db.blizzOverlay ~= false)
     -- А здесь наоборот: отсутствующее значение = выключено.

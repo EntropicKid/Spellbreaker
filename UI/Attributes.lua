@@ -404,21 +404,39 @@ local function BuildSkillRow(parent, attrKey, skillName, yOff)
                     end
                 end
             end
+            -- Щит — отдельной строкой и без требования к навыку: он не
+            -- часть доспеха, а то, чем закрываются (см. SHIELD_ARMOR в
+            -- Core/Skills.lua).
+            if SB.Skills.HasShield and SB.Skills.HasShield() then
+                any = true
+                GameTooltip:AddDoubleLine("  щит", (SB.Data.ShieldArmor or 10) .. " ед.",
+                    0.85, 0.85, 0.85, 0.4, 1, 0.4)
+            end
+
             if not any then
                 GameTooltip:AddLine("  брони нет", 0.6, 0.6, 0.6)
             end
 
+            local maxPts    = SB.Skills.GetArmorMax()
             local points    = SB.Skills.GetArmorPoints()
             local reduction = SB.Skills.GetDamageReduction()
             local perDR     = SB.Data.ArmorPerDR or 10
-            GameTooltip:AddDoubleLine("Всего брони", points .. " ед.", 1, 0.82, 0, 1, 0.82, 0)
-            GameTooltip:AddDoubleLine("Снижение входящего урона", "-" .. reduction,
-                1, 0.82, 0, 0.4, 1, 0.4)
-            local toNext = perDR - (points % perDR)
-            if toNext < perDR then
-                GameTooltip:AddLine(string.format("  до -%d ещё %d ед. брони", reduction + 1, toNext),
-                    0.6, 0.6, 0.6)
+
+            -- ЗАПАС, А НЕ ПОСТОЯННЫЙ ВЫЧЕТ: показываем и остаток, и то,
+            -- сколько ударов он ещё держит. Потраченное — отдельной
+            -- строкой, иначе «броня уменьшилась» выглядит сбоем.
+            GameTooltip:AddDoubleLine("Запас брони",
+                points .. " / " .. maxPts .. " ед.", 1, 0.82, 0, 1, 0.82, 0)
+            if maxPts > points then
+                GameTooltip:AddDoubleLine("  израсходовано", "-" .. (maxPts - points) .. " ед.",
+                    0.85, 0.85, 0.85, 1, 0.4, 0.4)
             end
+            GameTooltip:AddDoubleLine("Поглотит урона", reduction,
+                1, 0.82, 0, 0.4, 1, 0.4)
+            GameTooltip:AddLine(string.format(
+                "Доспех держит удар целиком, но каждая поглощённая единица урона " ..
+                "стоит %d брони. Возвращает запас только Долгий Отдых.", perDR),
+                0.6, 0.6, 0.6, true)
         end
 
         GameTooltip:Show()
