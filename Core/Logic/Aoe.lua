@@ -66,7 +66,11 @@ local function FormatAttackEntries(entries)
         if not e.landed then
             tag = "Отражено"
         else
-            tag = "Урон " .. (e.dmg or 0) .. " ХП"
+            -- Броня — расходуемый запас и может съесть удар целиком
+            -- (см. SB.Skills.AbsorbDamage). «Урон 0 ХП» в отчёте читался
+            -- бы как сбой, поэтому у нулевого исхода своя подпись.
+            tag = ((e.dmg or 0) > 0) and ("Урон " .. e.dmg .. " ХП")
+                                     or "Доспех выдержал"
             -- Признак, а не имя: что вешает заклинание, написано в его
             -- карточке, и ссылка на него стоит в шапке этого же залпа.
             if e.debuff then
@@ -391,6 +395,12 @@ function SB.Logic.InitiateAoeAttack(spellID, slotLevel)
     pendingAoe = { spellID = spellID, atkTotal = total, isCrit = isCrit,
                    emoteSent = false, at = GetTime() }
 
+    -- «Внушение» едет отдельным числом и работает только на закреплении
+    -- дебаффа у задетых — ровно как в одиночном размене, см.
+    -- SB.Logic.InitiatePvpAttack.
+    local persuade = (SB.Skills and SB.Skills.GetPersuasionDebuffBonus)
+        and SB.Skills.GetPersuasionDebuffBonus(spell) or 0
+
     -- ШАПКА ЗАЛПА — ОДНА на всё. Раньше их было две подряд («применяет…»
     -- и «обрушивает на всё вокруг…»), да ещё каждый задетый писал ПОЛНЫЙ
     -- абзац с тем же самым броском. Теперь бросок объявляется ровно один
@@ -422,7 +432,7 @@ function SB.Logic.InitiateAoeAttack(spellID, slotLevel)
             "решает Ведущий.|r")
     end
 
-    SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, radius, slotLevel, epi)
+    SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, radius, slotLevel, epi, persuade)
 
     -- Тот же собственный контейнер, что и у одиночной атаки.
     if spell.container then
@@ -438,7 +448,7 @@ end
 --- дистанции; дальше зовём ровно тот же обработчик, что и для шёпота.
 function SB.Logic.HandleAoeAttackReceived(attackerName, spellID, atkRoll, atkMod, atkTotal,
                                           atkCrit, atkDmgBonus, atkBaseDmg, radius, atkSlot,
-                                          epi, imFriend)
+                                          epi, imFriend, atkPersuade)
     if attackerName == UnitName("player") then return end   -- по себе не бьём
     if DownedIgnoresAoe() then return end
     -- Заклинатель отметил нас своим — его залп нас не задевает
@@ -449,7 +459,7 @@ function SB.Logic.HandleAoeAttackReceived(attackerName, spellID, atkRoll, atkMod
     -- сообщения в чат (короткая строка вместо полного абзаца), вся
     -- механика размена одинакова.
     SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod, atkTotal,
-        atkCrit, atkDmgBonus, atkBaseDmg, atkSlot, true)
+        atkCrit, atkDmgBonus, atkBaseDmg, atkSlot, true, atkPersuade)
 end
 
 --- Площадной эффект: аура (баф всем вокруг, включая себя) или
@@ -530,7 +540,9 @@ function SB.Logic.ResolveAoeEffectCast(spellID, slotLevel)
     local landedOnSelf
     if SB.Logic.AoeHitsSelf(spell) and SB.Logic.CasterInOwnAoe(epi, radius) then
         local threshold = SB.Logic.EffectThreshold("player", false, nil, true)
-        local ok = total >= threshold
+        -- «Без сопротивления» — то же правило, что у одиночного эффекта
+        -- (см. SB.Logic.IsGuaranteed): порог не берётся вовсе.
+        local ok = SB.Logic.IsGuaranteed(spell) or (total >= threshold)
         if ok then
             SB.Logic.ApplyEffect(effectID, spell, slotLevel)
             landedOnSelf = effectID
@@ -580,7 +592,9 @@ function SB.Logic.HandleAoeEffectReceived(casterName, spellID, effectID, radius,
     local sourceSpell = SB.Data.Spells[spellID]
     local isDebuff    = sourceSpell and sourceSpell.debuff == effectID
     local threshold   = SB.Logic.EffectThreshold("player", isDebuff)
-    local success     = total >= threshold
+    -- Определение заклинания у нас своё, из библиотеки, — «без
+    -- сопротивления» проверяем сами, а не верим присланным числам.
+    local success     = SB.Logic.IsGuaranteed(sourceSpell) or (total >= threshold)
 
     if success then
         SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel)
@@ -691,7 +705,7 @@ function SB.Logic.ResolveAoeHeal(spellID, slotLevel)
     local landedOnSelf
     if SB.Logic.AoeHitsSelf(spell) and SB.Logic.CasterInOwnAoe(epi, radius) then
         local threshold = OwnHealThreshold()
-        local ok, healed = total >= threshold, 0
+        local ok, healed = SB.Logic.IsGuaranteed(spell) or (total >= threshold), 0
         if ok then
             local before = PM.GetHealth()
             PM.Heal(amount)
@@ -740,7 +754,9 @@ function SB.Logic.HandleAoeHealReceived(casterName, spellID, effectID, radius,
 
     local PM        = SB.PlayerModel
     local threshold = OwnHealThreshold()
-    local ok        = total >= threshold
+    -- «Без сопротивления» — как и везде, порог не берётся (см.
+    -- SB.Logic.IsGuaranteed).
+    local ok        = SB.Logic.IsGuaranteed(SB.Data.Spells[spellID]) or (total >= threshold)
     local healed    = 0
     if ok then
         local before = PM.GetHealth()

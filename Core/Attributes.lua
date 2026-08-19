@@ -59,7 +59,7 @@ SB.Data.Attributes = {
 
     { key = "Характер",
       trigger   = "Дипломатия, проницательность, воодушевление, считывание эмоций.",
-      combat    = "Через «Милосердие» — бросок лечения, через «Внушение» — атака заклинаний без урона.",
+      combat    = "Через «Милосердие» — бросок лечения, через «Внушение» — закрепление дебаффов.",
 	  skills    = { "Внушение", "Лидерство", "Дипломатия", "Милосердие" } },
 }
 
@@ -147,8 +147,6 @@ function SB.Attributes.Commit()
     if SB.PlayerModel and SB.PlayerModel.IsLocked() then return false, "locked" end
     if not SB.Attributes.HasPending() then return false, "nothing" end
 
-    -- Предел проверяется ЕЩЁ РАЗ, на записи: между «нажал плюс» и «нажал
-    -- галочку» эффект, поднявший предел, мог спасть (см. GetMaxValue).
     local cap = SB.Attributes.GetMaxValue()
     d.attributes = d.attributes or {}
     for key, value in pairs(pending) do
@@ -211,70 +209,19 @@ end
 -- (GetEffective потолка не знает вовсе — магия и так поднимает
 -- характеристику выше прокачанного).
 --
--- Активные эффекты вправе этот потолок поднять — канал attrCap, см.
--- Core/ActiveEffects.lua. Смысл ровно в «на время действия»: очко
--- вкладывается из обычного пула, а когда эффект спадёт, лишнее
--- поджимается обратно и очко возвращается в пул (см. ClampToMax).
--- Иначе любой такой бафф означал бы «надел, вложил, снял» — то есть
--- бесплатную шестую ступень навсегда.
+-- ПОТОЛОК НЕПОДВИЖЕН. Раньше эффекты умели его двигать каналом attrCap,
+-- и вокруг этого была выстроена целая механика: очко вкладывалось под
+-- баффом, а когда тот спадал, значение поджималось обратно и очко
+-- возвращалось в пул. Ни одно заклинание библиотеки этот канал так и не
+-- использовало — то есть механика существовала только в коде, а платили
+-- за неё все: подписка на каждое изменение списка эффектов, отдельная
+-- ветка в Commit и сообщение в чат, которого никто никогда не видел.
 -- ============================================================
 
---- Текущий предел вложения в один атрибут — с учётом эффектов.
+--- Предел вложения в один атрибут.
 function SB.Attributes.GetMaxValue()
-    local bonus = (SB.ActiveEffects and SB.ActiveEffects.GetMod)
-        and (SB.ActiveEffects.GetMod("attrCap")) or 0
-    return math.max(MIN_ATTR, MAX_ATTR + (tonumber(bonus) or 0))
-end
-
---- Предел без эффектов — панели он нужен, чтобы отличить «предел»
---- от «предел, поднятый баффом».
-function SB.Attributes.GetBaseMaxValue()
     return MAX_ATTR
 end
-
---- Поджать вложенное под текущий предел. Зовётся, когда эффект спал:
---- пул очков считается по самим значениям (см. GetSpentPoints), поэтому
---- понижение значения и есть возврат очка в пул.
-function SB.Attributes.ClampToMax()
-    local d = db()
-    if not d or not d.attributes then return end
-    local cap, changed = SB.Attributes.GetMaxValue(), false
-
-    for _, def in ipairs(SB.Data.Attributes) do
-        -- Черновик поджимаем ОТДЕЛЬНО от подтверждённого значения: очко
-        -- могли занести в панель под баффом и подтвердить уже после того,
-        -- как он спал, — Commit пишет черновик как есть.
-        if pending[def.key] and pending[def.key] > cap then
-            pending[def.key] = cap
-            if pending[def.key] == (tonumber(d.attributes[def.key]) or MIN_ATTR) then
-                pending[def.key] = nil   -- вернулись к подтверждённому
-            end
-            changed = true
-        end
-
-        local v = tonumber(d.attributes[def.key])
-        if v and v > cap then
-            d.attributes[def.key] = cap
-            changed = true
-            print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BODY ..
-                def.key .. " возвращается к " .. cap ..
-                ": предел держался эффектом. Очко вернулось в пул.|r")
-        end
-    end
-
-    if changed then
-        SB.Events.Fire(SB.E.ATTRIBUTES_CHANGED)
-        SB.Events.Fire("PLAYER_MODEL_CHANGED")
-        SB.Events.Fire("STATUS_CHANGED")
-    end
-end
-
--- Эффект мог как поднять предел, так и спасть — проверяем на любое
--- изменение списка. Подъём предела сам по себе ничего не поджимает:
--- условие внутри срабатывает только на значения ВЫШЕ предела.
-SB.Events.On("ACTIVE_EFFECTS_CHANGED", function()
-    SB.Attributes.ClampToMax()
-end)
 
 --- Все шесть значений разом, в фиксированном порядке SB.Data.Attributes.
 --- @return table  { [key] = value, ... }
@@ -315,8 +262,6 @@ function SB.Attributes.Spend(key)
     if SB.PlayerModel and SB.PlayerModel.IsLocked() then return false, "locked" end
     if SB.Attributes.GetUnspentPoints() <= 0 then return false, "no_points" end
     local cur = SB.Attributes.GetPending(key)
-    -- Предел, а не константа: эффект с каналом attrCap открывает
-    -- следующую ступень на время своего действия (см. GetMaxValue).
     if cur >= SB.Attributes.GetMaxValue() then return false, "maxed" end
 
     pending[key] = cur + 1

@@ -72,7 +72,18 @@ end
 --   defense     к броскам защиты (ПвП-уворот)
 --   crit        расширение критической полосы, в очках кубика
 --   damage      к урону уронных заклинаний
---   heal        к объёму исцеления
+--
+--   ДВА КАНАЛА ИСЦЕЛЕНИЯ, И ПУТАТЬ ИХ НЕЛЬЗЯ. Они висят на РАЗНЫХ
+--   персонажах и складываются в одном лечении оба:
+--   heal        к объёму исцеления, которое носитель ВЫДАЁТ. Бафф лекаря:
+--               «лечит сильнее». Читается при расчёте каста, у лекаря
+--   healTaken   к объёму исцеления, которое носитель ПОЛУЧАЕТ, от любого
+--               источника: чужой каст, площадное лечение, вампиризм, тик
+--               эффекта, прибавка от баффа на максимум. Бафф раненого:
+--               «на нём лечение работает лучше»; минус — «раны почти не
+--               закрываются». Читается в PM.Heal, то есть у получателя, и
+--               потому действует даже когда лечит тот, у кого аддона нет
+--
 --   maxHealth   к максимуму здоровья
 --
 --   МАНА И РЕСУРС — РАЗНЫЕ ПУЛЫ (см. врезку о пулах в
@@ -98,17 +109,22 @@ end
 --               не трогает вовсе, а вниз ограничено ближним боем — оба
 --               правила и причины см. в SB.Logic.GetSpellRange
 --               (Core/Logic/Geometry.lua)
---   attrCap     к ПРЕДЕЛУ ВЛОЖЕНИЯ в один атрибут (база 5, см.
---               Core/Attributes.lua). Открывает шестую ступень на время
---               действия эффекта: очко в неё вкладывается из обычного
---               пула, а когда эффект спадёт — возвращается в пул.
---               Это НЕ прибавка к значению: чтобы просто поднять
---               характеристику, есть stats (ниже).
+--
+-- КАНАЛА attrCap ЗДЕСЬ БОЛЬШЕ НЕТ. Он двигал предел вложения в атрибут
+-- (открывал шестую ступень на время действия), но за всю жизнь
+-- библиотеки его не объявило ни одно заклинание — а поддержка стоила
+-- подписки на каждое изменение списка эффектов и отдельной ветки
+-- поджатия. Поднять саму характеристику по-прежнему можно через stats.
 --
 -- kind — "buff" или "debuff". Если не указан, выводится по СУММЕ всех
 -- mods: суммарный минус — дебафф, иначе бафф. Поле нужно только для
 -- пограничных случаев вроде «+броня, но −атака», где по сумме не
 -- угадать замысел.
+--
+-- family — семейство: облики, печати, стойки и ауры взаимоисключающи, и
+-- новый эффект семейства снимает предыдущий. Читается по ЭФФЕКТУ, а
+-- значит работает одинаково для своего каста, чужого баффа по сети и
+-- выдачи Ведущим (см. врезку о семействах в Core/Database.lua).
 --
 -- Куда это подключено: attack/defense — обычные источники реестра
 -- модификаторов (Core/Logic.lua), поэтому они сами появляются в
@@ -118,9 +134,9 @@ end
 
 -- Порядок важен: в нём параметры перечисляются в тултипе.
 local MOD_ORDER = {
-    "attack", "defense", "crit", "damage", "heal",
+    "attack", "defense", "crit", "damage", "heal", "healTaken",
     "maxHealth", "maxMana", "maxResource", "maxCastResource",
-    "armor", "movePct", "attrCap", "range",
+    "armor", "movePct", "range",
 }
 
 local MOD_LABELS = {
@@ -128,7 +144,8 @@ local MOD_LABELS = {
     defense     = "Бросок защиты",
     crit        = "Шанс крита",
     damage      = "Урон",
-    heal        = "Исцеление",
+    heal        = "Исцеление (исходящее)",
+    healTaken   = "Исцеление (получаемое)",
     maxHealth   = "Максимум здоровья",
     maxMana     = "Максимум маны",
     maxResource = "Максимум ресурса класса",
@@ -137,7 +154,6 @@ local MOD_LABELS = {
     maxCastResource = "Максимум ресурса",
     armor       = "Броня (ед.)",
     movePct     = "Передвижение за ход (%)",
-    attrCap     = "Предел атрибута",
     range       = "Дальность заклинаний (м)",
 }
 
@@ -353,9 +369,19 @@ function SB.ActiveEffects.GetEffectLines(spellID)
         local why = {}
         if def.breakOn.damaged then table.insert(why, "получен урон") end
         if def.breakOn.dealt   then table.insert(why, "нанесён урон") end
+        if def.breakOn.healed  then table.insert(why, "исцеление") end
         if #why > 0 then
             table.insert(lines, "|cFFFFD100Спадает досрочно:|r " .. table.concat(why, ", "))
         end
+    end
+
+    -- Семейство — последней строкой и словами о последствии, а не
+    -- названием поля: игроку важно не то, что эффект «в группе форма», а
+    -- то, что новая форма снимет эту (см. врезку в Core/Database.lua).
+    local family = SB.Data.GetFamily and SB.Data.GetFamily(spellID)
+    if family then
+        table.insert(lines, "|cFFFFD100Семейство:|r " .. family ..
+            " — сменяется другим эффектом того же семейства")
     end
 
     return lines
@@ -833,16 +859,72 @@ function SB.ActiveEffects.GetColumnHeight()
     return grid + 28 + 4 + 8
 end
  
+--- Снять всё, что принадлежит тому же семейству, что и новый эффект.
+--- Одно на всех правило «облики/печати/стойки взаимоисключающи» —
+--- см. врезку о family в Core/Database.lua.
+local function DropFamily(newID)
+    local family = SB.Data.GetFamily and SB.Data.GetFamily(newID)
+    if not family then return end
+
+    -- Сначала список, потом снятие: Remove правит ту самую таблицу, по
+    -- которой мы бы шли (та же причина, что в BreakOn и Dispel).
+    local doomed
+    for _, eff in ipairs(effects) do
+        if eff.spellID ~= newID and SB.Data.GetFamily(eff.spellID) == family then
+            doomed = doomed or {}
+            doomed[#doomed + 1] = eff.spellID
+        end
+    end
+    if not doomed then return end
+
+    local newName = (SB.Data.Spells[newID] and SB.Data.Spells[newID].name) or newID
+    -- Пачкой: смена облика иначе рассылала бы группе два пакета AEFFECT
+    -- подряд — снятие старого и наложение нового (см. FireChanged).
+    batchDepth = batchDepth + 1
+    for _, id in ipairs(doomed) do
+        local sp = SB.Data.Spells[id]
+        -- Сообщение локальное и с обоими именами: «эффект спал» без
+        -- причины выглядит как сбой, а причина здесь — твоё же действие.
+        print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BODY ..
+            "эффект «" .. ((sp and sp.name) or id) .. "» спал: сменился на «" ..
+            newName .. "».|r")
+        SB.ActiveEffects.Remove(id, true)
+    end
+    batchDepth = batchDepth - 1
+    -- FireChanged здесь не зовём: сразу за этим идёт наложение нового
+    -- ЗАКРЫВАЕМ ПАЧКУ ЗДЕСЬ ЖЕ, как это делает рассеивание. Раньше флаг
+    -- просто гасился в расчёте на то, что следом всё равно ляжет новый
+    -- эффект и позовёт FireChanged за нас, — но «следом» бывает не
+    -- всегда: у переполненной панели наложение выходит по return, и
+    -- снятый облик оставался только на экране. В базу он не сохранялся,
+    -- группе не уезжал и максимум здоровья не двигал — то есть ровно тот
+    -- случай, когда максимум и текущее расходятся.
+    --
+    -- Цена честности — один лишний пакет AEFFECT на смену облика (снятие
+    -- и наложение вместо одного общего). Меняют облик раз в несколько
+    -- минут, и платить за это рассуждением «кто кому должен дослать» не
+    -- стоит.
+    if batchDirty then
+        batchDirty = false
+        FireChanged()
+    end
+end
+
 function SB.ActiveEffects.Add(containerSpellID, duration, isConc)
     if not containerSpellID then return end
     if not SB.Data.Spells[containerSpellID] then return end
- 
+
+    -- ДО всего остального, включая продление уже висящего: семейство
+    -- сбрасывается и когда облик обновляют тем же самым обликом —
+    -- лишних снятий это не делает (свой id из списка исключён).
+    DropFamily(containerSpellID)
+
     if isConc then
         for i = #effects, 1, -1 do
             if effects[i].isConc then table.remove(effects, i) end
         end
     end
- 
+
     for _, eff in ipairs(effects) do
         if eff.spellID == containerSpellID then
             eff.uses   = duration or 1
@@ -851,12 +933,12 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc)
             return
         end
     end
- 
+
     if #effects >= 14 then
         SB.UI.PrintMsg("panelFull")
         return
     end
- 
+
     table.insert(effects, {
         spellID = containerSpellID,
         uses    = duration or 1,
@@ -1051,6 +1133,11 @@ function SB.ActiveEffects.ApplyPayload(spellID, def)
 
     local dmg  = tonumber(def.damage) or 0
     local heal = tonumber(def.heal)   or 0
+    -- БРОНЯ — ТАКОЙ ЖЕ КАНАЛ, как здоровье и пулы: плюс починил доспех,
+    -- минус помял. Со знаком, а не двумя полями: «починить» и «помять» —
+    -- одно и то же движение запаса в разные стороны
+    -- (см. SB.Skills.AdjustArmor).
+    local armor = tonumber(def.armor) or 0
 
     -- Складываем адресные каналы с общим: у носителя общий канал ведёт
     -- ровно в один из двух пулов (PM.CastPool), и «+1 маны и +1 ресурса
@@ -1062,7 +1149,8 @@ function SB.ActiveEffects.ApplyPayload(spellID, def)
     }
     delta[PM.CastPool()] = delta[PM.CastPool()] + cast
 
-    if dmg <= 0 and heal <= 0 and delta.mana == 0 and delta.resource == 0 then return end
+    if dmg <= 0 and heal <= 0 and armor == 0
+       and delta.mana == 0 and delta.resource == 0 then return end
 
     local G    = SB.Theme.MSG_BODY
     local name = (sp and sp.name) or spellID
@@ -1104,6 +1192,23 @@ function SB.ActiveEffects.ApplyPayload(spellID, def)
     -- максимума, минус упирается в ноль (а не отказывает целиком, как
     -- трата на каст). Пула нет — изменение просто ноль, и в лог ничего
     -- не идёт: «Воду маны» может выпить и Воин, для него это пустышка.
+    -- БРОНЯ. Отдельной строкой, а не вместе с пулами: у неё своя шкала
+    -- (единицы брони, где десятка = один вычтенный из удара урон) и своё
+    -- хранилище — потраченное, а не остаток (см. SB.Skills.AdjustArmor).
+    if armor ~= 0 and SB.Skills and SB.Skills.AdjustArmor then
+        local moved = SB.Skills.AdjustArmor(armor)
+        if moved ~= 0 then
+            SB.Events.Fire(SB.E.STATUS_CHANGED)
+            local sign = (moved > 0) and "+" or ""
+            SB.Events.Fire(SB.E.BROADCAST_LOG,
+                SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. who .. " — |r" ..
+                ((moved > 0) and SB.Theme.MSG_GOOD or SB.Theme.MSG_BAD) .. name ..
+                G .. string.format(": %s%d брони (%d/%d).|r", sign, moved,
+                    SB.Skills.GetArmorPoints(), SB.Skills.GetArmorMax()),
+                SB.LogRank.TICK)
+        end
+    end
+
     for _, pool in ipairs({ "mana", "resource" }) do
         local gained = PM.AdjustPool(pool, delta[pool])
         if gained ~= 0 and rtReport then
@@ -1277,7 +1382,13 @@ function SB.ActiveEffects.Remove(spellID, quiet)
     end
 end
  
---- Снять с себя до count дебаффов перечисленных школ.
+--- Снять с себя до count баффов ИЛИ дебаффов перечисленных школ — что
+--- именно, решает ДРУГ/НЕДРУГ (параметр friend), а не смесь того и
+--- другого. Полное объяснение правила — во врезке «РАССЕИВАНИЕ» в
+--- Core/Logic.lua; коротко: заклинатель считает цель другом — снимает с
+--- неё вред (дебаффы), считает чужой — снимает пользу (баффы). Себе
+--- заклинатель всегда друг, поэтому самокаст никогда не срывает
+--- собственные баффы.
 ---
 --- ПОРЯДОК — В КОТОРОМ ВИСЯТ, то есть старые первыми. Умнее было бы
 --- снимать «самый опасный», но опасность в системе не число: тик в 2 ХП,
@@ -1286,35 +1397,32 @@ end
 ---
 --- Эффект БЕЗ школы не трогаем по той же причине, по которой у него нет
 --- школы: он не чары, и рассеивать в нём нечего.
----
---- ДЕБАФФЫ ИДУТ ПЕРВЫМИ, а баффы своей школы — следом. Школа бывает и у
---- баффа (см. GetSchool), то есть «Рассеивание магии» способно снять с
---- союзника и наведённую силу; но когда снять можно не всё, лекарь
---- заведомо хотел убрать вред, а не помощь.
 --- @param schools table  множество { magic = true, poison = true, ... }
 --- @param count number   сколько снять максимум
+--- @param friend boolean|nil  true/nil — цель другом, снимаем дебаффы;
+---        false — цель чужая, снимаем баффы
 --- @return table  имена снятых эффектов, по порядку снятия
-function SB.ActiveEffects.Dispel(schools, count)
+function SB.ActiveEffects.Dispel(schools, count, friend)
     count = math.floor(tonumber(count) or 0)
     if type(schools) ~= "table" or count <= 0 then return {} end
+    if friend == nil then friend = true end
+    local wantKind = friend and "debuff" or "buff"
 
     -- Сначала список, потом снятие: Remove правит ту самую таблицу, по
     -- которой мы бы шли (та же причина, что в BreakOn).
     local doomed, names = {}, {}
-    for _, wantKind in ipairs({ "debuff", "buff" }) do
-        for _, eff in ipairs(effects) do
-            if #doomed >= count then break end
-            local school = SB.ActiveEffects.GetSchool(eff.spellID)
-            local info   = school and SB.Data.EffectSchools[school]
-            -- Школа, объявленная неснимаемой (кровотечение), не берётся
-            -- ничем — даже если заклинание почему-то её запросило.
-            if school and schools[school]
-               and not (info and info.undispellable)
-               and SB.ActiveEffects.GetKind(eff.spellID) == wantKind then
-                local sp = SB.Data.Spells[eff.spellID]
-                doomed[#doomed + 1] = eff.spellID
-                names[#names  + 1] = (sp and sp.name) or eff.spellID
-            end
+    for _, eff in ipairs(effects) do
+        if #doomed >= count then break end
+        local school = SB.ActiveEffects.GetSchool(eff.spellID)
+        local info   = school and SB.Data.EffectSchools[school]
+        -- Школа, объявленная неснимаемой (кровотечение), не берётся
+        -- ничем — даже если заклинание почему-то её запросило.
+        if school and schools[school]
+           and not (info and info.undispellable)
+           and SB.ActiveEffects.GetKind(eff.spellID) == wantKind then
+            local sp = SB.Data.Spells[eff.spellID]
+            doomed[#doomed + 1] = eff.spellID
+            names[#names  + 1] = (sp and sp.name) or eff.spellID
         end
     end
 

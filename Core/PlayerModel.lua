@@ -624,6 +624,46 @@ function PM.IsDowned()
     return PM.GetHealth() <= 0
 end
 
+-- ============================================================
+-- ПОБЕГ ИЗ БОЯ
+--
+-- Персонаж вышел из сцены сам. Для очереди ходов это то же, что павший:
+-- его инициатива пролистывается, ход уходит следующему — иначе круг
+-- каждый раз упирался бы в того, кого на поле уже нет, и Ведущему
+-- приходилось бы передавать ход руками.
+--
+-- НО ЭТО НЕ СМЕРТЬ. Действовать сбежавший может: он жив, он просто не в
+-- строю. Запрет на действия — у PM.IsDowned, и сюда он не
+-- распространяется намеренно: отыгрыш побега («убегаю и швыряю через
+-- плечо заклинание») не должен упираться в блокировку.
+--
+-- ВЕРНУТЬСЯ В ОЧЕРЕДЬ можно ровно одним способом — новым запуском
+-- пошагового режима. Это не ограничение, а смысл: инициатива бросается
+-- на сцену целиком, и встроить в неё выбывшего посреди круга нельзя,
+-- не пересобрав очередь. Поэтому флаг снимается по номеру сессии
+-- очереди (см. TO.Start в Core/TurnOrder.lua) — у всех сразу и без
+-- отдельного пакета.
+--
+-- Хранится в сохранёнках персонажа: /reload посреди сцены не должен
+-- возвращать беглеца в строй.
+-- ============================================================
+
+--- Сбежал ли персонаж из текущей сцены.
+function PM.HasFled()
+    return db().fled == true
+end
+
+--- @param v boolean
+--- @return boolean changed  состояние действительно поменялось
+function PM.SetFled(v)
+    v = v and true or false
+    if PM.HasFled() == v then return false end
+    db().fled = v or nil    -- nil, а не false: не копим мусор в сохранёнке
+    SB.Events.Fire("PLAYER_MODEL_CHANGED")
+    SB.Events.Fire("STATUS_CHANGED")
+    return true
+end
+
 --- Максимум здоровья, вычисленный по текущему уровню персонажа
 --- + бонус от навыка "Живучесть" (+1 ХП за каждую точку сверх 1).
 function PM.GetMaxHealth()
@@ -692,15 +732,54 @@ end
 --- Лечит на amount, зажимая сверху в maxHealth (для заклинаний
 --- исцеления). Для намеренного превышения максимума ГМом
 --- используется PM.GrantHealth.
+---
+--- ЗДЕСЬ ЖЕ ПРАВЯТСЯ ВСЕ МОДИФИКАТОРЫ ВХОДЯЩЕГО ИСЦЕЛЕНИЯ, и это
+--- единственное место, где они правятся:
+---   • канал эффектов "healTaken" — бафф/дебафф на получаемое лечение;
+---   • истощение затянувшегося боя (см. TO.GetHealWear).
+---
+--- Именно здесь, а не в резолве лечения: через эту функцию проходит ВСЁ,
+--- что восстанавливает здоровье, — заклинание лекаря, площадное лечение,
+--- вампиризм, тик эффекта, рост максимума от баффа. Поставь проверку в
+--- резолв — и половина путей лечила бы мимо правила. Вторая причина
+--- важнее: модификаторы висят на ПОЛУЧАТЕЛЕ, и знает их только он —
+--- лекарь их не видит вовсе, а лекаря может и не быть (тик, отдых).
+---
+--- Ниже нуля исцеление не уходит: ни истощение, ни дебафф не превращают
+--- лечение в урон. И наоборот, «ноль» не превращается в лечение плюсовым
+--- баффом — усиливать нечего, если не лечили.
+--- @return number  сколько ХП РЕАЛЬНО прибавилось (0 — упор в максимум
+---         или всё съели модификаторы)
 function PM.Heal(amount)
+    local amt = tonumber(amount) or 0
+    if amt > 0 then
+        amt = math.max(0, amt + PM.GetIncomingHealMod())
+    end
+
     local maxHP  = PM.GetMaxHealth()
     local before = PM.GetHealth()
-    local newHP  = math.max(0, math.min(before + (tonumber(amount) or 0), maxHP))
+    local newHP  = math.max(0, math.min(before + amt, maxHP))
     db().health = newHP
     SB.Events.Fire(SB.E.PLAYER_MODEL_CHANGED)
     if newHP ~= before then
         SB.Events.Fire(SB.E.HEALTH_CHANGED, newHP, before, newHP - before)
     end
+    return newHP - before
+end
+
+--- Суммарная поправка к ВХОДЯЩЕМУ исцелению: бафф/дебафф носителя плюс
+--- истощение боя. Публичная, потому что её показывают подсказки, а
+--- считаться она обязана в одном месте с применением (PM.Heal выше).
+--- @return number  знаковая поправка (0 — лечение приходит как есть)
+function PM.GetIncomingHealMod()
+    local mod = 0
+    if SB.ActiveEffects and SB.ActiveEffects.GetMod then
+        mod = mod + SB.ActiveEffects.GetMod("healTaken")
+    end
+    if SB.TurnOrder and SB.TurnOrder.GetHealWear then
+        mod = mod - SB.TurnOrder.GetHealWear()
+    end
+    return mod
 end
 
 -- ============================================================
@@ -751,21 +830,47 @@ local function FollowMax(cur, oldMax, newMax)
     return nil
 end
 
+-- Защита от повторного входа. Нужна с тех пор, как синхронизация
+-- подписана на общий PLAYER_MODEL_CHANGED (см. подписки ниже): PM.Heal
+-- сам шлёт это событие, и без флага рост максимума звал бы нас изнутри
+-- нас же.
+local syncing = false
+
 --- @return boolean changed
 function PM.SyncToMaximums()
+    if syncing then return false end
     local d = db()
     if not d then return false end
+    syncing = true
 
     local maxHP  = PM.GetMaxHealth()
     local maxRes = PM.GetMaxCastResource()
     local resKey = PM.IsCaster() and "zeal" or "classResource"
     local changed = false
 
+    -- РОСТ МАКСИМУМА — ЭТО ИСЦЕЛЕНИЕ, и идёт он через PM.Heal, а не
+    -- записью в базу. Разница видна ровно там, где у исцеления есть свои
+    -- правила: истощение затянувшегося боя режет и эту прибавку, а
+    -- кровотечение от неё спадает (см. breakOn.healed). «Бафф на +2
+    -- максимума» и «зелье на +2» восстанавливают одно и то же здоровье, и
+    -- считаться они обязаны одинаково.
+    --
+    -- Падение максимума исцелением не является — это прижим сверху, и он
+    -- по-прежнему пишется напрямую.
     if lastMaxHealth and maxHP ~= lastMaxHealth then
-        local newHP = FollowMax(d.health or lastMaxHealth, lastMaxHealth, maxHP)
-        if newHP then
-            d.health = math.max(0, newHP)
-            changed = true
+        if maxHP > lastMaxHealth then
+            local gain = maxHP - lastMaxHealth
+            -- Отметку двигаем ДО лечения: PM.Heal шлёт события, а по ним
+            -- нас могут позвать обратно (снятое кровотечение меняет
+            -- эффекты) — и прибавка засчиталась бы дважды.
+            lastMaxHealth = maxHP
+            PM.Heal(gain)
+        else
+            local newHP = FollowMax(d.health or lastMaxHealth, lastMaxHealth, maxHP)
+            if newHP then
+                d.health = math.max(0, newHP)
+                changed = true
+            end
         end
     end
 
@@ -777,18 +882,48 @@ function PM.SyncToMaximums()
         end
     end
 
-    lastMaxHealth, lastMaxResource = maxHP, maxRes
+    -- ПЕРЕСЧИТЫВАЕМ, а не берём посчитанное в начале: PM.Heal выше шлёт
+    -- события, и по ним нас могли позвать рекурсивно (снятое исцелением
+    -- кровотечение — это смена эффектов, а эффекты двигают максимум).
+    -- Запомнив старое число, мы бы засчитали ту же прибавку ещё раз.
+    lastMaxHealth, lastMaxResource = PM.GetMaxHealth(), PM.GetMaxCastResource()
 
+    -- Рассылаем ПОД ФЛАГОМ: PLAYER_MODEL_CHANGED теперь подписан и на нас
+    -- самих, и без этого каждый сдвиг потолка стоил бы лишнего холостого
+    -- прохода по всем эффектам.
     if changed then
         SB.Events.Fire(SB.E.PLAYER_MODEL_CHANGED)
         SB.Events.Fire(SB.E.STATUS_CHANGED)
     end
+    syncing = false
     return changed
 end
 
--- Все четыре события, которые способны сдвинуть потолок. На общий
--- PLAYER_MODEL_CHANGED подписываться нельзя: его шлёт и сам SyncToMaximums,
--- и любое изменение текущего значения — вышла бы петля.
+-- ============================================================
+-- НА ЧЁМ ЭТО ДЕРЖИТСЯ — И ПОЧЕМУ НА ОБЩЕМ СОБЫТИИ
+--
+-- Раньше подписок было четыре: атрибуты, навыки, уровень, эффекты — то
+-- есть ровно те источники потолка, о которых помнил автор. Список этот
+-- оказался неполным, и симптом был именно такой, каким его и описали:
+-- «иногда бафф поднимает максимум, а текущее не растёт», причём
+-- закономерность не ловится.
+--
+-- Ловится она так. Опорная точка (lastMax*) обновляется ТОЛЬКО внутри
+-- синхронизации. Стоит потолку измениться мимо этих четырёх событий —
+-- и точка остаётся от старого мира. Самый частый случай: PM.SetMastery
+-- шлёт один PLAYER_MODEL_CHANGED, а ранг двигает максимум ресурса, и
+-- меняется он САМ, по содержимому сумок («Ранг обновлён автоматически»).
+-- После этого опорная точка выше настоящего потолка — и следующий бафф
+-- уходит в ветку «прижать сверху», где текущему значению не достаётся
+-- ничего.
+--
+-- Поэтому подписка теперь ОДНА и на общее событие: любое изменение
+-- модели освежает опорную точку, и «забыть источник» больше нельзя.
+-- Петли, из-за которой так не делали, не будет — её держит флаг syncing:
+-- рекурсивный вызов выходит сразу, а холостой (потолки не двигались)
+-- ничего не шлёт и стоит двух арифметических выражений.
+-- ============================================================
+SB.Events.On(SB.E.PLAYER_MODEL_CHANGED,   PM.SyncToMaximums)
 SB.Events.On(SB.E.ATTRIBUTES_CHANGED,     PM.SyncToMaximums)
 SB.Events.On(SB.E.SKILLS_CHANGED,         PM.SyncToMaximums)
 SB.Events.On(SB.E.LEVEL_CHANGED,          PM.SyncToMaximums)
@@ -953,6 +1088,32 @@ function PM.ReorderSpell(fromID, toID)
     if fromIdx < toIdx then toIdx = toIdx - 1 end
     table.insert(list, toIdx, fromID)
     SB.Events.Fire("PREPARED_SPELLS_CHANGED")
+    return true
+end
+
+--- ПОМЕНЯТЬ ДВА ЗАКЛИНАНИЯ МЕСТАМИ.
+---
+--- Отличается от ReorderSpell тем же, чем «поменять местами» отличается
+--- от «переставить»: тот вынимает заклинание и вставляет его перед
+--- целью, сдвигая всё между ними, — этот трогает ровно две ячейки.
+---
+--- Для ряда иконок нужен именно обмен: игрок целится в КОНКРЕТНОЕ место
+--- («хочу удар на третьей кнопке»), и сдвиг остальных иконок под
+--- курсором — не то, что он просил. В списке карточек разница не так
+--- заметна, но правило лучше держать одно на оба вида.
+--- @return boolean  поменялись ли
+function PM.SwapSpells(aID, bID)
+    local list = db().preparedSpells
+    if not list or aID == bID then return false end
+    local ai, bi
+    for i, id in ipairs(list) do
+        if id == aID then ai = i end
+        if id == bID then bi = i end
+    end
+    if not ai or not bi then return false end
+    list[ai], list[bi] = list[bi], list[ai]
+    SB.Events.Fire("PREPARED_SPELLS_CHANGED")
+    return true
 end
 
 -- ============================================================
@@ -974,6 +1135,9 @@ function PM.GetStatusSnapshot()
         maxZeal        = PM.GetMaxCastResource(),
         health         = PM.GetHealth(),
         maxHealth      = PM.GetMaxHealth(),
+        -- Побег: очередь ходов у Ведущего обязана знать, кого пролистывать
+        -- (см. PM.HasFled и TO.IsAbsent).
+        fled           = PM.HasFled(),
         preparedSpells = PM.GetPreparedSpells(),
         attributes     = SB.Attributes and SB.Attributes.GetAll() or nil,
         -- «Воля» едет отдельным полем, а не в составе навыков: порог
@@ -1007,6 +1171,9 @@ function PM.FullReset()
     db().pvpEngaged = false
 	db().health = PM.GetMaxHealth()   -- полное восстановление ХП
     PM.RestorePersonalRestCharges()   -- заряды личного Короткого Отдыха
+    -- Доспех чинится ровно здесь и больше нигде: броня — расходуемый
+    -- запас, и Короткий Отдых её не возвращает (см. SB.Skills.ResetArmor).
+    if SB.Skills and SB.Skills.ResetArmor then SB.Skills.ResetArmor() end
     -- Пройденный путь тоже обнуляется. Отдельно оговорено, потому что по
     -- правилу путь сбрасывает пропуск хода, — но Долгий Отдых сбрасывает
     -- вообще всё, и персонаж, вставший после ночного привала уже упёртым

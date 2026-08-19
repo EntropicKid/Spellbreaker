@@ -12,10 +12,51 @@
 local addonName, SB = ...
 SB.Theme = SB.Theme or {}
 
+-- ============================================================
+-- ТЕКСТУРЫ
+--
+-- Есть сейчас: Background, Card, Bar (папка Assets\).
+--
+-- СЛОТЫ ПОД БУДУЩИЕ — ниже, и все они по умолчанию nil. Это сделано
+-- нарочно: ссылка на несуществующий файл рисуется в игре зелёно-чёрным
+-- квадратом, то есть «заготовил путь заранее» означает сломанный
+-- интерфейс до появления файла. Пока слот пуст, каждое место берёт то,
+-- чем пользовалось раньше (стандартные текстуры клиента), а появление
+-- файла — это одна строка здесь и ничего больше.
+--
+-- ФОРМАТ. .tga (32 бита, с альфой) или .blp; сторона — степень двойки
+-- (16/32/64/128/256). Рамки для SetBackdrop — это НЕ единая картинка
+-- рамки, а полоса из восьми квадратов (четыре стороны и четыре угла);
+-- проще всего взять размеры с той, которой аддон пользуется сейчас, —
+-- Interface\Tooltips\UI-Tooltip-Border.
+-- ============================================================
 SB.Theme.Assets = SB.Theme.Assets or {}
 
 SB.Theme.Assets.Background = "Interface\\AddOns\\Spellbreaker\\Assets\\Background.blp"
 SB.Theme.Assets.Card = "Interface\\AddOns\\Spellbreaker\\Assets\\Card.blp"
+
+-- Полотно и рамка окна. Nil — прежний вид (Background.blp + тултиповая
+-- рамка Blizzard).
+SB.Theme.Assets.FrameEdge  = nil
+SB.Theme.Assets.CardEdge   = nil
+SB.Theme.Assets.ColumnEdge = nil
+-- Заполнение полоски ресурса. Nil — UI-StatusBar Blizzard.
+SB.Theme.Assets.BarFill    = nil
+-- Тень под окном: отдельной текстурой, потому что SetBackdrop тени не
+-- умеет вовсе. Пока файла нет, тени просто не будет.
+SB.Theme.Assets.Shadow     = nil
+
+--- Путь к текстуре из слота, либо запасной вариант.
+--- Одна точка вместо `X or "Interface\\..."` в десяти местах: пока слоты
+--- пусты, запасные пути обязаны совпадать с тем, что было до появления
+--- этого механизма, и держать их лучше рядом.
+--- @param slot string  имя поля в SB.Theme.Assets
+--- @param fallback string  чем рисовать, пока файла нет
+function SB.Theme.Tex(slot, fallback)
+    local path = SB.Theme.Assets[slot]
+    if type(path) == "string" and path ~= "" then return path end
+    return fallback
+end
 
 local C = {
     frameBg        = { 0.11, 0.09, 0.08, 0.97 },  -- тёплый графит (чуть янтарного подтона), не нейтральный
@@ -53,7 +94,7 @@ local BG_TEXTURE = SB.Theme.Assets.Background
 local BD = {
 	frame = {
 		bgFile   = SB.Theme.Assets.Background,
-		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+		edgeFile = SB.Theme.Tex("FrameEdge", "Interface\\Tooltips\\UI-Tooltip-Border"),
 		tile = true,
 		tileSize = 256,
 		edgeSize = 20,
@@ -62,7 +103,7 @@ local BD = {
 
 	card = {
 		bgFile   = SB.Theme.Assets.Card,
-		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+		edgeFile = SB.Theme.Tex("CardEdge", "Interface\\Tooltips\\UI-Tooltip-Border"),
 		tile = true,
         tileSize = 256,
 		edgeSize = 12,
@@ -71,7 +112,7 @@ local BD = {
 
 	column = {
 		bgFile   = SB.Theme.Assets.Background,
-		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+		edgeFile = SB.Theme.Tex("ColumnEdge", "Interface\\Tooltips\\UI-Tooltip-Border"),
 		tile = true,
 		tileSize = 256,
 		edgeSize = 12,
@@ -292,28 +333,70 @@ function SB.Theme.Button(parent, text, w, h, variant)
     btn._fs, btn._v = fs, v
     btn._soundVariant = (variant == "danger") and "danger" or "click"
 
+    -- ПОДСВЕТКА ЕДЕТ, А НЕ ЩЁЛКАЕТ. Курсан проходит над рядом кнопок за
+    -- десятые доли секунды, и мгновенная перекраска читается как мигание
+    -- всего ряда. Время короткое (0.12 с) намеренно: подсветка обязана
+    -- успеть за курсором, иначе кнопка кажется тормозящей.
+    --
+    -- Через SB.Animate.Color, а не двумя анимациями на цвет и рамку:
+    -- уходя с кнопки на полпути, обе обязаны повернуть назад ОДНОВРЕМЕННО
+    -- (см. врезку о ключах в Core/Animate.lua).
+    local HOVER_TIME = 0.12
+
+    local function TintTo(self, bg, bd, bdAlpha)
+        SB.Animate.Color(self, "btnBg",
+            function(r, g, b, a) self:SetBackdropColor(r, g, b, a) end,
+            { self:GetBackdropColor() }, bg, HOVER_TIME, "outQuad")
+        SB.Animate.Color(self, "btnBd",
+            function(r, g, b, a) self:SetBackdropBorderColor(r, g, b, a) end,
+            { self:GetBackdropBorderColor() },
+            { bd[1], bd[2], bd[3], bdAlpha or bd[4] }, HOVER_TIME, "outQuad")
+    end
+    btn._tintTo = TintTo
+
     btn:SetScript("OnEnter", function(self)
         if self:IsEnabled() then
-            self:SetBackdropColor(self._v.hBg[1], self._v.hBg[2], self._v.hBg[3], self._v.hBg[4])
-            self:SetBackdropBorderColor(self._v.hBd[1], self._v.hBd[2], self._v.hBd[3], 0.85)
+            TintTo(self, self._v.hBg, self._v.hBd, 0.85)
         end
     end)
     btn:SetScript("OnLeave", function(self)
         if self:IsEnabled() then
-            self:SetBackdropColor(self._v.bg[1], self._v.bg[2], self._v.bg[3], self._v.bg[4])
-            self:SetBackdropBorderColor(self._v.border[1], self._v.border[2], self._v.border[3], self._v.border[4])
+            TintTo(self, self._v.bg, self._v.border)
         end
         self._fs:SetPoint("CENTER", 0, 0)
     end)
+    -- НАЖАТИЕ И СМЕНА ДОСТУПНОСТИ — БЕЗ ПЛАВНОСТИ, и это не упущение.
+    -- Нажатие обязано отзываться в тот же кадр, иначе кнопка кажется
+    -- залипшей; погасшая кнопка обязана погаснуть сразу, иначе игрок
+    -- успеет по ней щёлкнуть. Но едущую подсветку надо СНЯТЬ — иначе она
+    -- домалюет свой кадр поверх только что выставленного цвета.
+    local function StopTint(self)
+        SB.Animate.Stop(SB.Animate.KeyOf(self, "btnBg"))
+        SB.Animate.Stop(SB.Animate.KeyOf(self, "btnBd"))
+    end
+    btn._stopTint = StopTint
+
     btn:SetScript("OnMouseDown", function(self)
         if self:IsEnabled() then
+            StopTint(self)
             self:SetBackdropColor(self._v.press[1], self._v.press[2], self._v.press[3], self._v.press[4])
             self._fs:SetPoint("CENTER", 0, -1)
         end
     end)
     btn:SetScript("OnMouseUp", function(self, mouseBtn)
         if self:IsEnabled() then
-            self:SetBackdropColor(self._v.bg[1], self._v.bg[2], self._v.bg[3], self._v.bg[4])
+            -- Отпустили — возвращаемся в НАВЕДЁННЫЙ цвет, а не в обычный:
+            -- курсор всё ещё над кнопкой.
+            -- Через точку, а не через двоеточие: `self:IsMouseOver` без
+            -- скобок — это не значение, а начало вызова, и Lua такое не
+            -- разбирает.
+            local over = self.IsMouseOver and self:IsMouseOver()
+            StopTint(self)
+            if over then
+                self._tintTo(self, self._v.hBg, self._v.hBd, 0.85)
+            else
+                self:SetBackdropColor(self._v.bg[1], self._v.bg[2], self._v.bg[3], self._v.bg[4])
+            end
             if mouseBtn == "LeftButton" then
                 SB.Theme.PlaySound(self._soundVariant or "click")
             end
@@ -324,6 +407,7 @@ function SB.Theme.Button(parent, text, w, h, variant)
     local rE, rD = btn.Enable, btn.Disable
     function btn:Enable()
         rE(self)
+        self._stopTint(self)
         self:SetBackdropColor(self._v.bg[1], self._v.bg[2], self._v.bg[3], self._v.bg[4])
         self:SetBackdropBorderColor(self._v.border[1], self._v.border[2], self._v.border[3], self._v.border[4])
         self._fs:SetTextColor(self._v.text[1], self._v.text[2], self._v.text[3])
@@ -337,6 +421,7 @@ function SB.Theme.Button(parent, text, w, h, variant)
         -- IsEnabled() перед вызовом OnClick, так что кнопка остаётся
         -- нефункциональной, но наводка/тултип продолжают работать.
         self:EnableMouse(true)
+        self._stopTint(self)
         self:SetBackdropColor(C.disBg[1], C.disBg[2], C.disBg[3], C.disBg[4])
         self:SetBackdropBorderColor(C.disBd[1], C.disBd[2], C.disBd[3], C.disBd[4])
         self._fs:SetTextColor(C.disText[1], C.disText[2], C.disText[3])
@@ -356,23 +441,39 @@ function SB.Theme.Tab(parent, text, w, h, isActive)
     tab.bg:SetAllPoints()
     tab.bg:SetColorTexture(C.titleBg[1], C.titleBg[2], C.titleBg[3], 1)
 
+    -- ПОДЧЁРКИВАНИЕ РАСТЁТ ИЗ ЦЕНТРА, а не зажигается целиком. Привязано
+    -- одной точкой (BOTTOM), а не двумя (BOTTOMLEFT+BOTTOMRIGHT): при двух
+    -- точках ширина задана якорями, и анимировать её нельзя.
     tab.underline = tab:CreateTexture(nil, "ARTWORK")
     tab.underline:SetHeight(2)
-    tab.underline:SetPoint("BOTTOMLEFT", tab, "BOTTOMLEFT", 0, 0)
-    tab.underline:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", 0, 0)
+    tab.underline:SetPoint("BOTTOM", tab, "BOTTOM", 0, 0)
+    tab.underline:SetWidth(w or 100)
     tab.underline:SetColorTexture(C.accent[1], C.accent[2], C.accent[3], 1)
 
     tab.text = tab:CreateFontString(nil, "OVERLAY", SB.Theme.Font.h2)
     tab.text:SetAllPoints()
     tab.text:SetText(text)
 
-    function tab:SetActive(active)
-        tab.bg:SetAlpha(active and 0.9 or 0)
-        tab.underline:SetAlpha(active and 1 or 0)
-        tab.text:SetTextColor(unpack(active and C.accent or C.textSecondary))
+    tab._fullW = w or 100
+
+    --- @param instant boolean|nil  без анимации: первичная расстановка
+    ---        табов, где ехать ещё некуда
+    function tab:SetActive(active, instant)
+        local dur = instant and 0 or 0.16
+        SB.Animate.Alpha(self.bg, active and 0.9 or 0, dur, "outQuad")
+        SB.Animate.Alpha(self.underline, active and 1 or 0, dur, "outQuad")
+        SB.Animate.Width(self.underline,
+            active and self._fullW or 1, dur, "outQuint")
+        SB.Animate.Color(self, "tabText",
+            function(r, g, b) self.text:SetTextColor(r, g, b) end,
+            { self.text:GetTextColor() },
+            active and C.accent or C.textSecondary, dur, "outQuad")
     end
 
-    tab:SetActive(isActive)
+    -- Первая расстановка — мгновенно: при создании таба ехать неоткуда, а
+    -- «выросшее» подчёркивание при открытии окна выглядело бы так, будто
+    -- вкладку только что переключили.
+    tab:SetActive(isActive, true)
     return tab
 end
 
@@ -396,19 +497,21 @@ function SB.Theme.Frame(name, parent, title, w, h)
     f:SetScript("OnDragStart", function(self) self:StartMoving() end)
     -- OnDragStop задаётся через AttachPositionMemory
 
-    -- Мягкое появление. Через HookScript, а не SetScript: окна вешают на
-    -- OnShow собственные обработчики (пересборка списков), и подмена
-    -- сломала бы их. Только прозрачность и только на показе — размер и
-    -- позиция не трогаются, чтобы не спорить с AttachPositionMemory и с
-    -- перетаскиванием.
+    -- ПОЯВЛЕНИЕ: прозрачность плюс лёгкий наплыв масштабом
+    -- (см. SB.Animate.BloomIn). Через HookScript, а не SetScript: окна
+    -- вешают на OnShow собственные обработчики (пересборка списков), и
+    -- подмена сломала бы их.
+    --
+    -- Позицию и точки не трогаем — за них отвечает AttachPositionMemory.
+    -- Масштаб трогаем и возвращаем ровно в единицу: он не сохраняется и
+    -- ни с чем не спорит, а сохранённые смещения точек он не меняет.
+    --
+    -- UIFrameFadeIn (штатный, линейный, 0.15 с) убран: у него нет ни
+    -- кривой, ни возможности подменить анимацию на полпути, из-за чего
+    -- быстрое закрытие-открытие оставляло окно полупрозрачным.
     f:HookScript("OnShow", function(self)
         if UIFrameFadeRemoveFrame then UIFrameFadeRemoveFrame(self) end
-        if UIFrameFadeIn then
-            self:SetAlpha(0)
-            UIFrameFadeIn(self, 0.15, 0, 1)
-        else
-            self:SetAlpha(1)
-        end
+        SB.Animate.BloomIn(self)
     end)
 
 	-- Title bar
@@ -815,7 +918,7 @@ function SB.Theme.Bar(parent, w, h, kind)
     socket:SetVertexColor(col.bg[1], col.bg[2], col.bg[3], 1)
 
     local fill = bar:CreateTexture(nil, "ARTWORK")
-    fill:SetTexture("Interface\\TargetingFrame\\UI-StatusBar")
+    fill:SetTexture(SB.Theme.Tex("BarFill", "Interface\\TargetingFrame\\UI-StatusBar"))
     fill:SetVertexColor(col.fill[1], col.fill[2], col.fill[3], 1)
     fill:SetPoint("TOPLEFT",    bar, "TOPLEFT",     INSET, -INSET)
     fill:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT",  INSET,  INSET)
@@ -899,26 +1002,28 @@ function SB.Theme.Bar(parent, w, h, kind)
             return
         end
         if math.abs(target - self._curW) < 0.5 then
+            SB.Animate.Stop(SB.Animate.KeyOf(self, "barFill"))
             self._curW = target
             ApplyWidth(self, target)
-            self:SetScript("OnUpdate", nil)
             return
         end
 
-        local from, elapsed = self._curW, 0
-        self:SetScript("OnUpdate", function(s, dt)
-            elapsed = elapsed + dt
-            local t = math.min(elapsed / BAR_ANIM_TIME, 1)
-            -- Замедление к концу (ease-out): движение заметно на старте,
-            -- где на него и смотрят, и не дёргается в конце.
-            local e = 1 - (1 - t) * (1 - t)
-            s._curW = from + (target - from) * e
-            ApplyWidth(s, s._curW)
-            if t >= 1 then
+        -- ЧЕРЕЗ ОБЩИЙ ТИКЕР, а не своим OnUpdate на каждой полоске: их в
+        -- интерфейсе десятки (шапка, панель Ведущего, рамки группы), и
+        -- каждая держала свой обработчик каждый кадр
+        -- (см. врезку в Core/Animate.lua).
+        SB.Animate.To(SB.Animate.KeyOf(self, "barFill"), {
+            obj = self, from = self._curW, to = target,
+            duration = BAR_ANIM_TIME, easing = "outQuad",
+            apply = function(v, s)
+                s._curW = v
+                ApplyWidth(s, v)
+            end,
+            onDone = function(s)
                 s._curW = target
-                s:SetScript("OnUpdate", nil)
-            end
-        end)
+                ApplyWidth(s, target)
+            end,
+        })
     end
 
     --- Перекрашивает полоску (например, в цвет класса для некастеров):
@@ -1164,13 +1269,21 @@ end
 --- ВАЖНО: вызывать через C_Timer.After(0, ...) после SetText/SetPoint —
 --- GetTop/GetBottom только что изменённого текста не всегда актуальны
 --- в тот же кадр (обычный паттерн для этого аддона, см. UI/MainFrame.lua).
+--- НИЖНЯЯ ГРАНЬ СЧИТАЕТСЯ КАК «ВЕРХ + ВЫСОТА», А НЕ ЧЕРЕЗ GetBottom.
+--- Арифметически это одно и то же, но GetBottom берёт ВЫЧИСЛЕННЫЙ
+--- прямоугольник, а он отстаёт на кадр от только что сделанного
+--- SetHeight — тогда как GetHeight отдаёт заданный размер сразу.
+--- Разница видна ровно там, где вызывающий сначала растит поле под
+--- текст, а потом окно под поле (карточка заклинания, см.
+--- UI/Library.lua): по старой формуле окно иногда считалось по ПРЕЖНЕЙ
+--- высоте поля, и поле с длинной отписью вылезало за нижний край.
 function SB.Theme.AutoGrowToFit(frame, contentFrame, bottomReserve, baseHeight)
     if not frame or not contentFrame then return end
     if not frame:IsShown() then return end
-    local top    = frame:GetTop()
-    local bottom = contentFrame:GetBottom()
-    if not top or not bottom then return end
-    local needed = (top - bottom) + (bottomReserve or 0)
+    local top     = frame:GetTop()
+    local cTop    = contentFrame:GetTop()
+    if not top or not cTop then return end
+    local needed = (top - cTop) + (contentFrame:GetHeight() or 0) + (bottomReserve or 0)
     frame:SetHeight(math.max(baseHeight or 0, needed))
 end
 

@@ -52,16 +52,19 @@ local TO = SB.TurnOrder
 -- ============================================================
 -- РЕЖИМЫ ОЧЕРЕДИ
 -- ============================================================
+-- Подписи короткие НАМЕРЕННО: они стоят во вкладке настроек панели
+-- Ведущего одна под другой, и вкладка не растягивается. Полное описание
+-- режимов — во врезке в начале файла.
 SB.Data.TurnModes = {
     { key = "player",
       label = "По игроку",
-      hint  = "Тихая проверка Ловкости у каждого. Ходят по одному, по убыванию." },
+      hint  = "По одному, по убыванию Ловкости." },
     { key = "group",
       label = "По группе",
-      hint  = "Рейдовые группы перемешиваются. Внутри группы ходят разом." },
+      hint  = "Рейдовые группы вперемешку, внутри — разом." },
     { key = "all",
       label = "Все сразу",
-      hint  = "Очереди нет: походили все — Ведущий объявляет новый ход." },
+      hint  = "Очереди нет: походили все — новый круг." },
 }
 
 local DEFAULT_MODE = "player"
@@ -101,6 +104,14 @@ local state = {
     -- показаны по-разному (см. UI/Overlay.lua).
     skipped = {},
 
+    -- НОМЕР СЦЕНЫ. Растёт на каждый запуск пошагового режима и ни на что
+    -- больше. Нужен ровно для одного: снять со всех отметку «сбежал» в
+    -- тот момент, когда очередь пересобирается заново (см. PM.HasFled).
+    -- Через номер, а не через «пришёл пакет со свежим состоянием»,
+    -- потому что полное состояние рассылается и на новом круге, и при
+    -- смене режима — а побег переживает и то, и другое.
+    session = 0,
+
     -- ПРЕДЕЛ ПЕРЕДВИЖЕНИЯ ОТКЛЮЧЁН НА СЦЕНЕ. Метры по-прежнему
     -- считаются и видны в шапке, но упор в предел больше ничего не
     -- значит: способности доступны, усталость не начисляется. Нужно
@@ -130,6 +141,7 @@ local function Snapshot()
         acted   = state.acted,
         skipped = state.skipped,
         moveFree = state.moveFree,
+        session = state.session,
     }
 end
 
@@ -190,11 +202,68 @@ local function SyncTurnTimer()
     if TO.RestartTurnTimer then TO.RestartTurnTimer() end
 end
 
+-- ============================================================
+-- ИСТОЩЕНИЕ ЗАТЯЖНОГО БОЯ
+--
+-- С круга Config.HealWearFrom и дальше каждые Config.HealWearEvery
+-- кругов входящее исцеление у всех участников падает на ступень. Само
+-- правило и почему числа именно такие — во врезке у Config
+-- (Core/Database.lua); применяет ступень PM.Heal.
+--
+-- ЗДЕСЬ ТОЛЬКО НОМЕР СТУПЕНИ, и он ВЫЧИСЛЯЕТСЯ ИЗ КРУГА, а не копится.
+-- Круг и так рассылается всем в состоянии очереди — значит, каждый
+-- клиент считает у себя одно и то же число без единого лишнего пакета,
+-- и после /reload оно восстанавливается вместе с очередью. Отдельный
+-- счётчик пришлось бы и рассылать, и чинить, когда он разъедется.
+-- ============================================================
+
+--- На сколько просело входящее исцеление (0 — бой ещё не затянулся).
+function TO.GetHealWear()
+    if not state.active then return 0 end
+    local C = SB.Data.Config or {}
+    local from  = tonumber(C.HealWearFrom)  or 0
+    local every = tonumber(C.HealWearEvery) or 0
+    local step  = tonumber(C.HealWearStep)  or 0
+    if from <= 0 or every <= 0 or step <= 0 then return 0 end
+    if state.round < from then return 0 end
+    return (math.floor((state.round - from) / every) + 1) * step
+end
+
+--- Круг, с которого начинается следующая ступень (для подписей).
+function TO.GetHealWearLevel()
+    local step = tonumber(SB.Data.Config and SB.Data.Config.HealWearStep) or 1
+    if step <= 0 then return 0 end
+    return math.floor(TO.GetHealWear() / step)
+end
+
+-- Ступень на прошлом расчёте: её смену видит интерфейс (подпись в панели
+-- Ведущего, подсказка лекаря), а сама она ничего не пересчитывает.
+local lastHealWear = nil
+
+local function NotifyHealWear()
+    local wear = TO.GetHealWear()
+    if lastHealWear == wear then return end
+    local prev = lastHealWear
+    lastHealWear = wear
+    -- nil — первый расчёт за сессию: восстановленная очередь это не
+    -- событие, а обстановка (та же причина, что у lastActive выше).
+    if prev == nil then return end
+    SB.Events.Fire("PLAYER_MODEL_CHANGED")
+end
+
+-- Объявлена здесь, а определена ниже: авто-круг опирается на AssertGM и
+-- IsDowned, а они объявлены дальше по файлу.
+local MaybeAutoRound
+
 local function Changed()
     Save()
     SyncTurnTimer()
     NotifyTransitions()
+    NotifyHealWear()
     SB.Events.Fire(SB.E.TURN_ORDER_CHANGED)
+    -- ПОСЛЕДНИМ: новый круг сам зовёт Changed, и запускать его надо с уже
+    -- разосланным состоянием прошлого.
+    if MaybeAutoRound then MaybeAutoRound() end
 end
 
 -- ============================================================
@@ -377,6 +446,31 @@ local function IsDowned(name)
 end
 TO.IsDowned = IsDowned
 
+--- Сбежал ли из боя. Своё — из модели, чужое — из статуса, как и у
+--- павшего (см. PM.HasFled).
+local function HasFled(name)
+    if not name then return false end
+    if name == UnitName("player") then
+        return (SB.PlayerModel and SB.PlayerModel.HasFled
+            and SB.PlayerModel.HasFled()) or false
+    end
+    local st = SB.Data.PlayersStatus and SB.Data.PlayersStatus[name]
+    return (st and st.fled) == true
+end
+TO.HasFled = HasFled
+
+--- ОТСУТСТВУЕТ В КРУГЕ — по любой из двух причин. Очередь обходится с
+--- ними одинаково (пролистать и идти дальше), а вот объявляет по-разному:
+--- «без сознания» и «сбежал» — разные события сцены, и склеивать их в
+--- одну строку значило бы врать половине группы.
+--- @return string|nil "downed" | "fled" | nil
+local function IsAbsent(name)
+    if IsDowned(name) then return "downed" end
+    if HasFled(name)  then return "fled"   end
+    return nil
+end
+TO.IsAbsent = IsAbsent
+
 --- Рейдовая группа игрока (1-8). Вне рейда групп нет — все в первой.
 local function SubgroupOf(name)
     if not IsInRaid() then return 1 end
@@ -423,6 +517,42 @@ local function BuildSlotsByPlayer(names)
     return slots
 end
 
+-- ============================================================
+-- КАКАЯ РЕЙДОВАЯ ГРУППА СТОИТ В КАКОМ СЛОТЕ
+--
+-- Нужно ровно для одного: игрока переносят из группы в группу посреди
+-- сцены, и он обязан начать ходить со своей НОВОЙ группой. Раньше он
+-- оставался в старом слоте навсегда — очередь запоминала расстановку
+-- один раз и больше на состав рейда не смотрела.
+--
+-- ХРАНИТСЯ ТОЛЬКО У ВЕДУЩЕГО и в снимок НЕ входит: очередь двигает он
+-- один, остальным номер группы не нужен вовсе. Потерялось после
+-- /reload — восстанавливается по самим слотам (DeriveSlotGroups).
+-- ============================================================
+local slotGroup = {}   -- [индекс слота] = рейдовая группа
+
+--- Восстановить соответствие «слот → группа» по составу слотов.
+--- По БОЛЬШИНСТВУ, а не по первому имени: первым в слоте вполне может
+--- оказаться как раз тот, кого только что перевели.
+local function DeriveSlotGroups()
+    slotGroup = {}
+    for i, slot in ipairs(state.slots) do
+        local count, best, bestN = {}, nil, 0
+        for _, n in ipairs(slot) do
+            local g = SubgroupOf(n)
+            count[g] = (count[g] or 0) + 1
+            if count[g] > bestN then best, bestN = g, count[g] end
+        end
+        slotGroup[i] = best or 1
+    end
+end
+
+--- Группа слота; если карта потерялась — сначала восстановим её.
+local function SlotGroup(i)
+    if #slotGroup ~= #state.slots then DeriveSlotGroups() end
+    return slotGroup[i]
+end
+
 local function BuildSlotsByGroup(names)
     local byGroup, order = {}, {}
     for _, name in ipairs(names) do
@@ -436,9 +566,11 @@ local function BuildSlotsByGroup(names)
     Shuffle(order)
 
     local slots = {}
+    slotGroup = {}
     for _, g in ipairs(order) do
         table.sort(byGroup[g])   -- внутри слота порядок не важен, но пусть будет стабильным
         slots[#slots + 1] = byGroup[g]
+        slotGroup[#slots] = g
     end
     return slots
 end
@@ -480,18 +612,60 @@ local function BroadcastMark(names, skipped)
     end
 end
 
---- Тик за отобранный ход — если среди пропущенных оказались МЫ.
+-- ============================================================
+-- ОТОБРАННЫЙ ХОД — ЭТО ПРОПУЩЕННЫЙ ХОД
+--
+-- Ведущий передал очередь дальше, или игрока пролистали без сознания.
+-- Своего действия не было — а ход прошёл, и по правилам он обязан стоить
+-- ровно того же, что и добровольный пропуск (см. SB.Logic.SpendTurnManually):
+--   • эффекты тикают — кровотечение капает, дебафф приближается к концу;
+--   • возвращается единица ресурса — плата за ход, в котором ничего не
+--     применили.
+--
+-- Раньше здесь был только тик, с оговоркой «ресурса за пропуск не
+-- полагается, его не мы пропустили». На практике вышло наоборот: игрок,
+-- у которого Ведущий забрал ход, оказывался наказан дважды — и хода нет,
+-- и ресурса нет, — притом что сам он ничего не решал. Теперь отобранный
+-- ход и пропущенный неразличимы по последствиям.
+--
+-- ПАВШЕМУ РЕСУРС НЕ ИДЁТ. Ровно та же причина, по которой павший не
+-- может пропустить ход кнопкой: лежачему это была бы даровая
+-- регенерация. Тикать при этом тикает — время для него не стоит.
+--
+-- Функция ОДНА на оба пути (своя пометка у Ведущего и пакет у всех
+-- остальных): разъехавшись, они дали бы разные последствия одного и того
+-- же события в зависимости от того, кто ведёт сцену.
+-- ============================================================
+function TO.NoteSkippedTurn()
+    if SB.ActiveEffects and SB.ActiveEffects.TickAll then
+        SB.ActiveEffects.TickAll()
+    end
+
+    local PM = SB.PlayerModel
+    if not PM or PM.IsDowned() then return end
+
+    local regained = PM.RegainCastResource and PM.RegainCastResource(1) or 0
+    if regained > 0 then
+        -- Строка ЛОКАЛЬНАЯ: группе про чужой ресурс знать незачем, а сам
+        -- игрок должен понимать, откуда прибавка (см. тот же принцип у
+        -- SB.ActiveEffects.BreakOn).
+        print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BODY ..
+            "ход пропущен: +" .. regained .. " " .. PM.GetResourceName() .. ".|r")
+        SB.Events.Fire(SB.E.STATUS_CHANGED)
+    end
+end
+
+--- Отобранный ход — если среди пропущенных оказались МЫ.
 ---
 --- Зеркало той же строки в ApplyRemoteMark: у Ведущего свои пометки
 --- ставятся напрямую, пакета он себе не шлёт и через ApplyRemoteMark не
 --- проходит — а без этого его собственный отобранный ход был бы
---- единственным, за который эффекты не тикают.
+--- единственным, который не считался бы пропущенным.
 local function TickIfSkippedLocally(names)
-    if not SB.ActiveEffects or not SB.ActiveEffects.TickAll then return end
     local me = UnitName("player")
     for _, n in ipairs(names or {}) do
         if n == me then
-            SB.ActiveEffects.TickAll()
+            TO.NoteSkippedTurn()
             return
         end
     end
@@ -527,19 +701,12 @@ function TO.ApplyRemoteMark(t)
     state.index = tonumber(t.index) or state.index
     Changed()
 
-    -- ПРОПУЩЕННЫЙ ХОД — ТОЖЕ ХОД.
-    --
-    -- Ведущий передал очередь дальше (или нас пролистали без сознания), а
-    -- эффекты у нас не тикнули: кровотечение не капнуло, дебафф не
-    -- приблизился к концу, концентрация не потратилась. Получалось, что
-    -- отобранный ход ВЫГОДЕН — время для тебя останавливалось.
-    --
-    -- Тикаем ЗДЕСЬ, а не в SpendTurn: там ход тратит сам игрок, а тут
-    -- решение пришло со стороны, и никакого нашего действия не было.
-    -- Ничего кроме тика при этом не делаем — ни пути, ни ресурса за
-    -- пропуск не полагается, его не мы пропустили.
-    if skippedMe and SB.ActiveEffects and SB.ActiveEffects.TickAll then
-        SB.ActiveEffects.TickAll()
+    -- ПРОПУЩЕННЫЙ ХОД — ТОЖЕ ХОД: тик эффектов и единица ресурса, ровно
+    -- как у добровольного пропуска (см. врезку у TO.NoteSkippedTurn).
+    -- Здесь, а не в SpendTurn: там ход тратит сам игрок, а тут решение
+    -- пришло со стороны, и никакого нашего действия не было.
+    if skippedMe then
+        TO.NoteSkippedTurn()
     end
 end
 
@@ -568,6 +735,21 @@ function TO.ApplyRemoteState(t)
     -- Старое состояние (или клиент старой версии) поля не знает —
     -- значит предел действует: правила по умолчанию, а не поблажка.
     state.moveFree = t.moveFree == true
+
+    -- НОМЕР СЦЕНЫ СМЕНИЛСЯ — значит Ведущий запустил пошаговый режим
+    -- заново, и все, кто выбыл побегом, снова в строю. Единственный
+    -- способ вернуться, и он же единственная точка, где это происходит.
+    -- Пакет со старого клиента номера не несёт: тогда ничего не трогаем,
+    -- иначе беглец возвращался бы в очередь на каждом новом круге.
+    local newSession = tonumber(t.session)
+    if newSession and newSession ~= state.session then
+        state.session = newSession
+        if SB.PlayerModel and SB.PlayerModel.SetFled
+           and SB.PlayerModel.SetFled(false) then
+            print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BODY ..
+                "новая сцена — вы снова в очереди ходов.|r")
+        end
+    end
 
     -- Типы приходят из чужого клиента: имена обязаны быть строками, а
     -- слот — массивом. Кривой пакет не должен подвесить очередь.
@@ -709,7 +891,51 @@ local function SaveGMSettings()
     if not db then return end
     db.turnMode = state.mode
     db.moveFree = state.moveFree
-    -- turnTimeLimit пишет TO.SetTurnTimeLimit: у него своя проверка границ.
+    -- turnTimeLimit и autoRound пишут свои сеттеры: это личные настройки
+    -- Ведущего, а не состояние сцены, и в снимок очереди они не входят.
+end
+
+-- ============================================================
+-- НОВЫЙ КРУГ САМ
+--
+-- Пройденный круг ждёт нажатия, и это правильно по умолчанию: пауза
+-- между кругами — то место, где Ведущий описывает обстановку, добивает
+-- НПС и отвечает на вопросы. Но на длинной драке из десятка кругов это
+-- десять нажатий, каждое из которых ничего не решает.
+--
+-- ГАЛОЧКА ЛИЧНАЯ, А НЕ СЦЕННАЯ. Новый круг объявляет только Ведущий, у
+-- остальных этой кнопки нет вовсе — значит и рассылать флаг некому
+-- (в отличие от moveFree, который считает каждый клиент у себя).
+-- Живёт вместе с временем хода в SpellbreakerAccountDB.
+--
+-- ЗАДЕРЖКА ОБЯЗАТЕЛЬНА. Без неё «Круг пройден» и «Ход 7» приходят в
+-- один кадр, и сцена читается как один сплошной поток без границ кругов.
+-- Две секунды — время прочитать строку.
+-- ============================================================
+local AUTO_ROUND_DELAY = 2      -- секунд
+local autoRoundTimer   = nil
+-- Про застрявшую сцену говорим один раз, а не каждым пересчётом.
+local autoRoundStalled = false
+
+function TO.IsAutoRound()
+    return (SpellbreakerAccountDB and SpellbreakerAccountDB.autoRound) == true
+end
+
+--- Включить/выключить автоматический новый круг. Только Ведущий.
+function TO.SetAutoRound(v)
+    if not AssertGM() then return end
+    v = v and true or false
+    if TO.IsAutoRound() == v then return end
+    if SpellbreakerAccountDB then SpellbreakerAccountDB.autoRound = v end
+    autoRoundStalled = false
+    -- Объявляем: смена темпа сцены — общее знание, иначе игроки не
+    -- поймут, почему круг вдруг начал (или перестал) начинаться сам.
+    Announce(v and "Круги идут сами: новый начнётся через "
+                   .. AUTO_ROUND_DELAY .. " с после закрытия прошлого."
+               or  "Новый круг объявляет Ведущий.")
+    -- Круг мог быть пройден уже сейчас — тогда запускаем не дожидаясь
+    -- следующего действия (Changed зовёт MaybeAutoRound).
+    Changed()
 end
 
 --- Снять/вернуть предел передвижения на сцене. Только Ведущий, и сразу
@@ -726,6 +952,14 @@ function TO.SetMoveFree(v)
     Changed()
     Announce(v and "Предел передвижения снят: бегать можно свободно."
                or  "Предел передвижения действует: бег сверх него стоит здоровья.")
+end
+
+--- Чем кончается объявление о пройденном круге. Строк с этим хвостом
+--- четыре (закрыл Ведущий, походил последний, передан ход, все походили),
+--- и все они врали бы про «Ведущий объявит», когда круги идут сами.
+local function RoundOverTail()
+    return TO.IsAutoRound() and " Новый ход начнётся сам."
+                             or " Ведущий объявит новый ход."
 end
 
 --- Кто ходит сейчас — строкой для лога.
@@ -774,16 +1008,21 @@ local function AddNewcomers()
                 state.slots[1] = state.slots[1] or {}
                 table.insert(state.slots[1], name)
             elseif state.mode == "group" then
-                -- К своей рейдовой группе, если она уже в очереди.
+                -- К своей рейдовой группе, если она уже в очереди. Номер
+                -- берём из карты слотов, а не по первому имени в слоте:
+                -- то имя могло уехать в другую группу (см. slotGroup).
                 local myGroup, placed = SubgroupOf(name), false
-                for _, slot in ipairs(state.slots) do
-                    if slot[1] and SubgroupOf(slot[1]) == myGroup then
+                for i, slot in ipairs(state.slots) do
+                    if SlotGroup(i) == myGroup then
                         table.insert(slot, name)
                         placed = true
                         break
                     end
                 end
-                if not placed then state.slots[#state.slots + 1] = { name } end
+                if not placed then
+                    state.slots[#state.slots + 1] = { name }
+                    slotGroup[#state.slots] = myGroup
+                end
             else
                 state.slots[#state.slots + 1] = { name }
             end
@@ -833,6 +1072,63 @@ function TO.NewRound(rebuild, silent)
         Announce("Ход " .. state.round .. "." ..
             (who and (" Ходит: " .. who .. ".") or ""))
     end
+
+    -- ИСТОЩЕНИЕ — отдельной строкой и только на том круге, где ступень
+    -- прибавилась. Объявляет Ведущий, потому что правило действует на
+    -- всех сразу: каждому клиенту оно и так посчитается само, но узнать
+    -- о нём из молча недолеченной раны — худший способ.
+    local C     = SB.Data.Config or {}
+    local from  = tonumber(C.HealWearFrom)  or 0
+    local every = tonumber(C.HealWearEvery) or 0
+    if from > 0 and every > 0 and state.round >= from
+       and (state.round - from) % every == 0 then
+        Announce(string.format(
+            "Бой затягивается — силы на исходе. Всё исцеление слабее на %d.",
+            TO.GetHealWear()))
+    end
+end
+
+-- Хоть кто-то в очереди ещё на ногах. Нужно авто-кругу: круг, в котором
+-- все лежат, закрывается сам и мгновенно — то есть без этой проверки
+-- сцена крутила бы круги в пустоту, пока кого-нибудь не поднимут.
+local function AnyoneStanding()
+    for _, slot in ipairs(state.slots) do
+        for _, n in ipairs(slot) do
+            -- Сбежавший считается отсутствующим наравне с павшим: круг из
+            -- одних беглецов крутить так же бессмысленно, как из трупов.
+            if not IsAbsent(n) then return true end
+        end
+    end
+    return false
+end
+
+--- Запустить новый круг сам, если Ведущий об этом попросил.
+--- Зовётся из Changed, то есть из ЕДИНСТВЕННОЙ точки, через которую
+--- проходит любое изменение очереди: последний походивший, переданный
+--- ход, пролистанный павший, включённая галочка.
+function MaybeAutoRound()
+    if autoRoundTimer then return end
+    if not AssertGM() or not state.active then return end
+    if not TO.IsAutoRound() or not TO.IsRoundOver() then return end
+
+    if not AnyoneStanding() then
+        if not autoRoundStalled then
+            autoRoundStalled = true
+            Announce("Все участники без сознания — круги остановлены. " ..
+                "Новый ход придётся объявить вручную.")
+        end
+        return
+    end
+    autoRoundStalled = false
+
+    autoRoundTimer = C_Timer.NewTimer(AUTO_ROUND_DELAY, function()
+        autoRoundTimer = nil
+        -- Перепроверяем ВСЁ: за две секунды Ведущий мог нажать «Новый
+        -- ход» сам, выключить галочку или вовсе закончить сцену.
+        if not AssertGM() or not state.active then return end
+        if not TO.IsAutoRound() or not TO.IsRoundOver() then return end
+        TO.NewRound()
+    end)
 end
 
 function TO.Start()
@@ -840,6 +1136,14 @@ function TO.Start()
     if state.active then return end
     state.active = true
     state.round  = 0
+    -- НОВАЯ СЦЕНА — НОВЫЙ СОСТАВ. Инициатива бросается на бой целиком, и
+    -- сбежавшие возвращаются в строй ровно здесь: у остальных отметку
+    -- снимет ApplyRemoteState по этому же номеру, Ведущий снимает свою
+    -- сам (своего пакета он не получает).
+    state.session = (state.session or 0) + 1
+    if SB.PlayerModel and SB.PlayerModel.SetFled then
+        SB.PlayerModel.SetFled(false)
+    end
     -- Своё обнуление пути: у остальных это делает ApplyRemoteState, а
     -- Ведущий свой пакет не получает.
     if SB.Movement then SB.Movement.ResetDistance() end
@@ -901,7 +1205,7 @@ function TO.Advance()
         state.index = 0
         BroadcastMark(closed, true); Changed()
         TickIfSkippedLocally(closed)
-        Announce("Круг закрыт Ведущим. Дальше — новый ход.")
+        Announce("Круг закрыт Ведущим." .. RoundOverTail())
         return
     end
 
@@ -927,7 +1231,7 @@ function TO.Advance()
     TickIfSkippedLocally(closed)
 
     if state.index < 1 then
-        Announce("Круг пройден. Ведущий объявит новый ход.")
+        Announce("Круг пройден." .. RoundOverTail())
         return
     end
     local who = CurrentText()
@@ -971,7 +1275,7 @@ function TO.MarkActed(name, quiet)
     if state.mode == "all" then
         state.index = 0
         BroadcastMark({ name }); Changed()
-        if not quiet then Announce("Все походили. Ведущий объявит новый ход.") end
+        if not quiet then Announce("Все походили." .. RoundOverTail()) end
         return
     end
 
@@ -982,7 +1286,7 @@ function TO.MarkActed(name, quiet)
     if quiet then return end
 
     if state.index < 1 then
-        Announce("Круг пройден. Ведущий объявит новый ход.")
+        Announce("Круг пройден." .. RoundOverTail())
         return
     end
     local who = CurrentText()
@@ -1006,8 +1310,9 @@ end
 -- Отметка — «пропущен», а не «походил»: на рамках это разные значки, и
 -- «меня не спросили» обязано читаться иначе, чем «я отходил».
 --
--- Слот пропускается, только если в нём павшие ВСЕ: в режиме «по группе»
--- один упавший не должен лишать хода свою группу.
+-- Пропускается ПАВШИЙ, а не слот: в режиме «по группе» рядом с ним могут
+-- стоять живые, и их ход остаётся при них (см. подробности у самой
+-- проверки ниже).
 -- ============================================================
 local skippingDowned = false
 
@@ -1021,7 +1326,7 @@ function SkipDownedSlots(announceNext)
     if not state.active or not AssertGM() then return end
     skippingDowned = true
 
-    local closed = {}
+    local closed, reason = {}, {}
     -- Проходов не больше, чем слотов: очередь конечна, и на полностью
     -- павшей группе зацикливаться нельзя.
     for _ = 1, #state.slots + 1 do
@@ -1029,23 +1334,32 @@ function SkipDownedSlots(announceNext)
         local slot = (state.mode == "all") and state.slots[1] or state.slots[state.index]
         if not slot then break end
 
-        -- Кого именно пропускаем. В «все сразу» очереди нет, и павший
-        -- просто не участвует в круге — иначе круг не закроется никогда,
-        -- он ждёт всех.
+        -- Кого именно пропускаем — ПОИМЁННО, а не слотами целиком, и во
+        -- всех режимах одинаково: павший не участвует в круге, живые
+        -- рядом с ним участвуют.
+        --
+        -- Раньше в режиме «по группе» слот пропускался, только если в нём
+        -- лежали ВСЕ: считалось, что иначе один упавший лишит хода свою
+        -- группу. Выходило ровно наоборот. Слот закрывается, когда
+        -- отходили все, кто в нём стоит, — а павший походить не может: ни
+        -- применить способность, ни даже пропустить ход (см. PM.IsDowned).
+        -- То есть смешанная группа «живой + труп» вешала круг НАСМЕРТЬ:
+        -- живой отыгрывал, очередь ждала мертвеца, и починить это можно
+        -- было только кнопкой «Передать ход» каждый круг. Заодно павшему
+        -- на экран выезжало «Ваш ход», на который он ничем не мог
+        -- ответить.
+        --
+        -- Поимённая пометка ничего у группы не отнимает: живые как стояли
+        -- в своём слоте, так и стоят, из списка ожидания уходит только
+        -- тот, кого всё равно некому дождаться.
+        -- Причину помним по имени: объявление ниже разделяет павших и
+        -- сбежавших, а очередь обходится с ними одинаково.
         local doomed = {}
-        if state.mode == "all" then
-            for _, n in ipairs(slot) do
-                if not state.acted[n] and IsDowned(n) then doomed[#doomed + 1] = n end
-            end
-        else
-            local allDown = true
-            for _, n in ipairs(slot) do
-                if not state.acted[n] and not IsDowned(n) then allDown = false break end
-            end
-            if allDown then
-                for _, n in ipairs(slot) do
-                    if not state.acted[n] then doomed[#doomed + 1] = n end
-                end
+        for _, n in ipairs(slot) do
+            local why = not state.acted[n] and IsAbsent(n) or nil
+            if why then
+                doomed[#doomed + 1] = n
+                reason[n] = why
             end
         end
         if #doomed == 0 then break end
@@ -1080,7 +1394,22 @@ function SkipDownedSlots(announceNext)
         local who = CurrentText()
         tail = who and (" Ходит: " .. who .. ".") or " Круг пройден."
     end
-    Announce("Без сознания, ход пропущен: " .. table.concat(closed, ", ") .. "." .. tail)
+
+    -- Две причины — две строки, и только те, по которым кто-то есть.
+    -- Одна общая («ход пропущен: Х, Y») скрывала бы от группы главное:
+    -- лежит человек или ушёл со сцены.
+    local down, fled = {}, {}
+    for _, n in ipairs(closed) do
+        local bucket = (reason[n] == "fled") and fled or down
+        bucket[#bucket + 1] = n
+    end
+    if #down > 0 then
+        Announce("Без сознания, ход пропущен: " .. table.concat(down, ", ") .. "." ..
+            ((#fled == 0) and tail or ""))
+    end
+    if #fled > 0 then
+        Announce("Сбежал из боя, ход пропущен: " .. table.concat(fled, ", ") .. "." .. tail)
+    end
 end
 
 --- Своё действие состоялось (зовётся из SB.Logic.SpendTurn — через неё
@@ -1227,14 +1556,57 @@ rosterWatch:SetScript("OnEvent", function()
         end
         state.slots[i] = keep
     end
+
+    -- ПЕРЕВОД ИЗ ГРУППЫ В ГРУППУ. Состав рейда меняется не только
+    -- приходом и уходом: игрока перетаскивают между рейдовыми группами
+    -- посреди сцены, и ходить он обязан со своей НОВОЙ группой. Раньше
+    -- очередь этого не замечала вовсе — расстановка запоминалась один
+    -- раз, и переведённый до конца боя оставался в старом слоте.
+    if state.mode == "group" then
+        if #slotGroup ~= #state.slots then DeriveSlotGroups() end
+        -- Границу берём ДО цикла: внутри мы дописываем слоты в конец, и
+        -- ipairs пошёл бы разбирать их же по второму разу.
+        local slotCount = #state.slots
+        for i = 1, slotCount do
+            local slot = state.slots[i]
+            for k = #slot, 1, -1 do
+                local name = slot[k]
+                local now  = SubgroupOf(name)
+                if now ~= slotGroup[i] then
+                    table.remove(slot, k)
+                    -- В слот своей новой группы, а нет такого — новым
+                    -- слотом в конец очереди: своя группа только что
+                    -- появилась в сцене, и места в ней ещё нет.
+                    local placed = false
+                    for j, other in ipairs(state.slots) do
+                        if slotGroup[j] == now then
+                            table.insert(other, name)
+                            placed = true
+                            break
+                        end
+                    end
+                    if not placed then
+                        state.slots[#state.slots + 1] = { name }
+                        slotGroup[#state.slots] = now
+                    end
+                    changed = true
+                end
+            end
+        end
+    end
+
     if not changed then return end
 
     -- Слот мог опустеть целиком — тогда он больше никого не ждёт.
-    local packed = {}
-    for _, slot in ipairs(state.slots) do
-        if #slot > 0 then packed[#packed + 1] = slot end
+    local packed, packedGroups = {}, {}
+    for i, slot in ipairs(state.slots) do
+        if #slot > 0 then
+            packed[#packed + 1] = slot
+            packedGroups[#packed] = slotGroup[i]
+        end
     end
     state.slots = packed
+    slotGroup   = packedGroups
     if state.index > #state.slots then state.index = 0 end
     if state.index == 0 and #state.slots > 0 and state.round > 0 then
         -- Ушёл тот, чей был ход, и очередь упёрлась в конец — не

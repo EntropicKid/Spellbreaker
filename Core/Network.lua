@@ -377,7 +377,7 @@ local function ParsePVPATK(t)
     if t.target ~= UnitName("player") then return end
     if SB.Logic and SB.Logic.HandlePvpAttackReceived then
         SB.Logic.HandlePvpAttackReceived(t.attacker, t.spellID, t.roll, t.mod, t.total,
-            t.isCrit == true, t.dmgBonus or 0, t.baseDmg, t.slot)
+            t.isCrit == true, t.dmgBonus or 0, t.baseDmg, t.slot, nil, t.persuade)
     end
 end
 
@@ -415,7 +415,8 @@ end
 local function ParseHEAL(t)
     if t.target ~= UnitName("player") then return end
     if SB.Logic and SB.Logic.HandleHealReceived then
-        SB.Logic.HandleHealReceived(t.healer, t.spellID, t.success == true, t.amount or 0)
+        SB.Logic.HandleHealReceived(t.healer, t.spellID, t.success == true,
+            t.amount or 0, tonumber(t.armor) or 0)
     end
 end
 
@@ -439,7 +440,7 @@ local function ParseAOEATK(t)
     if not SB.Logic or not SB.Logic.HandleAoeAttackReceived then return end
     SB.Logic.HandleAoeAttackReceived(t.caster, t.spellID, t.roll, t.mod, t.total,
         t.isCrit == true, t.dmgBonus or 0, t.baseDmg, t.radius, t.slot,
-        UnpackEpicenter(t), CasterCallsMeFriend(t))
+        UnpackEpicenter(t), CasterCallsMeFriend(t), t.persuade)
 end
 
 --- Рассеивание: «сними у себя вот эти школы, не больше стольких».
@@ -460,8 +461,13 @@ local function ParseDISPEL(t)
     end
     if next(schools) == nil then return end
 
+    -- Отсутствие поля (старый клиент без этого патча) читаем как
+    -- «друг»: так рассеивание снимает дебаффы — то же, что оно всегда и
+    -- делало до появления разделения по друзьям.
+    local friend = (t.friend ~= false)
+
     SB.Logic.HandleDispelReceived(t.caster, t.spellID, schools,
-        tonumber(t.count) or 1, t.effectID, tonumber(t.slot) or 0)
+        tonumber(t.count) or 1, t.effectID, tonumber(t.slot) or 0, friend)
 end
 
 --- Площадное лечение. Как и площадная атака, уходит всей группе: в
@@ -685,6 +691,10 @@ local function ParseSTATUS(sender, t)
     -- известно старое значение — оно и остаётся. Пакет без здоровья
     -- значит «не сказали», а не «умер» (см. BuildStatusPayload).
     existing.health         = t.health or existing.health or 20
+    -- Побег, наоборот, ЗАТИРАЕМ отсутствием: поле шлётся только пока
+    -- флаг стоит, и пакет без него значит «вернулся в строй». Оставь мы
+    -- старое значение — беглец не вернулся бы в очередь никогда.
+    existing.fled           = t.fled == true
     existing.maxHealth      = t.maxHealth or existing.maxHealth or 20
     -- Не «or {}»: короткий пакет PEER (см. BuildPeerStatusPayload) списка
     -- подготовленных не несёт, и затирать им уже известный список
@@ -1135,7 +1145,13 @@ end
 --- и присылал их). Вместе с ней ушли упаковщик SlimParts и распаковщик
 --- UnslimParts. Честность каста теперь сверяется по ФОНОВОМУ статусу,
 --- который и так рассылается: см. SB.Logic.VerifyIncomingCast.
-function SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, slot)
+--- persuade — «Внушение» атакующего. Едет ОТДЕЛЬНЫМ числом, а не внутри
+--- mod, потому что прибавляется не к попаданию, а только к закреплению
+--- дебаффа, и проверяет его цель у себя, вместе со своей «Волей»
+--- (см. SB.Skills.GetPersuasionDebuffBonus). Ноль не отправляем вовсе:
+--- у подавляющего большинства ударов дебаффа нет, и поле было бы
+--- балластом в каждом боевом пакете.
+function SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, slot, persuade)
     if not IsInGroup() then return end
 
     local t = {
@@ -1151,6 +1167,7 @@ function SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, dmg
         baseDmg  = baseDmg,
         slot     = tonumber(slot) or 0,
     }
+    if (tonumber(persuade) or 0) > 0 then t.persuade = persuade end
     SendToPlayer(t, targetName, "NORMAL")
 end
 
@@ -1158,10 +1175,11 @@ end
 --- канал и с радиусом. Одиночный вариант шлётся шёпотом ровно одной
 --- цели; здесь целей заранее нет, их определяет дистанция у получателя.
 --- @param epi table|nil  эпицентр площади (см. SB.Logic.GetAoeEpicenter)
-function SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, radius, slot, epi)
+--- @param persuade number|nil  «Внушение» заклинателя — см. SendPvpAttack
+function SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, radius, slot, epi, persuade)
     if not IsInGroup() then return end
 
-    SendToGroup(PackFriends(PackEpicenter({
+    local t = {
         action   = "AOEATK",
         caster   = UnitName("player"),
         spellID  = spellID,
@@ -1173,7 +1191,9 @@ function SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseD
         baseDmg  = baseDmg,
         radius   = radius or 0,
         slot     = tonumber(slot) or 0,
-    }, epi)), "NORMAL")
+    }
+    if (tonumber(persuade) or 0) > 0 then t.persuade = persuade end
+    SendToGroup(PackFriends(PackEpicenter(t, epi)), "NORMAL")
 end
 
 --- Площадной эффект (аура / площадной дебафф).
@@ -1241,12 +1261,15 @@ function SB.Net.SendPvpResult(attackerName, targetName, defRoll, defMod, defTota
     SendToPlayer(t, attackerName, "NORMAL")
 end
 
---- Рассеивание союзнику. Снимает получатель у себя: эффекты живут на
---- его клиенте, и никакой другой их не видит.
+--- Рассеивание. Снимает получатель у себя: эффекты живут на его
+--- клиенте, и никакой другой их не видит.
 --- @param schools table  множество школ { magic = true, ... }
 --- @param count number   потолок снятого за этот каст
 --- @param effectID string|nil  бонусный бафф заклинания, если он есть
-function SB.Net.SendDispel(targetName, spellID, schools, count, effectID, slot)
+--- @param friend boolean  считает ли ЗАКЛИНАТЕЛЬ цель своим другом —
+---        список друзей есть только у него, получателю его не видно
+---        (см. врезку «РАССЕИВАНИЕ» в Core/Logic.lua)
+function SB.Net.SendDispel(targetName, spellID, schools, count, effectID, slot, friend)
     if not IsInGroup() then return end
     SendToPlayer({
         action   = "DISPEL",
@@ -1257,6 +1280,7 @@ function SB.Net.SendDispel(targetName, spellID, schools, count, effectID, slot)
         count    = count or 1,
         effectID = effectID,
         slot     = tonumber(slot) or 0,
+        friend   = friend and true or false,
     }, targetName, "NORMAL")
 end
 
@@ -1356,7 +1380,10 @@ function SB.Net.SendTurnActed()
 end
 
 --- Целитель сообщает исцеляемому (и группе) результат лечения.
-function SB.Net.SendHealResult(targetName, spellID, success, amount)
+--- @param armorAmount number|nil  единицы брони, если заклинание чинит
+---        доспех (см. spell.repairArmor). Поля нет — старый клиент просто
+---        не увидит починки, всё остальное отработает как раньше.
+function SB.Net.SendHealResult(targetName, spellID, success, amount, armorAmount)
     if not IsInGroup() then return end
     local t = {
         action  = "HEAL",
@@ -1366,6 +1393,9 @@ function SB.Net.SendHealResult(targetName, spellID, success, amount)
         success = success and true or false,
         amount  = amount,
     }
+    -- Ноль не шлём вовсе: у обычного лечения это поле лишний вес в каждом
+    -- пакете, а починка — редкое заклинание.
+    if (tonumber(armorAmount) or 0) > 0 then t.armor = armorAmount end
     SendToPlayer(t, targetName, "NORMAL")
 end
 
@@ -1438,6 +1468,10 @@ local function BuildStatusPayload()
         -- не нулём: неизвестность не равна смерти.
         health         = snap.health or snap.maxHealth or 20,
         maxHealth      = snap.maxHealth or 20,
+        -- Побег из боя. Шлём ТОЛЬКО когда он есть: поле нужно очереди
+        -- ходов у Ведущего (см. TO.IsAbsent), а сбежавший в сцене —
+        -- редкость, и платить за него байтом в каждом статусе незачем.
+        fled           = snap.fled and true or nil,
         preparedSpells = snap.preparedSpells or {},
         -- Навык «Воля»: поднимает порог, который надо взять, чтобы
         -- навесить на этого игрока дебафф (см. SB.Skills.GetWillDebuffBonus).
