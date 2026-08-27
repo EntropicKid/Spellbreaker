@@ -56,10 +56,185 @@ function PM.IsCaster()
     return not SB.Data.NonCasterClasses[PM.GetClass()]
 end
 
-local function HasAnyItem(list)
-    for _, itemID in ipairs(list or {}) do
-        if (GetItemCount(itemID, false) or 0) > 0 then
-            return true
+-- ============================================================
+-- МУЛЬТИКЛАСС: ЧТО ИМЕННО ДАЮТ ПРЕДМЕТЫ
+--
+-- Предмет — это пара «класс + ранг» (см. Config.MasteryItems). Держишь
+-- его — значит этот класс тебе открыт по этот ранг: его заклинания
+-- можно готовить в полную силу и его вкладка есть в библиотеке.
+--
+-- ЧТО ОТКРЫТО ЛЮБОМУ ПЕРСОНАЖУ БЕЗ ЕДИНОЙ ВЕЩИ:
+--
+--   • НЕКАСТЕРСКИЕ ШКОЛЫ — воин, разбойник, охотник и прочие из
+--     NonCasterClasses. Предметов ранга для них не бывает вовсе: их
+--     умения — это выучка, а не магия, и растут они с уровнем. Закрыть
+--     их значило бы оставить персонажа без половины обычных действий.
+--
+--   • СВОЙ КАСТЕРСКИЙ КЛАСС. Тот, которым персонаж записан в игре.
+--     Без вещи — низшим рангом, с вещью своего класса — по её рангу.
+--
+-- ЧТО ОТКРЫВАЮТ ПРЕДМЕТЫ: ЧУЖИЕ КАСТЕРСКИЕ ШКОЛЫ. В этом и весь
+-- мультикласс — жрец с паладинской вещью получает паладина, и получает
+-- ровно по тот ранг, который на вещи написан.
+--
+-- ЧУЖАЯ ШКОЛА БЕЗ ВЕЩИ ЗАКРЫТА СОВСЕМ. Прежнее правило «чужая школа
+-- доступна на круг ниже своей» отменено: оно противоречит самой идее
+-- предмета-ключа. Пока оно действовало, жрец и без единой вещи листал
+-- чернокнижника с друидом в библиотеке и готовил их заклинания — то
+-- есть мультикласс существовал сам по себе, а вещи ничего не решали.
+--
+-- МАСТЕР-ПРЕДМЕТ ДАЁТ ВСЕ КЛАССЫ, НО ТОЛЬКО НА SANCTUARY. На Origins
+-- таких вещей нет вовсе, и признавать их там значило бы раздать всё
+-- каждому, кто завёз вещь с другого реалма.
+--
+-- РАНГ ТЕПЕРЬ ПРИНАДЛЕЖИТ ШКОЛЕ, А НЕ ГЕРОЮ. «Эксперт» значит
+-- «эксперт в жреческом», а не «эксперт вообще»; в паладинском тот же
+-- персонаж может быть неофитом. Общий ранг героя (PM.GetMastery) стал
+-- рангом ЕГО СОБСТВЕННОЙ школы — см. PM.RefreshMastery.
+-- ============================================================
+
+--- Держим ли мы предмет, привязанный к этому классу.
+---
+--- Отдельно от GetClassRank, потому что спрашивают её РАНЬШЕ него: по
+--- ней решается, показывать ли вообще класс, скрытый на реалме
+--- (см. SB.Data.IsClassHiddenForPlayer). Спросить там полный
+--- GetClassRank нельзя — он сам заглядывает в скрытость, и вышел бы
+--- круг.
+function PM.HasClassItem(className)
+    if not className or className == "" then return false end
+    local allowMaster = SB.Data.IsSanctuaryRealm and SB.Data.IsSanctuaryRealm()
+    for itemID, def in pairs(SB.Data.Config.MasteryItems or {}) do
+        if type(def) == "table" then
+            local fits = (def.class == className)
+                or (def.class == SB.Data.ALL_CLASSES and allowMaster)
+            if fits and (GetItemCount(itemID, false) or 0) > 0 then return true end
+        end
+    end
+    return false
+end
+
+--- Ранг, по которому персонажу открыт КОНКРЕТНЫЙ класс.
+--- @param className string|nil
+--- @return string|nil  имя ранга либо nil — класс не открыт
+function PM.GetClassRank(className)
+    if not className or className == "" then return nil end
+
+    -- КЛАСС, КОТОРОГО НА РЕАЛМЕ НЕТ, ЗАКРЫТ. На Origins это паладин,
+    -- монах, охотник на демонов и рыцарь смерти: их там не существует, и
+    -- открывать их некастерской лестницей по уровню было бы неверно —
+    -- монаха мог бы «выучить» любой, просто дорастя до пятнадцатого.
+    --
+    -- Предмет это правило ПРОБИВАЕТ, и проверка уже учитывает его сама
+    -- (см. IsClassHiddenForPlayer): вещь на паладина-эксперта и есть
+    -- разрешение играть паладином там, где паладинов не выдают.
+    if SB.Data.IsClassHiddenForPlayer(className) then return nil end
+
+    local ranks   = SB.Data.GetMasteryList()
+    local best    = nil
+    local bestIdx = 0
+
+    local function Take(rank)
+        local idx = SB.Data.MasteryIndex(rank) or 0
+        -- Ранг сверх потолка реалма не засчитываем: вещь пятого ранга,
+        -- завезённая на трёхранговый реалм, не должна давать больше,
+        -- чем там вообще бывает.
+        if idx > #ranks then return end
+        if idx > bestIdx then best, bestIdx = rank, idx end
+    end
+
+    -- ── НЕКАСТЕРСКАЯ ШКОЛА — ОТКРЫТА ВСЕМ ─────────────────
+    --
+    -- Предметов ранга для неё не бывает: это выучка, а не магия, и
+    -- растёт она с уровнем. Но СВОЯ выучка растёт быстрее чужой —
+    -- иначе воин был бы в разбойничьем ровно так же хорош, как сам
+    -- разбойник (см. врезку о двух лестницах в Core/Database.lua).
+    if SB.Data.NonCasterClasses[className] then
+        local lvl = UnitLevel("player") or 1
+        if className == PM.GetClass() then
+            return SB.Data.GetMasteryForLevel(lvl)
+        end
+        return SB.Data.GetForeignMasteryForLevel(lvl)
+    end
+
+    -- ── СВОЙ КАСТЕРСКИЙ КЛАСС — ОТКРЫТ ВСЕГДА ─────────────
+    -- Хотя бы низшим рангом: персонаж владеет своей школой по
+    -- определению, вещь лишь поднимает его в ней выше.
+    if className == PM.GetClass() then
+        Take(ranks[1] or "Неофит")
+    end
+
+    -- ── ПРЕДМЕТЫ ──────────────────────────────────────────
+    local allowMaster = SB.Data.IsSanctuaryRealm and SB.Data.IsSanctuaryRealm()
+    for itemID, def in pairs(SB.Data.Config.MasteryItems or {}) do
+        if type(def) == "table" and def.rank then
+            local fits = (def.class == className)
+                or (def.class == SB.Data.ALL_CLASSES and allowMaster)
+            if fits and (GetItemCount(itemID, false) or 0) > 0 then
+                Take(def.rank)
+            end
+        end
+    end
+
+    return best
+end
+
+--- Ранги открытых школ строкой: «Жрец:1;Паладин:3».
+---
+--- НОМЕРОМ РАНГА, А НЕ ИМЕНЕМ: имена длинные, а строка едет в каждом
+--- фоновом статусе, которых в рейде сорок штук по кругу. Номер — это
+--- позиция в SB.Data.Masteries, одна и та же у всех.
+---
+--- ЗАЧЕМ ЭТО ВООБЩЕ ЕДЕТ. Получатель удара проверяет, мог ли атакующий
+--- вообще применить заклинание такого круга (см.
+--- SB.Logic.VerifyIncomingCast). С тех пор как ранг разъехался по
+--- школам, вывести это из общего ранга героя нельзя: жрец-неофит с
+--- паладинской вещью эксперта законно кастует паладинский третий круг,
+--- и проверка по его собственному рангу объявила бы это мухлежом —
+--- публично, строкой в общем логе.
+function PM.PackClassRanks()
+    local parts = {}
+    for _, cn in ipairs(SB.Data.Classes or {}) do
+        local rank = PM.GetClassRank(cn)
+        if rank then
+            local idx = SB.Data.MasteryIndex(rank)
+            if idx then parts[#parts + 1] = cn .. ":" .. idx end
+        end
+    end
+    return table.concat(parts, ";")
+end
+
+--- Разобрать такую строку обратно: { ["Жрец"] = 1, ... }.
+function PM.UnpackClassRanks(str)
+    local out = {}
+    if type(str) ~= "string" or str == "" then return out end
+    for chunk in str:gmatch("[^;]+") do
+        local cls, idx = chunk:match("^(.-):(%d+)$")
+        if cls and SB.Data.Masteries[tonumber(idx)] then
+            out[cls] = tonumber(idx)
+        end
+    end
+    return out
+end
+
+--- Все классы, открытые персонажу, в порядке SB.Data.Classes.
+function PM.GetOpenClasses()
+    local out = {}
+    for _, cn in ipairs(SB.Data.Classes or {}) do
+        if PM.GetClassRank(cn) then out[#out + 1] = cn end
+    end
+    return out
+end
+
+--- Есть ли у нас хоть один предмет ЛЮБОГО класса на этот ранг.
+--- Нужна общему рангу персонажа (см. PM.RefreshMastery): он по-прежнему
+--- один на всего героя и берётся по лучшей вещи в сумке.
+local function HasItemOfRank(rank)
+    local allowMaster = SB.Data.IsSanctuaryRealm and SB.Data.IsSanctuaryRealm()
+    for itemID, def in pairs(SB.Data.Config.MasteryItems or {}) do
+        if type(def) == "table" and def.rank == rank then
+            if def.class ~= SB.Data.ALL_CLASSES or allowMaster then
+                if (GetItemCount(itemID, false) or 0) > 0 then return true end
+            end
         end
     end
     return false
@@ -89,6 +264,83 @@ local bagsReady = false
 --- само правило, а не только его последствия (см. Tests/run.lua).
 function PM.AreBagsReady() return bagsReady end
 
+-- ============================================================
+-- КОГДА НАБОР ОТКРЫТЫХ ШКОЛ ИЗМЕНИЛСЯ
+--
+-- Слепком, а не сравнением списков: школ дюжина, слепок — одна строка,
+-- и сравнение её со вчерашней стоит ровно ничего. То же, чем гасятся
+-- повторные рассылки статуса (см. ScheduleStatusBroadcast).
+--
+-- В слепок входит И РАНГ КАЖДОЙ ШКОЛЫ, а не только их состав: поднявшись
+-- в паладинском с неофита до эксперта, набор школ игрок не поменял, а
+-- вот круги подготовки и бонус к броску — да, и библиотеке об этом надо
+-- знать.
+-- ============================================================
+local lastAccessSig   = nil
+local lastAccessCount = 0
+
+--- @return string слепок, number сколько школ открыто
+local function AccessSignature()
+    local parts, n = {}, 0
+    for _, cn in ipairs(SB.Data.Classes or {}) do
+        local rank = PM.GetClassRank(cn)
+        if rank then
+            n = n + 1
+            parts[#parts + 1] = cn .. "=" .. rank
+        end
+    end
+    return table.concat(parts, ";"), n
+end
+
+--- Сравнить набор со вчерашним и, если он поехал, сказать об этом.
+---
+--- ДО ПОДТВЕРЖДЕНИЯ СУМОК МОЛЧИМ ТОЛЬКО ОБ УБЫЛИ, и это то же правило,
+--- по которому не понижается ранг (см. bagsReady). При входе в игру
+--- GetItemCount отвечает нулём по всему, что лежит в сумках: «школы
+--- пропали» там означает не «предмет потерян», а «мы ещё не знаем», и
+--- перестраивать по этому библиотеку — значит мигнуть ей пустотой.
+---
+--- А вот ПРИБЫЛЬ до подтверждения сумок — сведения настоящие: нашлась
+--- вещь, значит данные уже пришли. Глуши мы и её, событие не дошло бы
+--- ни разу за весь сеанс у того, у кого сумки подтверждаются позже
+--- первого пересчёта.
+local function NotifyAccessChanged()
+    local sig, count = AccessSignature()
+    if sig == lastAccessSig then return end
+
+    local shrank = (lastAccessSig ~= nil) and (count < lastAccessCount)
+
+    -- СЛЕПОК ОБНОВЛЯЕМ ВСЕГДА, даже когда промолчим.
+    --
+    -- Первая версия пропускала и обновление тоже — и слепок застревал
+    -- на старом наборе навсегда: любое следующее сравнение шло с
+    -- позавчерашним состоянием, и настоящее пополнение переставало
+    -- выглядеть пополнением. Событие не приходило больше ни разу за
+    -- сеанс.
+    lastAccessSig, lastAccessCount = sig, count
+
+    -- МОЛЧИМ ТОЛЬКО ОБ УБЫЛИ И ТОЛЬКО ДО ПОДТВЕРЖДЕНИЯ СУМОК — то же
+    -- правило, по которому не понижается ранг (см. bagsReady). При входе
+    -- в игру GetItemCount отвечает нулём по всему, что лежит в сумках:
+    -- «школы пропали» там значит не «предмет потерян», а «мы ещё не
+    -- знаем», и перестраивать по этому библиотеку — значит мигнуть ей
+    -- пустотой. Когда сумки дочитаются, набор вернётся и о нём скажут.
+    if shrank and not bagsReady then return end
+
+    -- ВЫТЕСНЕНИЕ ИДЁТ ПЕРЕД СОБЫТИЕМ, а не после: на CLASS_ACCESS_CHANGED
+    -- подписана библиотека, и перестраиваться ей надо уже по вычищенному
+    -- списку. Иначе кадр-другой в ряду подготовленных висели бы карточки,
+    -- которых там больше нет.
+    --
+    -- Только при подтверждённых сумках: это единственная разрушительная
+    -- вещь во всём пересчёте, и делать её по данным «мы ещё не знаем»
+    -- значит стереть человеку подготовку за то, что клиент не успел
+    -- прочитать сумку (см. bagsReady).
+    if bagsReady then PM.EvictUnjustifiedSpells() end
+
+    if SB.Events then SB.Events.Fire(SB.E.CLASS_ACCESS_CHANGED) end
+end
+
 --- Пересчитывает ранг (по предметам у кастеров, по уровню у
 --- некастеров) и применяет его, если он изменился. Вызывается при
 --- инициализации, по BAG_UPDATE, по входу в мир и по PLAYER_LEVEL_UP.
@@ -101,21 +353,33 @@ function PM.RefreshMastery()
     local newMastery = ranks[1] or "Неофит"
 
     if PM.IsCaster() then
-        local items = SB.Data.Config.MasteryItems
-        if items then
-            for i = #ranks, 1, -1 do
-                if HasAnyItem(items[ranks[i]]) then
-                    newMastery = ranks[i]
-                    break
-                end
-            end
-        end
+        -- РАНГ ГЕРОЯ — ЭТО РАНГ ЕГО СОБСТВЕННОЙ ШКОЛЫ, а не лучшая вещь
+        -- в сумке. Раньше любая вещь любого класса поднимала персонажу
+        -- всё разом: жрец с паладинской вещью становился «экспертом» и
+        -- получал экспертские модификатор броска, ресурс и ячейки, не
+        -- продвинувшись в жреческом ни на шаг.
+        --
+        -- Теперь ранг принадлежит школе. Всё, что этот ранг питает
+        -- (Modifiers/MaxZeal/MaxPrepared), считается по родной школе —
+        -- она и есть то, чем персонаж владеет как своим. Чужие школы
+        -- живут по своим рангам, каждая по своей вещи (GetClassRank).
+        newMastery = PM.GetClassRank(PM.GetClass()) or (ranks[1] or "Неофит")
     else
         -- Пороги задаёт реалм: Sanctuary — своей таблицей 10/35/60/75/90,
         -- Origins — историческими 11/18 по эталонной шкале. Вся развилка
         -- живёт в SB.Data.GetMasteryForLevel.
         newMastery = SB.Data.GetMasteryForLevel(UnitLevel("player") or 1)
     end
+
+    -- ДОСТУП К ШКОЛАМ ПРОВЕРЯЕМ ДО ВЫХОДА ПО РАНГУ.
+    --
+    -- Ранг героя и набор открытых школ меняются НЕЗАВИСИМО: подобранная
+    -- паладинская вещь открывает целую школу, не сдвинув родной ранг ни
+    -- на ступень. Пока проверка стояла после выхода «ранг не изменился»,
+    -- о таком событии не узнавал никто — библиотека показывала прежние
+    -- вкладки до перезагрузки интерфейса, и это выглядело так, будто
+    -- предмет не работает вовсе.
+    NotifyAccessChanged()
 
     local current = PM.GetMastery()
     if current == newMastery then return end
@@ -182,12 +446,30 @@ masteryWatcher:RegisterEvent("BAG_UPDATE_DELAYED")
 masteryWatcher:RegisterEvent("PLAYER_ENTERING_WORLD")
 masteryWatcher:RegisterEvent("PLAYER_LEVEL_UP")
 masteryWatcher:RegisterEvent("PLAYER_LEVEL_CHANGED")
+-- ============================================================
+-- СУМКИ ПРОЧИТАНЫ
+--
+-- Отдельной функцией, потому что дел здесь два, и второе легко забыть.
+-- Первое — снять запрет на понижение (см. bagsReady).
+--
+-- Второе: ПРОВЕРИТЬ ПОДГОТОВКУ, даже если набор школ не сдвинулся. Вещь
+-- могли снять, пока персонаж был оффлайн, — тогда при входе снимок
+-- «до сумок» и снимок «после» совпадут (в обоих её нет), сравнение в
+-- NotifyAccessChanged промолчит, и заклинания, которые эта вещь
+-- оправдывала, останутся в пуле навсегда. Первая же честная сверка после
+-- чтения сумок и есть то место, где это ловится.
+local function MarkBagsReady()
+    local first = not bagsReady
+    bagsReady = true
+    RefreshMasteryNow()
+    if first then PM.EvictUnjustifiedSpells() end
+end
+
 masteryWatcher:SetScript("OnEvent", function(_, event)
     -- Сумки досчитаны: с этого момента отсутствие вещи — это правда
     -- отсутствие, и ранг можно не только повышать.
     if event == "BAG_UPDATE_DELAYED" then
-        bagsReady = true
-        RefreshMasteryNow()
+        MarkBagsReady()
         return
     end
 
@@ -202,10 +484,7 @@ masteryWatcher:SetScript("OnEvent", function(_, event)
     -- запрета ранг нельзя было бы понизить до конца сеанса.
     if event == "PLAYER_ENTERING_WORLD" then
         RefreshMasteryNow()
-        C_Timer.After(5, function()
-            bagsReady = true
-            RefreshMasteryNow()
-        end)
+        C_Timer.After(5, MarkBagsReady)
         return
     end
     -- Следующим кадром: сейчас UnitLevel ещё старый (см. комментарий выше).
@@ -440,19 +719,6 @@ function PM.RestoreCastResource()
     if PM.IsCaster() then PM.RestoreZeal() else PM.RestoreClassResource() end
 end
 
---- Восполнить ресурс каста, НЕ превышая максимум.
---- Отличается от GrantCastResource ровно этим: та — ГМ-выдача, которой
---- превышение разрешено намеренно, а это обычное восстановление по
---- механике (пропуск хода, классовые триггеры).
---- @return number  сколько единиц реально прибавилось
-function PM.RegainCastResource(amount)
-    amount = math.floor(tonumber(amount) or 0)
-    if amount <= 0 then return 0 end
-    -- Правила прибавки (потолок; выданное ГМом сверх максимума не
-    -- срезается) — в PM.AdjustPool, одни на все источники.
-    return PM.AdjustPool(PM.CastPool(), amount)
-end
-
 -- ============================================================
 -- ДВА РАЗНЫХ ПУЛА: МАНА И РЕСУРС КЛАССА
 --
@@ -533,7 +799,7 @@ end
 --- чтобы снять остаток.
 ---
 --- Плюс не срезает выданное ГМом сверх максимума — та же оговорка, что
---- в PM.RegainCastResource.
+--- в PM.AdjustPool.
 --- @return number  насколько пул реально изменился (0 — пула нет)
 function PM.AdjustPool(pool, delta)
     delta = math.floor(tonumber(delta) or 0)
@@ -581,13 +847,14 @@ end
 -- текущего уровня персонажа в этот масштаб, один раз в каждой из
 -- функций ниже.
 --
--- Вся шкала поднята на единицу относительно первоначальной (2..8 → 3..9)
--- ИМЕННО ЗДЕСЬ, в базе, а не отдельным слагаемым: прибавка должна
--- достаться всем одинаково и не показываться игроку как ещё один
--- источник в разбивке максимума.
+-- Вся шкала поднята относительно первоначальной (2..8 → 5..11) ИМЕННО
+-- ЗДЕСЬ, в базе, а не отдельным слагаемым: прибавка должна достаться
+-- всем одинаково и не показываться игроку как ещё один источник в
+-- разбивке максимума. Сначала +1, затем ещё +2 — обе правки легли в
+-- те же числа, и в шапке персонажа от них не прибавилось ни строки.
 local HP_PROGRESSION = {
-    {1, 3}, {3, 3}, {5, 4}, {8, 4}, {10, 5}, {15, 5},
-    {18, 6}, {20, 6}, {21, 7}, {22, 7}, {23, 8}, {24, 8}, {25, 9},
+    {1, 5}, {3, 5}, {5, 6}, {8, 6}, {10, 7}, {15, 7},
+    {18, 8}, {20, 8}, {21, 9}, {22, 9}, {23, 10}, {24, 10}, {25, 11},
 }
 
 -- { [минимальный уровень] = бонус к броску }.
@@ -598,8 +865,13 @@ local ROLL_LEVEL_BONUS = {
 }
 
 --- Бонус к броску за уровень персонажа (0 до 3-го уровня по эталонной шкале).
-function PM.GetLevelModifier()
-    local lvl = SB.Data.ToReferenceLevel(UnitLevel("player") or 1)
+--- Прибавка за ПРОИЗВОЛЬНЫЙ уровень. Вынесена из GetLevelModifier, чтобы
+--- ту же лестницу можно было применить не только к себе: у существа
+--- уровень свой, а правило обязано быть общим — иначе НПС считался бы по
+--- второй, отдельно написанной шкале (см. SB.NPC.DefenseModifier).
+--- @param level number  уровень ПО ЭТАЛОННОЙ ШКАЛЕ
+function PM.LevelModifierFor(level)
+    local lvl = tonumber(level) or 1
     local val = 0
     for _, pair in ipairs(ROLL_LEVEL_BONUS) do
         if lvl >= pair[1] then
@@ -609,6 +881,10 @@ function PM.GetLevelModifier()
         end
     end
     return val
+end
+
+function PM.GetLevelModifier()
+    return PM.LevelModifierFor(SB.Data.ToReferenceLevel(UnitLevel("player") or 1))
 end
 
 function PM.GetHealth()
@@ -664,6 +940,38 @@ function PM.SetFled(v)
     return true
 end
 
+-- ============================================================
+-- ВЫШЕЛ ИЗ ГРУППЫ — ВЫШЕЛ ИЗ СЦЕНЫ
+--
+-- Побег снимался ровно одним способом: новым номером сессии в пакете
+-- очереди от Ведущего (см. TO.Start). Внутри одной сцены это верно, но
+-- между сценами разваливается: игрок сбежал из одного рейда, ушёл,
+-- вступил в другой — и остался помеченным беглецом. Новый Ведущий,
+-- собирая очередь, читает этот флаг из его же статуса и честно
+-- пролистывает первый ход. Номер сессии тут не спасает: он у каждого
+-- Ведущего свой и с чужим совпадает запросто.
+--
+-- ПРОВЕРЯЕМ «НЕ В ГРУППЕ», А НЕ «СОСТАВ ИЗМЕНИЛСЯ». Побег обязан
+-- переживать и приход новичка, и уход соседа, и передачу лидерства —
+-- всё это одна и та же сцена. А вот выйти из группы, не покинув сцену,
+-- нельзя: в другой рейд без этого не вступишь.
+--
+-- Флаг снимается ЛОКАЛЬНО, но доезжает сам: SetFled шлёт
+-- STATUS_CHANGED, и у нового Ведущего в статусе поля fled уже не будет
+-- (см. ParseSTATUS — отсутствие поля там значит «вернулся в строй»).
+-- ============================================================
+local groupWatch = CreateFrame("Frame")
+groupWatch:RegisterEvent("GROUP_ROSTER_UPDATE")
+groupWatch:RegisterEvent("PLAYER_ENTERING_WORLD")
+groupWatch:SetScript("OnEvent", function()
+    if IsInGroup() then return end
+    if not SpellbreakerCharDB then return end   -- модель ещё не поднялась
+    if PM.SetFled(false) then
+        print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BODY ..
+            "вы покинули группу — отметка «сбежал» снята.|r")
+    end
+end)
+
 --- Максимум здоровья, вычисленный по текущему уровню персонажа
 --- + бонус от навыка "Живучесть" (+1 ХП за каждую точку сверх 1).
 function PM.GetMaxHealth()
@@ -688,13 +996,18 @@ function PM.GetMaxHealth()
     -- GetClassProfile().health здесь больше нет: с ним классовый сдвиг
     -- учитывался дважды, и −1 у Мага снимал 2 единицы максимума.
     val = val + SB.Data.GetSoftBonus("health")
-    -- Зажим снизу тройкой: на 1-2 уровнях база и так равна 3, и минус
-    -- профиля означал бы «один удар — труп» с самого старта. На высоких
-    -- уровнях, где база 7-9, минус работает в полную силу. Тот же зажим
-    -- спасает и от дебаффа, который увёл бы максимум в ноль или минус.
-    -- Едет вместе с базой (было 2 при базе 2): иначе классы с health = -1
-    -- единственные не получили бы общую прибавку в единицу.
-    return math.max(3, val)
+    -- ЗАЖИМ СНИЗУ — ДВОЙКА, И ОН БОЛЬШЕ НЕ ЕДЕТ ЗА БАЗОЙ.
+    --
+    -- Раньше он повторял базовое значение первого уровня, и минус
+    -- профиля на старте просто не работал: Гном-Маг с двумя минусами
+    -- получал ту же пятёрку, что и все. То есть выбор невыгодной пары
+    -- ничего не стоил ровно там, где он должен стоить больше всего.
+    -- Теперь такая пара честно начинает с тройки.
+    --
+    -- Двойка остаётся как последний предохранитель: она спасает от
+    -- дебаффа, который увёл бы максимум в ноль или минус, — а ноль
+    -- максимума означает павшего без единого удара по нему.
+    return math.max(2, val)
 end
 
 --- Устанавливает здоровье, зажимая в [0, maxHealth].
@@ -825,7 +1138,20 @@ local function FollowMax(cur, oldMax, newMax)
         return cur + (newMax - oldMax)          -- усиление сразу даёт запас
     end
     if cur > newMax then
-        return newMax                            -- срез потолка забирает «излишек»
+        -- ЗАБИРАЕМ РОВНО ТО, НА СКОЛЬКО ПРОСЕЛ ПОТОЛОК, а не всё сверх
+        -- нового потолка.
+        --
+        -- Раньше здесь стоял `return newMax`, и это ломало намеренную
+        -- выдачу здоровья сверх максимума: Ведущий вправе выдать её
+        -- (см. PM.GrantHealth и ветку HEALTH в Core/ResourceGrant.lua),
+        -- но пережить она могла только до первого же эффекта, который
+        -- шевельнёт максимум хоть на единицу. В бою это выглядело так:
+        -- «сто здоровья при максимуме четыре» в одной строке лога и
+        -- «один» в следующей — сто ХП исчезали от чужого дебаффа.
+        --
+        -- Обычный случай не изменился: у персонажа при полном здоровье
+        -- cur == oldMax, и срез потолка на N забирает те же N.
+        return math.max(newMax, cur - (oldMax - newMax))
     end
     return nil
 end
@@ -964,7 +1290,10 @@ SB.Events.On(SB.E.ACTIVE_EFFECTS_CHANGED, PM.SyncToMaximums)
 function PM.IsOwnClassSpell(spellClass)
     if not spellClass or spellClass == "" then return true end
     if spellClass == "Эффект" then return true end
-    return spellClass == PM.GetClass()
+    -- «Своё» теперь значит «открытое», а не «совпадает с классом
+    -- персонажа»: жрец с паладинским предметом готовит паладинские
+    -- заклинания в полную силу (см. врезку о мультиклассе выше).
+    return PM.GetClassRank(spellClass) ~= nil
 end
 
 --- Максимальный круг, который персонаж может ПОДГОТОВИТЬ для заклинания
@@ -972,11 +1301,21 @@ end
 --- @param spellClass string|nil
 --- @return number
 function PM.GetMaxPrepareOrder(spellClass)
-    local maxOrder = SB.Data.MaxOrderFor(PM.GetMastery())
-    if PM.IsOwnClassSpell(spellClass) then
-        return maxOrder
+    -- ОТКРЫТЫЙ КЛАСС — ПО СВОЕМУ РАНГУ, а не по общему рангу героя.
+    -- Паладинский неофит открывает паладина ПЕРВЫМ кругом, даже если сам
+    -- герой ходит экспертом по жреческой вещи: ранг вещи и есть мера
+    -- того, насколько ты владеешь этой школой.
+    if not spellClass or spellClass == "" or spellClass == "Эффект" then
+        return SB.Data.MaxOrderFor(PM.GetMastery())
     end
-    return math.max(0, maxOrder - 1)
+
+    local rank = PM.GetClassRank(spellClass)
+    if rank then return SB.Data.MaxOrderFor(rank) end
+
+    -- ЗАКРЫТАЯ ШКОЛА НЕДОСТУПНА ЦЕЛИКОМ, а не «на круг ниже». Минус
+    -- единица, а не ноль: ноль — это круг заговоров, вполне рабочий, и
+    -- вернув его, мы оставили бы чужую школу наполовину открытой.
+    return -1
 end
 
 --- Возвращает копию списка (чтобы никто не мог мутировать напрямую).
@@ -1000,7 +1339,14 @@ end
 --- Возвращает true при успехе или строку с ошибкой:
 --- "locked" | "class_hidden" | "order_too_high" | "full" | "duplicate"
 --- @param spellID  string
+--- ПРЕДМЕТ СЮДА НЕ ХОДИТ. У него свои три ячейки и своя сумка
+--- (см. Core/Items.lua): попади он в ячейки заклинаний — и игрок начал
+--- бы выбирать между «выучить заклинание» и «взять с собой зелье», чего
+--- разделение и заводилось избежать.
 function PM.PrepareSpell(spellID)
+    if SB.Items and SB.Items.IsItem and SB.Items.IsItem(spellID) then
+        return "is_item"
+    end
     if PM.IsLocked() then
         return "locked"
     end
@@ -1060,6 +1406,57 @@ function PM.UnprepareSpell(spellID)
         end
     end
     return false
+end
+
+-- ============================================================
+-- ВЫТЕСНЕНИЕ ПОДГОТОВЛЕННОГО, ЧТО БОЛЬШЕ НЕЧЕМ ОПРАВДАТЬ
+--
+-- Подготовка — снимок прошлого: заклинания легли в пул тогда, когда
+-- ранг это позволял, и сами оттуда не уходят. Убери паладин-эксперт
+-- предмет, которым его экспертство и держалось, — школа закрывается,
+-- третий круг закрывается, а подготовленные третьекруговые остаются
+-- висеть и работать. Правило превращается в «нужен предмет НА МОМЕНТ
+-- подготовки», то есть в ничто: достаточно одолжить вещь, подготовиться
+-- и вернуть.
+--
+-- ЗАМОК ПОСЛЕ КАСТА ЗДЕСЬ НЕ ДЕЙСТВУЕТ, в отличие от PM.UnprepareSpell.
+-- Замок стережёт ПЕРЕподготовку — чтобы нельзя было менять набор по ходу
+-- сцены. А это не выбор игрока и не перестановка: это снятие того, на
+-- что больше нет права. Уважь мы замок — обход был бы механическим:
+-- кастануть что угодно, снять предмет, и до отдыха всё в пуле остаётся
+-- твоим.
+--
+-- Молча тоже нельзя: заклинания исчезают из ряда сами, и человек должен
+-- знать, почему.
+--
+-- @return number сколько вытеснено
+function PM.EvictUnjustifiedSpells()
+    local list = db().preparedSpells
+    if type(list) ~= "table" or #list == 0 then return 0 end
+
+    local kept, dropped = {}, {}
+    for _, id in ipairs(list) do
+        local sp = SB.Data.Spells[id]
+        -- Незнакомое заклинание не трогаем: его могли добавить кастомным
+        -- и ещё не прислать. Судить о том, чего не видим, нельзя.
+        if sp and (sp.level or 0) > PM.GetMaxPrepareOrder(sp.class) then
+            dropped[#dropped + 1] = sp.name or id
+        else
+            kept[#kept + 1] = id
+        end
+    end
+    if #dropped == 0 then return 0 end
+
+    db().preparedSpells = kept
+    print("|cFF9933FF[Spellbreaker]|r: |cFFFF4444расподготовлено (нет ранга): |r" ..
+        table.concat(dropped, ", ") .. "|cFFFF4444.|r")
+
+    SB.Events.Fire("PREPARED_SPELLS_CHANGED")
+    -- Пул уехал — значит уехал и статус: по нему у сокомандников
+    -- проверяется чужой каст (см. SB.Logic.VerifyIncomingCast), и
+    -- несвежий список там оборачивается претензией на пустом месте.
+    SB.Events.Fire(SB.E.STATUS_CHANGED)
+    return #dropped
 end
 
 --- Полностью очищает список подготовленных заклинаний.
@@ -1158,6 +1555,15 @@ function PM.GetStatusSnapshot()
         -- модификатором, а не значением атрибута, по той же причине, что
         -- и «Воля»: считает его не хозяин числа, а тот, кому оно нужно.
         agi            = SB.Attributes and SB.Attributes.GetModifier("Ловкость") or nil,
+        -- «Скрытность» — по той же причине и тем же способом, что «Воля»:
+        -- считает по ней НЕ ХОЗЯИН числа, а тот, кто в него целится
+        -- (см. SB.Logic.GetStealthPenalty), и локально это значение ему
+        -- взять неоткуда.
+        --
+        -- GetEffective, а не Get, ровно как у «Воли»: спрятаться помогает
+        -- и зелье невидимости, и «Тень» — то есть висящие эффекты. Считай
+        -- мы вложенные очки, такой бафф работал бы только против себя.
+        stealth        = SB.Skills and SB.Skills.GetEffective("Скрытность") or nil,
     }
 end
 
@@ -1174,6 +1580,10 @@ function PM.FullReset()
     -- Доспех чинится ровно здесь и больше нигде: броня — расходуемый
     -- запас, и Короткий Отдых её не возвращает (см. SB.Skills.ResetArmor).
     if SB.Skills and SB.Skills.ResetArmor then SB.Skills.ResetArmor() end
+    -- Сумка доливается там же, где чинится доспех: выпитое за сцену
+    -- возвращается, взятые ячейки остаются взятыми
+    -- (см. SB.Items.RefillPrepared).
+    if SB.Items and SB.Items.RefillPrepared then SB.Items.RefillPrepared() end
     -- Пройденный путь тоже обнуляется. Отдельно оговорено, потому что по
     -- правилу путь сбрасывает пропуск хода, — но Долгий Отдых сбрасывает
     -- вообще всё, и персонаж, вставший после ночного привала уже упёртым

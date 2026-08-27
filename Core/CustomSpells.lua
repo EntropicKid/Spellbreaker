@@ -42,11 +42,6 @@ local function BuildIconList()
     end
 end
 
-local function IconCount()
-    BuildIconList()
-    return #allIcons
-end
-
 -- ============================================================
 -- § 2. ГЕНЕРАЦИЯ ID
 -- ============================================================
@@ -183,7 +178,7 @@ local function BuildIconPicker()
     SB.Theme.AttachPositionMemory(iconPickerFrame, "iconPickerPos", 0, 0)
     iconPickerFrame:SetFrameStrata("DIALOG")
     
-    pickerCountFS = iconPickerFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    pickerCountFS = iconPickerFrame:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
     pickerCountFS:SetPoint("TOPRIGHT", iconPickerFrame, "TOPRIGHT", -44, iconPickerFrame.contentY - 4)
     pickerCountFS:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
     
@@ -287,8 +282,11 @@ local fContBtn, fContDelBtn
 local fContID = nil
 local fContDur, fContIsConc
 
-local DIST_VALS   = { 0, 1.5, 5, 10, 20, 30, 40 }
-local DIST_LABELS = { "На себя", "Ближний бой", "5м", "10м", "20м", "30м", "40м" }
+-- Сдвинуты вместе со всей библиотекой (+1 м, ближний бой 1.5 → 2.5):
+-- иначе «Ближний бой» в редакторе значил бы не то же самое, что у
+-- завезённых заклинаний.
+local DIST_VALS   = { 0, 2.5, 6, 11, 21, 31, 41 }
+local DIST_LABELS = { "На себя", "Ближний бой", "6м", "11м", "21м", "31м", "41м" }
 
 -- ── Лимиты символов (UTF-8) (#2) ─────────────────────────────
 local LIMIT_NAME    = 20
@@ -319,7 +317,7 @@ end
 local function AttachCharLimit(eb, maxChars, counterParent)
     local counter
     if counterParent then
-        counter = counterParent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        counter = counterParent:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
         counter:SetPoint("TOPRIGHT", counterParent, "TOPRIGHT", -2, -2)
         counter:SetTextColor(0.6, 0.57, 0.5, 1)
     end
@@ -416,7 +414,7 @@ local DESC_MAX_H    = 300
 local function RefreshCreateFormGrowth()
     if not fDescWrap or not createFrame or not fDesc then return end
     local width = fDescWrap:GetWidth() - 10
-    local neededH = SB.Theme.MeasureCappedTextHeight(fDesc:GetText(), width, "ChatFontNormal", DESC_GROW_CAP)
+    local neededH = SB.Theme.MeasureCappedTextHeight(fDesc:GetText(), width, "SBFontChat", DESC_GROW_CAP)
     fDescWrap:SetHeight(math.max(DESC_MIN_H, math.min(DESC_MAX_H, neededH + 14)))
     C_Timer.After(0, function()
         SB.Theme.AutoGrowToFit(createFrame, createFrame.ccBg, 116, 480)
@@ -430,7 +428,7 @@ end
 local function RefreshContFormGrowth()
     if not fC_DescWrap or not contFrame or not fC_Desc then return end
     local width = fC_DescWrap:GetWidth() - 10
-    local neededH = SB.Theme.MeasureCappedTextHeight(fC_Desc:GetText(), width, "ChatFontNormal", DESC_GROW_CAP)
+    local neededH = SB.Theme.MeasureCappedTextHeight(fC_Desc:GetText(), width, "SBFontChat", DESC_GROW_CAP)
     fC_DescWrap:SetHeight(math.max(DESC_MIN_H, math.min(DESC_MAX_H, neededH + 14)))
     C_Timer.After(0, function()
         -- Якорь — saveBtn (contFrame.saveBtn), а не deleteBtn: последняя
@@ -520,7 +518,7 @@ local function BuildCreateFrame()
     AttachCharLimit(fKey, LIMIT_KEY, keyW)
 
     -- Description  (#2: лимит 1550)
-    local descLabel = createFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local descLabel = createFrame:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
     descLabel:SetPoint("TOPLEFT", keyW, "BOTTOMLEFT", 0, -6)
     descLabel:SetText("Полное описание работы:")
     descLabel:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
@@ -545,7 +543,7 @@ local function BuildCreateFrame()
     effectBg:SetBackdropColor(0.06, 0.05, 0.10, 0.80)
     effectBg:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
 
-    local durLabel = effectBg:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local durLabel = effectBg:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
     durLabel:SetPoint("LEFT", effectBg, "LEFT", 8, 0)
     durLabel:SetText("Длительность:")
     durLabel:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
@@ -557,14 +555,14 @@ local function BuildCreateFrame()
     local concChk = CreateFrame("CheckButton", nil, effectBg, "UICheckButtonTemplate")
     concChk:SetSize(20, 20)
     concChk:SetPoint("LEFT", durW, "RIGHT", 14, 0)
-    local concLbl = effectBg:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local concLbl = effectBg:CreateFontString(nil, "OVERLAY", "SBFontNormal")
     concLbl:SetPoint("LEFT", concChk, "RIGHT", 4, 0)
     concLbl:SetText("Концентрация")
     concLbl:SetTextColor(0.15, 0.75, 1.0)
     fIsConc = concChk
 
     -- #3: .caura поле (только int, до 4 символов) — перенесено из контейнера
-    local cauraLbl = effectBg:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local cauraLbl = effectBg:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
     cauraLbl:SetPoint("LEFT", concLbl, "RIGHT", 14, 0)
     cauraLbl:SetText(".caura:")
     cauraLbl:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
@@ -591,7 +589,7 @@ local function BuildCreateFrame()
     fCanCrit = CreateFrame("CheckButton", nil, ccBg, "UICheckButtonTemplate")
     fCanCrit:SetSize(20, 20)
     fCanCrit:SetPoint("LEFT", ccBg, "LEFT", 6, 0)
-    local ccLabel = ccBg:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local ccLabel = ccBg:CreateFontString(nil, "OVERLAY", "SBFontNormal")
     ccLabel:SetPoint("LEFT", fCanCrit, "RIGHT", 4, 0)
     ccLabel:SetText("Способно ли заклинание критовать?")
     ccLabel:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
@@ -712,7 +710,7 @@ local function BuildContainerFrame()
     fC_DistIdx = 1
 
     -- Description (#2: лимит 1550)
-    local descLabel = contFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local descLabel = contFrame:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
     descLabel:SetPoint("TOPLEFT", distBtn, "BOTTOMLEFT", 0, -8)
     descLabel:SetText("Полное описание эффекта:")
     descLabel:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
@@ -736,7 +734,7 @@ local function BuildContainerFrame()
     durBg:SetBackdropColor(0.06, 0.05, 0.10, 0.80)
     durBg:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
 
-    local durLabel = durBg:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local durLabel = durBg:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
     durLabel:SetPoint("LEFT", durBg, "LEFT", 8, 0)
     durLabel:SetText("Длительность:")
     durLabel:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
@@ -755,7 +753,7 @@ local function BuildContainerFrame()
     fC_CanCrit = CreateFrame("CheckButton", nil, ccBg, "UICheckButtonTemplate")
     fC_CanCrit:SetSize(20, 20)
     fC_CanCrit:SetPoint("LEFT", ccBg, "LEFT", 6, 0)
-    local ccLabel = ccBg:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local ccLabel = ccBg:CreateFontString(nil, "OVERLAY", "SBFontNormal")
     ccLabel:SetPoint("LEFT", fC_CanCrit, "RIGHT", 4, 0)
     ccLabel:SetText("Способно ли заклинание критовать?")
     ccLabel:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
@@ -774,7 +772,7 @@ local function BuildContainerFrame()
     fC_IsPassive = CreateFrame("CheckButton", nil, ipBg, "UICheckButtonTemplate")
     fC_IsPassive:SetSize(20, 20)
     fC_IsPassive:SetPoint("LEFT", ipBg, "LEFT", 6, 0)
-    local ipLabel = ipBg:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local ipLabel = ipBg:CreateFontString(nil, "OVERLAY", "SBFontNormal")
     ipLabel:SetPoint("LEFT", fC_IsPassive, "RIGHT", 4, 0)
     ipLabel:SetText("Пассивный эффект (нельзя применить повторно)")
     ipLabel:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
@@ -821,7 +819,9 @@ function SB.CustomSpells.OpenContainerFrame(parentID, existingContID)
             fC_IconPath = sp.icon or "Interface\\Icons\\INV_Misc_QuestionMark"
             fC_Icon:SetTexture(fC_IconPath)
             fC_Desc:SetText(sp.description or "")
-            fC_Dur:SetText(tostring(sp.duration or 1))
+            -- Из fContDur, а не из контейнера: срок хранится на
+            -- ЗАКЛИНАНИИ, и у эффекта его больше нет (см. SaveContainer).
+            fC_Dur:SetText(tostring(fContDur or 1))
             -- fC_IsConc:SetChecked(sp.isConcentration or false)
             if fC_CanCrit    then fC_CanCrit:SetChecked(sp.canCrit or false) end
             if fC_IsPassive  then fC_IsPassive:SetChecked(sp.isPassive or false) end
@@ -891,7 +891,11 @@ function SB.CustomSpells.SaveContainer()
         isContainer     = true,
 		createdBy       = UnitName("player"),
 		version   = (SB.Data.Spells[id] and (SB.Data.Spells[id].version or 1) + 1) or 1,
-        duration        = dur,
+        -- СРОК В КОНТЕЙНЕР НЕ ПИШЕТСЯ. Своей длительности у эффектов в
+        -- аддоне нет вовсе — её задаёт заклинание, которое эффект вешает
+        -- (см. SB.Logic.GetEffectDuration). Набранное в поле число никуда
+        -- не пропадает: оно уезжает на само заклинание при его
+        -- сохранении, через fContDur ниже.
         isConcentration = isConc,
     }
 

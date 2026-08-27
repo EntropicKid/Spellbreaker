@@ -139,6 +139,30 @@ local MOD_ORDER = {
     "armor", "movePct", "range",
 }
 
+-- СОПРОТИВЛЕНИЯ ДОПИСЫВАЮТСЯ СПИСКОМ (см. SB.Data.ResistKeys). Восемь
+-- каналов, перечисленные здесь руками, разъехались бы с расовыми
+-- профилями и с самим реестром школ — а разъезд молчаливый: канал,
+-- которого нет в MOD_ORDER, GetEffectDef просто не читает, и эффект с
+-- ним висит, ничего не делая.
+--
+-- Стоят ПОСЛЕ брони: в подсказке защита читается сверху вниз одним
+-- куском — сначала доспех, потом от чего он не спасает.
+for _, key in ipairs(SB.Data.ResistKeys) do
+    MOD_ORDER[#MOD_ORDER + 1] = key
+end
+
+-- ПРИБАВКИ К УРОНУ ПО ШКОЛАМ — тем же списком и по той же причине
+-- (см. SB.Data.DamageBonusKeys). Общий канал «damage» уже перечислен
+-- выше и повторно сюда не попадает.
+--
+-- Стоят ПОСЛЕ сопротивлений, а не рядом с «damage»: в подсказке сначала
+-- читается, что эффект делает вообще, потом — от чего он защищает и по
+-- чему бьёт сильнее. Тасовать порядок ради соседства двух строк значило
+-- бы разломать привычную форму карточки у полусотни эффектов.
+for _, key in ipairs(SB.Data.DamageBonusKeys) do
+    MOD_ORDER[#MOD_ORDER + 1] = key
+end
+
 local MOD_LABELS = {
     attack      = "Бросок атаки",
     defense     = "Бросок защиты",
@@ -153,9 +177,17 @@ local MOD_LABELS = {
     -- а мана это или ярость — видно по самой полоске.
     maxCastResource = "Максимум ресурса",
     armor       = "Броня (ед.)",
-    movePct     = "Передвижение за ход (%)",
+    movePct     = "Передвижение за круг (%)",
     range       = "Дальность заклинаний (м)",
 }
+
+-- Подписи сопротивлений — оттуда же, откуда ключи (см. ResistLabel).
+for _, key in ipairs(SB.Data.ResistKeys) do
+    MOD_LABELS[key] = SB.Data.ResistLabel(key)
+end
+for _, key in ipairs(SB.Data.DamageBonusKeys) do
+    MOD_LABELS[key] = SB.Data.DamageBonusLabel(key)
+end
 
 SB.Data.EffectModOrder  = MOD_ORDER
 SB.Data.EffectModLabels = MOD_LABELS
@@ -336,13 +368,48 @@ function SB.ActiveEffects.GetEffectLines(spellID)
     -- параметра, а события, и путать их на карточке нельзя. Формат у
     -- обоих один (см. SB.ActiveEffects.ApplyPayload), поэтому и собирает
     -- их одна функция — разное только время срабатывания.
+    -- ТИП УРОНА — ЦВЕТОМ И СЛОВОМ, ПРЯМО НА ЧИСЛЕ.
+    --
+    -- Тип у эффектов был проставлен давно (все 41 капающий его имеют), и
+    -- по нему честно считались сопротивления, — но карточка о нём не
+    -- говорила ни слова. Со стороны это выглядело так, будто типа нет
+    -- вовсе: игрок видел «Каждый ход: -1 ХП» и не мог знать, спасёт ли
+    -- его сопротивление тьме.
+    --
+    -- Не отдельной строкой, а при самом числе: тип относится к УРОНУ, а
+    -- не к эффекту целиком. У «Ледяной каймы» тип есть, а урона нет —
+    -- отдельная строка «Тип урона: Лёд» обещала бы там урон, которого не
+    -- будет. Лечение цвета не получает по той же причине: Свет лечит
+    -- одинаково при любом сопротивлении.
+    local dmgType = SB.Data.GetDamageType and SB.Data.GetDamageType(sp)
+
     local function PayloadText(payload)
         if type(payload) ~= "table" then return nil end
         local parts = {}
         local d = tonumber(payload.damage) or 0
         local h = tonumber(payload.heal) or 0
-        if d > 0 then table.insert(parts, "-" .. d .. " ХП") end
+        if d > 0 then
+            local txt = "-" .. d .. " ХП"
+            if dmgType then
+                txt = SB.Data.ColorByDamageType(dmgType, txt) ..
+                      " (" .. SB.Data.ColorByDamageType(dmgType, dmgType.name) .. ")"
+            end
+            table.insert(parts, txt)
+        end
         if h > 0 then table.insert(parts, "+" .. h .. " ХП") end
+        -- БРОНЯ. Канал был у ApplyPayload с самого начала, а здесь его не
+        -- было — и карточка молчала о том, что эффект делает. Хуже всего
+        -- вышло у «Оборонительной стойки»: чинить доспех каждый ход — это
+        -- ВСЁ, что она делает полезного, и карточка показывала у неё один
+        -- штраф к урону. Приём читался как чистое ухудшение.
+        --
+        -- Отдельным словом «брони», а не «ХП»: шкала другая (десять
+        -- единиц брони = одна единица поглощённого урона), и «+15» без
+        -- пометки прочиталось бы как пятнадцать здоровья.
+        local a = tonumber(payload.armor) or 0
+        if a ~= 0 then
+            table.insert(parts, ((a > 0) and "+" or "") .. a .. " брони")
+        end
         -- Пулы — общей функцией: эффект повесят на нас, и подписи
         -- считаются по НАШЕМУ персонажу (у Мага «Мана», у Воина «Ярость»,
         -- а чужой пул он и вовсе не увидит).
@@ -351,6 +418,55 @@ function SB.ActiveEffects.GetEffectLines(spellID)
         end
         if #parts == 0 then return nil end
         return table.concat(parts, ", ")
+    end
+
+    -- ── СРАБАТЫВАНИЕ (onAction) ─────────────────────────────
+    --
+    -- Механика, о которой нигде не написано, для игрока не существует.
+    -- Печать Света без этой строки выглядит как «+2 к физическому урону»
+    -- и ничего больше — а половина её смысла в том, что каждый третий
+    -- удар лечит.
+    --
+    -- Строка собирается ИЗ САМИХ ПОЛЕЙ, а не пишется в данных второй раз:
+    -- иначе подпись и поведение разошлись бы на первой же правке шанса.
+    -- Поводов может быть несколько (см. врезку об onAction) — печатаем
+    -- каждый своей строкой: «два повода в одну строку» читались бы как
+    -- одно условие с двумя следствиями.
+    local acts = SB.Data.Spells[spellID]
+        and SB.ActiveEffects.ActionsOf(SB.Data.Spells[spellID]) or nil
+    for _, act in ipairs(acts or {}) do
+        local WHEN = {
+            cast    = "при применении способности",
+            hit     = "при попадании",
+            damaged = "в ответ на удар по вам",
+        }
+        local head = WHEN[act.when] or act.when or "?"
+        -- НАЗЫВАЕМ СПОСОБНОСТЬ, если повод только о ней. Без имени
+        -- две строки Пламенного клейма читаются как «любая
+        -- способность делает и то, и другое» — то есть как прямая неправда.
+        if act.spell then
+            local by = SB.Data.Spells[act.spell]
+            head = "при применении «" .. ((by and by.name) or act.spell) .. "»"
+        end
+        if act.magic then head = head .. " чарами" end
+        if act.melee then head = head .. " в ближнем бою" end
+        if act.chance then head = head .. ", шанс " .. act.chance .. "%" end
+
+        local what = PayloadText(act.payload)
+        if not what and type(act.effect) == "string" then
+            what = SB.Logic.EffectName and SB.Logic.EffectName(act.effect)
+                   or (SB.Data.Spells[act.effect] and SB.Data.Spells[act.effect].name)
+        end
+        if not what and type(act.toAttacker) == "string" then
+            local nm = SB.Data.Spells[act.toAttacker]
+            what = "ударившему — " .. ((nm and nm.name) or act.toAttacker)
+        end
+        -- РАСХОД — В ТОЙ ЖЕ СТРОКЕ, что и повод: игрок должен понимать,
+        -- что «4 хода» у щита на зарядах означают «4 удара», а не время.
+        if act.consume then
+            what = (what and (what .. ", ") or "") .. "тратит заряд"
+        end
+        table.insert(lines, "|cFFFFD100" .. head .. ":|r " .. (what or "срабатывает"))
     end
 
     local tickTxt = PayloadText(def.tick)
@@ -373,6 +489,25 @@ function SB.ActiveEffects.GetEffectLines(spellID)
         if #why > 0 then
             table.insert(lines, "|cFFFFD100Спадает досрочно:|r " .. table.concat(why, ", "))
         end
+    end
+
+    -- ПОДАВЛЕНИЕ — строкой, и обязательно. Невидимая невосприимчивость
+    -- хуже, чем её отсутствие: игрок не поймёт, почему оглушение «не
+    -- сработало», и решит, что аддон сломался.
+    --
+    -- Подписи школ берём из SB.Data.EffectSchools, а не из второго
+    -- списка рядом: bleed уже называется «Кровотечение» ровно в одном
+    -- месте, и второе такое место разошлось бы с первым.
+    if type(def.suppress) == "table" and #def.suppress > 0 then
+        local names = {}
+        for _, key in ipairs(def.suppress) do
+            local school = SB.Data.EffectSchools and SB.Data.EffectSchools[key]
+            names[#names + 1] = (school and school.label) or key
+        end
+        local tail = (def.suppressClears == false)
+            and " (уже наложенное не снимает)" or ""
+        table.insert(lines, "|cFFFFD100Не даёт наложить:|r " ..
+            table.concat(names, ", ") .. tail)
     end
 
     -- Семейство — последней строкой и словами о последствии, а не
@@ -464,6 +599,49 @@ function SB.ActiveEffects.GetMod(key)
     return total, parts
 end
  
+-- ============================================================
+-- ПРИБАВКА К УРОНУ С УЧЁТОМ ШКОЛЫ
+--
+-- Заменяет прежнее GetMod("damage") во ВСЕХ путях резолва разом, и
+-- заменяет намеренно одной функцией: путей этих пять (ПвЕ-бросок, ПвП,
+-- площадь, удар по существу, карточка заклинания), и три уровня прибавки
+-- пришлось бы складывать в каждом. Разойдясь, они дали бы разный урон за
+-- один и тот же удар — в зависимости от того, во что игрок целился.
+--
+-- ШКОЛА БЕРЁТСЯ У ЗАКЛИНАНИЯ, а не у эффекта: «+2 огню» работает тогда,
+-- когда огнём и бьют, и молчит, когда тот же заклинатель метнул ледяную
+-- стрелу.
+--
+-- РАЗБИВКА ЕДЕТ ВТОРЫМ ЗНАЧЕНИЕМ, как и у GetMod: Ведущий в логе видит,
+-- какой именно эффект сколько добавил, — иначе прибавка выглядела бы
+-- числом из ниоткуда.
+-- @param spell table|nil  чем бьём; без него считается только общий канал
+-- @return number total, table parts
+-- ============================================================
+function SB.ActiveEffects.GetDamageMod(spell)
+    local total, parts = 0, {}
+    for _, key in ipairs(SB.Data.DamageKeysFor(spell and spell.damageType)) do
+        local v, p = SB.ActiveEffects.GetMod(key)
+        total = total + v
+        for _, one in ipairs(p) do parts[#parts + 1] = one end
+    end
+    return total, parts
+end
+
+--- То же для СУЩЕСТВА: его эффекты лежат в своей таблице, а правило
+--- сложения обязано быть общим (см. SB.NPC.EffectMod).
+--- @return number total, table parts
+function SB.ActiveEffects.GetNpcDamageMod(unit, spell)
+    local total, parts = 0, {}
+    if not (unit and SB.NPC and SB.NPC.EffectMod) then return total, parts end
+    for _, key in ipairs(SB.Data.DamageKeysFor(spell and spell.damageType)) do
+        local v, p = SB.NPC.EffectMod(unit, key)
+        total = total + v
+        for _, one in ipairs(p) do parts[#parts + 1] = one end
+    end
+    return total, parts
+end
+
 -- ПАКЕТИРОВАНИЕ ИЗМЕНЕНИЙ.
 -- Каждый FireChanged рассылает группе пакет AEFFECT (см. подписку на
 -- ACTIVE_EFFECTS_CHANGED в Core/Network.lua), а DecrementOne зовёт его
@@ -483,12 +661,22 @@ local function FireChanged()
     -- Эффекты двигают максимум здоровья и ресурса (см. mods ниже), а
     -- значит полоски в шапке и статус для группы устарели. Без этих двух
     -- событий бафф на +2 ХП был бы виден только после следующего каста.
-    if SB.PlayerModel and SB.PlayerModel.GetMaxHealth then
-        local d = SpellbreakerCharDB
-        local maxHP = SB.PlayerModel.GetMaxHealth()
-        -- Дебафф мог опустить максимум ниже текущего ХП — поджимаем.
-        if d and d.health and d.health > maxHP then d.health = maxHP end
-    end
+    --
+    -- ПОДЖИМА ЗДОРОВЬЯ ЗДЕСЬ БОЛЬШЕ НЕТ. Стояло `d.health = maxHP` на
+    -- каждое изменение списка эффектов — и это была ВТОРАЯ реализация
+    -- правила, которым владеет PM.SyncToMaximums, только грубее: она
+    -- срабатывала не когда максимум просел, а на любой чих (наложили
+    -- дебафф, тикнул баф, что угодно), и не вычитала просадку, а слепо
+    -- приравнивала здоровье к потолку.
+    --
+    -- Из-за неё исчезало здоровье, выданное Ведущим сверх максимума: в
+    -- логе боя это выглядело как «Урон: 3 ХП (100/4)» в одной строке и
+    -- «(1/4)» в следующей — сто ХП съедал чужой дебафф, который к
+    -- здоровью вообще не относился.
+    --
+    -- Поджим никуда не делся: PM.SyncToMaximums подписан на
+    -- PLAYER_MODEL_CHANGED, который летит строкой ниже, и делает то же
+    -- самое по правильному правилу (см. FollowMax).
     SB.Events.Fire("PLAYER_MODEL_CHANGED")
     SB.Events.Fire("STATUS_CHANGED")
 end
@@ -557,7 +745,7 @@ local function MakeSlot(i)
     s.iconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
     -- Счётчик применений
-    s.counterFS = s:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    s.counterFS = s:CreateFontString(nil, "OVERLAY", "SBFontNormalSmall")
     s.counterFS:SetPoint("TOP", s.iconTex, "BOTTOM", 0, -2)
     s.counterFS:SetWidth(ICON_W - 4)
     s.counterFS:SetJustifyH("CENTER")
@@ -662,7 +850,10 @@ local function MakeSlot(i)
                 if (self._uses or 0) == INFINITE then
                     GameTooltip:AddLine("Бессрочно — до Долгого Отдыха", 1, 0.82, 0)
                 else
-                    GameTooltip:AddLine("Осталось применений: |cFFFFD100" .. (self._uses or 0) .. "|r", 1,1,1)
+                    -- Временем, а не ходами (см. SB.UI.TurnsAsTime): счётчик
+                    -- внутри остался ходами, изменилась только подпись.
+                    GameTooltip:AddLine("Осталось: |cFFFFD100" ..
+                        SB.UI.TurnsAsTime(self._uses or 0) .. "|r", 1,1,1)
                 end
                 if self._isConc then
                     GameTooltip:AddLine("|cFF22BFFFКонцентрация|r", 1,1,1)
@@ -727,6 +918,47 @@ local function MakeSlot(i)
     return s
 end
  
+--- Подпись остатка на карточке эффекта. Короткая форма времени: на
+--- счётчик отведён угол, и «1 мин. 6 сек.» туда не влезает ни при каком
+--- шрифте.
+---
+--- ЖИВЁТ ОТДЕЛЬНО ОТ ПЕРЕРИСОВКИ, как и её двойник на рамке цели
+--- (SetAuraCount в UI/Overlay.lua): перерисовка случается на смену
+--- состава, то есть раз в ход, а подпись обязана убывать каждую секунду.
+local function SetSlotCounter(s, uses)
+    if uses == INFINITE then
+        if s.counterFS:GetText() ~= "беск." then s.counterFS:SetText("беск.") end
+        return
+    end
+    local left = SB.ActiveEffects.SecondsLeft(uses)
+    local txt  = left and SB.UI.SecondsAsTimeShort(left)
+                      or SB.UI.TurnsAsTimeShort(uses)
+    if s.counterFS:GetText() ~= txt then s.counterFS:SetText(txt) end
+end
+
+--- Обновить подписи остатка на всех показанных карточках. Сетка при
+--- этом не пересобирается: меняется только текст в углу.
+local function RefreshCounters()
+    for _, eff in ipairs(effects) do
+        for _, s in ipairs(slots) do
+            if s._spID == eff.spellID and s:IsShown() then
+                SetSlotCounter(s, eff.uses)
+                break
+            end
+        end
+    end
+end
+
+-- СЕКУНДНЫЙ ТИК ПОДПИСЕЙ. Ровно раз в секунду и ровно на подписи.
+-- Заводится один раз на сеанс; проверка видимости внутри стоит копейки,
+-- а гасить и заводить таймер по открытию окна значило бы держать ещё
+-- одно состояние ради той же копейки.
+if C_Timer and C_Timer.NewTicker then
+    C_Timer.NewTicker(1, function()
+        if container and container:IsShown() then RefreshCounters() end
+    end)
+end
+
 -- ============================================================
 -- REDRAW — рисует сетку 3×N внутри переданного контейнера
 -- (третья колонка MainFrame). Ничего не делает, пока контейнер
@@ -739,7 +971,7 @@ local function Redraw()
  
     if not emptyFS then
         local C = SB.Theme.C
-        emptyFS = container:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        emptyFS = container:CreateFontString(nil, "OVERLAY", "SBFontNormal")
         emptyFS:SetPoint("TOP", container, "TOP", 0, -10)
         emptyFS:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
         emptyFS:SetText("Отсутствуют")
@@ -777,7 +1009,10 @@ local function Redraw()
         s._isConc = eff.isConc
  
         s.iconTex:SetTexture(sp and sp.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
-        s.counterFS:SetText(eff.uses == INFINITE and "беск." or ("x" .. eff.uses))
+        -- Короткая форма времени: на счётчик карточки отведён угол, и
+        -- «1 мин. 6 сек.» туда не влезает ни при каком шрифте
+        -- (см. SB.UI.TurnsAsTimeShort).
+        SetSlotCounter(s, eff.uses)
 
         -- Тип эффекта кодирует ЦВЕТ РАМКИ карточки:
         --   синяя   — концентрация (важнее всего: она одна за раз),
@@ -910,9 +1145,137 @@ local function DropFamily(newID)
     end
 end
 
+-- ============================================================
+-- ЭФФЕКТЫ-ПОДАВИТЕЛИ
+--
+-- Целый пласт способностей описан словами «невосприимчив к оглушению»,
+-- «ничто больше не держит», «выгоняет яд и заразу» — и до сих пор всё
+-- это было только текстом. Выразить «на меня не действует вот ЭТО»
+-- было нечем: эффект умел менять числа, капать и срабатывать, но не
+-- умел ОТМЕНЯТЬ соседа.
+--
+-- ЗАПИСЫВАЕТСЯ СПИСКОМ В САМОМ ЭФФЕКТЕ:
+--
+--     effect = { kind = "buff", suppress = { "Оглушение", "poison" } }
+--
+-- ЧТО МОЖНО НАЗВАТЬ: семейство (family) или школу (school) эффекта.
+-- Одним списком, а не двумя полями: семейства в библиотеке названы
+-- по-русски, школы — латиницей, и перепутать одно с другим нельзя даже
+-- нарочно. Два поля означали бы, что автор эффекта должен помнить, к
+-- какому из двух реестров относится «Оглушение», — а он не должен.
+--
+-- ПОДАВИТЕЛЬ РАБОТАЕТ В ОБЕ СТОРОНЫ:
+--   • при наложении СНИМАЕТ всё подавляемое, что уже висит;
+--   • пока висит — не даёт подавляемому ЗАКРЕПИТЬСЯ.
+--
+-- Второе важнее первого: «невосприимчивость», которая снимает оглушение
+-- один раз и пропускает следующее через полсекунды, — это не
+-- невосприимчивость, а рассеивание.
+--
+-- ПЕРВОЕ ОТКЛЮЧАЕТСЯ: suppressClears = false — «не влияет на эффекты,
+-- которые уже действуют». Это не придирка к формулировке, а различие,
+-- которое авторы провели сами: «Зелье актерства» снимает уже наложенное
+-- и стоит дороже, «Зелье свободы действий» — только защищает вперёд.
+-- Стереть эту разницу значило бы сделать два зелья одинаковыми.
+--
+-- ПОДАВИТЕЛЬ НЕ ПОДАВЛЯЕТ ПОДАВИТЕЛЯ. Иначе две «свободы действий»,
+-- наложенные подряд, гасили бы друг друга — и чем больше защиты на
+-- персонаже, тем меньше её работает.
+-- ============================================================
+
+--- Совпадает ли эффект с одним из названных в списке подавления.
+local function MatchesSuppress(sp, list)
+    if type(sp) ~= "table" or type(list) ~= "table" then return false end
+    local def = sp.effect
+    if type(def) ~= "table" then return false end
+    -- ПОДАВЛЯЮТСЯ ТОЛЬКО ДЕБАФФЫ. Иначе «Плащ теней» с его списком
+    -- { "magic" } снял бы с разбойника и собственные чары: школу magic
+    -- носят две сотни эффектов, и добрая половина из них — баффы.
+    -- Невосприимчивость по смыслу всегда о вредном; ни одно описание в
+    -- библиотеке не обещает защиты от помощи.
+    if def.kind ~= "debuff" then return false end
+    for _, name in ipairs(list) do
+        if def.family == name or def.school == name then return true end
+    end
+    return false
+end
+
+--- Список подавляемого, объявленный ВИСЯЩИМИ эффектами.
+local function SuppressedNow()
+    local out
+    for _, eff in ipairs(effects) do
+        local sp  = SB.Data.Spells[eff.spellID]
+        local lst = sp and sp.effect and sp.effect.suppress
+        if type(lst) == "table" then
+            out = out or {}
+            for _, name in ipairs(lst) do out[#out + 1] = name end
+        end
+    end
+    return out
+end
+
+--- Подавлен ли этот эффект прямо сейчас.
+--- @return boolean, string|nil  подавлен и чем именно (для строки в чат)
+function SB.ActiveEffects.IsSuppressed(containerSpellID)
+    local sp = SB.Data.Spells[containerSpellID]
+    if not sp then return false end
+    -- Сам подавитель неприкосновенен (см. врезку выше).
+    if type(sp.effect) == "table" and type(sp.effect.suppress) == "table" then
+        return false
+    end
+    for _, eff in ipairs(effects) do
+        local by  = SB.Data.Spells[eff.spellID]
+        local lst = by and by.effect and by.effect.suppress
+        if MatchesSuppress(sp, lst) then
+            return true, (by.name or eff.spellID)
+        end
+    end
+    return false
+end
+
+--- Снять всё, что подавляет только что наложенный подавитель.
+--- @return number, string  сколько снято и ЧТО именно (списком имён)
+local function DropSuppressed(containerSpellID)
+    local sp  = SB.Data.Spells[containerSpellID]
+    local lst = sp and sp.effect and sp.effect.suppress
+    if type(lst) ~= "table" then return 0 end
+
+    -- ИМЕНА, А НЕ СЧЁТ. «Свобода действий снимает: 1» не сообщает
+    -- ничего: игрок и так видел, что на нём висело, а вот ЧТО именно
+    -- слетело — единственное, ради чего строка написана.
+    local dropped, names = 0, {}
+    for i = #effects, 1, -1 do
+        local victim = SB.Data.Spells[effects[i].spellID]
+        -- Подавителя не трогаем — ни чужого, ни своего.
+        local isSup = victim and type(victim.effect) == "table"
+                      and type(victim.effect.suppress) == "table"
+        if not isSup and MatchesSuppress(victim, lst) then
+            table.insert(names, 1, (victim and victim.name) or effects[i].spellID)
+            table.remove(effects, i)
+            dropped = dropped + 1
+        end
+    end
+    return dropped, table.concat(names, ", ")
+end
+
 function SB.ActiveEffects.Add(containerSpellID, duration, isConc)
     if not containerSpellID then return end
     if not SB.Data.Spells[containerSpellID] then return end
+
+    -- ПОДАВЛЕНО — НЕ ЛОЖИТСЯ. Проверяем ДО всего остального: иначе
+    -- подавляемое сначала сбросило бы своё семейство (DropFamily), а
+    -- потом само не легло — и игрок терял бы висящий эффект ни за что.
+    local blocked, by = SB.ActiveEffects.IsSuppressed(containerSpellID)
+    if blocked then
+        local sp = SB.Data.Spells[containerSpellID]
+        -- «X не пускает: Y не действует» говорит одно и то же дважды:
+        -- если не пускает, то, значит, и не действует. Осталась связка
+        -- «что не легло — из-за чего».
+        print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_GOOD ..
+            "«" .. ((sp and sp.name) or containerSpellID) ..
+            "» не лёг — «" .. (by or "?") .. "».|r")
+        return
+    end
 
     -- ДО всего остального, включая продление уже висящего: семейство
     -- сбрасывается и когда облик обновляют тем же самым обликом —
@@ -944,6 +1307,24 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc)
         uses    = duration or 1,
         isConc  = isConc or false,
     })
+
+    -- ПОДАВИТЕЛЬ ЧИСТИТ ЗА СОБОЙ. После вставки, а не до: «Свобода
+    -- действий» снимает оглушение тем, что она уже висит, — и порядок
+    -- этих двух строк ровно об этом.
+    local sup = SB.Data.Spells[containerSpellID].effect
+    local cleared, what
+    if sup and sup.suppressClears == false then
+        cleared = 0
+    else
+        cleared, what = DropSuppressed(containerSpellID)
+    end
+    if cleared > 0 then
+        local sp = SB.Data.Spells[containerSpellID]
+        print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_GOOD ..
+            "«" .. ((sp and sp.name) or containerSpellID) .. "» снимает: " ..
+            what .. ".|r")
+    end
+
     Redraw(); FireChanged()
 end
  
@@ -1045,29 +1426,66 @@ local rtReport = nil
 local function FlushTickSummary()
     local sum = tickSummary
     tickSummary = nil
-    if not sum or #sum.parts == 0 then return end
+    if not sum then return end
 
     local PM  = SB.PlayerModel
     local net = sum.heal - sum.dmg
     -- Взаимно погасившиеся тики (кровотечение ровно на регенерацию) —
     -- не событие: строки «0 ХП» в чате быть не должно.
-    if net == 0 then return end
+    if net == 0 and not sum.armor and not sum.pools then return end
 
     -- Реалтайм: не в чат, а в отчёт Ведущему (см. врезку выше).
     if rtReport then
-        rtReport.hp = (rtReport.hp or 0) + net
+        if net ~= 0 then rtReport.hp = (rtReport.hp or 0) + net end
         return
     end
 
-    local G    = SB.Theme.MSG_BODY
-    local kind = (net > 0) and "heal" or "dmg"
-    local link = SB.UI.AmountText(kind, math.abs(net))
-    local verb = (net > 0) and " восполняет |r" or " теряет |r"
+    -- ВЕСЬ ТИК — ОДНОЙ СТРОКОЙ.
+    --
+    -- Каналов у тика четыре (ХП, броня, мана, ресурс), эффектов на
+    -- персонаже бывает пять, и каждое сочетание печаталось отдельно.
+    -- Полный ход выглядел так:
+    --
+    --     Игрок под действием эффектов теряет 2 ХП (6/10).
+    --     Игрок — Водяной щит: +1 Мана (4/10).
+    --     Игрок — Аура защиты от огня: +5 брони (25/42).
+    --
+    -- Три строки об одном мгновении. Стало — одна, и в ней ровно те же
+    -- числа: «Игрок — тик: −2 ХП (6/10), +1 Мана, +5 брони».
+    --
+    -- Разбивка по эффектам не потеряна: она в sum.parts, и её показывает
+    -- подсказка на числе (см. SB.UI.AmountText).
+    local G, parts = SB.Theme.MSG_BODY, {}
 
+    if net ~= 0 then
+        -- СО ЗНАКОМ, а не «теряет/восполняет» словом. В отдельной строке
+        -- глагол был нужен — там кроме него направление не сказано ничем;
+        -- в перечислении из трёх частей он не помещается, а «[-2] ХП»
+        -- рядом с «[+1] Мана» читается без него и одинаково у всех
+        -- каналов. Отсюда "eff": он единственный печатает знак.
+        parts[#parts + 1] = SB.UI.AmountText("eff", net) .. G ..
+            string.format(" ХП (%d/%d)", PM.GetHealth(), PM.GetMaxHealth())
+    end
+
+    -- Пулы — в постоянном порядке, а не как придётся из pairs: строка
+    -- боя, которая каждый ход переставляет свои части местами, читается
+    -- как новая, даже когда в ней ничего не изменилось.
+    for _, pool in ipairs({ "mana", "resource" }) do
+        local v = sum.pools and sum.pools[pool]
+        if v and v ~= 0 then
+            parts[#parts + 1] = SB.UI.AmountText("eff", v) .. G .. " " ..
+                PM.PoolName(pool)
+        end
+    end
+
+    if sum.armor and sum.armor ~= 0 then
+        parts[#parts + 1] = SB.UI.AmountText("eff", sum.armor) .. G .. " брони"
+    end
+
+    if #parts == 0 then return end
     SB.Events.Fire(SB.E.BROADCAST_LOG,
         SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. sum.who ..
-        " под действием эффектов" .. verb .. link ..
-        G .. string.format(" ХП (%d/%d).|r", PM.GetHealth(), PM.GetMaxHealth()),
+        " — тик: |r" .. table.concat(parts, G .. ", |r") .. G .. ".|r",
         SB.LogRank.TICK)
 end
 
@@ -1124,7 +1542,14 @@ end
 --- собирает FlushTickSummary одну на все эффекты.
 --- @param spellID string  чьё имя пойдёт в лог
 --- @param def     table|nil  блок { damage, heal, resource }
-function SB.ActiveEffects.ApplyPayload(spellID, def)
+--- @param source  string|nil  "tick" — урон ПРИШЁЛ ИЗВНЕ и гасится
+---        сопротивлением школе. Всё прочее (onCast, onRemove) — цена
+---        собственного применения: «Жизнеотвод» платит своей кровью, и
+---        сопротивляться ей нельзя. Иначе Отрекшийся чернокнижник
+---        платил бы за теневые заклинания дешевле остальных — не потому
+---        что так задумано, а потому что цена шла бы тем же каналом, что
+---        и чужой удар.
+function SB.ActiveEffects.ApplyPayload(spellID, def, source)
     if type(def) ~= "table" then return end
     local sp = SB.Data.Spells[spellID]
 
@@ -1156,18 +1581,29 @@ function SB.ActiveEffects.ApplyPayload(spellID, def)
     local name = (sp and sp.name) or spellID
     local who  = UnitName("player")
 
-    -- БРОНЯ ЗДЕСЬ НЕ ПРИМЕНЯЕТСЯ, И ЭТО НАМЕРЕННО.
-    -- SB.Skills.GetDamageReduction() зовётся ровно в одном месте — в
-    -- HandlePvpAttackReceived, то есть только против УДАРА. Тик — это
-    -- кровотечение, яд, горение, чужие чары: доспех от них не спасает
-    -- ни нарративно, ни механически. Плюс тик — единственный урон в
-    -- системе, который нельзя разогнать характеристиками: он записан
-    -- в эффекте константой. Пропусти его через броню — и латник с
-    -- «Ношением брони» 5 (-3 урона) стал бы полностью невосприимчив к
-    -- любому кровотечению, ведь тики почти все на 1-2.
-    -- Если когда-нибудь понадобится броня против тиков, делать это надо
-    -- отдельным полем эффекта (например tick.physical = true), а не
-    -- общим вызовом на все тики разом.
+    -- СОПРОТИВЛЕНИЕ ПРИМЕНЯЕТСЯ, ДОСПЕХ — НЕТ, и это не половинчатость,
+    -- а два разных ответа на два разных вопроса.
+    --
+    -- Доспех против тика не работает ни нарративно, ни механически:
+    -- кровотечение, яд и горение идут мимо железа, а тик — единственный
+    -- урон в системе, который нельзя разогнать характеристиками (он
+    -- записан в эффекте константой). Пропусти его через броню — и латник
+    -- с «Ношением брони» 5 стал бы полностью невосприимчив к любому
+    -- кровотечению, ведь тики почти все на 1-2.
+    --
+    -- А вот сопротивление школе — работает, и в этом весь его смысл:
+    -- устойчивость к тьме, которая держит теневую стрелу, но не держит
+    -- теневую порчу, — это не устойчивость к тьме. Иммунитета при этом
+    -- не выходит: единица проходит всегда (см. SB.Skills.ApplyResistance).
+    --
+    -- ШКОЛА БЕРЁТСЯ У САМОГО ЭФФЕКТА (поле damageType контейнера), а не у
+    -- заклинания, которое его повесило: один и тот же «Поджег» вешают три
+    -- разных огненных заклинания, и спрашивать «кто был источником» через
+    -- полчаса после каста уже не у кого.
+    if source == "tick" and dmg > 0
+       and SB.Skills and SB.Skills.ApplyResistance then
+        dmg = SB.Skills.ApplyResistance(dmg, sp and sp.damageType)
+    end
     --
     -- Здоровье двигаем в любом случае и сразу: на GrantHealth/Heal
     -- завязаны классовые механики (Рыцарь смерти копит руны с потери
@@ -1199,13 +1635,20 @@ function SB.ActiveEffects.ApplyPayload(spellID, def)
         local moved = SB.Skills.AdjustArmor(armor)
         if moved ~= 0 then
             SB.Events.Fire(SB.E.STATUS_CHANGED)
-            local sign = (moved > 0) and "+" or ""
-            SB.Events.Fire(SB.E.BROADCAST_LOG,
-                SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. who .. " — |r" ..
-                ((moved > 0) and SB.Theme.MSG_GOOD or SB.Theme.MSG_BAD) .. name ..
-                G .. string.format(": %s%d брони (%d/%d).|r", sign, moved,
-                    SB.Skills.GetArmorPoints(), SB.Skills.GetArmorMax()),
-                SB.LogRank.TICK)
+            if tickSummary then
+                -- В СВОДКУ, А НЕ ОТДЕЛЬНОЙ СТРОКОЙ. Тик хода — одно
+                -- событие: три висящих эффекта, каждый со своим каналом,
+                -- давали три строки подряд об одном и том же мгновении.
+                tickSummary.armor = (tickSummary.armor or 0) + moved
+            else
+                local sign = (moved > 0) and "+" or ""
+                SB.Events.Fire(SB.E.BROADCAST_LOG,
+                    SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. who .. " — |r" ..
+                    ((moved > 0) and SB.Theme.MSG_GOOD or SB.Theme.MSG_BAD) .. name ..
+                    G .. string.format(": %s%d брони (%d/%d).|r", sign, moved,
+                        SB.Skills.GetArmorPoints(), SB.Skills.GetArmorMax()),
+                    SB.LogRank.TICK)
+            end
         end
     end
 
@@ -1216,6 +1659,10 @@ function SB.ActiveEffects.ApplyPayload(spellID, def)
             SB.Events.Fire(SB.E.STATUS_CHANGED)
             rtReport.pool = rtReport.pool or {}
             rtReport.pool[pool] = (rtReport.pool[pool] or 0) + gained
+        elseif gained ~= 0 and tickSummary then
+            SB.Events.Fire(SB.E.STATUS_CHANGED)
+            tickSummary.pools = tickSummary.pools or {}
+            tickSummary.pools[pool] = (tickSummary.pools[pool] or 0) + gained
         elseif gained ~= 0 then
             SB.Events.Fire(SB.E.STATUS_CHANGED)
             local sign = (gained > 0) and "+" or ""
@@ -1257,10 +1704,262 @@ function SB.ActiveEffects.ApplyPayload(spellID, def)
     end
 end
 
+-- ============================================================
+-- ЭФФЕКТ, КОТОРЫЙ СРАБАТЫВАЕТ ОТ ДЕЙСТВИЯ НОСИТЕЛЯ
+--
+-- До сих пор висящий эффект умел ровно три вещи: менять числа (mods,
+-- stats), капать каждый ход (tick) и что-то сделать на снятии
+-- (onRemove). Всё это — «эффект сам по себе»: он не знает, что делает
+-- персонаж, пока висит.
+--
+-- Целый пласт способностей без этого не выражается. «Восстанавливает
+-- ману успешными ударами», «удваивает урон, если на оружии горит
+-- клеймо», «бьёт в ответ тому, кто попал по тебе» — всё это про СВЯЗЬ
+-- эффекта с действием, и раньше каждую такую способность пришлось бы
+-- писать отдельным куском кода в пути резолва.
+--
+-- ЗАПИСЫВАЕТСЯ ДЕКЛАРАТИВНО, в самом эффекте:
+--
+--     effect = {
+--         kind = "buff",
+--         onAction = {
+--             when    = "hit",          -- см. список ниже
+--             melee   = true,           -- необязательно
+--             chance  = 50,             -- необязательно, проценты
+--             payload = { mana = 1 },   -- то же, что у tick и onCast
+--         },
+--     }
+--
+-- КОГДА СРАБАТЫВАЕТ (поле when):
+--   "cast"    — носитель применил любую способность;
+--   "hit"     — его удар ПОПАЛ (ПвП, существо, ПвЕ-бросок);
+--   "damaged" — по носителю попали и он потерял здоровье.
+--
+-- УТОЧНЕНИЯ:
+--   melee  = true  — только приёмы ближнего боя (дальность по MELEE_RANGE);
+--   chance = N     — процент срабатывания, по умолчанию сто. Бросок свой
+--                    же кубик, а не math.random: нижняя грань у расы и
+--                    класса своя (см. SB.Logic.Roll);
+--   magic  = true  — только МАГИЯ. Школа берётся у самого заклинания
+--                    (см. SB.Data.DamageTypes): анти-магическая аура
+--                    отвечает чарам, а не мечу, и отличить одно от
+--                    другого можно только так. Заклинание без школы
+--                    (своё, самодельное) магией НЕ считается: выдумывать
+--                    за автора нельзя, а ошибиться в сторону «не
+--                    сработало» дешевле, чем в сторону «сработало зря»;
+--   spell  = "id"  — только эта способность. Нужно связкам вида «пока на
+--                    оружии чары, Удар Бури возвращает ману»: условие
+--                    живёт на ЧАРАХ, а срабатывает на чужом касте.
+--
+-- ЧТО ДАЁТ — ТОТ ЖЕ PAYLOAD, что у tick и onCast: heal, mana, resource,
+-- castResource, armor, damage. Второго формата заводить незачем, и
+-- считает его та же ApplyPayload.
+--
+-- ПОВОДОВ МОЖЕТ БЫТЬ НЕСКОЛЬКО. onAction принимает и один блок, и список
+-- блоков: у «Пламенного клейма» их два — оно кормит Удар Бури маной и
+-- разгоняет Вскипание лавы. Ограничение «один повод на эффект» пришлось
+-- бы обходить вторым полем с другим именем, и объяснять разницу между
+-- ними было бы нечем.
+--
+-- ПОРЯДОК ВАЖЕН ТОЛЬКО ДЛЯ ПОВОДА "cast": он приходит ДО резолва
+-- (см. ConfirmCast), поэтому эффект, повешенный им на себя, успевает
+-- попасть в расчёт урона ТОГО ЖЕ каста. На этом и держится «пока горит
+-- клеймо, Вскипание лавы бьёт злее».
+--
+-- ПОЧЕМУ ЗДЕСЬ, А НЕ В ClassMechanics. Тот описывает механики КЛАССОВ —
+-- то, что есть у персонажа всегда. Здесь механика висит эффектом: её
+-- накладывают, она кончается, её можно рассеять. Это разные вещи, и
+-- смешивать их в одной таблице значило бы объяснять каждому читателю,
+-- почему половина записей вечная, а половина на три хода.
+-- ============================================================
+
+--- Подходит ли уточнение melee к этому заклинанию.
+local function MeleeOnly(spell)
+    local d = tonumber(spell and spell.distance) or 0
+    return d > 0 and d <= (SB.Logic.MELEE_RANGE or 2.5)
+end
+
+--- Прогнать все висящие эффекты по одному поводу.
+--- @param when string  "cast" | "hit" | "damaged"
+--- @param spell table|nil  чем действовали (для уточнения melee)
+--- @param attacker string|nil  кто ударил — только для "damaged". Нужен
+---        возмездию: щит вспыхивает В ОТВЕТ конкретному человеку, и без
+---        имени отвечать некому.
+--- Список поводов эффекта: один блок или несколько.
+function SB.ActiveEffects.ActionsOf(sp)
+    local act = sp and sp.effect and sp.effect.onAction
+    if type(act) ~= "table" then return nil end
+    -- Массив узнаём по первому элементу: у одиночного блока его нет, а
+    -- поля when/payload лежат по строковым ключам.
+    if type(act[1]) == "table" then return act end
+    return { act }
+end
+
+local function FireAction(when, spell, attacker)
+    -- КОПИЯ СПИСКА, а не сам список: повод умеет вешать эффект на себя
+    -- (act.effect), а Add правит ту же таблицу — обход по живой съел бы
+    -- часть эффектов или зациклился.
+    local snapshot = {}
+    for i, e in ipairs(effects) do snapshot[i] = e end
+
+    for _, eff in ipairs(snapshot) do
+      local sp = SB.Data.Spells[eff.spellID]
+      for _, act in ipairs(SB.ActiveEffects.ActionsOf(sp) or {}) do
+        if act.when == when then
+            local ok = true
+            if act.melee and not MeleeOnly(spell) then ok = false end
+            -- ТОЛЬКО ЭТА СПОСОБНОСТЬ. Сравниваем по id, а не по имени:
+            -- имена в библиотеке повторяются (два «Экзорцизма», два
+            -- «Раската грома»), id — нет.
+            if act.spell and (not spell or spell.id ~= act.spell) then
+                ok = false
+            end
+            -- ТОЛЬКО МАГИЯ. Физическая школа и отсутствие школы обе не
+            -- магия — см. SB.Data.DamageTypes.
+            if act.magic then
+                local dt = spell and SB.Data.GetDamageType(spell)
+                if not (dt and dt.magic) then ok = false end
+            end
+            if ok and act.chance then
+                local need = math.max(0, math.min(100, tonumber(act.chance) or 100))
+                if SB.Logic.Roll() > need then ok = false end
+            end
+            if ok and type(act.payload) == "table" then
+                -- Через "tick": для носителя это ПРИШЛО ИЗВНЕ ровно так
+                -- же, как капающий урон, — значит и сопротивление школе
+                -- обязано работать (см. врезку в ApplyPayload).
+                SB.ActiveEffects.ApplyPayload(eff.spellID, act.payload, "tick")
+            end
+            -- ПОВОД МОЖЕТ ВЕШАТЬ ЭФФЕКТ, а не только начислять числа:
+            -- «попал — получи прибавку к криту на два хода» в payload не
+            -- выражается никак. На СЕБЯ и только на себя: навесить
+            -- что-то на чужого персонажа может только его собственный
+            -- клиент (см. SB.Net.SendBuff), и тихо открывать такую дверь
+            -- через поле данных нельзя.
+            if ok and type(act.effect) == "string" then
+                local turns = math.max(1, math.floor(tonumber(act.turns) or 1))
+                SB.ActiveEffects.Add(act.effect, turns, false)
+            end
+
+            -- ── ВОЗМЕЗДИЕ: ЭФФЕКТ УХОДИТ ТОМУ, КТО УДАРИЛ ──────
+            --
+            -- «Огненный щит вспыхнет снопом искр», «аура карает
+            -- нападающего», «плащ поджигает любого, кто осмелится» — весь
+            -- этот пласт до сих пор жил только в описаниях: навесить
+            -- что-то на чужого персонажа наш клиент не может, это делает
+            -- ЕГО клиент по нашему пакету.
+            --
+            -- Пакет тот же самый, которым доставляется обычный бафф
+            -- союзнику (SB.Net.SendBuff): новой двери в чужой персонаж
+            -- не открывается, и правило «эффект вешает только свой
+            -- клиент» остаётся в силе.
+            --
+            -- ТОЛЬКО ПО ИМЕНИ И ТОЛЬКО В ГРУППЕ. Нет имени — некому
+            -- отвечать (удар от существа или правка Ведущего); вне
+            -- группы пакет всё равно не доедет.
+            -- СРОК ВОЗМЕЗДИЯ СЧИТАЕТ ПОЛУЧАТЕЛЬ, и считает его по общему
+            -- правилу: длительность задаёт заклинание-источник, а у
+            -- контейнера щита её нет — значит один ход (см.
+            -- SB.Logic.GetEffectDuration). Ровно то, что нужно: искры
+            -- вспыхнули и погасли, а не жгут врага полбоя.
+            if ok and type(act.toAttacker) == "string"
+               and attacker and attacker ~= "" and attacker ~= UnitName("player")
+               and SB.Net and SB.Net.SendBuff then
+                SB.Net.SendBuff(attacker, eff.spellID, act.toAttacker, 0)
+            end
+
+            -- ── СРАБАТЫВАНИЕ РАСХОДУЕТ САМ ЭФФЕКТ ──────────────
+            --
+            -- «Каждый принимает на себя один удар и рассыпается в пыль.
+            -- Когда кости кончаются, щита больше нет» — Костяной щит
+            -- считает не ходы, а удары, и таких описаний в библиотеке
+            -- несколько.
+            --
+            -- Отдельного счётчика зарядов не заводим: у эффекта уже есть
+            -- ровно такое число — uses. Второй счётчик рядом означал бы
+            -- две правды о том, сколько эффекту осталось, и карточка
+            -- показывала бы не ту.
+            --
+            -- Расход ПОСЛЕДНИМ действием повода: щит должен сначала
+            -- отработать удар и только потом рассыпаться.
+            if ok and act.consume then
+                -- ЗАРЯД СПИСЫВАЕТСЯ В КОНЦЕ КАДРА, А НЕ ЗДЕСЬ.
+                --
+                -- Повод "cast" приходит из ConfirmCast ДО того, как
+                -- посчитан урон (см. врезку об onAction). Для прибавки
+                -- это ровно то, что нужно — «Пламенное клеймо» на этом и
+                -- держится, — но для расхода это была прямая поломка:
+                -- «Внутренний огонь» гас в тот же миг, и заклинание,
+                -- которое его потратило, считалось уже БЕЗ него.
+                --
+                --     Кара под Внутренним огнём: урон 1, а не 3.
+                --
+                -- Хуже всего, что подсказка при этом не врала: она
+                -- считается на висящем эффекте, никакого каста не
+                -- происходит — и обещала честные три. Расходились
+                -- подсказка и бой, а не подсказка и данные.
+                --
+                -- Отложенный на конец кадра расход снимает эффект после
+                -- того, как этот каст досчитан, и ровно это описание и
+                -- обещает: «увеличивает силу СЛЕДУЮЩЕЙ молитвы, ПОСЛЕ
+                -- применения молитвы эффект завершается».
+                local id = eff.spellID
+                C_Timer.After(0, function()
+                    -- БЕССРОЧНЫЙ РАСХОДУЕТСЯ ЦЕЛИКОМ. DecrementOne
+                    -- нарочно не трогает бессрочные — «кровотечение до
+                    -- конца сцены» ходами не убывает, и это верно. Но
+                    -- эффект на зарядах бессрочен ровно потому, что
+                    -- кончается НЕ ВРЕМЕНЕМ: «Внутренний огонь» гаснет
+                    -- от первой молитвы, а не через N ходов. Списывать с
+                    -- него нечего — его снимают.
+                    local one
+                    for _, e in ipairs(effects) do
+                        if e.spellID == id then one = e end
+                    end
+                    -- Мог спасть сам, пока кадр доигрывался.
+                    if not one then return end
+                    if one.uses == INFINITE then
+                        SB.ActiveEffects.Remove(id)
+                    else
+                        SB.ActiveEffects.DecrementOne(id)
+                    end
+                end)
+            end
+        end
+      end
+    end
+end
+
+SB.ActiveEffects.FireAction = FireAction
+
+-- ── Подписки ─────────────────────────────────────────────
+-- Поводы берём из событий, которые аддон уже рассылает: свой хук на
+-- каждый повод завёл бы четвёртую копию знания о том, где кончается
+-- удар (см. Core/ClassMechanics.lua — он живёт ровно на них же).
+SB.Events.On(SB.E.CAST_CONFIRMED, function(spellID)
+    FireAction("cast", SB.Data.Spells[spellID])
+end)
+
+SB.Events.On(SB.E.PVP_HIT_RESOLVED, function(_, spellID, landed)
+    if landed then FireAction("hit", SB.Data.Spells[spellID]) end
+end)
+
+-- ПОВОД «damaged» ПРИХОДИТ ОТ УДАРА, а не от изменения здоровья.
+--
+-- Сначала он висел на HEALTH_CHANGED, и это было неверно дважды: имени
+-- ударившего там нет (а без него возмездию некому отвечать), и само
+-- событие приходит на что угодно — тик яда, правку Ведущего, падение с
+-- высоты. Щит, вспыхивающий в ответ кровотечению, не отвечает ни одному
+-- описанию в библиотеке.
+--
+-- Зовётся из HandlePvpAttackReceived — единственной точки, куда
+-- сходятся ВСЕ входящие удары: ПвП, площадь и способность существа
+-- (см. Core/Logic.lua).
+
 --- Тик эффекта — блок effect.tick.
 function ApplyTick(spellID)
     local sp = SB.Data.Spells[spellID]
-    SB.ActiveEffects.ApplyPayload(spellID, sp and sp.effect and sp.effect.tick)
+    SB.ActiveEffects.ApplyPayload(spellID, sp and sp.effect and sp.effect.tick, "tick")
 end
 
 --- Прощальный расчёт — блок effect.onRemove. Зовётся ИЗ ВСЕХ путей, где
@@ -1306,7 +2005,60 @@ end
 --- @param realtime boolean|nil  тик пришёл от реалтайм-команды Ведущего,
 ---        а не от собственного действия игрока: строки уходят ему
 ---        сводкой, а не в общий лог (см. врезку про rtReport).
+--- @see SB.ActiveEffects.SecondsLeft — фаза тика, отсчёт секунд внутри хода.
+-- ============================================================
+-- ФАЗА ТИКА: СКОЛЬКО СЕКУНД ОСТАЛОСЬ НА САМОМ ДЕЛЕ
+--
+-- Счётчик у эффекта считает ХОДЫ, а показываем мы ВРЕМЯ — по шесть
+-- секунд на ход (SB.Data.SecondsPerTurn). Пока подпись строилась прямо
+-- из ходов, она стояла шесть секунд неподвижно и потом прыгала сразу на
+-- шесть: «54с» шесть секунд подряд, потом резко «48с».
+--
+-- Чтобы показывать честно, нужно знать не только сколько ходов
+-- осталось, но и СКОЛЬКО ПРОШЛО ВНУТРИ ТЕКУЩЕГО. Ход — это отрезок
+-- между двумя тиками, поэтому достаточно запомнить, когда тик был
+-- последний раз, и вычесть.
+--
+-- ФАЗА ОБЩАЯ НА ВСЕХ, и это не совпадение: реалтайм-тик заводит Ведущий,
+-- и в тот же миг, когда он тикает у себя, он рассылает пометку остальным
+-- (SendRealtimeDecrement в UI/GMPanel.lua). У всех клиентов TickAll
+-- срабатывает практически одновременно, значит и отсчёт у всех совпадает.
+--
+-- В ПОШАГОВОМ РЕЖИМЕ ОТСЧЁТА НЕТ, и быть не должно: ход там длится
+-- столько, сколько его отыгрывают, — минуту, десять. Секундная стрелка
+-- показывала бы выдуманное время и добежала бы до нуля, пока эффект ещё
+-- висит. Там подпись остаётся в ходах, как и была.
+local lastTickAt = nil
+
+--- Сколько секунд осталось эффекту.
+--- @param uses number  счётчик ходов (отрицательный — бессрочный)
+--- @return number|nil  nil — отсчёт не ведётся (бессрочный или пошаговый)
+function SB.ActiveEffects.SecondsLeft(uses)
+    uses = tonumber(uses) or 0
+    if uses < 0 then return nil end
+
+    local per = SB.Data.SecondsPerTurn or 6
+    local realtime = SpellbreakerAccountDB and SpellbreakerAccountDB.realtimeEffects
+
+    -- НЕТ ОТСЧЁТА — НЕТ И ОТВЕТА. Возвращаем nil, а не «ходы, умноженные
+    -- на шесть»: в пошаговом режиме секунды не значат ничего (ход длится
+    -- столько, сколько его отыгрывают), и подпись там должна быть в
+    -- ходах. Вызывающие на nil так и делают — переходят к
+    -- SB.UI.TurnsAsTimeShort, которая сама выбирает форму по режиму.
+    if not realtime or not lastTickAt then return nil end
+
+    -- Прошедшее внутри текущего хода. Зажимаем сверху длиной хода: если
+    -- тик задержался (лаг, выпавший из группы Ведущий), стрелка замирает
+    -- на нуле вместо того, чтобы уйти в минус и отнять лишний ход.
+    local since = math.min(per, math.max(0, GetTime() - lastTickAt))
+    return math.max(0, (uses - 1) * per + (per - since))
+end
+
 function SB.ActiveEffects.TickAll(skip, realtime)
+    -- ОТМЕТКУ СТАВИМ ДО САМОГО ТИКА: подписи, которые перерисуются по
+    -- ходу обхода, должны увидеть уже новую фазу, а не прошлую.
+    lastTickAt = GetTime()
+
     -- Весь ход — ОДНА пачка: иначе каждый эффект слал бы в группу свой
     -- пакет AEFFECT, и бой с несколькими эффектами забивал бы исходящую
     -- очередь настолько, что за ней терялись атаки и отдых.
@@ -1352,6 +2104,17 @@ function SB.ActiveEffects.TickAll(skip, realtime)
         batchDirty = false
         FireChanged()
     end
+
+    -- «ПРОШЁЛ ХОД» ОБЪЯВЛЯЕМ ОТСЮДА, потому что здесь это и определяется.
+    -- Тик эффектов — единственное место, куда сходятся оба отсчёта:
+    -- собственное действие игрока в пошаговом режиме и шестисекундный
+    -- таймер сцены в свободном. Кому нужно время само по себе, а не
+    -- действие (см. Фокус Охотника в Core/ClassMechanics.lua), слушает
+    -- это событие и не разбирается в режимах заново.
+    --
+    -- ПОСЛЕ всего тика, а не до: подписчик должен видеть уже новое
+    -- состояние эффектов, а не то, что было ходом раньше.
+    if SB.Events then SB.Events.Fire(SB.E.TURN_TICK) end
 end
 
 --- @param quiet boolean|nil  не печатать «эффект снят»: у снятия по
@@ -1498,6 +2261,33 @@ function SB.ActiveEffects.BreakOn(trigger)
         local sp  = SB.Data.Spells[eff.spellID]
         local def = sp and sp.effect and sp.effect.breakOn
         local hit = (type(def) == "table" and def[trigger] == true)
+
+        -- КОНЦЕНТРАЦИЯ СБИВАЕТСЯ УДАРОМ ПО УМОЛЧАНИЮ.
+        --
+        -- Это и есть смысл слова: поддерживаемое заклинание требует
+        -- внимания, а удар внимание отнимает. До сих пор правило
+        -- приходилось выписывать каждому эффекту руками, и половина
+        -- концентраций его просто не имела — невидимость держалась под
+        -- обстрелом, аура концентрации не замечала попаданий вовсе.
+        -- Правило, которое надо повторять в данных, рано или поздно
+        -- окажется повторённым не везде.
+        --
+        -- ОТКАЗАТЬСЯ МОЖНО: breakOn = { damaged = false } читается как
+        -- «эту концентрацию ударом не сбить» и переопределяет умолчание.
+        -- Явное false, а не отсутствие поля: молчание теперь значит
+        -- «как у всех», и отличить «не подумали» от «решили иначе»
+        -- иначе было бы нечем.
+        if not hit and trigger == "damaged" and eff.isConc then
+            -- ЧЕРЕЗ if, А НЕ ЧЕРЕЗ and: «(type(def) == "table") and
+            -- def.damaged» при отсутствии breakOn даёт FALSE, а не nil,
+            -- и отличить «не сказано ничего» от «сказано: не сбивать»
+            -- становится нечем. Умолчание тогда не срабатывало вовсе —
+            -- ровно у тех эффектов, ради которых оно и заводилось.
+            local said
+            if type(def) == "table" then said = def.damaged end
+            hit = (said ~= false)
+        end
+
         if not hit and trigger == "healed" then
             -- Школа со своим правилом (кровотечение) объявлять breakOn не
             -- обязана — см. врезку выше.

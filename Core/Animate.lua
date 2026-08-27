@@ -252,18 +252,6 @@ function SB.Animate.Alpha(frame, to, duration, easing, onDone)
     })
 end
 
---- Масштаб. Только для появления и исчезновения: постоянный масштаб,
---- отличный от единицы, ломает вёрстку дочерних элементов.
-function SB.Animate.Scale(frame, to, duration, easing, onDone)
-    if not frame or not frame.SetScale then return end
-    SB.Animate.To(KeyOf(frame, "scale"), {
-        obj = frame, from = frame:GetScale() or 1, to = to,
-        duration = duration, easing = easing,
-        apply = function(v, f) f:SetScale(v) end,
-        onDone = onDone,
-    })
-end
-
 --- Ширина (полоски ресурса, растущее подчёркивание таба).
 function SB.Animate.Width(region, to, duration, easing, onDone)
     if not region or not region.SetWidth then return end
@@ -329,33 +317,4 @@ function SB.Animate.BloomIn(frame)
         -- единица.
         onDone = function(f) f:SetScale(1) end,
     })
-end
-
--- ============================================================
--- КАСКАД
---
--- Список появляется не разом, а с задержкой между элементами. Работает
--- ровно на том, что «одно за другим» читается как порядок, а «всё разом»
--- — как вспышка. Задержка НАМЕРЕННО мелкая: на десяти элементах по 0.03
--- это треть секунды на весь список, дольше — уже ожидание.
---
--- Не применяется к спискам, которые пересобираются на каждое изменение
--- статуса (карточки заклинаний, сетка эффектов): там каскад срабатывал
--- бы по десять раз в минуту на ровном месте. Только на разовых событиях.
--- ============================================================
-function SB.Animate.Cascade(items, perItem, apply)
-    if type(items) ~= "table" or type(apply) ~= "function" then return end
-    perItem = tonumber(perItem) or 0.03
-
-    if not SB.Animate.IsEnabled() or not C_Timer then
-        for i, item in ipairs(items) do apply(item, i) end
-        return
-    end
-    for i, item in ipairs(items) do
-        if i == 1 then
-            apply(item, i)
-        else
-            C_Timer.After(perItem * (i - 1), function() apply(item, i) end)
-        end
-    end
 end

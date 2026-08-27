@@ -32,19 +32,89 @@ SB.Theme = SB.Theme or {}
 -- ============================================================
 SB.Theme.Assets = SB.Theme.Assets or {}
 
-SB.Theme.Assets.Background = "Interface\\AddOns\\Spellbreaker\\Assets\\Background.blp"
-SB.Theme.Assets.Card = "Interface\\AddOns\\Spellbreaker\\Assets\\Card.blp"
+local MEDIA = "Interface\\AddOns\\Spellbreaker\\Assets\\"
+
+SB.Theme.Assets.Background = MEDIA .. "Background.blp"
+SB.Theme.Assets.Card = MEDIA .. "Card.blp"
+
+-- ДЕРЕВО И КОЖА — два материала, у каждого своя работа.
+--
+-- Дерево (512x512, яркость 51%, разброс 16–77%) идёт на то, что ТРОГАЮТ:
+-- кнопки и полосу заголовка, за которую окно таскают. Крупная фактура с
+-- сильным разбросом на мелкой детали читается как поверхность, а не как
+-- шум, и рука понимает, что это можно взять.
+--
+-- Кожа (1024x1024, 45%, 8–88%) — на библиотеку, и только на неё.
+-- Библиотека — книга заклинаний, и переплёт у неё должен быть один на
+-- всё окно; раскидай мы кожу ещё и по колонкам, разница между книгой и
+-- листом персонажа пропала бы.
+--
+-- ПРО РАЗМЕР. Сторона обязана быть степенью двойки — клиент не грузит
+-- прочее вовсе, молча, без ошибки в логе. Исходная кожа пришла 1254x1254
+-- и в игре не появилась бы ни разу; здесь лежит ужатая до 1024, оригинал
+-- рядом под именем Leather.orig.tga.
+SB.Theme.Assets.Wood    = MEDIA .. "Wood.tga"
+SB.Theme.Assets.Leather = MEDIA .. "Leather.tga"
 
 -- Полотно и рамка окна. Nil — прежний вид (Background.blp + тултиповая
 -- рамка Blizzard).
 SB.Theme.Assets.FrameEdge  = nil
 SB.Theme.Assets.CardEdge   = nil
 SB.Theme.Assets.ColumnEdge = nil
--- Заполнение полоски ресурса. Nil — UI-StatusBar Blizzard.
-SB.Theme.Assets.BarFill    = nil
+-- Заполнение полоски ресурса (128x32, обе стороны — степень двойки).
+-- Раскрашивается цветом ресурса через SetVertexColor, поэтому сам файл
+-- обесцвечен: одна текстура на здоровье, ману, ярость и всё прочее.
+SB.Theme.Assets.BarFill    = MEDIA .. "Bar.tga"
 -- Тень под окном: отдельной текстурой, потому что SetBackdrop тени не
 -- умеет вовсе. Пока файла нет, тени просто не будет.
 SB.Theme.Assets.Shadow     = nil
+
+-- ============================================================
+-- ДЕРЕВЯННАЯ ПОЛОСА ЗАГОЛОВКА
+--
+-- Полоса широкая и низкая: окно бывает под тысячу пикселей, полоса —
+-- двадцать. Растяни на неё квадратную текстуру, и волокна размажет в
+-- горизонтальные полосы — вместо дерева выйдет градиент.
+--
+-- Поэтому текстура ПОВТОРЯЕТСЯ по ширине, а по высоте берётся узкая
+-- полоска сверху. Повтор считается от фактической ширины и обновляется
+-- при её изменении: колонку можно открепить и растянуть, а окно —
+-- собрать заново под другое число колонок.
+--
+-- Режим "REPEAT" в SetTexture обязателен: без него SetTexCoord со
+-- значением больше единицы не повторяет картинку, а растягивает крайний
+-- пиксель в полосу.
+--- @param tex Texture  куда рисовать
+--- @param tint table|nil  подкраска (по умолчанию C.titleWood)
+function SB.Theme.WoodStrip(tex, tint)
+    local path = SB.Theme.Assets.Wood
+    if not path then return false end
+
+    tex:SetTexture(path, "REPEAT", "REPEAT")
+    local c = tint or SB.Theme.C.titleWood
+    tex:SetVertexColor(c[1], c[2], c[3], c[4] or 1)
+
+    -- Высота куска = высота полосы, чтобы волокна не сплющивало.
+    local TILE = 64
+    local function Fit()
+        -- tonumber, а не «or 0»: размер спрашивают у ещё не разложенной
+        -- текстуры, и вернуться оттуда может что угодно, кроме числа.
+        -- Сравнение с нулём напрямую роняло бы построение всего окна.
+        local w = tonumber(tex:GetWidth()) or 0
+        local h = tonumber(tex:GetHeight()) or 0
+        if w <= 0 or h <= 0 then return end
+        tex:SetTexCoord(0, w / TILE, 0, h / TILE)
+    end
+    Fit()
+
+    -- У текстуры своего OnSizeChanged нет — слушаем родителя: полоса
+    -- растянута по его краям и меняется вместе с ним.
+    local owner = tex:GetParent()
+    if owner and owner.HookScript then
+        owner:HookScript("OnSizeChanged", Fit)
+    end
+    return true
+end
 
 --- Путь к текстуре из слота, либо запасной вариант.
 --- Одна точка вместо `X or "Interface\\..."` в десяти местах: пока слоты
@@ -64,21 +134,27 @@ local C = {
 	titleBg        = { 0.15, 0.12, 0.09, 1.00 },  -- тёмный янтарь — заметно теплее полотна фрейма
 	titleText      = { 0.92, 0.85, 0.68, 1.00 },  -- светлое золото — заголовки читаются как акцент
 	divider        = { 0.34, 0.30, 0.24, 0.90 },  -- латунный разделитель, не холодный серый
-    cardBg         = { 0.69, 0.66, 0.64, 0.95 },  -- тёплый графит с янтарным подтоном, НЕ серый 1:1:1
+    cardBg         = { 0.26, 0.26, 0.34, 1.00 },  -- тёплый графит с янтарным подтоном, НЕ серый 1:1:1
     cardBorder     = { 0.62, 0.48, 0.24, 0.85 },  -- латунь — уже было верно, оставлено
-    cardHoverBg     = { 0.76, 0.71, 0.66, 0.97 }, -- тот же графит, заметно теплее на наводке
+    cardHoverBg     = { 0.29, 0.29, 0.37, 1.00 }, -- тот же графит, заметно теплее на наводке
     cardHoverBorder= { 0.78, 0.62, 0.32, 0.90 },  -- латунь ярче на наводке
 	columnBg       = { 0.61, 0.59, 0.58, 1.00 },
 	columnBorder   = { 0.62, 0.48, 0.24, 0.85 },
-    pBg=  {0.35, 0.30, 0.25, 1.00}, pBorder={0.65, 0.55, 0.45, 1.00}, pText={0.95, 0.90, 0.85, 1.00},
-    pHBg= {0.45, 0.38, 0.32, 1.00}, pHBd=   {0.75, 0.65, 0.55, 1.00}, pPress={0.25, 0.20, 0.18, 1.00},
-    sBg= {0.17, 0.14, 0.11, 1.00}, sBorder  = {0.54, 0.44, 0.26, 0.90}, sText={0.85,0.82,0.76,1},
-    sHBg= {0.25,0.20,0.16,1}, sHBd=   {0.58,0.52,0.42,1}, sPress={0.09,0.07,0.06,1},
-    dBg=  {0.28, 0.10, 0.08, 1.00}, dBorder={0.65, 0.20, 0.15, 1.00}, dText={1.00, 0.75, 0.70, 1.00},
-    dHBg= {0.38,0.10,0.11,1}, dHBd=   {0.85,0.24,0.20,1}, dPress={0.13,0.03,0.03,1},
+    pBg=  {0.45, 0.38, 0.32, 1.00}, pBorder={0.65, 0.55, 0.45, 1.00}, pText={0.95, 0.90, 0.85, 1.00},
+    pHBg= {0.45, 0.35, 0.30, 1.00}, pHBd=   {0.75, 0.65, 0.55, 1.00}, pPress={0.25, 0.20, 0.18, 1.00},
+    sBg= {0.25, 0.20, 0.16, 1.00}, sBorder  = {0.54, 0.44, 0.26, 0.90}, sText={0.85,0.82,0.76,1},
+    sHBg= {0.28,0.18,0.14,1}, sHBd=   {0.58,0.52,0.42,1}, sPress={0.09,0.07,0.06,1},
+    dBg=  {0.38, 0.10, 0.11, 1.00}, dBorder={0.65, 0.20, 0.15, 1.00}, dText={1.00, 0.75, 0.70, 1.00},
+    dHBg= {0.38,0.20,0.18,1}, dHBd=   {0.85,0.24,0.20,1}, dPress={0.13,0.03,0.03,1},
     disBg={0.10,0.10,0.11,.7},disBd=  {0.30,0.28,0.26,.5}, disText={0.50,0.48,0.44,1},
     textMain={0.92,0.90,0.86,1}, textDim={0.62,0.58,0.54,1},
     textGold={1.00,0.80,0.42,1}, textDanger={1.00,0.42,0.34,1},
+    -- Подкраска ДЕРЕВЯННОЙ полосы заголовка — отдельная от titleBg и
+    -- заметно светлее. titleBg (0.15/0.12/0.09) подбирали под ровную
+    -- заливку, где число и есть итоговый цвет; поверх текстуры оно
+    -- умножается на её собственные 51% и даёт 7% — полосу, на которой
+    -- волокна не видно вовсе. Здесь тон задаёт картинка, а не число.
+    titleWood={0.25, 0.20, 0.16, 1.00},
     inputBg={0.06,0.06,0.08,.97},inputBd={0.42,0.36,0.24,.80},
 }
 SB.Theme.C = C
@@ -87,9 +163,95 @@ C.accent        = C.textGold
 C.textSecondary = C.textDim
 
 SB.Theme.Font = SB.Theme.Font or {}
-SB.Theme.Font.h2 = "GameFontNormal"
+SB.Theme.Font.h2 = "SBFontNormal"
 
 local BG_TEXTURE = SB.Theme.Assets.Background
+
+-- ============================================================
+-- ПОВЕРХНОСТИ — СВОЙ МАТЕРИАЛ У КАЖДОГО РОДА ОКОН
+--
+-- До сих пор фон был один на всё: Assets\Background.blp во фрейме и в
+-- колонке. Теперь у библиотеки пергамент, у колонок холст, у карточки
+-- заклинания камень, у панели Ведущего кожа — окна различаются на глаз
+-- раньше, чем игрок прочитает заголовок.
+--
+-- ═══ ГДЕ КРУТИТЬ ПАЛИТРУ ОКОН ═══════════════════════════════
+-- Здесь, в таблице SURFACES ниже. Одна строка на окно, менять только
+-- поле tint = { R, G, B, A }. Значения 0..1, применяются после /reload.
+--
+-- ПОДКРАСКА НЕ КРАСИТ, А УМНОЖАЕТ. Это главное правило, и из него
+-- следует всё остальное:
+--
+--     что видно на экране = что в файле × tint
+--
+-- ТО ЖЕ САМОЕ ДЕЛАЕТСЯ И С ЗЕРНОМ. Умножается не только средняя
+-- яркость, но и вся разница между светлыми и тёмными точками — то
+-- есть сама фактура. Тёмная подкраска гасит рисунок ровно во столько
+-- же раз, во сколько гасит яркость, и текстура превращается в ровную
+-- заливку. Именно на этом обожглись в первый раз: при tint около 0.17
+-- разброс наших файлов (1.5-3.8%) сжимался до 0.3-0.6%, а глаз
+-- перестаёт различать зерно примерно ниже 1%.
+--
+-- ЧТО ЭТО ЗНАЧИТ НА ПРАКТИКЕ. Хочешь видеть материал — держи tint не
+-- ниже 0.3, иначе смысла в текстуре нет вообще. Числа ниже подобраны
+-- так, чтобы итоговая яркость легла в 20-22%: окно остаётся тёмным,
+-- текст поверх читается, но фактура уже различима.
+--
+-- ПОТОЛОК У ЭТИХ ФАЙЛОВ НИЗКИЙ. Разброс в них 1.5-3.8% при размахе
+-- 18-32%; чтобы материал читался ОТЧЁТЛИВО, а не угадывался, разброс
+-- нужен раза в три больше. Если будешь перегенерировать — добавь в
+-- промт `strong visible grain, pronounced texture depth, medium
+-- contrast` и убери `very low contrast`. Яркость файла при этом можно
+-- оставить любой: она компенсируется здесь одним числом.
+--
+-- КАК ПОДОБРАТЬ ПОДКРАСКУ ПОД НОВЫЙ ФАЙЛ:
+--   1. нужная яркость окна (0.20 — как сейчас) ÷ яркость файла;
+--   2. развести получившееся по R/G/B, сохранив тон материала.
+-- Промахнёшься в тёмную сторону — окно станет чёрным пятном, в
+-- светлую — забьёт собой текст.
+--
+-- ТОН ЗАДАЁТ ХАРАКТЕР: пергамент тёплый, холст нейтральный, камень
+-- холодный, кожа рыжая. Файлы обесцвечены, весь цвет приходит отсюда —
+-- настроение окна меняется, не трогая картинку.
+--
+-- Замеры файлов (яркость / разброс) — в комментарии у каждой строки.
+-- ============================================================
+local SURFACES = {
+    -- [род] = { файл, подкраска {r,g,b,a} }
+    frame   = { tex = SB.Theme.Assets.Background,  tint = { 0.98, 0.95, 0.92, 1.00 } },
+    -- самый фактурный из четырёх файлов, потому он и выбран на полотно.
+    column  = { tex = MEDIA .. "Column.tga",       tint = { 0.30, 0.20, 0.30, 1.00 } },
+    -- КНИГА ЗАКЛИНАНИЙ — КОЖАНЫЙ ПЕРЕПЛЁТ. Здесь стояло то же полотно,
+    -- что у колонок, отличаясь от них одной лишь подкраской, — и
+    -- библиотека читалась как ещё одна панель того же окна. Она не
+    -- панель: это отдельная книга, которую открывают.
+    --
+    -- Подкраска светлее прежней втрое, и это не прихоть. Кожа сама по
+    -- себе тёмная (45% яркости), а SetBackdropColor УМНОЖАЕТ: прежние
+    -- 0.20/0.10/0.20 дали бы 9/4/9% — почти чёрный прямоугольник, на
+    -- котором никакой фактуры не разглядеть. 0.52/0.42/0.32 поверх 45%
+    -- дают тёплый коричневый в районе 23/19/14% — переплёт, а не пятно.
+    library = { tex = SB.Theme.Assets.Leather,     tint = { 0.23, 0.23, 0.28, 1.00 } },
+    gm      = { tex = MEDIA .. "Column.tga",       tint = { 0.30, 0.20, 0.30, 1.00 } },
+    -- КАРТОЧКА ЗАКЛИНАНИЯ — ТОТ ЖЕ ПЕРЕПЛЁТ, ЧТО И БИБЛИОТЕКА.
+    --
+    -- Здесь стоял свой камень — чтобы карточка, всплывая поверх
+    -- полотна колонок, от него отличалась. Отличаться она по-прежнему
+    -- обязана, но отличается теперь кожей от полотна, а не камнем
+    -- от камня: карточка — это лист из книги заклинаний, и читаться
+    -- ей правильнее как часть той же книги, а не как третий материал
+    -- в одном окне. Тот же материал достаётся и редактору существа
+    -- (UI/NPCEditor.lua) — всему, что раньше брало эту поверхность.
+    detail  = { tex = SB.Theme.Assets.Leather,     tint = { 0.23, 0.23, 0.28, 1.00 } },
+}
+SB.Theme.Surfaces = SURFACES
+
+--- Описание поверхности по имени. Неизвестное имя — обычный фрейм:
+--- окно, которому не назначили материал, должно выглядеть как раньше, а
+--- не остаться без фона вовсе.
+function SB.Theme.Surface(kind)
+    return SURFACES[kind] or SURFACES.frame
+end
 
 local BD = {
 	frame = {
@@ -102,7 +264,10 @@ local BD = {
 	},
 
 	card = {
-		bgFile   = SB.Theme.Assets.Card,
+		-- Кожа вместо прежнего Card.blp. ЦВЕТА КАРТОЧКИ НЕ ТРОНУТЫ
+		-- (C.cardBg и C.cardHoverBg) — их подбирают отдельно, под сам
+		-- материал; см. врезку о подкраске у SURFACES выше.
+		bgFile   = MEDIA .. "GMPanel.tga",
 		edgeFile = SB.Theme.Tex("CardEdge", "Interface\\Tooltips\\UI-Tooltip-Border"),
 		tile = true,
         tileSize = 256,
@@ -111,7 +276,7 @@ local BD = {
 	},
 
 	column = {
-		bgFile   = SB.Theme.Assets.Background,
+		bgFile   = SB.Theme.Surface("column").tex,
 		edgeFile = SB.Theme.Tex("ColumnEdge", "Interface\\Tooltips\\UI-Tooltip-Border"),
 		tile = true,
 		tileSize = 256,
@@ -120,7 +285,21 @@ local BD = {
 	},
 
     button = {
-        bgFile   = "Interface\\ChatFrame\\ChatFrameBackground",
+        -- Пергамент. ЦВЕТА КНОПОК НЕ ТРОНУТЫ: у каждого вида свой набор
+        -- (C.pBg / C.sBg / C.dBg и их наведённые и нажатые пары),
+        -- текстура их только умножает — см. SB.Theme.Button.
+        --
+        -- tileSize оставлен 16, хотя файл 512: на кнопке высотой в
+        -- двадцать пикселей плитка во всю текстуру показала бы один
+        -- почти ровный кусок, а при 16 фактура читается.
+        --
+        -- ДЕРЕВО ВМЕСТО ПЕРГАМЕНТА, и кнопки от этого ощутимо потемнели:
+        -- Library.tga светил 67%, дерево — 51%, то есть всё, что здесь
+        -- рисуется, стало примерно на четверть темнее при тех же цветах
+        -- видов. Так и задумано — кнопка должна выглядеть плотнее
+        -- подложки, — но если ряд покажется мрачным, крутить надо не
+        -- текстуру, а C.pBg / C.sBg / C.dBg разом.
+        bgFile   = SB.Theme.Assets.Wood,
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
         tile = true,
         tileSize = 16,
@@ -135,21 +314,20 @@ local BD = {
         insets = { left = 2, right = 2, top = 2, bottom = 2 },
     },
 
-    -- ПОДЛОЖКА ТУЛТИПА — ПЛОСКАЯ ЗАЛИВКА, А НЕ ТЕКСТУРА.
+    -- ПОДЛОЖКА ТУЛТИПА — прежний Card.blp, освободившийся с карточек.
     --
-    -- Раньше здесь стоял UI-DialogBox-Background — каменное полотно с
-    -- собственным рисунком. Под мелким текстом подсказки этот рисунок
-    -- мешает сильнее, чем прозрачность: глаз цепляется за фактуру, а
-    -- буквы в подсказках и так набраны самым мелким шрифтом аддона.
-    -- Ровная заливка даёт спокойный фон, на котором читается всё.
+    -- До этого здесь стояла ровная заливка, а ещё раньше — каменное
+    -- полотно Blizzard, которое убрали как раз за то, что его рисунок
+    -- спорил с мелким текстом подсказки. Card.blp этой беды не создаёт:
+    -- он заметно спокойнее и уже прошёл проверку под текстом карточек.
     --
     -- Рамка — стандартная тултиповая, та же, что у окон аддона
     -- (см. BD.frame): подсказка должна выглядеть частью интерфейса, а
     -- не диалогом Blizzard посреди него.
     tooltip = {
-        bgFile   = "Interface\\Buttons\\WHITE8x8",
+        bgFile   = SB.Theme.Assets.Card,
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = false, edgeSize = 16,
+        tile = true, tileSize = 256, edgeSize = 16,
         insets = { left = 4, right = 4, top = 4, bottom = 4 },
     },
 }
@@ -219,13 +397,20 @@ local function EnsureTipSkin()
     tipSkin:SetPoint("TOPLEFT",     GameTooltip, "TOPLEFT",     -1,  1)
     tipSkin:SetPoint("BOTTOMRIGHT", GameTooltip, "BOTTOMRIGHT",  1, -1)
     tipSkin:SetBackdrop(BD.tooltip)
-    -- ФОН НЕПРОЗРАЧНЫЙ И ЦВЕТА ЗАГОЛОВКА. Подсказку читают поверх чего
-    -- угодно — снега, костра, светящейся травы, — и любая просвечивающая
-    -- подложка означает, что часть строк будет читаться хуже других.
-    -- Цвет берём у титульной полосы (titleBg): она заметно теплее
-    -- полотна окна, и подсказка на её фоне не сливается с самим окном,
-    -- когда всплывает поверх него.
-    tipSkin:SetBackdropColor(C.titleBg[1], C.titleBg[2], C.titleBg[3], 1)
+    -- БЕЗ ПОДКРАСКИ — ЦВЕТ ПОКАЗЫВАЕТ ТОЛЬКО КАРТИНКА.
+    --
+    -- Раньше здесь стояла заливка цветом заголовка (titleBg, ~13%
+    -- яркости), а bgFile был плоской белой текстурой — 0.13 × белый и
+    -- давал тот самый тёплый янтарь. Когда bgFile стал Card.blp
+    -- (материал сам по себе тёмный, ~9% яркости), та же формула
+    -- перемножила два тёмных числа и увела тултип в почти чёрный:
+    -- 0.13 × 0.09 ≈ 1% — вот и «полностью чёрные» подсказки.
+    --
+    -- SetBackdropColor умножает — см. подробный разбор при SURFACES выше
+    -- в этом файле, — а Card.blp уже откалиброван по яркости сам, без
+    -- чужой подкраски: множитель 1 показывает файл ровно таким, какой он
+    -- есть, ничего не мешает и не темнит.
+    tipSkin:SetBackdropColor(1, 1, 1, 1)
     -- Рамка — та же латунь, что у окон аддона (SB.Theme.Frame), чтобы
     -- подсказка читалась как его часть.
     tipSkin:SetBackdropBorderColor(C.frameBorder[1], C.frameBorder[2], C.frameBorder[3], 1)
@@ -301,6 +486,12 @@ local SOUNDS = {
     fail       = SOUNDKIT and SOUNDKIT.IG_QUEST_FAILED          or 847,
     reject     = SOUNDKIT and SOUNDKIT.IG_PLAYER_INVITE_DECLINE or 882,
 
+    -- Разворот и сворачивание группы навыков. Перелистывание страницы
+    -- подходит по смыслу точнее щелчка: раскрывается не окно, а часть
+    -- уже открытого списка — как разворот страницы в той же книге.
+    paper_open  = SOUNDKIT and SOUNDKIT.IG_ABILITY_OPEN          or 851,
+    paper_close = SOUNDKIT and SOUNDKIT.IG_ABILITY_CLOSE         or 850,
+
     -- «Круг пройден, объявите новый ход» — Ведущему и только ему.
     -- Готовность к проверке подходит по смыслу: короткий звонок «от тебя
     -- ждут решения», и он не путается ни с уроном, ни с вердиктом.
@@ -324,7 +515,7 @@ function SB.Theme.Button(parent, text, w, h, variant)
     btn:SetBackdropColor(v.bg[1], v.bg[2], v.bg[3], v.bg[4])
     btn:SetBackdropBorderColor(v.border[1], v.border[2], v.border[3], v.border[4])
 
-    local fs = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local fs = btn:CreateFontString(nil, "OVERLAY", "SBFontNormal")
     fs:SetAllPoints()
     btn:SetFontString(fs)
     btn:SetText(text or "")
@@ -354,17 +545,121 @@ function SB.Theme.Button(parent, text, w, h, variant)
     end
     btn._tintTo = TintTo
 
-    btn:SetScript("OnEnter", function(self)
+    -- ============================================================
+    -- ПОДСВЕТКУ У КНОПКИ НЕ ОТОБРАТЬ ЧУЖИМ SetScript
+    --
+    -- Здесь стояли обычные SetScript, и сорок с лишним мест по всему
+    -- аддону вешали на те же два события свою подсказку — тем же
+    -- SetScript, то есть ПОВЕРХ. Подсветка у таких кнопок пропадала
+    -- целиком: наведение больше ничего не красило (OnEnter затёрт), а
+    -- нажатие красило в цвет нажатия и не возвращалось никогда (OnLeave
+    -- затёрт тоже). Кнопка проверки и «Специальное действие» так и жили:
+    -- не подсвечиваются под курсором, зато остаются подсвеченными после
+    -- клика до /reload.
+    --
+    -- Чинить сорок мест по одному значило бы однажды пропустить одно —
+    -- и получить ровно тот же баг в новом месте через месяц. Поэтому
+    -- чиним здесь: кнопка ПОДМЕНЯЕТ СЕБЕ SetScript для двух своих
+    -- событий и складывает чужой обработчик рядом, вместо того чтобы
+    -- отдавать ему место. Все прочие события проходят как раньше.
+    --
+    -- Поле на объекте перекрывает метод из метатаблицы — вызывающему
+    -- ничего менять не надо, его btn:SetScript("OnEnter", ...) работает
+    -- как и работал, только больше ничего не ломает.
+    -- ============================================================
+    -- ЗАМОК ОТ ПОВТОРНОГО ВХОДА. Вызывающий, который раньше сам
+    -- оборачивал обработчик темы (взял его через GetScript и зовёт
+    -- внутри своего), теперь получает через GetScript ЭТУ функцию — и
+    -- без замка вышло бы кольцо: наш зовёт чужого, чужой зовёт нашего.
+    -- Не «некрасиво», а зависание клиента при наведении мышью.
+    --
+    -- Такой вызывающий в аддоне остался один и переписан (см. карточку
+    -- заклинания в UI/MainFrame.lua), но замок стоит здесь, а не там:
+    -- цена ошибки слишком велика, чтобы полагаться на то, что следующий
+    -- такой случай кто-то заметит при code review.
+    -- Подсказка вызывающего и замок от кольца живут в ЗАМЫКАНИИ, а не
+    -- полями на кнопке, и это не стиль. Поле на фрейме читается снаружи
+    -- и снаружи же затирается, а замок, который посторонний код может
+    -- сбросить в середине вызова, замком не является. Каждой кнопке
+    -- достаётся своя пара этих переменных — их и создаёт SB.Theme.Button
+    -- на каждый вызов.
+    local userEnter, userLeave
+    local inEnter,   inLeave
+
+    local function OnEnterCore(self, ...)
         if self:IsEnabled() then
             TintTo(self, self._v.hBg, self._v.hBd, 0.85)
         end
-    end)
-    btn:SetScript("OnLeave", function(self)
+        -- ЗАМОК ОТ ПОВТОРНОГО ВХОДА. Вызывающий, который раньше сам
+        -- оборачивал обработчик темы (брал его через GetScript и звал
+        -- внутри своего), теперь получает через GetScript ЭТУ функцию — и
+        -- без замка вышло бы кольцо: наш зовёт чужого, чужой зовёт
+        -- нашего. Не «некрасиво», а зависание клиента при наведении.
+        --
+        -- Такой вызывающий в аддоне остался один и переписан (см.
+        -- карточку заклинания в UI/MainFrame.lua), но замок стоит здесь:
+        -- цена ошибки слишком велика, чтобы полагаться на внимательность
+        -- следующего, кто напишет то же самое.
+        if userEnter and not inEnter then
+            inEnter = true
+            userEnter(self, ...)
+            inEnter = false
+        end
+    end
+
+    local function OnLeaveCore(self, ...)
         if self:IsEnabled() then
             TintTo(self, self._v.bg, self._v.border)
         end
         self._fs:SetPoint("CENTER", 0, 0)
-    end)
+        if userLeave and not inLeave then
+            inLeave = true
+            userLeave(self, ...)
+            inLeave = false
+        end
+    end
+
+    local rawSetScript = btn.SetScript
+    btn:SetScript("OnEnter", OnEnterCore)
+    btn:SetScript("OnLeave", OnLeaveCore)
+
+    function btn:SetScript(event, fn)
+        if event == "OnEnter" then
+            -- Сам обработчик остаётся нашим — переставлять его не надо,
+            -- он уже стоит и уже зовёт то, что сюда положили.
+            userEnter = fn
+            return
+        elseif event == "OnLeave" then
+            userLeave = fn
+            return
+        end
+        return rawSetScript(self, event, fn)
+    end
+
+    -- HookScript на те же два события ведёт себя привычно: добавляет
+    -- ещё один обработчик, не трогая ни наш, ни ранее поставленный
+    -- вызывающим. Без этой развилки он повесил бы хук на НАШУ функцию, и
+    -- порядок вызовов зависел бы от того, в каком порядке звали SetScript
+    -- и HookScript, — то есть от случайности.
+    local rawHookScript = btn.HookScript
+    function btn:HookScript(event, fn)
+        if event == "OnEnter" then
+            local prev = userEnter
+            userEnter = function(...)
+                if prev then prev(...) end
+                fn(...)
+            end
+            return
+        elseif event == "OnLeave" then
+            local prev = userLeave
+            userLeave = function(...)
+                if prev then prev(...) end
+                fn(...)
+            end
+            return
+        end
+        return rawHookScript(self, event, fn)
+    end
     -- НАЖАТИЕ И СМЕНА ДОСТУПНОСТИ — БЕЗ ПЛАВНОСТИ, и это не упущение.
     -- Нажатие обязано отзываться в тот же кадр, иначе кнопка кажется
     -- залипшей; погасшая кнопка обязана погаснуть сразу, иначе игрок
@@ -459,6 +754,7 @@ function SB.Theme.Tab(parent, text, w, h, isActive)
     --- @param instant boolean|nil  без анимации: первичная расстановка
     ---        табов, где ехать ещё некуда
     function tab:SetActive(active, instant)
+        self._active = active and true or false
         local dur = instant and 0 or 0.16
         SB.Animate.Alpha(self.bg, active and 0.9 or 0, dur, "outQuad")
         SB.Animate.Alpha(self.underline, active and 1 or 0, dur, "outQuad")
@@ -470,6 +766,17 @@ function SB.Theme.Tab(parent, text, w, h, isActive)
             active and C.accent or C.textSecondary, dur, "outQuad")
     end
 
+    --- Сменить ширину вкладки. Отдельным методом, а не голым SetWidth:
+    --- ширина хранится ещё и в _fullW (до неё дорастает подчёркивание при
+    --- переключении), и подчёркивание активной вкладки надо подтянуть
+    --- сразу — иначе оно останется прежней длины до следующего щелчка.
+    function tab:SetTabWidth(w)
+        w = math.max(1, math.floor(w))
+        self:SetWidth(w)
+        self._fullW = w
+        if self._active then self.underline:SetWidth(w) end
+    end
+
     -- Первая расстановка — мгновенно: при создании таба ехать неоткуда, а
     -- «выросшее» подчёркивание при открытии окна выглядело бы так, будто
     -- вкладку только что переключили.
@@ -477,15 +784,64 @@ function SB.Theme.Tab(parent, text, w, h, isActive)
     return tab
 end
 
+--- РАЗЛОЖИТЬ РЯД ВКЛАДОК ВО ВСЮ ШИРИНУ ОКНА.
+---
+--- Ширина считается от числа ВИДИМЫХ вкладок, а не от их общего числа:
+--- скрытая вкладка не должна оставлять после себя дыру. Раньше ширина
+--- была прибита числом (118 на трёх вкладках при окне в 380), и это
+--- давало сразу две беды — зазор справа, потому что 8 + 118×3 + 4×2 не
+--- сходилось с шириной окна, и пустое место в треть панели у того, кому
+--- «Настройки» не показывают.
+--- @param frame  Frame  окно, по которому равняемся
+--- @param tabs   table  массив вкладок в порядке слева направо
+--- @param pad    number|nil  отступ от краёв окна (по умолчанию 8)
+--- @param gap    number|nil  просвет между вкладками (по умолчанию 4)
+function SB.Theme.LayoutTabs(frame, tabs, pad, gap)
+    pad = pad or 8
+    gap = gap or 4
+
+    local shown = {}
+    for _, t in ipairs(tabs) do
+        if t and t:IsShown() then shown[#shown + 1] = t end
+    end
+    if #shown == 0 then return end
+
+    local total = frame:GetWidth() - pad * 2 - gap * (#shown - 1)
+    local w     = math.floor(total / #shown)
+    -- Остаток от деления отдаём ПОСЛЕДНЕЙ вкладке: иначе ряд не достаёт
+    -- до правого края на один-два пикселя, и это заметно ровно так же,
+    -- как прежний зазор.
+    local extra = total - w * #shown
+
+    for i, t in ipairs(shown) do
+        t:SetTabWidth(w + ((i == #shown) and extra or 0))
+        t:ClearAllPoints()
+        if i == 1 then
+            t:SetPoint("TOPLEFT", frame, "TOPLEFT", pad, frame.contentY or -30)
+        else
+            t:SetPoint("LEFT", shown[i - 1], "RIGHT", gap, 0)
+        end
+    end
+end
+
 -- ============================================================
 -- Frame
 -- ============================================================
-function SB.Theme.Frame(name, parent, title, w, h)
+--- @param surface string|nil  род поверхности: "library" | "detail" | "gm".
+---        Без него окно выглядит как раньше (см. SB.Theme.Surfaces).
+function SB.Theme.Frame(name, parent, title, w, h, surface)
     local f = CreateFrame("Frame", name, parent or UIParent, "BackdropTemplate")
     f:SetSize(w or 400, h or 300)
     f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-    f:SetBackdrop(BD.frame)
-    f:SetBackdropColor(0.98, 0.95, 0.92)
+
+    -- Backdrop копируем, а не правим общий: таблица BD.frame одна на все
+    -- окна, и подмена поля в ней перекрасила бы заодно все остальные.
+    local surf = SB.Theme.Surface(surface)
+    local bd = {}
+    for k, v in pairs(BD.frame) do bd[k] = v end
+    bd.bgFile = surf.tex
+    f:SetBackdrop(bd)
+    f:SetBackdropColor(surf.tint[1], surf.tint[2], surf.tint[3], surf.tint[4])
     f:SetBackdropBorderColor(C.frameBorder[1], C.frameBorder[2], C.frameBorder[3], C.frameBorder[4])
     f:SetToplevel(true)
     f:SetClampedToScreen(true)
@@ -495,7 +851,19 @@ function SB.Theme.Frame(name, parent, title, w, h)
     f:SetUserPlaced(true)
 
     f:SetScript("OnDragStart", function(self) self:StartMoving() end)
-    -- OnDragStop задаётся через AttachPositionMemory
+    -- ОТПУСКАНИЕ ЗАДАЁМ ЗДЕСЬ ЖЕ, а не только в AttachPositionMemory.
+    --
+    -- Раньше StartMoving стоял без пары: окно, которому забыли позвать
+    -- AttachPositionMemory, начинало движение и НИКОГДА его не
+    -- заканчивало — оно приклеивалось к курсору намертво, и снять это
+    -- можно было только перезагрузкой интерфейса. Ровно так и вышло с
+    -- окошком ввода числа в меню существа.
+    --
+    -- AttachPositionMemory по-прежнему ставит свой обработчик поверх:
+    -- ему нужно не только остановить движение, но и запомнить, где
+    -- окно встало. Здесь же — минимум, который обязан быть у любого
+    -- окна с перетаскиванием.
+    f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
 
     -- ПОЯВЛЕНИЕ: прозрачность плюс лёгкий наплыв масштабом
     -- (см. SB.Animate.BloomIn). Через HookScript, а не SetScript: окна
@@ -519,10 +887,14 @@ function SB.Theme.Frame(name, parent, title, w, h)
 	tb:SetPoint("TOPLEFT",  f, "TOPLEFT",  5, -5)
 	tb:SetPoint("TOPRIGHT", f, "TOPRIGHT", -5, -5)
 	tb:SetHeight(24)
-	tb:SetColorTexture(C.titleBg[1], C.titleBg[2], C.titleBg[3], C.titleBg[4])
+	-- Дерево, если файл на месте; иначе прежняя ровная заливка — окно без
+	-- текстуры должно выглядеть как раньше, а не остаться без заголовка.
+	if not SB.Theme.WoodStrip(tb) then
+		tb:SetColorTexture(C.titleBg[1], C.titleBg[2], C.titleBg[3], C.titleBg[4])
+	end
 	f.TitleBg = tb
 
-    local tfs = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local tfs = f:CreateFontString(nil, "OVERLAY", "SBFontNormal")
     tfs:SetPoint("CENTER", tb, "CENTER", -12, 0)
     tfs:SetText(title or " ")
     tfs:SetTextColor(C.titleText[1], C.titleText[2], C.titleText[3])
@@ -711,9 +1083,37 @@ function SB.Theme.AttachScrollbar(sf, child, parent, top, bottom)
         local thumbH = math.max(20, trackH * (viewH / childH))
         thumb:SetHeight(thumbH)
 
-        local scroll = sf:GetVerticalScroll()
-        local maxOff = trackH - thumbH
+        -- ============================================
+        -- ПРОКРУТКА МОЖЕТ ОКАЗАТЬСЯ ДАЛЬШЕ КОНЦА СПИСКА
+        --
+        -- Клиент не подтягивает смещение назад, когда содержимое
+        -- УМЕНЬШИЛОСЬ под уже прокрученным списком: разучили заклинание,
+        -- свернули группу навыков — и GetVerticalScroll продолжает
+        -- отдавать старое число, которое больше нового range. Доля
+        -- scroll/range выходит за единицу, и ползунок уезжает ниже
+        -- дорожки — ровно то, что видно глазом.
+        --
+        -- Чиним не подпись, а причину: смещение возвращаем к концу
+        -- списка. Иначе под содержимым осталась бы пустота, по которой
+        -- список «прокручен», а ползунок бы её просто не показывал.
+        --
+        -- Повторного захода не боимся: SetVerticalScroll дёрнет
+        -- OnVerticalScroll и мы придём сюда снова, но уже с scroll ==
+        -- range, где условие ложно и цикл обрывается.
+        local scroll = sf:GetVerticalScroll() or 0
+        if scroll > range then
+            sf:SetVerticalScroll(range)
+            scroll = range
+        elseif scroll < 0 then
+            sf:SetVerticalScroll(0)
+            scroll = 0
+        end
+
+        local maxOff = math.max(0, trackH - thumbH)
         local offset = (range > 0) and (scroll / range) * maxOff or 0
+        -- Зажим и здесь тоже: дорожка бывает короче ползунка на кадре,
+        -- где высоты ещё не устоялись, и тогда maxOff отрицателен.
+        offset = math.max(0, math.min(maxOff, offset))
         thumb:ClearAllPoints()
         thumb:SetPoint("TOP", track, "TOP", 0, -offset)
     end
@@ -924,11 +1324,19 @@ function SB.Theme.Bar(parent, w, h, kind)
     fill:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT",  INSET,  INSET)
     fill:SetWidth(1)
 
-    -- Блик по верхней половине — то, из-за чего полоска выглядит
-    -- выпуклым стеклом, а не залитым прямоугольником. SetGradientAlpha
-    -- есть не на всех клиентах, поэтому под проверкой: без него просто
-    -- не будет блика, всё остальное продолжит работать.
+    -- БЛИК РИСУЕМ, ТОЛЬКО ЕСЛИ ЕГО НЕТ В САМОЙ ТЕКСТУРЕ.
+    --
+    -- Он появился, когда заполнение было ровной заливкой: без него
+    -- полоска выглядела наклейкой. У своего файла (Assets\Bar.tga) блик
+    -- уже нарисован — светлее к середине по высоте, темнее к краям, — и
+    -- второй градиент поверх первого не делает полоску выпуклее, а
+    -- размывает оба: середина уходит в белёсое, край в грязь.
+    --
+    -- SetGradientAlpha к тому же есть не на всех клиентах, поэтому и
+    -- дальше под проверкой: без него просто не будет блика.
+    local hasOwnGloss = (SB.Theme.Assets.BarFill ~= nil)
     local gloss = bar:CreateTexture(nil, "ARTWORK", nil, 1)
+    gloss:SetShown(not hasOwnGloss)
     gloss:SetPoint("TOPLEFT",     bar, "TOPLEFT", INSET, -INSET)
     gloss:SetPoint("BOTTOMRIGHT", bar, "RIGHT",  -INSET,  0)
     gloss:SetTexture(SOLID)
@@ -952,7 +1360,7 @@ function SB.Theme.Bar(parent, w, h, kind)
     bar._inset  = INSET
     bar._maxW   = w - INSET * 2
 
-    local text = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local text = bar:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
     text:SetPoint("CENTER", bar, "CENTER", 0, 0)
     text:SetTextColor(1, 1, 1, 1)
     text:SetShadowColor(0, 0, 0, 1)
@@ -1051,13 +1459,13 @@ function SB.Theme.Input(parent, placeholder, w, h)
     local eb = CreateFrame("EditBox", nil, wrap)
     eb:SetPoint("TOPLEFT",     wrap, "TOPLEFT",     4,  -3)
     eb:SetPoint("BOTTOMRIGHT", wrap, "BOTTOMRIGHT", -4,  3)
-    eb:SetFontObject("ChatFontNormal")
+    eb:SetFontObject("SBFontChat")
     eb:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
     eb:SetAutoFocus(false)
     eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 
     if placeholder and placeholder ~= "" then
-        local ph = wrap:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        local ph = wrap:CreateFontString(nil, "OVERLAY", "SBFontDisableSmall")
         ph:SetPoint("LEFT", eb, "LEFT", 0, 0)
         ph:SetText(placeholder)
         ph:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
@@ -1065,6 +1473,15 @@ function SB.Theme.Input(parent, placeholder, w, h)
         eb:SetScript("OnTextChanged",   function(self) ph:SetShown(self:GetText() == "") end)
         eb:SetScript("OnEditFocusGained", function()   ph:Hide() end)
         eb:SetScript("OnEditFocusLost",   function(self) ph:SetShown(self:GetText() == "") end)
+
+        -- ПОДСКАЗКА НАРУЖУ. Во-первых, её текст меняют там, где одно поле
+        -- служит разным разделам («Поиск способностей» против «Поиск
+        -- существ» в библиотеке). Во-вторых — и это важнее, — вызывающий
+        -- часто вешает на OnTextChanged СВОЙ обработчик и молча затирает
+        -- тот, что стоит строкой выше: подсказка тогда не пропадает при
+        -- вводе и остаётся лежать под набранным текстом. Поле рядом —
+        -- чтобы такой обработчик мог её погасить сам.
+        wrap.placeholder = ph
     end
 
     wrap.editBox = eb
@@ -1095,7 +1512,7 @@ end
 function SB.Theme.AttachCharLimit(eb, maxChars, counterParent)
     local counter
     if counterParent then
-        counter = counterParent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        counter = counterParent:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
         counter:SetPoint("TOPRIGHT", counterParent, "TOPRIGHT", -2, -2)
         counter:SetTextColor(0.6, 0.57, 0.5, 1)
     end
@@ -1135,7 +1552,7 @@ function SB.Theme.MultilineInput(parent, placeholder, w, h, maxChars)
 
     local eb = CreateFrame("EditBox", nil, wrap)
     eb:SetMultiLine(true)
-    eb:SetFontObject("ChatFontNormal")
+    eb:SetFontObject("SBFontChat")
     eb:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
     eb:SetAutoFocus(false)
     eb:SetPoint("TOPLEFT",     wrap, "TOPLEFT",     4, -3)
@@ -1143,7 +1560,7 @@ function SB.Theme.MultilineInput(parent, placeholder, w, h, maxChars)
     eb:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
 
     if placeholder and placeholder ~= "" then
-        local ph = wrap:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        local ph = wrap:CreateFontString(nil, "OVERLAY", "SBFontDisableSmall")
         ph:SetPoint("TOPLEFT", eb, "TOPLEFT", 0, 0)
         ph:SetText(placeholder)
         ph:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
@@ -1181,17 +1598,6 @@ local function GetGrowProbe()
     return growProbe
 end
 
---- Обрезает текст до maxChars символов (UTF-8) и добавляет "…", если
---- обрезка реально произошла. Для read-only отображения (карточка
---- заклинания) — не путать с Utf8Clamp, которая не добавляет "…"
---- и используется для живого редактирования (курсор не должен
---- прыгать из-за добавленного символа).
-function SB.Theme.TruncateForDisplay(text, maxChars)
-    text = text or ""
-    if Utf8Len(text) <= maxChars then return text end
-    return Utf8Clamp(text, maxChars) .. "..."
-end
-
 --- Высота (px), нужная тексту text при ширине width текущим шрифтом
 --- fontObject, ОБРЕЗАННОМУ до maxChars символов (UTF-8) перед
 --- измерением — рост контейнера, посчитанный по этой высоте, дальше
@@ -1201,7 +1607,7 @@ end
 --- TOPRIGHT точками, которые авторастут без этой функции.
 function SB.Theme.MeasureCappedTextHeight(text, width, fontObject, maxChars)
     local probe = GetGrowProbe()
-    probe:SetFontObject(fontObject or "ChatFontNormal")
+    probe:SetFontObject(fontObject or "SBFontChat")
     probe:SetWidth(math.max(1, width or 1))
     local t = Utf8Clamp(text or "", maxChars or 300)
     probe:SetText(t ~= "" and t or " ")
@@ -1238,7 +1644,7 @@ function SB.Theme.AttachAutoGrow(wrap, minHeight, maxChars, onResize)
         local w = eb:GetWidth()
         if not w or w <= 1 then return end
         local textH = SB.Theme.MeasureCappedTextHeight(
-            eb:GetText(), w, eb:GetFontObject() or "ChatFontNormal", maxChars or 300)
+            eb:GetText(), w, eb:GetFontObject() or "SBFontChat", maxChars or 300)
         local newH = math.max(minHeight or 0, math.ceil(textH) + VPAD)
         if math.abs(newH - (wrap:GetHeight() or 0)) < 1 then return end
 
@@ -1269,22 +1675,88 @@ end
 --- ВАЖНО: вызывать через C_Timer.After(0, ...) после SetText/SetPoint —
 --- GetTop/GetBottom только что изменённого текста не всегда актуальны
 --- в тот же кадр (обычный паттерн для этого аддона, см. UI/MainFrame.lua).
---- НИЖНЯЯ ГРАНЬ СЧИТАЕТСЯ КАК «ВЕРХ + ВЫСОТА», А НЕ ЧЕРЕЗ GetBottom.
---- Арифметически это одно и то же, но GetBottom берёт ВЫЧИСЛЕННЫЙ
---- прямоугольник, а он отстаёт на кадр от только что сделанного
---- SetHeight — тогда как GetHeight отдаёт заданный размер сразу.
---- Разница видна ровно там, где вызывающий сначала растит поле под
---- текст, а потом окно под поле (карточка заклинания, см.
---- UI/Library.lua): по старой формуле окно иногда считалось по ПРЕЖНЕЙ
---- высоте поля, и поле с длинной отписью вылезало за нижний край.
+--- ПОПРАВКА ОТ ТЕКУЩЕЙ ВЫСОТЫ, А НЕ ВЫСОТА С НУЛЯ. Это важно, и вот
+--- почему.
+---
+--- Окна привязаны за ЦЕНТР (см. AttachPositionMemory), поэтому SetHeight
+--- сдвигает и верх окна, и всё содержимое под ним — каждое на половину
+--- прироста. Прямоугольники при этом обновляются лениво и не разом: в
+--- том же кадре GetTop у окна может отдать уже новое значение, а у
+--- вложенного поля — ещё старое.
+---
+--- Прежняя формула считала высоту НАБЕЛО, от frame:GetTop(): стоило
+--- двум прямоугольникам разойтись на половину прироста — и окно
+--- вырастало на эту половину ещё раз. Один проход давал недолёт (поле
+--- отписи под нижней рамкой), два прохода — перелёт (пустая полоса перед
+--- кнопкой у длинных описаний). Оба и были замечены в игре.
+---
+--- Здесь измеряется ЗАЗОР между низом содержимого и низом окна, и высота
+--- правится на разницу с нужным. Промах в измерении означает всего лишь
+--- недобранную поправку, которую доберёт следующий проход: расчёт
+--- СХОДИТСЯ вместо того, чтобы разбегаться, и останавливается сам, когда
+--- зазор уже верный.
+---
+--- Низ содержимого берётся как «верх минус высота», а не через
+--- GetBottom: GetHeight отдаёт заданный размер сразу, а вычисленный
+--- прямоугольник отстаёт на кадр от только что сделанного SetHeight.
+--- ОКНО ПРИБИВАЕТСЯ ЗА ВЕРХ — И ЭТО НЕ КОСМЕТИКА, А УСЛОВИЕ РАСЧЁТА.
+---
+--- Окна привязаны за ЦЕНТР (см. AttachPositionMemory). У такого окна
+--- SetHeight двигает верхний край, а вместе с ним едет всё содержимое —
+--- и измерять раскладку сразу после изменения высоты становится нечем:
+--- прямоугольники обновляются лениво и не разом, окно может отдать уже
+--- новую границу, а вложенное поле — ещё старую.
+---
+--- На этом расчёт ломался дважды подряд. Абсолютная формула прибавляла
+--- половину прироста лишний раз (пустая полоса перед кнопкой), а
+--- относительная поправка на несвежем замере повторяла одну и ту же
+--- добавку каждый проход — и окно уезжало на весь экран.
+---
+--- Пока верх на месте, не двигается НИЧЕГО, кроме нижнего края: разница
+--- «верх окна минус верх содержимого» постоянна, замер верен с первого
+--- раза, а повторный вызов ничего не меняет.
+--- Прибивается ЗАНОВО на каждый вызов, без запоминания. Перетаскивание
+--- окна расставляет точки по-своему (StartMoving/StopMovingOrSizing), и
+--- однажды выставленная привязка после первого же переноса перестала бы
+--- действовать. Стоит это пары вызовов, а окно не двигает: прибиваем
+--- ровно туда, где оно и стоит.
+local function PinTop(frame)
+    local left, top = frame:GetLeft(), frame:GetTop()
+    if not left or not top then return end   -- ещё не разложено
+    frame:ClearAllPoints()
+    frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+end
+
+--- Растянуть frame по высоте так, чтобы contentFrame поместился с
+--- отступом bottomReserve снизу — но не ниже baseHeight.
+---
+--- Низ содержимого берётся как «верх минус высота», а не через
+--- GetBottom: GetHeight отдаёт заданный размер сразу, а вычисленный
+--- прямоугольник отстаёт на кадр от только что сделанного SetHeight.
 function SB.Theme.AutoGrowToFit(frame, contentFrame, bottomReserve, baseHeight)
     if not frame or not contentFrame then return end
     if not frame:IsShown() then return end
-    local top     = frame:GetTop()
-    local cTop    = contentFrame:GetTop()
+
+    PinTop(frame)
+
+    local top  = frame:GetTop()
+    local cTop = contentFrame:GetTop()
     if not top or not cTop then return end
+
     local needed = (top - cTop) + (contentFrame:GetHeight() or 0) + (bottomReserve or 0)
-    frame:SetHeight(math.max(baseHeight or 0, needed))
+    needed = math.max(baseHeight or 0, needed)
+
+    -- ПОТОЛОК ВЫСОТЫ. Ни одно окно аддона не должно перекрывать экран,
+    -- какой бы длины ни оказалось описание: дальше текст всё равно не
+    -- прочитать, а окно во весь экран — это уже поломка, а не карточка.
+    -- Страховка на случай, если расчёт снова начнёт разбегаться.
+    local screenH = UIParent and UIParent:GetHeight() or 0
+    if screenH > 0 then needed = math.min(needed, screenH * 0.9) end
+
+    -- Полпикселя — это уже «как надо»: дальше начинается дрожание на
+    -- округлениях, а не подгонка.
+    if math.abs(needed - (frame:GetHeight() or 0)) < 0.5 then return end
+    frame:SetHeight(needed)
 end
 
 -- ============================================================
@@ -1314,9 +1786,10 @@ end
 function SB.Theme.DockableColumn(hostFrame, dbKey, title, width)
     local col = CreateFrame("Frame", nil, hostFrame, "BackdropTemplate")
     col:SetWidth(width)
-	col:SetBackdrop(BD.column)
-	col:SetBackdropColor(C.columnBg[1], C.columnBg[2], C.columnBg[3], C.columnBg[4])
-	col:SetBackdropBorderColor(C.columnBorder[1], C.columnBorder[2], C.columnBorder[3], 1.0)
+	-- Холст — общий на все три колонки (способности, атрибуты, эффекты):
+	-- это один и тот же род панели, и разные материалы у них читались бы
+	-- как разные по важности. Сам вид ставится ниже, через
+	-- ApplyDockedVisual — там же, куда за ним ходят открепление и возврат.
     col:SetClampedToScreen(true)
  
     col.isDocked   = true
@@ -1333,9 +1806,11 @@ function SB.Theme.DockableColumn(hostFrame, dbKey, title, width)
  
     local titleBg = titleBar:CreateTexture(nil, "ARTWORK")
     titleBg:SetAllPoints()
-    titleBg:SetColorTexture(C.titleBg[1], C.titleBg[2], C.titleBg[3], C.titleBg[4])
+    if not SB.Theme.WoodStrip(titleBg) then
+        titleBg:SetColorTexture(C.titleBg[1], C.titleBg[2], C.titleBg[3], C.titleBg[4])
+    end
  
-    local titleFS = titleBar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local titleFS = titleBar:CreateFontString(nil, "OVERLAY", "SBFontNormal")
     titleFS:SetPoint("LEFT", titleBar, "LEFT", 6, 0)
     titleFS:SetText(title)
     titleFS:SetTextColor(C.titleText[1], C.titleText[2], C.titleText[3])
@@ -1359,11 +1834,18 @@ function SB.Theme.DockableColumn(hostFrame, dbKey, title, width)
     -- ============================================================
     local FLOAT_W, FLOAT_H = width, 420
 
+	-- ОДНА ТОЧКА НА ВСЕ ТРИ СЛУЧАЯ: создание, открепление, возврат.
+	-- Раньше подкраска стояла здесь своим числом (C.columnBg), и она
+	-- разошлась с той, что ставится при создании: стоило открепить
+	-- колонку — материал терял цвет и становился серым.
 	local function ApplyDockedVisual()
+		local surf = SB.Theme.Surface("column")
 		col:SetBackdrop(BD.column)
-		col:SetBackdropColor(C.columnBg[1], C.columnBg[2], C.columnBg[3], 1.0)
+		col:SetBackdropColor(surf.tint[1], surf.tint[2], surf.tint[3], surf.tint[4])
 		col:SetBackdropBorderColor(C.columnBorder[1], C.columnBorder[2], C.columnBorder[3], 1.0)
     end
+    col.ApplyDockedVisual = ApplyDockedVisual
+    ApplyDockedVisual()
 
     -- Одна точка записи состояния: и открепление/возврат, и конец
     -- перетаскивания идут через неё. Координаты пишутся ТОЛЬКО пока
@@ -1555,47 +2037,43 @@ end
 -- ============================================================
 local PORTRAIT_MASK = "Interface\\CHARACTERFRAME\\TempPortraitAlphaMask"
 
+-- Кольцо портрета — своя текстура (Assets\PlayerFrame.tga), а не цвет с
+-- маской. Первые две попытки взять готовый арт Blizzard провалились
+-- (BlueMenuRing не переживал растяжение под произвольный размер,
+-- Artifacts-PerkRing-Final оказался сплошной заливкой без прозрачной
+-- середины), поэтому кольцо какое-то время рисовалось двумя закрашенными
+-- кругами через маску — тот же приём, что красит сам портрет.
+--
+-- ── ПАРАМЕТРЫ ПОСАДКИ ПОРТРЕТА В КОЛЬЦО ─────────────────────
+-- Оба числа — доли от размера кадра, а не пиксели: кольцо рисуется в
+-- двух размерах (54 в шапке, 52 в панели Ведущего), и пропорция обязана
+-- сохраниться в обоих.
+--
+-- RING_HOLE — ЗАМЕР ПО ПИКСЕЛЯМ ФАЙЛА, а не подбор на глаз: альфа
+-- впервые становится ненулевой на радиусе 102 из 128 (половина холста),
+-- то есть прозрачная середина занимает 0.797 ширины кадра. Меняешь
+-- файл — меряешь заново, иначе посадка уедет.
+--
+-- OVERLAP — насколько портрет ЗАЛЕЗАЕТ ПОД бронзу. Ради него всё и
+-- считается: без нахлёста между портретом и кольцом остаётся волосяной
+-- зазор в доли пикселя, сквозь который видно фон окна (ровно то, что
+-- было заметно на рамках игроков в панели Ведущего). Увеличить — портрет
+-- сильнее уйдёт под кольцо; уменьшить до нуля — зазор вернётся.
+local RING_TEXTURE = MEDIA .. "PlayerFrame.tga"
+local RING_HOLE    = 0.797   -- доля кадра, занятая прозрачной серединой
+local OVERLAP      = 0.03    -- нахлёст портрета под кольцо, доля кадра
+
 function SB.Theme.RoundPortrait(parent, size)
     size = size or 48
-
-    -- ВНИМАНИЕ: кольцо рисуется ЦВЕТОМ + МАСКОЙ, а не готовой Blizzard-
-    -- текстурой. Две попытки взять штатный арт провалились по разным
-    -- причинам: BlueMenuRing не переживает растяжение под произвольный
-    -- размер, а Artifacts-PerkRing-Final на практике оказался сплошной
-    -- заливкой без прозрачной середины (не тот файл, что ожидался по
-    -- названию). Без живого клиента путь к текстуре нельзя проверить
-    -- заранее — поэтому вместо третьей попытки угадать: гарантированно
-    -- рабочий вариант на той же технике, что уже красит сам портрет —
-    -- SetColorTexture + круглая маска, в два вложенных слоя вместо
-    -- одного (тёмный ободок + тонкая светлая линия-акцент).
-    local RIM_PAD    = 3    -- толщина внешнего тёмного ободка, px
-    local ACCENT_PAD = 1.5  -- толщина внутренней светлой линии, px
 
     local port = CreateFrame("Frame", nil, parent)
     port:SetSize(size, size)
 
-    --- Закрашенный круг: полноразмерная заливка + маска. Поскольку
-    --- каждый следующий слой меньше и полностью непрозрачен, порядок
-    --- отрисовки не важен — меньший круг просто перекрывает центр
-    --- большего, оставляя видимым только кольцо между ними.
-    local function ColoredCircle(inset, r, g, b)
-        local tex = port:CreateTexture(nil, "BACKGROUND")
-        tex:SetPoint("TOPLEFT", inset, -inset)
-        tex:SetPoint("BOTTOMRIGHT", -inset, inset)
-        tex:SetColorTexture(r, g, b, 1)
-        local mask = port:CreateMaskTexture()
-        mask:SetTexture(PORTRAIT_MASK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-        mask:SetAllPoints(tex)
-        tex:AddMaskTexture(mask)
-        return tex
-    end
-
-    local rim    = ColoredCircle(0,        C.cardBorder[1], C.cardBorder[2], C.cardBorder[3])
-    local accent = ColoredCircle(RIM_PAD,  C.titleText[1],  C.titleText[2],  C.titleText[3])
-
-    -- Сам портрет — поверх обоих колец (ARTWORK рисуется после BACKGROUND).
-    local inset = RIM_PAD + ACCENT_PAD
-    local tex = port:CreateTexture(nil, "ARTWORK")
+    -- Портрет — под кольцом (BACKGROUND рисуется до ARTWORK), обрезан в
+    -- круг той же маской, что и раньше. Радиус портрета — половина дыры
+    -- плюс нахлёст; отступ от края кадра — то, что осталось.
+    local inset = size * (0.5 - (RING_HOLE / 2 + OVERLAP))
+    local tex = port:CreateTexture(nil, "BACKGROUND")
     tex:SetPoint("TOPLEFT", inset, -inset)
     tex:SetPoint("BOTTOMRIGHT", -inset, inset)
     tex:SetTexCoord(0.1, 0.9, 0.1, 0.9)
@@ -1605,9 +2083,42 @@ function SB.Theme.RoundPortrait(parent, size)
     texMask:SetAllPoints(tex)
     tex:AddMaskTexture(texMask)
 
+    -- Кольцо — поверх портрета, во весь кадр: своя прозрачность в файле
+    -- уже вырезает дыру и сглаживает край, лишняя маска не нужна.
+    --
+    -- SetVertexColor ЗДЕСЬ НЕТ И БЫТЬ НЕ ДОЛЖНО: цвет бронзы приходит
+    -- только из файла. Любая подкраска перемножилась бы с ним и увела
+    -- кольцо в темноту — та же арифметика, что портила фоны окон.
+    local ring = port:CreateTexture(nil, "ARTWORK")
+    ring:SetAllPoints(port)
+    ring:SetTexture(RING_TEXTURE)
+
     port.tex  = tex
-    port.ring = rim
+    port.ring = ring
+    port.mask = texMask
     return port
+end
+
+--- Ещё одна картинка В ТУ ЖЕ ДЫРУ кольца — поверх портрета.
+---
+--- ЗАЧЕМ ОТДЕЛЬНАЯ ФУНКЦИЯ. Размер дыры считается из RING_HOLE и
+--- OVERLAP, то есть из замеров конкретного файла кольца. Подставлять его
+--- числом на месте вызова — значит завести вторую копию этих замеров,
+--- которая разойдётся с первой при первой же смене рамки. Ровно так и
+--- вышло с иконкой класса в панели Ведущего: ей проставили 24 пикселя
+--- при дыре в сорок с лишним, и она висела в середине бронзового кольца
+--- монеткой.
+---
+--- МАСКА ТА ЖЕ, ЧТО У ПОРТРЕТА, и это не украшение: иконки классов
+--- круглые сами по себе, а вот запасной вопросительный знак —
+--- квадратный, и без маски его углы легли бы поверх бронзы.
+--- @param layer string|nil  слой отрисовки (по умолчанию ARTWORK)
+function SB.Theme.PortraitInset(port, layer)
+    if not port or not port.tex then return nil end
+    local t = port:CreateTexture(nil, layer or "ARTWORK")
+    t:SetAllPoints(port.tex)
+    if port.mask then t:AddMaskTexture(port.mask) end
+    return t
 end
 -- ============================================================
 -- IconBorder — декоративная рамка вокруг иконки заклинания

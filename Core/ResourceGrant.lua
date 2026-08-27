@@ -11,7 +11,21 @@ SB.ResourceGrant = SB.ResourceGrant or {}
  
 local grantFrame    = nil
 local currentTarget = nil   -- { name, mastery, zeal, maxZeal, health, maxHealth }
-local deltas        = { zeal = 0, health = 0 }
+-- ЧТО НАБРАНО В ПОЛЯХ — ИТОГОВЫЕ ЗНАЧЕНИЯ, А НЕ ПРИБАВКИ.
+--
+-- Ведущий смотрит на игрока и думает «пусть у него будет семь», а не
+-- «пусть ему прибавится три»: чтобы выдать прибавку, приходилось сперва
+-- в уме вычесть текущее из желаемого, и ошибка в этом вычитании —
+-- единственный способ промахнуться мимо задуманного.
+--
+-- nil означает «поле пустое, этот ресурс не трогаем». Ноль от пустоты
+-- отличать обязательно: «поставить ноль» — совершенно законное желание
+-- (добить, обнулить ману), и считать его «ничего не делать» нельзя.
+--
+-- По сети по-прежнему уезжает ПРИБАВКА: протокол выдачи и Apply считают
+-- в дельтах, и менять их ради подписи в окне незачем. Вычитание, которое
+-- раньше делал Ведущий в уме, теперь делает SendGrants.
+local targets       = { zeal = nil, health = nil }
 
 -- Секции-обёртки и подписи имени/класса больше не нужны: строки
 -- кладутся прямо во фрейм, имя с классом ушли в заголовок окна.
@@ -30,10 +44,68 @@ local effectPermanent = false                   -- галочка «Перман
 local effectRow       = {}
  
 -- ============================================================
+-- ДВА РЕЖИМА ОДНОГО ОКНА: ИГРОК И СУЩЕСТВО
+--
+-- Окно выдачи изначально знало только игроков: правку ему присылали по
+-- сети, а применял её сам получатель у себя (см. SB.Net.SendGrant).
+-- С существами так нельзя — у них нет клиента, который применил бы
+-- присланное, и всё делается на месте, через SB.NPC (врезка «бьют все,
+-- сводит владелец» в Core/NPC.lua).
+--
+-- ПОЧЕМУ НЕ ОТДЕЛЬНОЕ ОКНО. Ведущему нужно ровно то же самое: снять
+-- здоровье, вернуть ресурс, повесить эффект на срок. Второе окно с теми
+-- же пятью строками означало бы две вёрстки, два набора полей и две
+-- копии правил про дельту со знаком — которые разъедутся.
+--
+-- Отличается только АДРЕСАТ, поэтому режим — одно поле currentTarget.npc
+-- (юнит существа) и три развилки: применение ресурсов, наложение эффекта
+-- и подпись строки ресурса. Всё остальное общее.
+-- ============================================================
+
+--- Существо ли сейчас в окне.
+local function IsNpcMode()
+    return currentTarget and currentTarget.npc ~= nil
+end
+
+-- ============================================================
 -- ОТПРАВКА ГРАНТА
 -- ============================================================
 local function SendGrant()
     if not currentTarget then return end
+
+    -- СУЩЕСТВУ ПРАВИМ НАПРЯМУЮ. Ни сети, ни получателя: состояние особи
+    -- держит владелец сцены, и рассылку сделает сам SB.NPC.
+    if IsNpcMode() then
+        local unit = currentTarget.npc
+        local hp   = targets.health and (targets.health - (currentTarget.health or 0)) or 0
+        local res  = targets.zeal   and (targets.zeal   - (currentTarget.zeal   or 0)) or 0
+        if hp  ~= 0 then SB.NPC.AdjustHealth(unit, hp)   end
+        if res ~= 0 then SB.NPC.AdjustResource(unit, res) end
+
+        if hp ~= 0 or res ~= 0 then
+            local G  = SB.Theme.MSG_BODY
+            local st = SB.NPC.GetState(unit)
+            local parts = {}
+            if hp ~= 0 then
+                parts[#parts + 1] = ((hp > 0) and "+" or "") .. hp .. " ХП"
+            end
+            if res ~= 0 then
+                parts[#parts + 1] = ((res > 0) and "+" or "") .. res .. " " ..
+                    (currentTarget.resourceName or "ресурса")
+            end
+            SB.Events.Fire(SB.E.BROADCAST_LOG,
+                SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. UnitName("player") ..
+                " меняет показатели " .. (currentTarget.name or "существа") .. ": |r" ..
+                table.concat(parts, G .. ", |r") ..
+                (st and (G .. " (" .. st.hp .. "/" .. st.maxHp .. ").|r") or (G .. ".|r")),
+                SB.LogRank.ACTION)
+        end
+
+        SB.ResourceGrant.ClearInputs()
+        grantFrame:Hide()
+        return
+    end
+
     local isSelf  = (currentTarget.name == UnitName("player"))
     local ch      = (IsInRaid() and "RAID") or (IsInGroup() and "PARTY") or nil
     local granter = UnitName("player")
@@ -42,20 +114,25 @@ local function SendGrant()
     -- ВАЖНО: раньше отправлялось БЕЗУСЛОВНО (в отличие от здоровья
     -- ниже) — из-за этого при изменении только здоровья всё равно
     -- прилетала лишняя запись «Рвение +0».
-    if deltas.zeal ~= 0 then
+    -- Из итога вычитаем текущее — по сети едет прибавка, как и раньше.
+    -- Ноль прибавки не отправляем: «Мана +0» в логе у всей группы это
+    -- шум, а не событие.
+    local zealDelta = targets.zeal and (targets.zeal - (currentTarget.zeal or 0)) or 0
+    if zealDelta ~= 0 then
         if isSelf then
-            SB.ResourceGrant.Apply("ZEAL", deltas.zeal, 0, 0, granter)
+            SB.ResourceGrant.Apply("ZEAL", zealDelta, 0, 0, granter)
         elseif ch and SB.Net and SB.Net.SendGrant then
-            SB.Net.SendGrant(currentTarget.name, "ZEAL", deltas.zeal, 0, 0)
+            SB.Net.SendGrant(currentTarget.name, "ZEAL", zealDelta, 0, 0)
         end
     end
 
     -- Здоровье — независимый ресурс, отправляется отдельным грантом
-    if deltas.health ~= 0 then
+    local hpDelta = targets.health and (targets.health - (currentTarget.health or 0)) or 0
+    if hpDelta ~= 0 then
         if isSelf then
-            SB.ResourceGrant.Apply("HEALTH", deltas.health, 0, 0, granter)
+            SB.ResourceGrant.Apply("HEALTH", hpDelta, 0, 0, granter)
         elseif ch and SB.Net and SB.Net.SendGrant then
-            SB.Net.SendGrant(currentTarget.name, "HEALTH", deltas.health, 0, 0)
+            SB.Net.SendGrant(currentTarget.name, "HEALTH", hpDelta, 0, 0)
         end
     end
 
@@ -82,14 +159,17 @@ local function RefreshDisplay()
     -- Справа от поля — что СЕЙЧАС и что СТАНЕТ. Изменённое значение
     -- подсвечиваем: набранная в поле дельта иначе никак не связана с
     -- тем, чем она обернётся.
-    local function Format(cur, delta, max)
-        if delta == 0 then return cur .. "/" .. max end
-        local new = math.max(0, cur + delta)
-        return cur .. "/" .. max .. "  ->  |cFFFFD100" .. new .. "|r"
+    -- Стрелка появляется, только когда набранное отличается от текущего:
+    -- «10/10 -> 10» ничего не сообщает, а место занимает.
+    local function Format(cur, target, max)
+        if target == nil or target == cur then return cur .. "/" .. max end
+        local sign = (target > cur) and "+" or ""
+        return cur .. "/" .. max .. "  ->  |cFFFFD100" .. target .. "|r" ..
+            "  |cFF9D9D9D(" .. sign .. (target - cur) .. ")|r"
     end
 
-    zealRow.infoLabel:SetText(Format(zeal, deltas.zeal, maxZeal))
-    healthRow.infoLabel:SetText(Format(health, deltas.health, maxHealth))
+    zealRow.infoLabel:SetText(Format(zeal, targets.zeal, maxZeal))
+    healthRow.infoLabel:SetText(Format(health, targets.health, maxHealth))
 end
 
 -- ============================================================
@@ -107,8 +187,25 @@ end
 -- смешивать два смысла в одном поле нельзя.
 -- ============================================================
 local ROW_H     = 22
-local LABEL_W   = 84
+
+-- ШИРИНА КОЛОНКИ ПОДПИСЕЙ СЧИТАЕТСЯ, А НЕ ЗАДАЁТСЯ ЧИСЛОМ.
+--
+-- Раньше здесь стояло 84, подобранные на глаз с запасом, и поле ввода
+-- начиналось далеко от конца слова: «Мана» с полем где-то посреди окна.
+-- Теперь колонка ровно такая, какой её делает самое длинное слово, —
+-- измеряется при сборке (см. MeasureLabelWidth).
+--
+-- Колонка при этом ОБЩАЯ, а не своя у каждой строки: поля ввода должны
+-- стоять друг под другом. Динамика тут в том, ОТКУДА берётся ширина, а
+-- не в том, чтобы у «Маны» и «Здоровья» она была разной.
+local LABEL_W   = 84    -- пересчитывается в BuildFrame
 local INPUT_W   = 46
+
+-- Мельче обычного подписи здесь ни к чему: окно небольшое, строк в нём
+-- пять, экономить место не на чем — а мелкий шрифт в панели, которой
+-- пользуются в разгар сцены, читается хуже ровно тогда, когда некогда
+-- вглядываться.
+local FONT_ROW  = "SBFontHighlight"
 local BTN       = 18
 
 -- Потолок одной выдачи. Не «сколько бывает здоровья», а предохранитель
@@ -118,12 +215,31 @@ local GRANT_MAX = 99
 
 --- Читает дельту из поля, зажимая её в ±GRANT_MAX.
 --- @return number  0, если в поле мусор или пусто
-local function ReadDelta(eb)
-    local v = tonumber((eb:GetText() or ""):match("^%s*([%-%+]?%d+)%s*$"))
-    if not v then return 0 end
-    if v >  GRANT_MAX then return  GRANT_MAX end
-    if v < -GRANT_MAX then return -GRANT_MAX end
+--- Прочитать ИТОГ из поля. nil — поле пустое или в нём не число.
+--- Минус не принимаем вовсе: отрицательного здоровья не бывает, а
+--- «-3» в поле итога читалось бы как прибавка, то есть ровно как то,
+--- от чего уходим.
+local function ReadTarget(eb)
+    local v = tonumber((eb:GetText() or ""):match("^%s*(%d+)%s*$"))
+    if not v then return nil end
+    if v > GRANT_MAX then return GRANT_MAX end
     return v
+end
+
+--- Ширина самой длинной из подписей, в пикселях текущего шрифта.
+---
+--- Меряем ОТДЕЛЬНОЙ невидимой строкой, а не готовыми: готовым ширину
+--- задаём мы сами, и GetStringWidth вернул бы её, а не ширину текста.
+local function MeasureLabelWidth(parent, texts)
+    local probe = parent:CreateFontString(nil, "OVERLAY", FONT_ROW)
+    probe:Hide()
+    local widest = 0
+    for _, t in ipairs(texts) do
+        probe:SetText(t)
+        widest = math.max(widest, probe:GetStringWidth() or 0)
+    end
+    -- Немного воздуха до поля ввода — без него подпись липнет к рамке.
+    return math.ceil(widest) + 4
 end
 
 --- Строка «подпись | [поле] | было/станет».
@@ -132,21 +248,30 @@ local function MakeInputRow(parent, yOffset, labelText, onChange)
     local C   = SB.Theme.C
     local row = {}
 
-    row.label = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.label = parent:CreateFontString(nil, "OVERLAY", FONT_ROW)
     row.label:SetPoint("TOPLEFT", parent, "TOPLEFT", 12, yOffset)
     row.label:SetWidth(LABEL_W); row.label:SetJustifyH("LEFT")
     row.label:SetWordWrap(false)
     row.label:SetText(labelText)
     row.label:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
 
-    local wrap, eb = SB.Theme.Input(parent, "0", INPUT_W, ROW_H)
+    -- БЕЗ ПОДСКАЗКИ В ПОЛЕ. Здесь стоял ноль, и он не помогал ничему:
+    -- пустое поле и так значит «не трогать», а серый ноль читался как
+    -- введённое значение — рядом с настоящими числами справа («7 7/7»)
+    -- строка выходила из четырёх чисел, из которых одно ненастоящее.
+    --
+    -- Хуже того, ноль не пропадал при вводе: SB.Theme.Input гасит
+    -- подсказку своим OnTextChanged, а строкой ниже вешается свой — и
+    -- затирает его (ровно тот случай, о котором предупреждает врезка в
+    -- самой Theme.Input). Набранное число ложилось поверх серого нуля.
+    local wrap, eb = SB.Theme.Input(parent, nil, INPUT_W, ROW_H)
     wrap:SetPoint("LEFT", row.label, "RIGHT", 6, 0)
     eb:SetJustifyH("CENTER")
     -- Ограничение на длину — вместе с зажимом в ReadDelta: одно не
     -- заменяет другое, потому что «-999» короче четырёх знаков только
     -- на вид (минус тоже символ).
     eb:SetMaxLetters(4)
-    eb:SetScript("OnTextChanged", function(self) onChange(ReadDelta(self)) end)
+    eb:SetScript("OnTextChanged", function(self) onChange(ReadTarget(self)) end)
     -- Enter в поле — это «я закончил», а не «выдать»: подтверждение
     -- одно на всё окно, и делать вторую точку подтверждения в каждом
     -- поле значит выдавать половину задуманного по ошибке.
@@ -154,7 +279,7 @@ local function MakeInputRow(parent, yOffset, labelText, onChange)
     row.input = eb
     row.wrap  = wrap
 
-    row.infoLabel = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.infoLabel = parent:CreateFontString(nil, "OVERLAY", FONT_ROW)
     row.infoLabel:SetPoint("LEFT", wrap, "RIGHT", 8, 0)
     row.infoLabel:SetPoint("RIGHT", parent, "RIGHT", -12, 0)
     row.infoLabel:SetJustifyH("LEFT")
@@ -192,17 +317,28 @@ local effFrame, effButtons = nil, {}
 local effSlider, effCountFS, effCallback
 local effAll, effFiltered
 
+-- ЧТО ИМЕННО ВЫБИРАЕМ — задаётся снаружи. Сетка, поиск, прокрутка и
+-- подсказки одинаковы хоть для эффектов, хоть для способностей существа
+-- (см. SB.NPCEditor), а отличается только отбор и заголовок. Вторая
+-- копия этого окна ради другого условия была бы копией трёхсот строк.
+local effPredicate, effTitle
+
 --- Все эффекты-контейнеры библиотеки, по алфавиту.
 --- Пересобирается на каждое открытие: кастомные эффекты приезжают по
 --- сети в любой момент, и список, собранный один раз на загрузке, о них
 --- бы не узнал.
+local function DefaultPredicate(sp)
+    -- isContainer, а не class == "Эффект": так же отбирает эффекты сам
+    -- движок (см. AddEffect в Spells/Effects.lua), и кастомный контейнер
+    -- игрока сюда попадёт наравне с библиотечным.
+    return sp.isContainer == true
+end
+
 local function BuildEffectList()
     effAll = {}
+    local keep = effPredicate or DefaultPredicate
     for _, sp in pairs(SB.Data.Spells or {}) do
-        -- isContainer, а не class == "Эффект": так же отбирает эффекты
-        -- сам движок (см. AddEffect в Spells/Effects.lua), и кастомный
-        -- контейнер игрока сюда попадёт наравне с библиотечным.
-        if sp.isContainer then effAll[#effAll + 1] = sp end
+        if keep(sp) then effAll[#effAll + 1] = sp end
     end
     table.sort(effAll, function(a, b)
         local an, bn = a.name or a.id, b.name or b.id
@@ -288,12 +424,12 @@ local function BuildEffectPicker()
     local gridH = EF_ROWS * (EF_SLOT + EF_GAP) - EF_GAP
 
     effFrame = SB.Theme.Frame("SBEffectPickerFrame", UIParent,
-        "Выбор эффекта", gridW + 14 * 2 + 22, gridH + 34 + 32 + 20)
+        "Выбор эффекта", gridW + 14 * 2 + 22, gridH + 34 + 32 + 20, "gm")
     SB.Theme.AttachPositionMemory(effFrame, "effectPickerPos", 0, 0)
     -- Поверх окна выдачи, из которого он открывается.
     effFrame:SetFrameStrata("FULLSCREEN_DIALOG")
 
-    effCountFS = effFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    effCountFS = effFrame:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
     effCountFS:SetPoint("TOPRIGHT", effFrame, "TOPRIGHT", -44, effFrame.contentY - 4)
     effCountFS:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
 
@@ -367,9 +503,20 @@ local function BuildEffectPicker()
 end
 
 --- Открыть сетку эффектов. callback(effectID) — по клику.
-function SB.ResourceGrant.OpenEffectPicker(callback)
+--- @param callback function(spellID)  что делать с выбранным
+--- @param opts table|nil  { predicate = function(spell)->boolean,
+---                          title = "заголовок окна" }
+---        Без opts выбираются эффекты-контейнеры — то, ради чего пикер
+---        и заводился.
+function SB.ResourceGrant.OpenEffectPicker(callback, opts)
     if not effFrame then BuildEffectPicker() end
-    effCallback = callback
+    effCallback  = callback
+    effPredicate = opts and opts.predicate or nil
+    effTitle     = opts and opts.title or nil
+    -- Заголовок окна — поле .title у SB.Theme.Frame.
+    if effFrame.title then
+        effFrame.title:SetText(effTitle or "Выбор эффекта")
+    end
     BuildEffectList()
     FilterEffects("")
     effFrame:Show()
@@ -431,6 +578,26 @@ local function SendEffect()
     end
 
     local turns = EffectDuration()
+
+    -- СУЩЕСТВУ ВЕШАЕМ НА МЕСТЕ, тем же вызовом, что и попавшее
+    -- заклинание (см. SB.NPC.AddEffect): по сети уедет уже готовый
+    -- список, а не команда «повесь себе».
+    if IsNpcMode() then
+        local ok = SB.NPC.AddEffect(currentTarget.npc, pendingEffect, turns)
+        local G  = SB.Theme.MSG_BODY
+        if ok then
+            SB.Events.Fire(SB.E.BROADCAST_LOG,
+                SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. UnitName("player") ..
+                " накладывает на " .. (currentTarget.name or "существо") ..
+                " эффект |r" .. SB.UI.MakeSpellLink(sp) .. G .. " на " ..
+                SB.UI.TurnsAsTime(turns) .. ".|r", SB.LogRank.ACTION)
+        else
+            print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BAD ..
+                "Не удалось навесить эффект — список существа переполнен.|r")
+        end
+        return
+    end
+
     if currentTarget.name == UnitName("player") then
         -- Свой пакет по сети до себя не доходит — вешаем напрямую.
         SB.ActiveEffects.Add(pendingEffect, turns, sp.isConcentration == true)
@@ -545,20 +712,34 @@ local function BuildFrame()
     -- строка эффекта с кнопками, строка срока — и снизу ряд «Выдать /
     -- Сброс». Запас «на всякий случай» здесь выглядел как пустая треть
     -- окна под кнопками.
-    grantFrame = SB.Theme.Frame("SpellbreakerGrantFrame", UIParent, "Выдача ресурсов", 300, 196)
+    -- Тот же материал, что у панели Ведущего: выдача ресурсов
+    -- открывается из неё и по смыслу её часть.
+    --
+    -- ШИРИНА УМЕНЬШЕНА, ВЫСОТА ПОДРОСЛА, и это один и тот же размен:
+    -- кнопки «Наложить» и «На всех» переехали из строки в столбик
+    -- (см. ниже), забрав из ширины больше, чем добавили в высоту.
+    -- Высота на строку больше прежней: «Перманентно» съехала из строки
+    -- срока в собственную (см. ниже), и ряду «Выдать / Сброс» нужно
+    -- место под ней.
+    grantFrame = SB.Theme.Frame("SpellbreakerGrantFrame", UIParent, "Выдача ресурсов", 252, 244, "gm")
     SB.Theme.AttachPositionMemory(grantFrame, "grantFramePos", 0, 0)
+
+    -- Колонка подписей — по самому длинному слову, а не по числу с
+    -- запасом (см. MeasureLabelWidth). Меряем ДО первой строки: ширину
+    -- они читают при создании.
+    LABEL_W = MeasureLabelWidth(grantFrame, { "Здоровье", "Мана", "Ходов" })
 
     local y = grantFrame.contentY
 
     -- Здоровье идёт ПЕРВЫМ (выше ресурса) для удобства восприятия.
     healthRow = MakeInputRow(grantFrame, y - 10, "Здоровье",
-        function(v) deltas.health = v; RefreshDisplay() end)
+        function(v) targets.health = v; RefreshDisplay() end)
 
     -- Текст подписи перезаписывается в ShowFor под ресурс конкретного
     -- игрока (Мана у кастеров, Ярость/Энергия/Фокус/... у некастеров) —
     -- здесь только дефолт до первого показа панели.
     zealRow = MakeInputRow(grantFrame, y - ROW_H - 14, "Мана",
-        function(v) deltas.zeal = v; RefreshDisplay() end)
+        function(v) targets.zeal = v; RefreshDisplay() end)
 
     -- ── ЭФФЕКТ ───────────────────────────────────────────────
     -- Отдельным блоком под ресурсами и со своей кнопкой: ресурсы
@@ -604,14 +785,19 @@ local function BuildFrame()
     -- КНОПКИ ПРИМЕНЕНИЯ — В ОДНОЙ СТРОКЕ С ИКОНКОЙ, у правого края.
     -- Своей строкой они занимали двадцать пикселей высоты ради двух
     -- кнопок, а место рядом с именем эффекта всё равно пустовало.
-    effectRow.allBtn = SB.Theme.Button(grantFrame, "На всех", 60, 20, "secondary")
-    effectRow.allBtn:SetPoint("RIGHT", grantFrame, "RIGHT", -12, 0)
-    effectRow.allBtn:SetPoint("TOP", effectRow.pickBtn, "TOP", 0, -4)
+    -- КНОПКИ В СТОЛБИК, А НЕ В СТРОКУ. Рядом они занимали больше ста
+    -- тридцати пикселей ширины — ровно та ширина, из-за которой окно и
+    -- было широким, а название эффекта между иконкой и кнопками ужималось
+    -- до многоточия. В столбик они стоят на месте одной, и освободившееся
+    -- уходит названию.
+    effectRow.applyBtn = SB.Theme.Button(grantFrame, "Наложить", 74, 20, "primary")
+    effectRow.applyBtn:SetPoint("RIGHT", grantFrame, "RIGHT", -12, 0)
+    effectRow.applyBtn:SetPoint("TOP", effectRow.pickBtn, "TOP", 0, -4)
 
-    effectRow.applyBtn = SB.Theme.Button(grantFrame, "Наложить", 62, 20, "primary")
-    effectRow.applyBtn:SetPoint("RIGHT", effectRow.allBtn, "LEFT", -4, 0)
+    effectRow.allBtn = SB.Theme.Button(grantFrame, "На всех", 74, 20, "secondary")
+    effectRow.allBtn:SetPoint("TOPRIGHT", effectRow.applyBtn, "BOTTOMRIGHT", 0, -4)
 
-    effectRow.nameFS = grantFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    effectRow.nameFS = grantFrame:CreateFontString(nil, "OVERLAY", FONT_ROW)
     effectRow.nameFS:SetPoint("LEFT", effectRow.pickBtn, "RIGHT", 6, 0)
     effectRow.nameFS:SetPoint("RIGHT", effectRow.applyBtn, "LEFT", -6, 0)
     effectRow.nameFS:SetJustifyH("LEFT")
@@ -619,16 +805,27 @@ local function BuildFrame()
 
     -- Срок — тем же полем ввода, что и ресурсы: «повесить на 15 ходов»
     -- иначе означало пятнадцать нажатий на «+».
-    local turnsLabel = grantFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local turnsLabel = grantFrame:CreateFontString(nil, "OVERLAY", FONT_ROW)
     turnsLabel:SetPoint("TOPLEFT", effectRow.pickBtn, "BOTTOMLEFT", 0, -12)
     turnsLabel:SetText("Ходов")
     turnsLabel:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
 
-    local turnsWrap, turnsEB = SB.Theme.Input(grantFrame, "3", 34, ROW_H)
+    -- НАСТОЯЩЕЕ ЧИСЛО, А НЕ СЕРАЯ ПОДСКАЗКА.
+    --
+    -- Тройка здесь была подсказкой пустого поля — то есть выглядела как
+    -- значение, но им не была, и вдобавок не гасла при вводе (свой
+    -- OnTextChanged ниже затирал тот, что её прячет). Ведущий видел «3»,
+    -- набирал «5» и получал на экране кашу из двух цифр.
+    --
+    -- Теперь в поле лежит EFFECT_TURNS_DEFAULT самим текстом: его видно
+    -- белым, его можно стереть и переписать, и «Наложить» без единого
+    -- касания поля вешает ровно на столько ходов, сколько написано.
+    local turnsWrap, turnsEB = SB.Theme.Input(grantFrame, nil, 34, ROW_H)
     turnsWrap:SetPoint("LEFT", turnsLabel, "RIGHT", 6, 0)
     turnsEB:SetJustifyH("CENTER")
     turnsEB:SetNumeric(true)
     turnsEB:SetMaxLetters(3)
+    turnsEB:SetText(tostring(EFFECT_TURNS_DEFAULT))
     turnsEB:SetScript("OnTextChanged", function(self)
         local v = tonumber(self:GetText() or "") or 0
         -- Ноль и мусор — это «не задано»: срок берётся из умолчания, а не
@@ -645,14 +842,20 @@ local function BuildFrame()
     -- (длительность −1, до Долгого Отдыха). Пока галочка стоит, поле
     -- срока гаснет: держать в нём число, которое ни на что не влияет,
     -- значит обещать, что оно влияет.
+    -- ПОД «ХОДОВ», А НЕ СПРАВА ОТ НЕГО. Справа галочка с подписью
+    -- «Перманентно» упиралась в правый край окна и читалась как часть
+    -- строки срока — то есть как ещё одно поле того же ряда. Она не
+    -- поле: она ОТМЕНЯЕТ весь ряд выше (срок гаснет, см.
+    -- RefreshEffectRow), и стоять ей правильнее отдельной строкой под
+    -- тем, что она отменяет.
     effectRow.permChk = CreateFrame("CheckButton", nil, grantFrame, "UICheckButtonTemplate")
     effectRow.permChk:SetSize(20, 20)
-    effectRow.permChk:SetPoint("LEFT", turnsWrap, "RIGHT", 6, 0)
+    effectRow.permChk:SetPoint("TOPLEFT", turnsLabel, "BOTTOMLEFT", -4, -6)
     effectRow.permChk:SetScript("OnClick", function(self)
         effectPermanent = self:GetChecked() and true or false
         RefreshEffectRow()
     end)
-    effectRow.permFS = grantFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    effectRow.permFS = grantFrame:CreateFontString(nil, "OVERLAY", FONT_ROW)
     effectRow.permFS:SetPoint("LEFT", effectRow.permChk, "RIGHT", 2, 0)
     effectRow.permFS:SetText("Перманентно")
     effectRow.permFS:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
@@ -695,9 +898,22 @@ end
 --- на другого игрока — а забыть очистить поле означает выдать соседу
 --- то, что набрали предыдущему.
 function SB.ResourceGrant.ClearInputs()
-    deltas = { zeal = 0, health = 0 }
-    if healthRow.input then healthRow.input:SetText("") end
-    if zealRow.input   then zealRow.input:SetText("")   end
+    targets = { zeal = nil, health = nil }
+    -- ПОЛЯ ЗАПОЛНЯЮТСЯ ТЕКУЩИМИ ЗНАЧЕНИЯМИ, а не остаются пустыми: поле
+    -- итога, в котором ничего не написано, читается как «ноль», а нулём
+    -- Ведущий добивает. Показанное текущее значение сразу говорит, что
+    -- в поле именно ИТОГ, и правится оно на месте — стереть цифру и
+    -- набрать свою.
+    --
+    -- SetText дёргает OnTextChanged, тот пишет в targets — поэтому
+    -- обнуление стоит выше, иначе оно затёрло бы только что прочитанное.
+    if currentTarget then
+        if healthRow.input then healthRow.input:SetText(tostring(currentTarget.health or 0)) end
+        if zealRow.input   then zealRow.input:SetText(tostring(currentTarget.zeal   or 0)) end
+    else
+        if healthRow.input then healthRow.input:SetText("") end
+        if zealRow.input   then zealRow.input:SetText("")   end
+    end
     RefreshDisplay()
 end
  
@@ -715,13 +931,63 @@ end
 --- Открыть диалог выдачи ресурсов конкретному игроку.
 --- @param name  string  Имя игрока
 --- @param data  table   Данные из PlayersStatus или CharDB
+--- Открыть окно НА СУЩЕСТВЕ.
+---
+--- Отдельный вход, а не флаг в ShowFor: у игрока данные приходят
+--- таблицей из сетевого статуса, у существа берутся здесь же из его
+--- состояния. Сводить два разных источника в один параметр значило бы
+--- заводить «таблицу, которая иногда юнит».
+--- @param unit string  юнит существа («target»)
+function SB.ResourceGrant.ShowForNpc(unit)
+    if not SB.ResourceGrant.CanGrant() then return end
+    if not (SB.NPC and SB.NPC.GetState) then return end
+    if not unit or not UnitExists(unit) or UnitIsPlayer(unit) then return end
+
+    local st    = SB.NPC.GetState(unit)
+    local stats = SB.NPC.StatsForUnit(unit)
+    if not st or not stats then return end
+    if not grantFrame then BuildFrame() end
+
+    local key = SB.NPC.SpawnKey(unit)
+    -- Тот же переключатель, что у игроков: повторный клик по той же
+    -- тушке закрывает окно.
+    if grantFrame:IsShown() and currentTarget and currentTarget.npcKey == key then
+        grantFrame:Hide()
+        return
+    end
+
+    local name = UnitName(unit) or stats.name or "Существо"
+    currentTarget = {
+        npc          = unit,
+        npcKey       = key,
+        name         = name,
+        resourceName = stats.resourceName or "Ресурс",
+        zeal         = st.res,
+        maxZeal      = st.maxRes,
+        health       = st.hp,
+        maxHealth    = st.maxHp,
+    }
+    SB.ResourceGrant.ClearInputs()
+
+    zealRow.label:SetText(currentTarget.resourceName)
+    grantFrame.title:SetText(name)
+
+    RefreshDisplay()
+    RefreshEffectRow()
+    grantFrame:Show()
+end
+
 function SB.ResourceGrant.ShowFor(name, data)
     if not SB.ResourceGrant.CanGrant() then return end
     if not grantFrame then BuildFrame() end
 	
 	-- Повторный клик по тому же игроку, когда панель уже открыта,
     -- закрывает её (toggle). Клик по другому игроку обновляет содержимое.
-    if grantFrame:IsShown() and currentTarget and currentTarget.name == name then
+    -- Сверяем ещё и режим: существо и игрок могут звучать одинаково
+    -- («Ополченец» бывает и тем и другим), и без проверки клик по игроку
+    -- закрывал бы окно, открытое на однофамильном существе.
+    if grantFrame:IsShown() and currentTarget
+       and not IsNpcMode() and currentTarget.name == name then
         grantFrame:Hide()
         return
     end
@@ -733,6 +999,8 @@ function SB.ResourceGrant.ShowFor(name, data)
         or (SB.Data.Config.MaxZeal[data.mastery or "Неофит"] or 1)
 
     currentTarget = {
+        -- npc НЕ ЗАДАЁМ: это и есть признак игроцкого режима. Оставь мы
+        -- поле от прошлого открытия — выдача ушла бы в существо.
         name      = name,
         mastery   = data.mastery  or "Неофит",
         zeal      = data.zeal      or 0,
@@ -746,7 +1014,10 @@ function SB.ResourceGrant.ShowFor(name, data)
     zealRow.label:SetText(SB.Logic.GetResourceName(data.class))
 
     -- Имя и класс — в заголовке окна вместо отдельных строк.
-    grantFrame.title:SetText(name .. "  |cFF9D9D9D" .. (data.class or "?") .. "|r")
+    -- ТОЛЬКО ИМЯ. Класс в заголовке ничего не решал: выдают ресурс
+    -- конкретному человеку, и по имени его и узнают, а строка от класса
+    -- становилась вдвое длиннее и тянула за собой ширину окна.
+    grantFrame.title:SetText(name)
 
     RefreshDisplay()
     -- Строка эффекта не зависит от цели (выбор переживает смену игрока —

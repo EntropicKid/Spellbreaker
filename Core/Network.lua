@@ -373,12 +373,65 @@ end
 -- ПвП и лечение — peer-to-peer, без проверки на лидера группы.
 -- Приоритет NORMAL (см. SendToGroup) — эти пакеты не должны стоять
 -- в очереди позади массовой рассылки статусов.
-local function ParsePVPATK(t)
-    if t.target ~= UnitName("player") then return end
-    if SB.Logic and SB.Logic.HandlePvpAttackReceived then
-        SB.Logic.HandlePvpAttackReceived(t.attacker, t.spellID, t.roll, t.mod, t.total,
-            t.isCrit == true, t.dmgBonus or 0, t.baseDmg, t.slot, nil, t.persuade)
+-- ============================================================
+-- КТО УДАРИЛ — БЕРЁМ У ТРАНСПОРТА, А НЕ ИЗ ПАКЕТА
+--
+-- В боевых пакетах имя действующего лица (attacker/caster/healer) на
+-- отправке всегда UnitName("player") — то есть ровно тот, от кого пакет
+-- и пришёл. Поле это, стало быть, лишнее, а вот вред от него был:
+-- подменённый клиент мог поставить туда ЧУЖОЕ имя и бить, лечить или
+-- баффать от лица другого игрока. Сверка чисел (VerifyIncomingCast) от
+-- этого не спасала — она проверяет статус того, кто НАЗВАН, и при удачно
+-- подобранной жертве сходилась.
+--
+-- Имя отправителя из AceComm подделать нельзя: его ставит сервер. Его и
+-- берём. Поле в пакете остаётся ради старых сборок, но идёт вторым.
+--
+-- ОТВЕТНЫЕ пакеты (PVPRES/AOEHLR/AOEEFR) так не лечатся и не должны:
+-- там attacker/caster — это АДРЕСАТ ответа, а не отправитель.
+-- ============================================================
+-- ============================================================
+-- КТО ДЕЙСТВУЕТ: ОТПРАВИТЕЛЬ ИЛИ СУЩЕСТВО ОТ ЕГО ИМЕНИ
+--
+-- Существо в сети не участвует и участвовать не может: у него нет
+-- клиента. За него действует Ведущий, и пакет приходит от него — а вот
+-- ИМЯ в строке боя должно стоять существа, иначе «Медведь-ледолап рвёт
+-- когтями» превратится в «Ведущий рвёт когтями».
+--
+-- Поэтому имя существа — ОТДЕЛЬНОЕ ПОЛЕ, а не подмена отправителя:
+-- отправителя мы берём у транспорта именно затем, чтобы им нельзя было
+-- прикрыться (см. врезку выше). Поле принимаем ТОЛЬКО от лидера: иначе
+-- любой участник объявил бы себя чудовищем и бил бы, ни за что не
+-- отвечая.
+--
+-- Одна функция на все три боевых пакета (удар, бафф, лечение): правило
+-- одно, и разъехаться трём его копиям было бы нечем помешать.
+-- @return string|nil  чьё имя показывать; nil — пакет отбросить
+local function ActorOf(sender, t)
+    if t.npc and t.npc ~= "" then
+        if not IsFromLeader(sender) then return nil end
+        return t.npc
     end
+    return sender
+end
+
+local function ParsePVPATK(sender, t)
+    if t.target ~= UnitName("player") then return end
+    if not (SB.Logic and SB.Logic.HandlePvpAttackReceived) then return end
+
+    -- Сверка чисел на удар существа не распространяется сама собой: она
+    -- ищет статус атакующего, а у существа его нет и быть не может (см.
+    -- SB.Logic.VerifyIncomingCast — «нет статуса, нет и претензий»).
+    -- Числа существа Ведущий и так выставляет руками.
+    local shown = ActorOf(sender, t)
+    if not shown then return end
+
+    -- Последним доводом — «бьёт существо»: сверка чисел к нему не
+    -- применяется, потому что цифры существа назначил тот самый лидер,
+    -- от которого пакет и принят (см. SB.Logic.VerifyIncomingDamage).
+    SB.Logic.HandlePvpAttackReceived(shown, t.spellID, t.roll, t.mod, t.total,
+        t.isCrit == true, t.dmgBonus or 0, t.baseDmg, t.slot, nil, t.persuade,
+        (t.npc ~= nil and t.npc ~= ""))
 end
 
 -- ShortText отсюда убран вместе со своей работой: названия эффектов из
@@ -412,10 +465,12 @@ local function ParseAOEEFR(t)
     end
 end
 
-local function ParseHEAL(t)
+local function ParseHEAL(sender, t)
     if t.target ~= UnitName("player") then return end
+    local shown = ActorOf(sender, t)
+    if not shown then return end
     if SB.Logic and SB.Logic.HandleHealReceived then
-        SB.Logic.HandleHealReceived(t.healer, t.spellID, t.success == true,
+        SB.Logic.HandleHealReceived(shown, t.spellID, t.success == true,
             t.amount or 0, tonumber(t.armor) or 0)
     end
 end
@@ -425,10 +480,12 @@ end
 --- что у лечения (ParseHEAL), которое так работает с самого начала.
 --- В отличие от ADDEFF (команда Ведущего) сюда попадает только то, что
 --- объявлено в самом заклинании как поле buff.
-local function ParseBUFF(t)
+local function ParseBUFF(sender, t)
     if t.target ~= UnitName("player") then return end
+    local shown = ActorOf(sender, t)
+    if not shown then return end
     if SB.Logic and SB.Logic.HandleBuffReceived then
-        SB.Logic.HandleBuffReceived(t.caster, t.spellID, t.effectID, t.slot)
+        SB.Logic.HandleBuffReceived(shown, t.spellID, t.effectID, t.slot)
     end
 end
 
@@ -436,11 +493,95 @@ end
 --- получатель сам по дистанции (см. SB.Logic.HandleAoeAttackReceived).
 --- Проверки на лидера нет по той же причине, что и у PVPATK: атакует
 --- игрок игрока, а не Ведущий раздаёт команды.
-local function ParseAOEATK(t)
+local function ParseAOEATK(sender, t)
     if not SB.Logic or not SB.Logic.HandleAoeAttackReceived then return end
-    SB.Logic.HandleAoeAttackReceived(t.caster, t.spellID, t.roll, t.mod, t.total,
+    SB.Logic.HandleAoeAttackReceived(sender or t.caster, t.spellID, t.roll, t.mod, t.total,
         t.isCrit == true, t.dmgBonus or 0, t.baseDmg, t.radius, t.slot,
         UnpackEpicenter(t), CasterCallsMeFriend(t), t.persuade)
+end
+
+--- СОСТОЯНИЕ СУЩЕСТВА ОТ ЛИДЕРА.
+---
+--- Проверка на лидера здесь ОБЯЗАТЕЛЬНА, в отличие от боевых пакетов:
+--- там игрок — источник правды о себе, и верить ему естественно. У НПС
+--- своего клиента нет, правду держит ровно один человек (см. врезку о
+--- владельце в Core/NPC.lua), и принимать её от кого попало значило бы
+--- отдать чужим клиентам право переписывать здоровье всех существ сцены.
+local function ParseNPCST(sender, t)
+    -- Помощники рейда тоже ведут сцену (см. SB.NPC.IsOwner), поэтому
+    -- проверка та же, что у выдачи ресурсов, а не строго «только лидер».
+    if not IsFromLeaderOrAssist(sender) then return end
+    if not SB.NPC or not SB.NPC.ApplyRemoteState then return end
+    SB.NPC.ApplyRemoteState(t.key, t.hp, t.maxHp, t.res, t.maxRes, t.eff)
+end
+
+--- УЧАСТНИК СООБЩАЕТ, ЧТО НАНЁС СУЩЕСТВУ УРОН (или вылечил его).
+---
+--- Проверки на лидера здесь НЕТ и быть не должно — в этом весь смысл
+--- пакета: бьют все, сводит владелец. Применит его только тот, кто
+--- владелец (см. SB.NPC.ApplyRemoteDelta), остальные молча пропустят.
+---
+--- Подделать такой пакет можно, и это осознанная плата: у существа нет
+--- фонового статуса, по которому сверяют числа в ПвП. Защита здесь
+--- одна — общая строка боя, где видно каждый бросок.
+local function ParseNPCDLT(sender, t)
+    if sender == UnitName("player") then return end   -- своё уже применено
+    if not SB.NPC or not SB.NPC.ApplyRemoteDelta then return end
+    SB.NPC.ApplyRemoteDelta(t.key, t.hp, t.res)
+end
+
+--- «Я взял это существо в цель, а состояния о нём не знаю» — ответить
+--- может только владелец (см. SB.NPC.ReplyState).
+--- УЧАСТНИК СООБЩАЕТ, ЧТО НАВЕСИЛ НА СУЩЕСТВО ЭФФЕКТ.
+---
+--- Проверки на лидера нет по той же причине, что у NPCDLT: вешают все,
+--- сводит владелец. Едет ВЕСЬ список, а не «добавь такой-то», — список
+--- короткий, а разъехавшийся набор эффектов чинить нечем, в отличие от
+--- здоровья, которое сводится следующей же правкой.
+local function ParseNPCEFF(sender, t)
+    if sender == UnitName("player") then return end   -- своё уже применено
+    if not SB.NPC or not SB.NPC.ApplyRemoteEffects then return end
+    SB.NPC.ApplyRemoteEffects(t.key, t.eff)
+end
+
+--- УЧАСТНИК ПРЕДЛАГАЕТ ВЛАДЕЛЬЦУ ТО, ЧТО ЗНАЕТ САМ.
+---
+--- Проверки на лидера здесь нет и быть не может: пакет по определению
+--- приходит ОТ рядового участника. Разбирает его только владелец, и
+--- только для особей, которых сам не знает (см. SB.NPC.AcceptOffer) —
+--- своё мнение чужим предложением не перебивается никогда.
+---
+--- Нужен ровно на одном сценарии: лидерство передали посреди сцены, и
+--- новый владелец не застал части раненых тушек. Без него он объявил бы
+--- их полными по своему шаблону.
+local function ParseNPCOFR(sender, t)
+    if sender == UnitName("player") then return end
+    if not SB.NPC or not SB.NPC.AcceptOffer then return end
+    SB.NPC.AcceptOffer(t.key, t.hp, t.maxHp, t.res, t.maxRes, t.eff)
+end
+
+--- ВЛАДЕЛЕЦ ПРОСИТ ГРУППУ РАССКАЗАТЬ, ЧТО ОНА ЗНАЕТ О СУЩЕСТВАХ.
+---
+--- Только от лидера: это его картина сцены собирается, и отвечать на
+--- зов постороннего значило бы разослать всю сцену по чужой просьбе.
+---
+--- Два случая, и оба про «владелец остался без правды»:
+---   * лидерство передали посреди боя — новый владелец не застал
+---     раненых тушек и объявил бы их полными по своему шаблону;
+---   * владелец перезашёл или сделал /reload — состояние живёт в
+---     памяти и умирает вместе с сеансом (см. врезку в Core/NPC.lua),
+---     а сцена в мире продолжается.
+local function ParseNPCRSY(sender, t)
+    if sender == UnitName("player") then return end
+    if not IsFromLeaderOrAssist(sender) then return end
+    if not SB.NPC or not SB.NPC.OfferAll then return end
+    SB.NPC.OfferAll()
+end
+
+local function ParseNPCREQ(sender, t)
+    if sender == UnitName("player") then return end
+    if not SB.NPC or not SB.NPC.ReplyState then return end
+    SB.NPC.ReplyState(t.key)
 end
 
 --- Рассеивание: «сними у себя вот эти школы, не больше стольких».
@@ -678,6 +819,11 @@ local function ParseSTATUS(sender, t)
     SB.Data.PlayersStatus[sender] = SB.Data.PlayersStatus[sender] or {}
     local existing = SB.Data.PlayersStatus[sender]
 
+    -- ОТВЕТИЛ — значит аддон у него есть, и в отрицательном кеше ему не
+    -- место (см. врезку о фоновом знакомстве). Отметка времени нужна
+    -- сохранению: по ней решается, кого держать, а кем пожертвовать.
+    existing.seenAt = time and time() or 0
+
     existing.class          = t.class
     existing.mastery        = t.mastery
     existing.zeal           = t.zeal or 0
@@ -706,9 +852,19 @@ local function ParseSTATUS(sender, t)
     -- клиента will не придёт вовсе — тогда дебафф считается по порогу без
     -- прибавки, как и раньше.
     existing.will           = tonumber(t.will) or existing.will
+    -- Ранги школ. Как и остальное — не затираем отсутствием: короткий
+    -- пакет PEER их не несёт, и обнулять по нему уже известное значило
+    -- бы вернуть ложные обвинения в мухлеже (см. VerifyIncomingCast).
+    if t.ranks ~= nil and SB.PlayerModel.UnpackClassRanks then
+        existing.classRanks = SB.PlayerModel.UnpackClassRanks(t.ranks)
+    end
+
     -- Как и will: со старого клиента поля нет, и инициатива тогда
     -- считается без прибавки Ловкости (см. Core/TurnOrder.lua).
     existing.agi            = tonumber(t.agi) or existing.agi
+    -- И Скрытность — тем же правилом. Нет поля — нет и штрафа дальности:
+    -- выдумывать за цель нельзя (см. TargetStealth в Core/Logic/Geometry.lua).
+    existing.stealth        = tonumber(t.stealth) or existing.stealth
     -- Версия. Отсутствие поля — само по себе ответ: до этой версии его
     -- не было вовсе, значит клиент старее (см. SB.Net.GetVersionReport).
     existing.ver            = (type(t.ver) == "string" and t.ver) or existing.ver
@@ -788,6 +944,45 @@ local BATCH_INTERVAL = 0.05
 local incomingQueue   = {}
 local batchTimerHandle = nil
 
+-- ============================================================
+-- СКОЛЬКО СРОЧНЫХ ПАКЕТОВ РАЗБИРАЕМ ПРЯМО В КАДРЕ
+--
+-- Часть команд объявлена срочной и очередь обходит: отметка хода,
+-- задержанная на тик, показывает чужой ход своим, а полоска существа —
+-- вчерашние цифры. Поодиночке это верно и стоит дёшево.
+--
+-- В РЕЙДЕ ЖЕ ОНИ ПРИХОДЯТ ПАЧКАМИ, и замер это подтверждает: тридцать
+-- отметок хода за круг (по одной на действие каждого), двадцать девять
+-- ответов на площадной залп — все заклинателю и все в один кадр, — да
+-- ещё состояние сцены по тушке за пакет. То есть ровно та синхронная
+-- пачка, ради которой батчинг и заводили, только в обход него.
+--
+-- Поэтому срочность теперь ОГРАНИЧЕНА ЧИСЛОМ, а не безусловна: первые
+-- несколько за кадр идут мимо очереди, остальные встают в неё — но в
+-- ГОЛОВУ, впереди статусов и логов. Задержка для них выходит в один тик
+-- (пятьдесят миллисекунд), а не в порядок очереди.
+--
+-- Кадр определяем по GetTime: внутри одного кадра он возвращает одно и
+-- то же значение — это и есть готовый счётчик кадров, свой заводить не
+-- надо.
+local IMMEDIATE_PER_FRAME = 6
+local immFrameAt, immInFrame = 0, 0
+
+--- Можно ли разобрать ещё один срочный пакет прямо сейчас.
+local function AllowImmediate()
+    local now = GetTime and GetTime() or 0
+    if now ~= immFrameAt then
+        immFrameAt, immInFrame = now, 0
+    end
+    immInFrame = immInFrame + 1
+    return immInFrame <= IMMEDIATE_PER_FRAME
+end
+
+-- Срочные, не влезшие в кадр. Отдельной очередью, а не флагом в общей:
+-- вставка в голову массива — это сдвиг всего хвоста, а хвост в шторм
+-- бывает в четыреста элементов.
+local urgentQueue, urgentHead = {}, 1
+
 -- Потолок очереди. Пакеты статуса описывают ТЕКУЩЕЕ состояние игрока,
 -- поэтому при заторе осмысленно выбрасывать самые старые: пока они
 -- дождутся обработки, отправитель уже пришлёт свежий. Без потолка
@@ -832,9 +1027,34 @@ local Dispatch  -- forward decl
 local queueHead = 1
 
 local function ProcessQueueBatch()
-    local available = #incomingQueue - queueHead + 1
-    local n = math.min(BATCH_SIZE, math.max(0, available))
-    for i = 1, n do
+    -- РАЗМЕР ПАЧКИ РАСТЁТ ВМЕСТЕ С ОЧЕРЕДЬЮ. Восемь за тик — это сто
+    -- шестьдесят пакетов в секунду, и затянувшийся рейдовый шторм
+    -- разгребался бы дольше, чем шёл, а очередь тем временем упиралась
+    -- бы в потолок и МОЛЧА теряла самое старое. Под нагрузкой берём
+    -- больше, вхолостую — по-прежнему восемь.
+    local urgent = math.max(0, #urgentQueue - urgentHead + 1)
+    local normal = math.max(0, #incomingQueue - queueHead + 1)
+    local budget = math.max(BATCH_SIZE,
+                            math.min(32, math.ceil((urgent + normal) / 8)))
+
+    -- СРОЧНОЕ — ПЕРВЫМ И ЦЕЛИКОМ В ПРЕДЕЛАХ ПАЧКИ. Оно и так уже
+    -- задержано на тик тем, что не влезло в кадр; пропусти мы его ещё и
+    -- вперёд статусов — задержка стала бы зависеть от того, сколько
+    -- народу в рейде.
+    local n = math.min(budget, urgent)
+    for _ = 1, n do
+        local item = urgentQueue[urgentHead]
+        urgentQueue[urgentHead] = nil
+        urgentHead = urgentHead + 1
+        Dispatch(item.sender, item.t)
+    end
+    if urgentHead > #urgentQueue then
+        wipe(urgentQueue)
+        urgentHead = 1
+    end
+
+    local left = budget - n
+    for _ = 1, math.min(left, normal) do
         local item = incomingQueue[queueHead]
         incomingQueue[queueHead] = nil
         queueHead = queueHead + 1
@@ -848,16 +1068,47 @@ local function ProcessQueueBatch()
     -- Одно уведомление на всю разобранную пачку.
     FlushStatusDirty()
 
-    if queueHead <= #incomingQueue then
+    if queueHead <= #incomingQueue or urgentHead <= #urgentQueue then
         batchTimerHandle = SB.Net:ScheduleTimer(ProcessQueueBatch, BATCH_INTERVAL)
     else
         batchTimerHandle = nil
     end
 end
 
-local function EnqueueIncoming(sender, t)
+-- Сколько пакетов выброшено переполнением за сеанс. Наружу — чтобы
+-- нагрузочная проверка могла спросить, а не догадываться по симптомам:
+-- выброс молчалив по устройству, и «строка боя не пришла» выглядит в
+-- игре как что угодно, только не как переполненная очередь.
+local queueDropped = 0
+
+--- Длина очереди входящих прямо сейчас (обе половины).
+function SB.Net.QueueLength()
+    return math.max(0, #incomingQueue - queueHead + 1)
+         + math.max(0, #urgentQueue - urgentHead + 1)
+end
+
+--- Сколько входящих потеряно переполнением с начала сеанса.
+function SB.Net.QueueDropped()
+    return queueDropped
+end
+
+--- @param urgentPacket boolean|nil  срочная команда, не влезшая в кадр
+local function EnqueueIncoming(sender, t, urgentPacket)
+    -- СРОЧНОЕ ПРИ ПЕРЕПОЛНЕНИИ НЕ ВЫБРАСЫВАЕМ. Потолок заведён под
+    -- статусы: те описывают текущее состояние, и выброшенный устареет
+    -- сам — отправитель пришлёт свежий. У боевого пакета замены нет:
+    -- потерянный удар не повторится никогда, а потеря молчалива.
+    if urgentPacket then
+        urgentQueue[#urgentQueue + 1] = { sender = sender, t = t }
+        if not batchTimerHandle then
+            batchTimerHandle = SB.Net:ScheduleTimer(ProcessQueueBatch, 0)
+        end
+        return
+    end
+
     -- Переполнение — выбрасываем самый старый тем же курсором.
     if (#incomingQueue - queueHead + 1) >= MAX_QUEUE then
+        queueDropped = queueDropped + 1
         incomingQueue[queueHead] = nil
         queueHead = queueHead + 1
     end
@@ -911,6 +1162,13 @@ local IMMEDIATE_ACTIONS = {
     AOEEFR = true,
     AOEHL  = true,
     AOEHLR = true,
+    -- Состояние существа — та же срочность, что у боевых пакетов: по
+    -- нему рисуется полоска здоровья цели, и задержка в пару тиков
+    -- означает, что игрок ещё секунду видит старые цифры.
+    NPCST  = true,
+    NPCDLT = true,
+    NPCEFF = true,
+    NPCREQ = true,
     DISPEL = true,
     RES    = true,
     FORCE  = true,
@@ -939,16 +1197,24 @@ Dispatch = function(sender, t)
     elseif action == "LOGM"    then ParseLOGM(t)
     elseif action == "REST"    then ParseREST(sender, t)
     elseif action == "GRANT"   then ParseGRANT(sender, t)
-    elseif action == "PVPATK"  then ParsePVPATK(t)
+    -- Действующее лицо этим четырём даём по отправителю, а не по полю
+    -- в пакете (см. врезку у ParsePVPATK).
+    elseif action == "PVPATK"  then ParsePVPATK(sender, t)
     elseif action == "PVPRES"  then ParsePVPRES(t)
-    elseif action == "HEAL"    then ParseHEAL(t)
-    elseif action == "BUFF"    then ParseBUFF(t)
-    elseif action == "AOEATK"  then ParseAOEATK(t)
+    elseif action == "HEAL"    then ParseHEAL(sender, t)
+    elseif action == "BUFF"    then ParseBUFF(sender, t)
+    elseif action == "AOEATK"  then ParseAOEATK(sender, t)
     elseif action == "AOEEFF"  then ParseAOEEFF(t)
     elseif action == "AOEEFR"  then ParseAOEEFR(t)
     elseif action == "AOEHL"   then ParseAOEHL(t)
     elseif action == "AOEHLR"  then ParseAOEHLR(t)
     elseif action == "DISPEL"  then ParseDISPEL(t)
+    elseif action == "NPCST"   then ParseNPCST(sender, t)
+    elseif action == "NPCDLT"  then ParseNPCDLT(sender, t)
+    elseif action == "NPCEFF"  then ParseNPCEFF(sender, t)
+    elseif action == "NPCREQ"  then ParseNPCREQ(sender, t)
+    elseif action == "NPCOFR"  then ParseNPCOFR(sender, t)
+    elseif action == "NPCRSY"  then ParseNPCRSY(sender, t)
     elseif action == "TURN"    then ParseTURN(sender, t)
     elseif action == "TURNM"   then ParseTURNM(sender, t)
     elseif action == "TURNACT" then ParseTURNACT(sender, t)
@@ -993,10 +1259,11 @@ local function OnCommReceived(prefix, message, distribution, sender)
     local ok, t = SB.Net:Deserialize(message)
     if not ok or type(t) ~= "table" or not t.action then return end
 
-    if IMMEDIATE_ACTIONS[t.action] then
+    local urgent = IMMEDIATE_ACTIONS[t.action] and true or false
+    if urgent and AllowImmediate() then
         Dispatch(shortSender, t)
     else
-        EnqueueIncoming(shortSender, t)
+        EnqueueIncoming(shortSender, t, urgent)
     end
 end
 
@@ -1121,9 +1388,82 @@ function SB.Net.BroadcastLog(msg, priority)
     SendToGroup({ action = "LOG", msg = msg }, priority or "NORMAL")
 end
 
---- Синоним BroadcastLog для совместимости.
-function SB.Net.BroadcastMessage(msg)
-    SB.Net.BroadcastLog(msg)
+--- Разослать состояние ОДНОЙ особи. Шлёт только владелец (проверку
+--- делает вызывающий, см. SB.NPC.IsOwner) и только по одной тушке за
+--- раз: состояние меняется поштучно — от удара, от лечения, — и гонять
+--- ради этого всю сцену незачем.
+---
+--- Пакет короткий намеренно: ключ особи плюс четыре числа. Канал отдаёт
+--- порядка 800 байт в секунду на клиента, а в бою по существу бьют
+--- каждый ход.
+--- @param eff string|nil  упакованный список эффектов, "eff_a:3;eff_b:-1"
+---        (см. SB.NPC.PackEffects). Строкой, а не таблицей: сериализатор
+---        разворачивает вложенную таблицу в разы длиннее, а состояние
+---        существа уезжает на каждый удар.
+function SB.Net.SendNpcState(key, hp, maxHp, res, maxRes, eff)
+    if not IsInGroup() then return end
+    SendToGroup({
+        action = "NPCST",
+        key    = key,
+        hp     = hp,
+        maxHp  = maxHp,
+        res    = res,
+        maxRes = maxRes,
+        eff    = eff,
+    }, "NORMAL")
+end
+
+--- Попросить группу рассказать, что она знает о существах сцены.
+--- Шлёт только владелец (проверку делает вызывающий, см.
+--- SB.NPC.RequestResync); ответом идут NPCOFR от каждого, кто что-то
+--- помнит.
+function SB.Net.RequestNpcResync()
+    if not IsInGroup() then return end
+    SendToGroup({ action = "NPCRSY" }, "BULK")
+end
+
+--- Предложить владельцу состояние особи, которое знаем мы (см.
+--- SB.NPC.OfferAll). Приоритет BULK: это не боевой пакет, а сведение
+--- картины после смены Ведущего — секунда задержки здесь ничего не
+--- стоит, а уходит их разом столько, сколько тушек в сцене.
+function SB.Net.SendNpcOffer(key, hp, maxHp, res, maxRes, eff)
+    if not IsInGroup() then return end
+    SendToGroup({
+        action = "NPCOFR",
+        key    = key,
+        hp     = hp,
+        maxHp  = maxHp,
+        res    = res,
+        maxRes = maxRes,
+        eff    = eff,
+    }, "BULK")
+end
+
+--- Сообщить владельцу, что мы навесили (или сняли) существу эффект.
+function SB.Net.SendNpcEffects(key, eff)
+    if not IsInGroup() then return end
+    SendToGroup({ action = "NPCEFF", key = key, eff = eff }, "NORMAL")
+end
+
+--- Сообщить владельцу, сколько мы сняли (или вылечили) существу.
+--- Едет ДЕЛЬТА, а не итог: своё состояние у нас может отличаться от
+--- владельцева, и присылать ему свою версию правды было бы неверно —
+--- он сведёт нашу правку со своей.
+function SB.Net.SendNpcDelta(key, hpDelta, resDelta)
+    if not IsInGroup() then return end
+    if (tonumber(hpDelta) or 0) == 0 and (tonumber(resDelta) or 0) == 0 then return end
+    SendToGroup({
+        action = "NPCDLT",
+        key    = key,
+        hp     = hpDelta,
+        res    = resDelta,
+    }, "NORMAL")
+end
+
+--- Спросить состояние существа, которого мы ещё не видели.
+function SB.Net.RequestNpcState(key)
+    if not IsInGroup() then return end
+    SendToGroup({ action = "NPCREQ", key = key }, "NORMAL")
 end
 
 --- Команда отдыха всей группе.
@@ -1151,12 +1491,16 @@ end
 --- (см. SB.Skills.GetPersuasionDebuffBonus). Ноль не отправляем вовсе:
 --- у подавляющего большинства ударов дебаффа нет, и поле было бы
 --- балластом в каждом боевом пакете.
-function SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, slot, persuade)
+--- @param npcName string|nil  бьём ОТ ЛИЦА существа с таким именем.
+---        Принимающая сторона возьмёт его только от лидера группы
+---        (см. ParsePVPATK).
+function SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, slot, persuade, npcName)
     if not IsInGroup() then return end
 
     local t = {
         action   = "PVPATK",
         attacker = UnitName("player"),
+        npc      = npcName,
         target   = targetName,
         spellID  = spellID,
         roll     = roll,
@@ -1220,11 +1564,13 @@ end
 
 --- Наложить эффект на союзника (spell.buff, см. SB.Logic.ApplyBuffToTarget).
 --- Адресно, с приоритетом NORMAL — как и остальные боевые пакеты.
-function SB.Net.SendBuff(targetName, spellID, effectID, slot)
+--- @param npcName string|nil  действует ОТ ЛИЦА существа (см. ActorOf).
+function SB.Net.SendBuff(targetName, spellID, effectID, slot, npcName)
     if not IsInGroup() then return end
     SendToPlayer({
         action   = "BUFF",
         caster   = UnitName("player"),
+        npc      = npcName,
         target   = targetName,
         spellID  = spellID,
         effectID = effectID,
@@ -1383,11 +1729,13 @@ end
 --- @param armorAmount number|nil  единицы брони, если заклинание чинит
 ---        доспех (см. spell.repairArmor). Поля нет — старый клиент просто
 ---        не увидит починки, всё остальное отработает как раньше.
-function SB.Net.SendHealResult(targetName, spellID, success, amount, armorAmount)
+--- @param npcName string|nil  лечит ОТ ЛИЦА существа (см. ActorOf).
+function SB.Net.SendHealResult(targetName, spellID, success, amount, armorAmount, npcName)
     if not IsInGroup() then return end
     local t = {
         action  = "HEAL",
         healer  = UnitName("player"),
+        npc     = npcName,
         target  = targetName,
         spellID = spellID,
         success = success and true or false,
@@ -1449,6 +1797,9 @@ local function StatusSignature(p)
     return table.concat({
         p.class or "", p.mastery or "", p.zeal or 0, p.maxZeal or 0,
         p.health or 0, p.maxHealth or 0, p.will or 0, p.agi or 0,
+        -- Без Скрытности в отпечатке смена навыка не рассылалась бы
+        -- вовсе: пакет считался бы «тем же самым» и молча гасился.
+        p.stealth or 0,
         table.concat(p.preparedSpells or {}, ","),
     }, "|")
 end
@@ -1480,6 +1831,16 @@ local function BuildStatusPayload()
         -- Модификатор Ловкости — для броска инициативы у Ведущего
         -- (см. Core/TurnOrder.lua).
         agi            = snap.agi,
+        -- Навык «Скрытность»: на столько цель кажется дальше тому, кто
+        -- целится в неё вредоносным заклинанием
+        -- (см. SB.Logic.GetStealthPenalty). Считает, как и «Волю», не
+        -- хозяин числа, а тот, кому оно нужно.
+        stealth        = snap.stealth,
+        -- Ранги ОТКРЫТЫХ ШКОЛ. Нужны получателю удара, чтобы проверить,
+        -- мог ли атакующий применить заклинание такого круга: общий ранг
+        -- героя этого больше не говорит (см. PM.PackClassRanks).
+        ranks          = SB.PlayerModel.PackClassRanks and
+                         SB.PlayerModel.PackClassRanks() or nil,
         -- Версия аддона: по ней Ведущий видит, у кого клиент старее и
         -- почему у того «не работает» свежая механика (см. SB.Data.Version
         -- в Core/Init.lua и SB.Net.GetVersionReport ниже).
@@ -1529,6 +1890,92 @@ local PEER_REPLY_CD  = 5    -- как часто МЫ отвечаем одно�
 local peerProbeSent  = {}   -- [name] = GetTime()
 local peerLastReply  = {}   -- [name] = GetTime()
 
+-- ============================================================
+-- ФОНОВОЕ ЗНАКОМСТВО: СПРАШИВАЕМ ТЕХ, КОГО СЛЫШИМ
+--
+-- ЧТО БЫЛО. Статус постороннего запрашивался ровно в один момент — когда
+-- его берут в цель. Ответ идёт по сети, и первые кадры на рамке успевали
+-- показаться ванильные числа: подмена приходила позже. Со стороны это
+-- выглядело как мигание, а не как «данных пока нет».
+--
+-- ЧТО СТАЛО. Мы спрашиваем каждого, чью реплику видим в чате. В отыгрыше
+-- человек почти всегда сначала говорит и только потом попадает кому-то в
+-- цель, поэтому к моменту наведения его числа обычно уже лежат у нас, и
+-- рамка заполняется сразу. Обмен от этого не стал шире по сути: спросить
+-- можно было и раньше, просто повод был один.
+--
+-- ТРИ ОГРАНИЧИТЕЛЯ, И КАЖДЫЙ ЗАКРЫВАЕТ СВОЮ БЕДУ.
+--
+--   ОЧЕРЕДЬ. В людном трактире разом говорят десятки; отправь мы всем
+--   сразу — забили бы исходящий канал тем, что вообще не срочно.
+--   Поэтому имена копятся и уходят по одному раз в PEER_QUEUE_STEP
+--   секунд, позади всего боевого (приоритет BULK).
+--
+--   ОТРИЦАТЕЛЬНЫЙ КЕШ. У половины говорящих аддона нет, и они не ответят
+--   никогда. Спрашивать их каждые двадцать секунд — чистая трата канала
+--   до конца сцены. Не ответившему даём вторую попытку не раньше чем
+--   через PEER_SILENT_CD: он мог зайти в игру позже нас.
+--
+--   ПОТОЛОК ОЧЕРЕДИ. Массовое событие (рейд-варнинг, объявление в
+--   торговом канале) не должно наливать очередь без края: сверх
+--   PEER_QUEUE_MAX имена просто не берём — они всё равно вернутся, как
+--   только заговорят снова.
+-- ============================================================
+local PEER_QUEUE_STEP = 1.5   -- секунд между двумя исходящими опросами
+local PEER_QUEUE_MAX  = 40    -- сколько имён держим в очереди
+local PEER_SILENT_CD  = 600   -- пауза для тех, кто не ответил
+
+local peerQueue   = {}   -- массив имён, ждущих опроса
+local peerQueued  = {}   -- [name] = true, чтобы не класть дважды
+local peerSilent  = {}   -- [name] = GetTime() последнего молчания
+local peerTicker  = nil
+
+--- Знаем ли мы про игрока уже достаточно, чтобы не спрашивать.
+local function PeerKnown(name)
+    local st = SB.Data.PlayersStatus and SB.Data.PlayersStatus[name]
+    return (st and st.maxHealth) and true or false
+end
+
+local function DrainPeerQueue()
+    local name = table.remove(peerQueue, 1)
+    while name and (PeerKnown(name) or Ambiguate(name, "none") == UnitName("player")) do
+        peerQueued[name] = nil
+        name = table.remove(peerQueue, 1)
+    end
+
+    if not name then
+        -- Очередь пуста — таймер гасим. Держать его вхолостую незачем:
+        -- следующая реплика в чате заведёт его заново.
+        if peerTicker then peerTicker:Cancel(); peerTicker = nil end
+        return
+    end
+
+    peerQueued[name] = nil
+    -- Отмечаем ЗАРАНЕЕ: ответа может не быть вовсе, и именно молчание
+    -- мы и хотим запомнить. Придёт ответ — отметка снимется в ParseSTATUS.
+    peerSilent[name] = GetTime()
+    SB.Net.ProbePlayerStatus(name)
+end
+
+--- Поставить игрока в очередь на знакомство.
+--- @param name string  имя ровно в том виде, в каком его дал чат
+function SB.Net.NotePeerSeen(name)
+    if type(name) ~= "string" or name == "" then return end
+    if Ambiguate(name, "none") == UnitName("player") then return end
+    if PeerKnown(name) or peerQueued[name] then return end
+
+    local silent = peerSilent[name]
+    if silent and (GetTime() - silent) < PEER_SILENT_CD then return end
+    if #peerQueue >= PEER_QUEUE_MAX then return end
+
+    peerQueue[#peerQueue + 1] = name
+    peerQueued[name] = true
+
+    if not peerTicker and C_Timer and C_Timer.NewTicker then
+        peerTicker = C_Timer.NewTicker(PEER_QUEUE_STEP, DrainPeerQueue)
+    end
+end
+
 local function BuildPeerStatusPayload()
     local snap = SB.PlayerModel.GetStatusSnapshot()
     return {
@@ -1540,6 +1987,10 @@ local function BuildPeerStatusPayload()
         health    = snap.health or snap.maxHealth or 20,   -- см. BuildStatusPayload
         maxHealth = snap.maxHealth or 20,
         will      = snap.will,
+        -- Скрытность едет и в коротком пакете: он приходит именно тогда,
+        -- когда этот игрок попал кому-то в таргет, — то есть ровно в тот
+        -- момент, когда штраф дальности и понадобится.
+        stealth   = snap.stealth,
     }
 end
 
@@ -1719,7 +2170,133 @@ end
 -- ============================================================
 -- ПОДПИСКИ НА СОБЫТИЯ ОТ LOGIC
 -- ============================================================
+-- ============================================================
+-- КОПИЛКА СТАТУСОВ МЕЖДУ ЗАХОДАМИ
+--
+-- ЗАЧЕМ. Собранное фоновым знакомством жило только до /reload, и после
+-- перезагрузки интерфейса всё начиналось с нуля: полчаса сцены — и снова
+-- пустые рамки, пока каждого не переспросишь. Между тем ничего секретного
+-- в этих числах нет, они уже приезжали к нам добровольно, и сохранить их
+-- — это ровно то же, что помнить их в памяти, только дольше.
+--
+-- ЧТО ХРАНИМ И ЧЕГО НЕ ХРАНИМ. Только то, что рисуется на рамке: класс,
+-- ранг, здоровье, ресурс, «Воля», Ловкость. Списки подготовленных
+-- заклинаний и активных эффектов НЕ сохраняем — они устаревают за минуты
+-- и после перезахода соврут точнее, чем промолчат.
+--
+-- ВОЗРАСТ ВАЖНЕЕ ЧИСЛА. Запись недельной давности хуже пустой рамки:
+-- человек с тех пор вырос в ранге, сменил класс, отыграл десяток сцен.
+-- Поэтому у копилки два ограничителя, и они разные по смыслу:
+-- PEER_CACHE_TTL отсекает протухшее, PEER_CACHE_MAX — просто держит
+-- сохранёнку в разумном размере, выбрасывая самых давних.
+--
+-- ВОССТАНОВЛЕННОЕ — ЭТО ЗАПОЛНЕНИЕ ПАУЗЫ, А НЕ ПРАВДА. Взяв человека в
+-- цель, аддон всё равно спросит его заново (см. ProbeUnit в
+-- UI/Overlay.lua), и свежий ответ затрёт сохранённое. Копилка нужна
+-- ровно затем, чтобы в те доли секунды на рамке стояли похожие числа, а
+-- не ванильные.
+-- ============================================================
+local PEER_CACHE_MAX = 150      -- сколько записей переживает выход
+local PEER_CACHE_TTL = 12 * 3600  -- и не старше этого (секунд)
+
+--- Поля, которые переживают выход из игры. Список ЯВНЫЙ, а не «всё, что
+--- есть»: молча сохранив лишнее, мы бы однажды восстановили список
+--- эффектов месячной давности и показали его как висящий.
+local PEER_CACHE_FIELDS = {
+    "class", "mastery", "health", "maxHealth",
+    "zeal", "maxZeal", "will", "agi", "stealth", "seenAt",
+}
+
+local function SavePeerCache()
+    if not SpellbreakerAccountDB then return end
+    local now = time and time() or 0
+
+    -- Сортируем по свежести и берём голову: при переполнении жертвуем
+    -- теми, кого дольше всего не слышали.
+    local rows = {}
+    for name, st in pairs(SB.Data.PlayersStatus or {}) do
+        if st and st.maxHealth then
+            local seen = tonumber(st.seenAt) or 0
+            if seen > 0 and (now - seen) <= PEER_CACHE_TTL then
+                rows[#rows + 1] = { name = name, seen = seen, st = st }
+            end
+        end
+    end
+    table.sort(rows, function(a, b) return a.seen > b.seen end)
+
+    local out = {}
+    for i = 1, math.min(#rows, PEER_CACHE_MAX) do
+        local row, keep = rows[i], {}
+        for _, key in ipairs(PEER_CACHE_FIELDS) do keep[key] = row.st[key] end
+        out[row.name] = keep
+    end
+    SpellbreakerAccountDB.peerCache = out
+end
+
+local function LoadPeerCache()
+    local cache = SpellbreakerAccountDB and SpellbreakerAccountDB.peerCache
+    if type(cache) ~= "table" then return end
+    local now = time and time() or 0
+
+    for name, keep in pairs(cache) do
+        if type(keep) == "table" and keep.maxHealth then
+            local seen = tonumber(keep.seenAt) or 0
+            -- Возраст проверяем И ПРИ ЗАГРУЗКЕ ТОЖЕ: между сохранением и
+            -- следующим заходом могли пройти сутки, и отбор на выходе о
+            -- них ничего не знал.
+            if seen > 0 and (now - seen) <= PEER_CACHE_TTL then
+                local st = SB.Data.PlayersStatus[name] or {}
+                for _, key in ipairs(PEER_CACHE_FIELDS) do
+                    if st[key] == nil then st[key] = keep[key] end
+                end
+                -- СПИСОК ПОДГОТОВЛЕННЫХ ОСТАЁТСЯ НЕИЗВЕСТНЫМ (nil), а не
+                -- пустым. Разница здесь не косметическая: проверка чужого
+                -- каста считает пустой список за «ничего не подготовил» и
+                -- публично объявляет каждый его удар мухлежом, а nil —
+                -- за «мы не знаем» и молчит (см. VerifyIncomingCast).
+                -- Настоящий список приедет первым же STATUS.
+                st.activeEffects = st.activeEffects or {}
+                SB.Data.PlayersStatus[name] = st
+            end
+        end
+    end
+end
+
+SB.Net.SavePeerCache = SavePeerCache
+SB.Net.LoadPeerCache = LoadPeerCache
+
+-- ============================================================
+-- КТО ГОВОРИТ — ТОГО И СПРАШИВАЕМ
+--
+-- Каналы перечислены явно, и системных среди них нет: нас интересует
+-- живая речь, за которой стоит персонаж рядом. Боевой лог, объявления
+-- сервера и прочее к отыгрышу отношения не имеют, а имена оттуда бывают
+-- и вовсе не игроцкие.
+-- ============================================================
+local CHAT_EVENTS = {
+    "CHAT_MSG_SAY", "CHAT_MSG_YELL", "CHAT_MSG_EMOTE", "CHAT_MSG_TEXT_EMOTE",
+    "CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER",
+    "CHAT_MSG_RAID", "CHAT_MSG_RAID_LEADER",
+    "CHAT_MSG_WHISPER", "CHAT_MSG_GUILD", "CHAT_MSG_OFFICER",
+}
+
+local chatWatcher = CreateFrame("Frame")
+for _, ev in ipairs(CHAT_EVENTS) do
+    pcall(chatWatcher.RegisterEvent, chatWatcher, ev)
+end
+chatWatcher:RegisterEvent("PLAYER_LOGOUT")
+chatWatcher:SetScript("OnEvent", function(_, event, _, sender)
+    if event == "PLAYER_LOGOUT" then
+        SavePeerCache()
+        return
+    end
+    SB.Net.NotePeerSeen(sender)
+end)
+
 SB.Events.On("SB_INIT", function()
+    -- Копилку поднимаем ДО первой рамки: смысл её в том и есть, чтобы к
+    -- моменту, когда игрок наведётся на кого-то, числа уже лежали.
+    LoadPeerCache()
 
     SB.Events.On("CAST_REQUEST", function(spellID, slotLevel, targetLabel, mod)
         SB.Net.SendCastRequest(spellID, slotLevel, targetLabel, mod)
@@ -1791,10 +2368,18 @@ end)
 -- одну рассылку статуса, и один вошедший игрок порождал у каждого
 -- клиента несколько лишних пакетов.
 local rosterBroadcastTimer = nil
+-- Пересведение существ после смены Ведущего: предложение и рассылка.
+local npcOfferTimer, npcSyncTimer = nil, nil
 
+-- PLAYER_ENTERING_WORLD — ЭТО ТОЖЕ СМЕНА ВЛАДЕЛЬЦА, хоть лидер и не
+-- менялся. Состояние существ живёт в памяти и умирает вместе с сеансом
+-- (см. врезку в Core/NPC.lua), а сцена в мире продолжается: после
+-- /reload владелец остаётся владельцем, но правды у него больше нет —
+-- и первым же ShareState объявил бы всех раненых полными по шаблону.
 local leaderFrame = CreateFrame("Frame")
 leaderFrame:RegisterEvent("PARTY_LEADER_CHANGED")
 leaderFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
+leaderFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 leaderFrame:SetScript("OnEvent", function()
     RebuildRosterCache()
 
@@ -1820,6 +2405,37 @@ leaderFrame:SetScript("OnEvent", function()
     if changed then SB.Events.Fire(SB.E.PLAYERS_STATUS_UPDATED) end
 
     SB.Events.Fire(SB.E.PLAYER_MODEL_CHANGED)
+
+    -- ============================================================
+    -- ПЕРЕСВЕДЕНИЕ СУЩЕСТВ — В ДВА ХОДА, С ЗАЗОРОМ МЕЖДУ НИМИ
+    --
+    -- Состояние существ держит владелец сцены, а владелец меняется тем
+    -- же событием, что и лидер группы. До этого смена лидера не значила
+    -- для существ ничего: прежний владелец переставал рассылать, новый
+    -- не начинал, и вся сцена застывала на последних объявленных цифрах.
+    --
+    -- Сначала не-владельцы ПРЕДЛАГАЮТ новому владельцу то, что знают
+    -- (он возьмёт лишь неизвестное ему), и только потом он РАССЫЛАЕТ
+    -- сведённую картину. Зазор между шагами и есть передача дел: без
+    -- него он разослал бы своё неполное мнение раньше, чем узнал бы
+    -- недостающее, и затёр бы им верные цифры у остальных.
+    --
+    -- Обе половины отменяются вместе с пачкой событий ростера — как и
+    -- рассылка статуса ниже: GROUP_ROSTER_UPDATE прилетает подряд по
+    -- нескольку раз на один вход игрока.
+    if npcSyncTimer then SB.Net:CancelTimer(npcSyncTimer) end
+    if IsInGroup() and SB.NPC and SB.NPC.RequestResync then
+        -- СПРАШИВАЕТ ВЛАДЕЛЕЦ, А НЕ ПРЕДЛАГАЮТ ВСЕ. Слепое предложение
+        -- от каждого участника на каждое событие ростера — это N×K
+        -- пакетов на любой вход-выход игрока, притом что в девяти
+        -- случаях из десяти владелец и так всё знает. Запрос уходит
+        -- один и только тогда, когда картину действительно собирают
+        -- заново (см. SB.NPC.RequestResync).
+        npcSyncTimer = SB.Net:ScheduleTimer(function()
+            npcSyncTimer = nil
+            SB.NPC.RequestResync()
+        end, 1.0)
+    end
 
     -- Джиттер размазывает рассылки 30 клиентов во времени, отмена
     -- предыдущего таймера схлопывает пачку событий ростера в одну.

@@ -21,14 +21,23 @@
 --   "cantrip"    — применён приём/заговор (slotLevel == 0)
 --   "anyCast"    — применена любая способность, любой исход
 --   "damage"     — успешный УРОННЫЙ каст (ПвЕ-бросок, форс ГМа, ПвП-хит)
---   "failure"    — любой провал (ПвЕ-провал/крит-провал, промах в ПвП)
+--   "failure"    — любой провал (проваленный ПвЕ-бросок, промах в ПвП)
 --   "healthLost" — потеряно здоровье (урон ИЛИ ГМ снизил ХП вручную)
+--   "turnTick"   — прошёл ХОД: в пошаговом режиме собственный, в свободном
+--                  шесть секунд. Не зависит от того, что игрок делал, и
+--                  работает даже когда он не делал ничего.
 --
 -- СКОЛЬКО ДАЁТ (поле gain):
 --   number       — фиксированное количество
---   "byMastery"  — по рангу (Config.ResourceRegenByMastery: 1/2/3)
+--   "byMastery"  — по рангу (Config.ResourceRegenByMastery: 1..5)
 --   "full"       — до максимума
 --   "perPoint"   — 1 за каждую единицу величины события (для healthLost)
+--
+-- УТОЧНЕНИЯ (необязательные поля):
+--   ownSchoolOnly = true  — засчитывать только заклинания СВОЕЙ школы
+--   everyTurns    = N     — для "turnTick": раз в N ходов, а не каждый
+--   announce      = "..." — печатать себе строку о прибавке; нужно там,
+--                           где прибавка не следует из действия игрока
 -- ============================================================
 local addonName, SB = ...
 SB.ClassMechanics = SB.ClassMechanics or {}
@@ -37,14 +46,42 @@ SB.ClassMechanics = SB.ClassMechanics or {}
 -- ТАБЛИЦА МЕХАНИК — добавление класса начинается и заканчивается здесь
 -- ============================================================
 local MECHANICS = {
-    ["Разбойник"]          = { trigger = "cantrip",    gain = "byMastery" },
+    -- ownSchoolOnly: ПРИЁМЫ РАЗБОЙНИКА, А НЕ ЛЮБЫЕ ЗАГОВОРЫ.
+    --
+    -- Без этого Энергию давал заговор любой открытой школы, и мультикласс
+    -- превращал классовую механику в общую: чем больше школ открыто, тем
+    -- шире выбор дешёвых заговоров, которыми её можно кормить. Механика
+    -- называется «за приёмы» — приёмы у разбойника свои.
+    ["Разбойник"]          = { trigger = "cantrip",    gain = "byMastery",
+                               ownSchoolOnly = true },
     -- Воин копит Ярость от ПОЛУЧЕННОГО урона, а не от нанесённого: он
     -- самый толстый в игре (профиль health = +2), и единственный, кому
     -- размен «пропусти удар — ударь злее» выгоден по цифрам. Заодно это
     -- даёт ему то, чего у него не было вовсе, — причину лезть под удар,
     -- а не ждать своей очереди бить.
     ["Воин"]               = { trigger = "healthLost", gain = "perPoint" },
-    ["Охотник"]            = { trigger = "anyCast",    gain = 1 },
+    -- ОХОТНИК КОПИТ ФОКУС ВРЕМЕНЕМ, А НЕ ДЕЙСТВИЯМИ.
+    --
+    -- Было: +1 после ЛЮБОГО применения способности, независимо от исхода.
+    -- Плоская единица не росла с рангом — Герой копил ровно как Неофит, —
+    -- а привязка к действию награждала суету: выгоднее было применить
+    -- что-нибудь дешёвое, чем то, что нужно по сцене.
+    --
+    -- Теперь Фокус набирается сам, и с рангом растёт не величина, а
+    -- ЧАСТОТА: по единице раз в 3/2/1 хода у Неофита/Адепта/Эксперта
+    -- (в свободном ходу — раз в 18/12/6 секунд тем же счётчиком).
+    --
+    -- Единица, а не «по рангу»: пятёрка разом раз в три хода — это
+    -- полный запас из ничего и длинные паузы между, то есть ресурс,
+    -- который не тратят, а копят к нужному ходу. Ровный ручеёк по
+    -- единице заставляет решать каждый ход, а не один раз в три.
+    --
+    -- Первая прибавка приходит на ТРЕТИЙ ход (у Неофита), а не на
+    -- первый: пошаговый режим начинается с пустого счётчика, и охотник
+    -- входит в сцену с тем, что накопил до неё.
+    ["Охотник"]            = { trigger = "turnTick",   gain = 1,
+                               everyTurns = "focusByMastery",
+                               announce   = "сосредоточение" },
     -- Было gain = "full": ЛЮБОЙ промах восполнял ресурс до максимума.
     -- В связке с «вложенный ресурс даёт +к попаданию» (см.
     -- SB.Logic.GetCastPower) это давало вечный двигатель — промахнулся,
@@ -83,6 +120,24 @@ local function DefFor(className)
     return MECHANICS[className]
 end
 
+--- Через сколько ходов срабатывает повременное восполнение.
+---
+--- Строка вместо числа означает «смотри лестницу по рангу»: у Охотника
+--- с рангом растёт частота, а не величина (см. его определение выше).
+--- Разворачивается ЗДЕСЬ, а не при объявлении, потому что ранг меняется
+--- по ходу игры, а таблица механик читается один раз при загрузке.
+--- @return number  всегда не меньше единицы: ноль означал бы деление
+---         на ноль в счётчике ходов, а «чаще каждого хода» не бывает.
+function SB.ClassMechanics.TurnPeriod(def)
+    local every = def and def.everyTurns
+    if every == "focusByMastery" then
+        local PM = SB.PlayerModel
+        local ladder = SB.Data.Config.FocusEveryTurns or {}
+        every = ladder[PM.GetMastery()] or 1
+    end
+    return math.max(1, math.floor(tonumber(every) or 1))
+end
+
 --- Разворачивает значение gain в конкретное число очков ресурса.
 --- @param magnitude number|nil  «величина» события (для "perPoint")
 --- @return number|nil  nil означает «восполнить полностью»
@@ -103,7 +158,8 @@ end
 --- Начисляет ресурс (или восполняет полностью, если amount == nil),
 --- не превышая максимум. Для кастеров — no-op: у них Рвение, которое
 --- этими механиками не управляется.
-local function ApplyGain(amount)
+--- @param announce string|nil  за что прибавка; печатается себе
+local function ApplyGain(amount, announce)
     local PM = SB.PlayerModel
     if not PM or PM.IsCaster() then return end
 
@@ -126,15 +182,44 @@ local function ApplyGain(amount)
     -- ресурс на первом же провале, а Рыцарь смерти — на первом ударе.
     if newVal <= cur then return end
     PM.SetClassResource(newVal)
+
+    -- СТРОКА — ТОЛЬКО ТАМ, ГДЕ ПРИБАВКА НЕ СЛЕДУЕТ ИЗ ДЕЙСТВИЯ.
+    -- Воин видит, что его ударили; разбойник — что применил приём. А
+    -- прибавка по времени приходит сама, и без строки это выглядит как
+    -- самопроизвольно поехавшая цифра. Строка ЛОКАЛЬНАЯ: группе про
+    -- чужой ресурс знать незачем (тот же принцип, что у
+    -- TO.NoteSkippedTurn).
+    if announce then
+        print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BODY ..
+            announce .. ": +" .. (newVal - cur) .. " " ..
+            PM.GetResourceName() .. ".|r")
+    end
+
     SB.Events.Fire(SB.E.STATUS_CHANGED)
+end
+
+--- Своей ли школы это заклинание. Спрашивается только там, где механика
+--- объявила ownSchoolOnly.
+---
+--- Сравнение СТРОГОЕ, и заклинание без класса своим не считается: у
+--- кастомного заклинания Ведущего класс может быть не задан вовсе, и
+--- зачесть такое разбойнику значило бы вернуть ту самую дыру — заговор
+--- без школы кормил бы механику ничуть не хуже.
+local function IsOwnSchool(spellID)
+    local spell = spellID and SB.Data.Spells[spellID]
+    if not spell then return false end
+    local PM = SB.PlayerModel
+    return PM ~= nil and spell.class ~= nil and spell.class == PM.GetClass()
 end
 
 --- Общий вход: сработал триггер trigger с величиной magnitude.
 --- Ничего не делает, если у класса игрока другой триггер.
-local function FireTrigger(trigger, magnitude)
+--- @param spellID string|nil  чем вызван (нужен для ownSchoolOnly)
+local function FireTrigger(trigger, magnitude, spellID)
     local def = DefFor()
     if not def or def.trigger ~= trigger then return end
-    ApplyGain(ResolveGain(def.gain, magnitude))
+    if def.ownSchoolOnly and not IsOwnSchool(spellID) then return end
+    ApplyGain(ResolveGain(def.gain, magnitude), def.announce)
 end
 
 -- ============================================================
@@ -144,9 +229,9 @@ end
 -- Каст состоялся (ресурс, если требовался, уже списан) — но исход ещё
 -- неизвестен. Отсюда работают триггеры, не зависящие от результата.
 SB.Events.On(SB.E.CAST_CONFIRMED, function(spellID, slotLevel)
-    FireTrigger("anyCast")
+    FireTrigger("anyCast", nil, spellID)
     if (tonumber(slotLevel) or 0) == 0 then
-        FireTrigger("cantrip")
+        FireTrigger("cantrip", nil, spellID)
     end
 end)
 
@@ -179,6 +264,44 @@ SB.Events.On(SB.E.PVP_HIT_RESOLVED, function(dmg, spellID, landed)
         FireTrigger("failure")
     end
 end)
+
+-- ============================================================
+-- ХОД ПРОШЁЛ — ПОВРЕМЕННОЕ ВОСПОЛНЕНИЕ
+--
+-- Считаем ТИКИ ЭФФЕКТОВ, а не ходы очереди, и это не обходной путь, а
+-- то же самое определение: тик — и есть «прошёл ход». В пошаговом режиме
+-- он приходит от собственного действия (SB.Logic.SpendTurn), в свободном
+-- — от шестисекундного таймера сцены (RTDECR, см. UI/GMPanel.lua), и
+-- включены эти два взаимоисключающе. Одна подписка покрывает оба режима
+-- разом, и «раз в три хода» с «раз в восемнадцать секунд» получаются
+-- одним и тем же счётчиком.
+--
+-- СЧЁТЧИК ОБНУЛЯЕТСЯ НА ВХОДЕ В ПОШАГОВЫЙ РЕЖИМ. Иначе первая прибавка
+-- в сцене приходила бы когда придётся — через ход, через два, — в
+-- зависимости от того, сколько шестисекундных тиков натикало до боя.
+-- ============================================================
+local turnTicks = 0
+
+SB.Events.On(SB.E.TURN_TICK, function()
+    local def = DefFor()
+    if not def or def.trigger ~= "turnTick" then return end
+
+    turnTicks = turnTicks + 1
+    local every = SB.ClassMechanics.TurnPeriod(def)
+    if every > 1 and (turnTicks % every) ~= 0 then return end
+
+    ApplyGain(ResolveGain(def.gain), def.announce)
+end)
+
+-- Начало пошагового режима — новая сцена, новый отсчёт.
+do
+    local wasActive = false
+    SB.Events.On(SB.E.TURN_ORDER_CHANGED, function()
+        local active = (SB.TurnOrder and SB.TurnOrder.IsActive()) or false
+        if active and not wasActive then turnTicks = 0 end
+        wasActive = active
+    end)
+end
 
 -- Потеря здоровья: и от ПвП-урона, и когда Ведущий вручную снижает ХП
 -- через Выдачу ресурсов — оба пути идут через PlayerModel.GrantHealth.

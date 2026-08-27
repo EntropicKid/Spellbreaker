@@ -66,11 +66,19 @@ local function FormatAttackEntries(entries)
         if not e.landed then
             tag = "Отражено"
         else
-            -- Броня — расходуемый запас и может съесть удар целиком
-            -- (см. SB.Skills.AbsorbDamage). «Урон 0 ХП» в отчёте читался
+            -- Защита может съесть удар целиком: доспех — расходуемым
+            -- запасом (см. SB.Skills.AbsorbDamage), а до него урон
+            -- срезает сопротивление школе. «Урон 0 ХП» в отчёте читался
             -- бы как сбой, поэтому у нулевого исхода своя подпись.
+            --
+            -- ЧЕМ ИМЕННО ВЫДЕРЖАЛ, здесь не пишем, и это не забывчивость:
+            -- отчёт собирает АТАКУЮЩИЙ из сетевых ответов, а в них едет
+            -- итоговый урон и ничего больше. Возить разбивку защиты
+            -- каждого задетого через полрейда ради строки сводки — не та
+            -- цена; свой разбор задетый видит у себя (см. guardTxt в
+            -- HandlePvpAttackReceived).
             tag = ((e.dmg or 0) > 0) and ("Урон " .. e.dmg .. " ХП")
-                                     or "Доспех выдержал"
+                                     or "Удар выдержан"
             -- Признак, а не имя: что вешает заклинание, написано в его
             -- карточке, и ссылка на него стоит в шапке этого же залпа.
             if e.debuff then
@@ -379,8 +387,8 @@ function SB.Logic.InitiateAoeAttack(spellID, slotLevel)
     local hitBonus, hitParts  = SB.Logic.GetSpellScaling(spell, "hit")
     local critBonus           = SB.Logic.GetSpellScaling(spell, "crit")
     local dmgBonus            = SB.Logic.GetSpellScaling(spell, "damage", slotLevel)
-    if SB.ActiveEffects and SB.ActiveEffects.GetMod then
-        dmgBonus = dmgBonus + (SB.ActiveEffects.GetMod("damage"))
+    if SB.ActiveEffects and SB.ActiveEffects.GetDamageMod then
+        dmgBonus = dmgBonus + (SB.ActiveEffects.GetDamageMod(spell))
     end
     mod = mod + hitBonus
     for _, p in ipairs(hitParts) do table.insert(modParts, p) end
@@ -528,9 +536,8 @@ function SB.Logic.ResolveAoeEffectCast(spellID, slotLevel)
         ((slotLevel or 0) > 0
             and (", " .. SB.PlayerModel.GetResourceName() .. " x" .. slotLevel)
             or "") ..
-        "). Бросок: |r" .. SB.UI.RollText(roll) ..
-        G .. " + |r" .. SB.UI.ModText(mod) ..
-        G .. " = " .. total .. ". Пороги:|r", "eff")
+        "): |r" .. SB.UI.RollLine(roll, mod, total, G) ..
+        G .. ". Пороги:|r", "eff")
 
     -- На себя — по тому же броску и своему порогу. Дебафф на себя не
     -- ложится никогда (см. AoeHitsSelf), так что здесь только ауры, а
@@ -555,6 +562,7 @@ function SB.Logic.ResolveAoeEffectCast(spellID, slotLevel)
     end
 
     SB.Net.SendAoeEffect(spell.id, effectID, radius, slotLevel, roll, mod, total, epi)
+
     SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID, landedOnSelf))
 end
 
@@ -694,9 +702,8 @@ function SB.Logic.ResolveAoeHeal(spellID, slotLevel)
         ((slotLevel or 0) > 0
             and (", " .. SB.PlayerModel.GetResourceName() .. " x" .. slotLevel)
             or "") ..
-        "). Бросок: |r" .. SB.UI.RollText(roll) .. G .. " + |r" ..
-        SB.UI.ModText(mod) .. G .. " = " .. total ..
-        ", исцеление |r" .. SB.UI.AmountText("heal", amount) ..
+        "): |r" .. SB.UI.RollLine(roll, mod, total, G) ..
+        G .. ", исцеление |r" .. SB.UI.AmountText("heal", amount) ..
         G .. ". Пороги:|r", "heal")
 
     -- Себя лечим сами: свой пакет обратно не приходит. Условие места то
@@ -727,6 +734,7 @@ function SB.Logic.ResolveAoeHeal(spellID, slotLevel)
     end
 
     SB.Net.SendAoeHeal(spellID, spell.buff, radius, slotLevel, roll, mod, total, amount, epi)
+
     SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID, landedOnSelf))
 end
 

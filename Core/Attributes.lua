@@ -141,10 +141,12 @@ end
 
 --- Зафиксировать черновик атрибутов в сохранённые данные.
 --- @return boolean success, string|nil reason ("locked"|"nothing"|"no_db")
+-- Замка после каста здесь нет — по той же причине, что у навыков: он
+-- держит перераспределение, а не докидку новых очков. Полное рассуждение
+-- — во врезке над SB.Skills.Commit (Core/Skills.lua).
 function SB.Attributes.Commit()
     local d = db()
     if not d then return false, "no_db" end
-    if SB.PlayerModel and SB.PlayerModel.IsLocked() then return false, "locked" end
     if not SB.Attributes.HasPending() then return false, "nothing" end
 
     local cap = SB.Attributes.GetMaxValue()
@@ -190,6 +192,10 @@ end
 --- Полиморфно так же, как Get: имя навыка уходит в SB.Skills.GetEffective.
 --- Потолок MAX_ATTR здесь не применяется — магия имеет право поднять
 --- характеристику выше того, что персонаж прокачал бы сам.
+---
+--- СНИЗУ ТОЖЕ НЕ ЗАЖАТО: значение уходит в минус, и минус работает
+--- штрафом — той же величины, какой была бы прибавка (см. врезку об
+--- очках сверх минимума в Core/Skills.lua).
 function SB.Attributes.GetEffective(key)
     if not isAttrKey[key] and SB.Skills and SB.Skills.IsSkillKey and SB.Skills.IsSkillKey(key) then
         return SB.Skills.GetEffective(key)
@@ -198,7 +204,7 @@ function SB.Attributes.GetEffective(key)
     if SB.ActiveEffects and SB.ActiveEffects.GetStatMod then
         val = val + (SB.ActiveEffects.GetStatMod(key))
     end
-    return math.max(0, val)
+    return val
 end
 
 -- ============================================================
@@ -259,7 +265,6 @@ end
 function SB.Attributes.Spend(key)
     local d = db()
     if not d then return false, "no_db" end
-    if SB.PlayerModel and SB.PlayerModel.IsLocked() then return false, "locked" end
     if SB.Attributes.GetUnspentPoints() <= 0 then return false, "no_points" end
     local cur = SB.Attributes.GetPending(key)
     if cur >= SB.Attributes.GetMaxValue() then return false, "maxed" end
@@ -275,7 +280,6 @@ end
 function SB.Attributes.Refund(key)
     local d = db()
     if not d then return false, "no_db" end
-    if SB.PlayerModel and SB.PlayerModel.IsLocked() then return false, "locked" end
 
     local cur = SB.Attributes.GetPending(key)
     if cur <= MIN_ATTR then return false, "at_min" end
