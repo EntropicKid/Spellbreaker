@@ -8,12 +8,13 @@ Add({
 	icon = "Interface\\Icons\\Spell_nature_wrathv2",
     level = 0,
     class = "Друид",
+    damageType = "nature",
     caura = 1209,
 	description = "Друид взывает к силам природы окружающим его, и призывает первобытный гнев матери-земли, указав своими ладонями в сторону неприятеля он извергает на него золотистую молнию, разящую не только тело, но и душу нестерпимой болью.",
     isCantrip = true,
     resistable = true,
     canCrit = true,
-	distance = 18,
+	distance = 19,
 	scaling = {
 		hit    = { ["Исток"] = 1, ["Эрудиция"] = 0.5 },
 		crit   = { ["Точность"] = 1 },
@@ -135,7 +136,7 @@ Add({
     resistable = true,
 	duration = 10,
     isConcentration = false,
-	distance = 1.5,
+	distance = 2.5,
 	buff = "eff_weapon_enchant_mighty_fangs",
 	scaling = {
 		hit    = { ["Выживание"] = 1, ["Запугивание"] = 0.5 },
@@ -154,7 +155,7 @@ Add({
     resistable = true,
 	duration = 600,
     isConcentration = false,
-	distance = 1.5,
+	distance = 2.5,
 
     buff = "eff_easy_step",
 	scaling = {
@@ -192,7 +193,7 @@ Add({
     canCrit = false,
 	duration = 100,
     isConcentration = true,
-	distance = 7,
+	distance = 8,
     container = "eff_bestial_trance",
 	scaling = {
 		hit    = { ["Выживание"] = 1.5, ["Запугивание"] = 0.5 },
@@ -205,12 +206,13 @@ Add({
 	icon = "Interface\\Icons\\Spell_nature_insectswarm",
     level = 0,
     class = "Друид",
+    damageType = "nature",
     caura = 658,
 	description = "Друид может наслать на неприятеля рой насекомых обитающий поблизости, будь это мухи, комары, мошки и прочая мерзость, таким образом дезориентировав своего врага или немного подпортив ему кровь. Данное заклинание не позволяет влиять на гигантских насекомых: они считаются чудовищами.",
     isCantrip = true,
     resistable = true,
     canCrit = true,
-	distance = 18,
+	distance = 19,
 	debuff = "eff_blinded_insect_swarm",
     duration = 4,
 	scaling = {
@@ -226,12 +228,13 @@ Add({
 	icon = "Interface\\Icons\\Spell_nature_starfall",
     level = 1,
     class = "Друид",
+    damageType = "arcane",
     caura = 98,
 	description = "Друид взывает к небесам, к матери-и-дитя и тем силам что обитают за облаками, и призывает их сокрушительную власть низвергнутся на вражеские головы сверкающим лунным столбом: их тела страдают и сгорают в холодном ночном пламени. Это крайне эффективно против нежити, и противоестественной нечисти.",
     isCantrip = false,
     resistable = true,
     canCrit = true,
-	distance = 18,
+	distance = 19,
 	scaling = {
 		hit    = { ["Исток"] = 1, ["Концентрация"] = 0.5 },
 		crit   = { ["Точность"] = 1 },
@@ -252,7 +255,7 @@ Add({
     canCrit = false,
 	duration = 3,
     isConcentration = false,
-	distance = 1.5,
+	distance = 2.5,
     buff = "eff_thorns",
 	scaling = {
 		hit    = { ["Исток"] = 1, ["Эрудиция"] = 0.5 },
@@ -271,7 +274,7 @@ Add({
     resistable = false,
 	duration = 3,
     isConcentration = false,
-	distance = 40,
+	distance = 41,
     debuff = "eff_swamp_mist",
 	scaling = {
 		hit    = { ["Исток"] = 1, ["Интуиция"] = 0.5 },
@@ -291,7 +294,7 @@ Add({
     canCrit = false,
 	duration = 2,
     isConcentration = false,
-	distance = 18,
+	distance = 19,
 	debuff = "eff_slowed_tree_wrath",
 	scaling = {
 		hit    = { ["Исток"] = 1, ["Концентрация"] = 0.5 },
@@ -311,7 +314,7 @@ Add({
     canCrit = false,
 	duration = 3,
     isConcentration = false,
-	distance = 18,
+	distance = 19,
 	debuff = "eff_vulnerable_faerie_fire",
 	scaling = {
 		hit    = { ["Исток"] = 1, ["Эрудиция"] = 0.5 },
@@ -331,7 +334,7 @@ Add({
     canCrit = false,
 	duration = 2,
     isConcentration = false,
-	distance = 7,
+	distance = 8,
     debuff = "eff_druid_sleep",
 	scaling = {
 		hit    = { ["Исток"] = 1.5, ["Интуиция"] = 0.5 },
@@ -344,6 +347,7 @@ Add({
 	icon = "Interface\\Icons\\ability_druid_starfall",
     level = 2,
     class = "Друид",
+    damageType = "arcane",
     caura = 1017,
 	description = "Друид взывает к небесам, матери-и-дитя, и всему звездному небосводу призывая настоящий звездопад - обжигающий, и изничтожающий нечистую силу. Звездное пламя не вызывает пожара, и быстро гаснет, но каждое соприкосновение с его искрой: неприкрытая мука, и жуткий ожог. Оно крайне эффективно против нежити, и неестественных существ.\n\nЗвездное пламя сильнее всего в первый свой раунд действия, после чего начинает слабеть: меньше зона поражения, слабее астральный урон, вплоть до полного рассеивания.",
     isCantrip = false,
@@ -351,7 +355,7 @@ Add({
     canCrit = true,
 	duration = 3,
     isConcentration = false,
-	distance = 18,
+	distance = 19,
 	aoe = { radius = 18 },
     container = "eff_druid_starfall",
 	scaling = {
@@ -374,7 +378,7 @@ Add({
     canCrit = false,
 	duration = 10,
     isConcentration = false,
-	distance = 12,
+	distance = 13,
     debuff = "eff_beast_calm",
 	scaling = {
 		hit    = { ["Исток"] = 1.5, ["Эрудиция"] = 0.5 },
@@ -387,6 +391,7 @@ Add({
 	icon = "Interface\\Icons\\ability_druid_galewinds",
     level = 3,
     class = "Друид",
+    damageType = "nature",
     caura = 93,
 	description = "Могущественный друид призывает не только гнев природы, но и самой стихии ветра! В области действия воззвания разрывается небольшой ураган: гром и молния, вихри воздуха подхватывают маленьких, и даже больших существ и разбрасывают их по полю битвы, а вместе с тем и всё что находится рядом.\n\nВ области действия урагана все присутствующие должны совершить спасбросок или оказаться подхваченными ветром, они могут как потерять своё снаряжение в процессе, так и получить дробящий урон при столкновении с посторонними объектами или препятствиями.\n\nОсобо неудачливые получат удар молнией.",
     isCantrip = false,
@@ -394,7 +399,7 @@ Add({
     canCrit = true,
 	duration = 3,
     isConcentration = false,
-	distance = 12,
+	distance = 13,
 	aoe = { radius = 12 },
     container = "eff_druid_hurricane",
 	scaling = {
@@ -417,7 +422,7 @@ Add({
     canCrit = false,
 	duration = 2,
     isConcentration = false,
-	distance = 18,
+	distance = 19,
     container = "eff_druid_tornado",
 	scaling = {
 		hit    = { ["Исток"] = 1.5, ["Концентрация"] = 1 },
@@ -474,7 +479,7 @@ Add({
     resistable = true,
 	duration = 3,
     isConcentration = false,
-	distance = 18,
+	distance = 19,
     buff = "eff_rejuvenation",
 	scaling = {
 		hit    = { ["Милосердие"] = 1, ["Выживание"] = 0.5 },
@@ -491,7 +496,7 @@ Add({
 	description = "!!!ПРИДУМАТЬ АЛЬТЕРНАТИВНОЕ НАПИСАНИЕ в стиле друидов!!!Прикоснувшись к живому существу и воззвав к силам Природы, вы способны исцелять легкие ранения: порезы, глубокие колотые ранения, этой силы недостаточно чтобы исцелить внутренние повреждения органов, сращивать разрезанные конечности или восстановить им функциональность в обход длительной реабилитации. Этим заклинанием можно остановить кровотечение или залечить вскрытую артерию; ожоги и раны оставленные темной магией залечиваются неохотно.",
     isCantrip = false,
     resistable = true,
-	distance = 18,
+	distance = 19,
     isHeal = true,
 	scaling = {
 		hit    = { ["Милосердие"] = 1, ["Интуиция"] = 0.5 },
@@ -512,7 +517,7 @@ Add({
     resistable = true,
 	duration = 600,
     isConcentration = false,
-	distance = 1.5,
+	distance = 2.5,
 	buff = "eff_devotion_wildlife_sign",
 	scaling = {
 		hit    = { ["Милосердие"] = 1, ["Живучесть"] = 0.5 },
@@ -529,7 +534,7 @@ Add({
 	description = "Взывая к силам природы, друид может легким наложением рук вывести яд из организма существа, это не исцеляет нанесенных ядом повреждений, но предотвращает дальнейшую смерть и позволяет субъекту начать восстанавливаться.",
     isCantrip = false,
     resistable = true,
-	distance = 18,
+	distance = 19,
 	dispel = { "poison" },
 	scaling = {
 		hit    = { ["Милосердие"] = 1, ["Выживание"] = 0.5 },
@@ -548,7 +553,7 @@ Add({
     resistable = true,
 	duration = 10,
     isConcentration = false,
-	distance = 1.5,
+	distance = 2.5,
 	buff = "eff_weapon_enchant_druid_club",
 	scaling = {
 		hit    = { ["Милосердие"] = 1, ["Интуиция"] = 0.5 },
@@ -565,7 +570,7 @@ Add({
 	description = "Взывая к силам природы, а также к силам неба - друид может не только исцелить субъекта от яда, но и развеять действие многих тлетворных проклятий вплоть до второго круга магии. Это заклинание в отношении яда, действует также как и исцеление от яда.",
     isCantrip = false,
     resistable = true,
-	distance = 1.5,
+	distance = 2.5,
 	-- «И от яда, и проклятий» — обе школы прямо из описания.
 	dispel = { "curse", "poison" },
 	scaling = {
@@ -585,7 +590,7 @@ Add({
     resistable = true,
 	duration = 3,
     isConcentration = false,
-	distance = 1.5,
+	distance = 2.5,
     isHeal = true,
 	buff = "eff_mercy_blessing_nature_patronage",
 	scaling = {
@@ -632,7 +637,7 @@ Add({
     resistable = true,
 	duration = 3,
     isConcentration = false,
-	distance = 18,
+	distance = 19,
     isHeal = true,
     buff = "eff_lifebloom",
 	scaling = {
@@ -654,7 +659,7 @@ Add({
     resistable = true,
 	duration = 600,
     isConcentration = false,
-	distance = 18,
+	distance = 19,
 	buff = "eff_fortitude_nature_blessing",
 	aoe = { radius = 18 },
 	scaling = {

@@ -2,10 +2,10 @@
 ## Title: |cff865BF2Spellbreaker|r
 ## Notes: Модульная RP-система заклинаний
 ## Notes-enUS: Modular RP spell system for World of Warcraft: Aviana RP
-## Version: 2.3
+## Version: 3.0
 ## Author: Spellbreaker contributors
 ## X-License: MIT
-## SavedVariables: SpellbreakerDB SpellbreakerCustomDB
+## SavedVariables: SpellbreakerDB SpellbreakerCustomDB SpellbreakerNPCDB
 
 # ── Библиотеки ───────────────────────────────────────────────
 # LibStub и CallbackHandler грузятся ПЕРВЫМИ и ровно один раз: от них
@@ -23,6 +23,12 @@ Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua
 Libs\LibDBIcon-1.0\lib.xml
 Libs\LibRPMedia\LibRPMedia-1.0.xml
 Libs\LibRangeCheck-2.0\LibRangeCheck-2.0.lua
+# LibSharedMedia — общий котёл шрифтов, текстур и звуков на все аддоны.
+# Лежала в Libs\ давно, но не грузилась вовсе: приехала прицепом внутри
+# AceGUI-3.0-SharedMediaWidgets, а в .toc её никто не вписал. Нужна
+# Core\Fonts.lua: через неё аддон и отдаёт свой PT Serif наружу, и
+# забирает всё, что зарегистрировали соседи.
+Libs\AceGUI-3.0-SharedMediaWidgets\Libs\LibSharedMedia-3.0\lib.xml
 Libs\UTF8\lib.xml
 
 # ── Ядро: данные и схема ─────────────────────────────────────
@@ -31,13 +37,25 @@ Libs\UTF8\lib.xml
 # как Init создаст AceDB и позовёт SB.Migrations.Run.
 Core\Init.lua
 Core\Events.lua
+# Типы урона и сопротивления им. ДО Database: оттуда берутся ключи
+# резистов для расовых профилей, а из Core\ActiveEffects.lua — те же
+# ключи как каналы эффектов. Свой список в каждом из трёх мест разъехался
+# бы при добавлении восьмой школы.
+Core\DamageTypes.lua
 Core\Database.lua
+# НПС: классификации, шаблоны, свой пул. После Database — берёт оттуда
+# список атрибутов и навыков; до интерфейса, который всё это показывает.
+Core\NPC.lua
 Core\Migrations.lua
 
 # ── Библиотека заклинаний ────────────────────────────────────
 # Effects.lua идёт последним: он описывает контейнеры, на которые
 # ссылаются классовые файлы полями container/buff/debuff.
 Spells\Warrior.lua
+# Алхимия — предметы, а не заклинания (см. врезку в самом файле).
+# Составлено игроками и перенесено из их сохранёнок.
+Spells\Alchemy.lua
+Spells\Conjured.lua
 Spells\Hunter.lua
 Spells\Mage.lua
 Spells\Rogue.lua
@@ -55,6 +73,9 @@ Spells\Effects.lua
 # Плавность интерфейса. ДО Theme: тема гоняет через неё появление окон,
 # подсветку кнопок и заполнение полосок.
 Core\Animate.lua
+# Шрифт аддона. ДО Theme: тема при загрузке подставляет имя объекта
+# шрифта в SB.Theme.Font, и к тому моменту объекты уже должны быть.
+Core\Fonts.lua
 Core\Theme.lua
 Core\Strings.lua
 # Кулдауны — общий предохранитель от спама, ими пользуются и Logic,
@@ -75,10 +96,29 @@ Core\Logic.lua
 Core\Logic\Tooltips.lua
 Core\Logic\Geometry.lua
 Core\Logic\Aoe.lua
+# Размен с существом. Тот же бросок, что в ПвП, но обе стороны считает
+# атакующий: своего клиента у НПС нет (см. Core\NPC.lua).
+Core\Logic\NPC.lua
+# Способность существа по игрокам — обратная сторона того же размена.
+# Отдельным файлом: там игрок бьёт по существу и всё считается
+# локально, а здесь удар уходит по сети нескольким игрокам сразу,
+# и каждый отвечает сам за себя.
+Core\Logic\NpcCast.lua
 Core\Network.lua
 Core\CustomSpells.lua
 Core\ResourceGrant.lua
 Core\ActiveEffects.lua
+# Серверные команды управления существом: облик, размер, оружие,
+# эмоции. Здесь только данные и отправка, меню — в UI\NPCControl.lua.
+# Перенесено из отдельного аддона N'PeeSix.
+Core\NPCCommands.lua
+# Эффекты на существах. Строго после ActiveEffects: определения эффектов
+# берутся оттуда же, что у игрока, — второй таблицы «эффекты для НПС» в
+# аддоне нет и быть не должно (см. врезку в Core\NPCEffects.lua).
+Core\NPCEffects.lua
+# Предметы и ремёсла. После ActiveEffects: предмет устроен как
+# заклинание и живёт в той же таблице (см. врезку в Core\Items.lua).
+Core\Items.lua
 Core\ClassMechanics.lua
 
 # ── Интерфейс ────────────────────────────────────────────────
@@ -88,6 +128,19 @@ UI\MainFrame.lua
 UI\SpellBar.lua
 UI\GMPanel.lua
 UI\Library.lua
+# Окно создания и правки существа. После Library: кнопка «Создать» в
+# разделе НПС зовёт его, а строка списка — открывает на правку.
+UI\NPCEditor.lua
+# Кнопка и меню управления существом под рамкой цели, и речь от его
+# лица. После UI\NPCEditor.lua: меню открывает редактор.
+UI\NPCControl.lua
+# Отметки целей на рамках и окно подтверждения для способности
+# существа. После NPCControl: меню оттуда и запускает подготовку.
+UI\NpcCastTargets.lua
+UI\NPCSpeech.lua
+# Сумка: три ячейки под предметы, колонка под активными эффектами.
+# После MainFrame: берёт у него SB.UI.ShowSlotPicker.
+UI\Items.lua
 UI\Attributes.lua
 UI\Logs.lua
 UI\Overlay.lua

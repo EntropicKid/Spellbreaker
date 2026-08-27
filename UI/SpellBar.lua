@@ -277,7 +277,7 @@ local function MakeButton(i)
     -- Круг заклинания в углу: на голой иконке это единственное, что
     -- отличает заговор от заклинания третьего круга, а решение «чем
     -- ударить» начинается именно с него.
-    btn.levelFS = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    btn.levelFS = btn:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
     btn.levelFS:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -2, 2)
     btn.levelFS:SetTextColor(C.textGold[1], C.textGold[2], C.textGold[3])
 
@@ -381,8 +381,8 @@ local function MakeInfoTag(i)
     -- значением (места по вертикали хватает), в полосе сверху — слева от
     -- него (по вертикали там всего два десятка пикселей). Точки задаёт
     -- LayoutInfoTag, здесь только создаём.
-    f.valueFS = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    f.labelFS = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.valueFS = f:CreateFontString(nil, "OVERLAY", "SBFontNormalSmall")
+    f.labelFS = f:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
     f.labelFS:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
 
     local hl = f:CreateTexture(nil, "HIGHLIGHT")

@@ -8,7 +8,7 @@ SB.UI = SB.UI or {}
  
 -- ── Локальные переменные ─────────────────────────────────────
 local sbFrame
-local attrColumn, abilColumn, effColumn
+local attrColumn, abilColumn, effColumn, itemColumn
 local scrollFrame, scrollChild
 local masteryLabel
 local libBtn
@@ -82,7 +82,7 @@ local function EnsureToastHandle()
     h:RegisterForDrag("LeftButton")
     h:Hide()
  
-    h.grip = h:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    h.grip = h:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
     h.grip:SetPoint("CENTER")
     h.grip:SetText("* * *")
     h.grip:SetTextColor(CC.textDim[1], CC.textDim[2], CC.textDim[3])
@@ -196,9 +196,20 @@ local function CreateToast()
     f:SetSize(320, TOAST_HEIGHT)
     f:SetFrameStrata("HIGH")
     f:SetBackdrop(SB.Theme.BD.card)
-    f._bgColor     = {0.05, 0.04, 0.08, 0.92}
+    -- ОДИН ЦВЕТ, А НЕ ДВА. Здесь стояло два разных: в _bgColor писался
+    -- почти чёрный {0.05,0.04,0.08}, а рисовался светлый C.cardBg. Пока
+    -- тост свежий, разницы не видно — красит SetBackdropColor строкой
+    -- ниже. А вот переиспользованный из пула проходит через
+    -- ResetToastHighlight, и та красит его по _bgColor, то есть в тот
+    -- самый почти чёрный. Отсюда и «первый тост нормальный, все
+    -- следующие тёмные»: тёмным был не следующий, а любой не первый.
+    --
+    -- Копией, а не ссылкой на C.cardBg: FlashToast читает _bgColor как
+    -- опорную точку пульсации, и общая таблица связала бы дыхание тоста
+    -- с палитрой всего аддона.
+    f._bgColor     = {C.cardBg[1], C.cardBg[2], C.cardBg[3], C.cardBg[4]}
     f._borderColor = {CC.frameBorder[1], CC.frameBorder[2], CC.frameBorder[3], 1}
-    f:SetBackdropColor(C.cardBg[1], C.cardBg[2], C.cardBg[3], C.cardBg[4])
+    f:SetBackdropColor(f._bgColor[1], f._bgColor[2], f._bgColor[3], f._bgColor[4])
     f:SetBackdropBorderColor(f._borderColor[1], f._borderColor[2], f._borderColor[3], f._borderColor[4])
     f:EnableMouse(false)
     f:SetAlpha(0)
@@ -210,13 +221,13 @@ local function CreateToast()
     f.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     SB.Theme.IconBorder(f, f.icon)
  
-    f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    f.title = f:CreateFontString(nil, "OVERLAY", "SBFontNormal")
     f.title:SetPoint("TOPLEFT", f.icon, "TOPRIGHT", 10, -4)
     f.title:SetPoint("RIGHT", f, "RIGHT", -10, 0)
     f.title:SetJustifyH("LEFT")
     f.title:SetTextColor(CC.textGold[1], CC.textGold[2], CC.textGold[3])
  
-    f.status = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    f.status = f:CreateFontString(nil, "OVERLAY", "SBFontHighlight")
     f.status:SetPoint("TOPLEFT", f.title, "BOTTOMLEFT", 0, -4)
     f.status:SetPoint("RIGHT", f, "RIGHT", -10, 0)
     f.status:SetJustifyH("LEFT")
@@ -408,7 +419,11 @@ local function BuildMainFrame()
                                    -- колонки "Способности" (см. ниже)
     local COL_GAP = 14
     local ATTR_COL_W    = 210     -- было ~310 (960-20-20)/3
-    local ABIL_COL_W    = 340
+    -- Ужата с 340 ровно на то, что освободили две кнопки на каждой
+    -- карточке («Применить» и «Разучить» плюс отступы — около девяноста
+    -- пикселей, см. UpdateSpellCards). Кнопки убраны, их работу делает
+    -- сам клик по карточке, и держать под них ширину больше незачем.
+    local ABIL_COL_W    = 250
     -- Ширину колонки эффектов задаёт САМА сетка (3 иконки по 48 + зазоры
     -- + одинаковые поля по краям), а не отдельное число здесь: пока оно
     -- жило своей жизнью (190), справа от сетки оставалось 30 пикселей
@@ -418,7 +433,13 @@ local function BuildMainFrame()
     local FRAME_W = SIDE_PAD*2 + ATTR_COL_W + COL_GAP + ABIL_COL_W + COL_GAP + EFFECTS_COL_W
  
     sbFrame = SB.Theme.Frame("SpellbreakerMainFrame", UIParent,
-        "Aviana Spellbreaker v2.3", FRAME_W, FRAME_H)
+        -- ВЕРСИЯ ЗДЕСЬ ДУБЛИРУЕТ ## Version ИЗ .toc, и это единственное
+        -- её второе место в аддоне. Сам SB.Data.Version читается из
+        -- метаданных (см. Core/Init.lua) — в заголовок он не подставлен
+        -- нарочно: заголовок собирается до того, как метаданные точно
+        -- доступны, и «Aviana Spellbreaker v0» на старте выглядело бы
+        -- поломкой. Расхождение стережёт проверка в прогоне.
+        "Aviana Spellbreaker v3.0", FRAME_W, FRAME_H)
     SB.Theme.AttachPositionMemory(sbFrame, "sbFramePos", -300, 0)
     sbFrame:SetClampedToScreen(true)
  
@@ -480,6 +501,16 @@ local function BuildMainFrame()
             "prepared", "rollFloor", "armor", "skillPoints",
             "restHeal", "restCharges", "moveCap",
         }
+        -- СОПРОТИВЛЕНИЯ ДОПИСЫВАЮТСЯ СПИСКОМ — ровно по той причине, о
+        -- которой предупреждает врезка выше. Перечисли их здесь руками, и
+        -- восьмая школа однажды не попадёт в этот список: Отрекшийся
+        -- будет держать тьму по-настоящему, но нигде этого не увидит.
+        --
+        -- Пустых строк это не добавляет: ниже рисуются только ненулевые,
+        -- а резист есть у семи рас из тринадцати.
+        for _, key in ipairs(SB.Data.ResistKeys) do
+            ROW_ORDER[#ROW_ORDER + 1] = key
+        end
         local EXTRA_LABELS = {
             attack   = "Бросок атаки",
             defense  = "Бросок защиты",
@@ -563,9 +594,16 @@ local function BuildMainFrame()
     masteryBg:SetBackdropColor(0.07, 0.09, 0.13, 0.90)
     masteryBg:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.85)
  
-    masteryLabel = masteryBg:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    -- НА КНОПКЕ ВСЕГДА «РАНГ», а не название ступени.
+    --
+    -- Ступень тут была одна на весь персонаж и с тех пор, как ранг
+    -- разъехался по школам, называет ранг ЛИШЬ ОДНОЙ из них — родной.
+    -- «Эксперт» на кнопке у жреца с магической вещью адепта — прямая
+    -- неправда про магию, и заметить подмену неоткуда: слово выглядит
+    -- как свойство героя. Что где именно — в подсказке, списком.
+    masteryLabel = masteryBg:CreateFontString(nil, "OVERLAY", "SBFontNormal")
     masteryLabel:SetPoint("CENTER")
-    masteryLabel:SetText("Неофит")
+    masteryLabel:SetText("Ранг")
     masteryLabel:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
     masteryBg:EnableMouse(true)
     masteryBg:SetScript("OnEnter", function(self)
@@ -618,7 +656,12 @@ local function BuildMainFrame()
         GameTooltip:AddDoubleLine("Итого", totalSign .. total, 1, 0.82, 0, 1, 0.82, 0)
         if scope == "attack" then
             GameTooltip:AddLine(" ")
-            GameTooltip:AddLine("Скейлинг заклинания и «Внушение» добавляются в момент каста.",
+            -- МАСТЕРСТВО ШКОЛЫ ЗДЕСЬ ЖЕ, среди условных слагаемых: с
+            -- тех пор как ранг разъехался по школам, его прибавка
+            -- зависит от того, ЧЬЁ заклинание кастуют, и до выбора
+            -- заклинания она попросту неизвестна.
+            GameTooltip:AddLine("Мастерство школы, скейлинг заклинания и " ..
+                "«Внушение» добавляются в момент каста.",
                 0.6, 0.6, 0.6, true)
             GameTooltip:AddLine("|cFFFFD100ЛКМ|r — бросить атаку со всеми модификаторами. " ..
                 "Ход и ресурс не тратятся.", 0.6, 0.6, 0.6, true)
@@ -651,7 +694,7 @@ local function BuildMainFrame()
         badge.icon:SetTexture(iconPath)
         badge.icon:SetTexCoord(ICON_TRIM[1], ICON_TRIM[2], ICON_TRIM[3], ICON_TRIM[4])
 
-        badge.text = badge:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        badge.text = badge:CreateFontString(nil, "OVERLAY", "SBFontNormal")
         badge.text:SetPoint("LEFT", badge.icon, "RIGHT", 4, 0)
         badge.text:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
         badge.text:SetText("+0")
@@ -713,14 +756,14 @@ local function BuildMainFrame()
     moveBadge.icon:SetTexture("Interface\\Icons\\Ability_rogue_sprint")
     moveBadge.icon:SetTexCoord(ICON_TRIM[1], ICON_TRIM[2], ICON_TRIM[3], ICON_TRIM[4])
 
-    moveBadge.text = moveBadge:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    moveBadge.text = moveBadge:CreateFontString(nil, "OVERLAY", "SBFontNormal")
     moveBadge.text:SetPoint("LEFT", moveBadge.icon, "RIGHT", 4, 0)
     moveBadge.text:SetText("0/9")
 
     local function ShowMoveTooltip(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         SB.Theme.StyleTooltip(GameTooltip)
-        GameTooltip:SetText("Передвижение за ход", 0.6, 1, 0.6)
+        GameTooltip:SetText("Передвижение за круг", 0.6, 1, 0.6)
         local walked = SB.Movement.GetDistance()
         GameTooltip:AddDoubleLine("Пройдено", string.format("%.1f м", walked), 0.9,0.9,0.9, 1,1,1)
         if SB.Movement.HasLimit() then
@@ -889,15 +932,9 @@ local function BuildMainFrame()
             end
         end)
     end)
-    shortRestBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        SB.Theme.StyleTooltip(GameTooltip)
-        GameTooltip:SetText("Специальное действие", 1, 0.82, 0)
-        GameTooltip:AddLine("Короткий отдых, пропуск хода, побег из боя.",
-            0.6, 0.6, 0.6, true)
-        GameTooltip:Show()
-    end)
-    shortRestBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- ПОДСКАЗКИ У ЭТОЙ КНОПКИ НЕТ, и это не забывчивость. Она
+    -- перечисляла ровно те три пункта, которые кнопка и показывает по
+    -- клику, — то есть закрывала собой меню, ради которого её и жмут.
 
     -- ============================================================
     -- ТРИ КОЛОНКИ: Атрибуты | Способности | Активные эффекты
@@ -913,13 +950,21 @@ local function BuildMainFrame()
     attrColumn = SB.Theme.DockableColumn(sbFrame, "colAttrPos", "Атрибуты", ATTR_COL_W)
     abilColumn = SB.Theme.DockableColumn(sbFrame, "colAbilPos", "Способности", ABIL_COL_W)
     effColumn  = SB.Theme.DockableColumn(sbFrame, "colEffPos",  "Активные эффекты", EFFECTS_COL_W)
+    -- ПРЕДМЕТЫ — ПОД ЭФФЕКТАМИ, В ТОЙ ЖЕ КОЛОНКЕ ПО ШИРИНЕ.
+    --
+    -- Не четвёртой колонкой в ряд: окно и так в три колонки шире
+    -- половины экрана, а сумка — это три ячейки, которым не нужна своя
+    -- полоса во всю высоту. Эффекты тоже занимают лишь столько, сколько
+    -- у них рядов иконок (см. SetDockHeight), так что под ними остаётся
+    -- ровно то место, которое сумке и нужно.
+    itemColumn = SB.Theme.DockableColumn(sbFrame, "colItemPos", "Предметы", EFFECTS_COL_W)
  
 	-- ── Заголовок колонки "Атрибуты" ─────────────────────────────
 	local attrTitleBar = attrColumn.titleFS:GetParent() or attrColumn
 
 	local resetAttrBtn = SB.Theme.Button(attrTitleBar, "Сбросить", 80, 18, "danger")
 	resetAttrBtn:SetPoint("RIGHT", attrTitleBar, "RIGHT", -20, 0)
-	resetAttrBtn._fs:SetFontObject("GameFontNormal")
+	resetAttrBtn._fs:SetFontObject("SBFontNormal")
 	resetAttrBtn:SetScript("OnClick", function()
 		SB.UI.ResetAttributesAndSkills()
 	end)
@@ -927,7 +972,7 @@ local function BuildMainFrame()
 	attrColumn.titleFS:ClearAllPoints()
 	attrColumn.titleFS:SetPoint("LEFT", attrTitleBar, "LEFT", 6, 0)
 	attrColumn.titleFS:SetPoint("RIGHT", resetAttrBtn, "LEFT", -6, 0)
-	attrColumn.titleFS:SetFontObject("GameFontNormal")
+	attrColumn.titleFS:SetFontObject("SBFontNormal")
 	attrColumn.titleFS:SetJustifyH("LEFT")
 	attrColumn.titleFS:SetWordWrap(false)
 
@@ -940,7 +985,7 @@ local function BuildMainFrame()
 
 	local clearPrepBtn = SB.Theme.Button(abilTitleBar, "Очистить", 80, 18, "danger")
 	clearPrepBtn:SetPoint("RIGHT", abilTitleBar, "RIGHT", -20, 0)
-	clearPrepBtn._fs:SetFontObject("GameFontNormal")
+	clearPrepBtn._fs:SetFontObject("SBFontNormal")
 	clearPrepBtn:SetScript("OnClick", function()
 		local PM = SB.PlayerModel
 		if PM.IsLocked() then
@@ -954,14 +999,25 @@ local function BuildMainFrame()
 	abilColumn.titleFS:ClearAllPoints()
 	abilColumn.titleFS:SetPoint("LEFT", abilTitleBar, "LEFT", 6, 0)
 	abilColumn.titleFS:SetPoint("RIGHT", clearPrepBtn, "LEFT", -6, 0)
-	abilColumn.titleFS:SetFontObject("GameFontNormal")
+	abilColumn.titleFS:SetFontObject("SBFontNormal")
 	abilColumn.titleFS:SetJustifyH("LEFT")
 	abilColumn.titleFS:SetWordWrap(false)
  
     -- ── Содержимое колонок (внутрь col.body — общая контентная
     -- область, которая существует независимо от docked/floating) ──
-    local attrScroll, attrChild = SB.Theme.Scroll(attrColumn.body, 4, -4, -4, 4)
-    SB.UI.BuildAttributesColumn(attrChild)
+    -- ШАПКА КОЛОНКИ АТРИБУТОВ — ВНЕ ПРОКРУТКИ. Счётчики очков и галочки
+    -- подтверждения строятся прямо в теле колонки, а прокрутка начинается
+    -- под ними: иначе они уезжали вверх вместе с карточками, и после
+    -- раскидки навыков игрок не видел, что распределённое надо ещё
+    -- подтвердить (см. SB.UI.ATTR_HEADER_H).
+    --
+    -- Без «or 0» намеренно: константа объявлена в том же файле, что и
+    -- BuildAttributesColumn строкой ниже. Дойти сюда, не загрузив
+    -- UI/Attributes.lua, нельзя — падать будет следующая строка. Запасное
+    -- значение здесь лишь молча дало бы неверную раскладку вместо ошибки.
+    local attrScroll, attrChild = SB.Theme.Scroll(
+        attrColumn.body, 4, -4 - SB.UI.ATTR_HEADER_H, -4, 4)
+    SB.UI.BuildAttributesColumn(attrChild, attrColumn.body)
 
     scrollFrame, scrollChild = SB.Theme.Scroll(abilColumn.body, 6, -4, -6, 4)
 
@@ -1029,14 +1085,35 @@ local function BuildMainFrame()
 
     local function RecalcLayout()
         -- 1. Кто сейчас пристыкован и сколько высоты просит.
+        -- ЭФФЕКТЫ И ПРЕДМЕТЫ — ОДИН СТОЛБЕЦ НА ДВОИХ. В список
+        -- пристыкованных идёт «стопка», а не две колонки: по ширине они
+        -- занимают одно место, по высоте делят его сверху вниз.
+        --
+        -- Стопка собирается из тех, кто сейчас пристыкован и не скрыт:
+        -- уехала одна — вторая занимает столбец целиком, уехали обе —
+        -- столбца нет вовсе.
+        local stack = {}
+        for _, col in ipairs({ effColumn, itemColumn }) do
+            if col.isDocked and not col._hidden then stack[#stack + 1] = col end
+        end
+        local stackH = 0
+        for i, col in ipairs(stack) do
+            stackH = stackH + (col._dockHeight or FULL_COL_H)
+            if i < #stack then stackH = stackH + COL_GAP end
+        end
+
         local docked, colH = {}, 0
-        for _, col in ipairs({ attrColumn, abilColumn, effColumn }) do
+        for _, col in ipairs({ attrColumn, abilColumn }) do
             if col.isDocked and not col._hidden then
                 table.insert(docked, col)
-                -- Колонка с заданной SetDockHeight высотой (эффекты)
-                -- просит ровно столько; остальные тянутся во всё окно.
                 colH = math.max(colH, col._dockHeight or FULL_COL_H)
             end
+        end
+        if #stack > 0 then
+            -- Стопка представлена в раскладке ПЕРВОЙ своей колонкой:
+            -- ширина у них одна, а вертикаль разложим отдельно ниже.
+            table.insert(docked, stack[1])
+            colH = math.max(colH, stackH)
         end
 
         -- 2. Высота окна — по самой высокой пристыкованной колонке.
@@ -1059,7 +1136,22 @@ local function BuildMainFrame()
         local x, colBottom = SIDE_PAD, BOTTOM_PAD - frameH
         for _, col in ipairs(docked) do
             col:Show()
-            col:SetDockLayout(x, COL_TOP, colBottom)
+            if col == stack[1] then
+                -- Стопка: каждая колонка получает свой кусок высоты, а не
+                -- всю. Отсчёт идёт сверху вниз от COL_TOP; последней
+                -- достаётся остаток до низа окна, чтобы под ней не
+                -- оставалось необъяснимой полосы пустоты.
+                local top = COL_TOP
+                for i, sc in ipairs(stack) do
+                    sc:Show()
+                    local h = sc._dockHeight or FULL_COL_H
+                    local bottom = (i == #stack) and colBottom or (top - h)
+                    sc:SetDockLayout(x, top, bottom)
+                    top = top - h - COL_GAP
+                end
+            else
+                col:SetDockLayout(x, COL_TOP, colBottom)
+            end
             x = x + col._width + COL_GAP
         end
     end
@@ -1076,6 +1168,14 @@ local function BuildMainFrame()
             and abilColumn:IsShown() and abilColumn:IsMouseOver() then
             return true
         end
+        -- СУМКА — ТОЖЕ ОБЛАСТЬ ПОДГОТОВКИ. Колонку предметов можно
+        -- открепить ровно так же, как колонку заклинаний, и брошенное на
+        -- неё зелье иначе не долетало бы никуда: главного окна под
+        -- курсором нет.
+        if itemColumn and not itemColumn.isDocked
+            and itemColumn:IsShown() and itemColumn:IsMouseOver() then
+            return true
+        end
         -- КОМПАКТНАЯ ПАНЕЛЬ — ТА ЖЕ ОБЛАСТЬ ПОДГОТОВКИ. Это второй вид
         -- той же колонки, живущий отдельным фреймом (см. UI/SpellBar.lua),
         -- и без него drop из библиотеки на ряд иконок молча не работал, а
@@ -1090,13 +1190,19 @@ local function BuildMainFrame()
     attrColumn.OnDockChanged = RecalcLayout
     abilColumn.OnDockChanged = RecalcLayout
     effColumn.OnDockChanged  = RecalcLayout
+    itemColumn.OnDockChanged = RecalcLayout
+
+    -- Содержимое сумки строит свой файл (UI/Items.lua): здесь только
+    -- колонка и её высота, как и у эффектов рядом.
+    SB.UI.BuildItemsColumn(itemColumn.body)
+    itemColumn:SetDockHeight(SB.UI.GetItemsColumnHeight())
 
     -- Колонка, откреплённая в прошлой сессии, открепляется снова и встаёт
     -- туда же, где её оставили (см. col:RestoreDockState в Core/Theme.lua).
     -- Строго ПОСЛЕ назначения OnDockChanged: открепление пересчитывает
     -- ширину главного окна, и без обработчика оно осталось бы шириной под
     -- три колонки с дырой на месте уехавшей.
-    for _, col in ipairs({ attrColumn, abilColumn, effColumn }) do
+    for _, col in ipairs({ attrColumn, abilColumn, effColumn, itemColumn }) do
         col:RestoreDockState()
     end
 
@@ -1172,7 +1278,7 @@ local function BuildMainFrame()
         g:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 1)
         g.icon = g:CreateTexture(nil, "ARTWORK")
         g.icon:SetSize(28, 28); g.icon:SetPoint("LEFT", g, "LEFT", 6, 0)
-        g.label = g:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        g.label = g:CreateFontString(nil, "OVERLAY", "SBFontNormal")
         g.label:SetPoint("LEFT", g.icon, "RIGHT", 6, 0)
         g.label:SetPoint("RIGHT", g, "RIGHT", -6, 0)
         g.label:SetJustifyH("LEFT")
@@ -1323,7 +1429,8 @@ function SB.UI.UpdateAll()
  
     local PM = SB.PlayerModel
  
-    if masteryLabel then masteryLabel:SetText(PM.GetMastery()) end
+    -- Подпись кнопки постоянна (см. её создание): обновлять нечего,
+    -- ранги показывает подсказка, и она собирается в момент наведения.
  
     if atkBadge and defBadge then
         local atk = SB.Logic.GetModifierBreakdown("attack")
@@ -1392,10 +1499,19 @@ end
 -- ============================================================
 -- КАРТОЧКИ ЗАКЛИНАНИЙ
 -- ============================================================
--- Ширина метки «(Конц.)» в пикселях — под неё поджимается правая
--- граница названия, чтобы метка встала сразу за именем и не налезла
--- на кнопки справа.
-local CONC_LABEL_W = 48
+-- ============================================================
+-- КОНЦЕНТРАЦИЯ — ЦВЕТОМ ИМЕНИ, А НЕ ПРИПИСКОЙ
+--
+-- Здесь висела метка «(Конц.)» в сорок восемь пикселей, и под неё
+-- поджималась правая граница названия. В узкой колонке это съедало
+-- половину имени: «Ду... (Конц.)» вместо «Дух ледяной девы» — то есть
+-- приписка о свойстве вытесняла само название, ради которого карточку и
+-- читают.
+--
+-- Цвет говорит то же самое и не занимает ни пикселя. Тот же тёпло-голубой,
+-- каким метка и была набрана, так что узнаваемость не потерялась —
+-- пропала только теснота.
+local CONC_COLOR = "|cFF22BFFF"
 
 -- Насколько далеко курсор вправе уехать, чтобы это всё ещё считалось
 -- КЛИКОМ, а не перетаскиванием (в экранных точках).
@@ -1458,18 +1574,39 @@ end
 --- Что делает нажатие на карточку. Отдельной функцией, потому что
 --- вызывать это приходится из двух мест: обычного OnMouseUp и разбора
 --- «дрожащего» перетаскивания (см. CLICK_SLOP).
+--- Ширина карточки — по колонке, одним правилом на оба места.
+---
+--- Пороги были разные: 300 при создании и 200 при обновлении. Пока
+--- колонка была шире обоих, разницы не было видно; с ужатой колонкой
+--- карточка рождалась бы шире неё и прыгала на первом же обновлении.
+local CARD_W_MIN = 180
+local function CardWidth()
+    return math.max(CARD_W_MIN, (scrollChild and scrollChild:GetWidth() or 240) - 10)
+end
+
+-- ============================================================
+-- КЛИК ПО КАРТОЧКЕ — ТОТ ЖЕ, ЧТО ПО ИКОНКЕ НА МАЛОЙ ПАНЕЛИ
+--
+-- Раскладка ровно одна на оба списка (см. врезку в UI/SpellBar.lua):
+--   ЛКМ       — окно выбора круга, то есть каст;
+--   Shift+ЛКМ — показать заклинание группе ссылкой;
+--   ПКМ       — карточка заклинания со всеми числами.
+--
+-- Было иначе: ЛКМ открывал карточку, ПКМ правил кастомное, а каст жил на
+-- отдельной кнопке. То есть одна и та же кнопка мыши делала на панели и
+-- в колонке разное — и переучиваться приходилось при каждом переводе
+-- взгляда. Правка кастомного никуда не делась: она в карточке, куда
+-- ведёт ПКМ (см. «Редактировать» в UI/Library.lua).
+-- ============================================================
 local function CardActivate(self, btn)
     local sp = GetSpellData(self._spellID)
     if not sp then return end
-    -- Shift+ЛКМ — показать заклинание группе (см. SB.UI.ShareSpellLink).
-    -- Проверяем ДО обычного ЛКМ, иначе поверх ссылки открылась бы ещё и
-    -- карточка.
     if btn == "LeftButton" and IsShiftKeyDown() then
         SB.UI.ShareSpellLink(sp)
-    elseif btn == "LeftButton" and SB.Library and SB.Library.ShowDetail then
+    elseif btn == "LeftButton" then
+        SB.UI.ShowSlotPicker(sp.id)
+    elseif btn == "RightButton" and SB.Library and SB.Library.ShowDetail then
         SB.Library.ShowDetail(sp)
-    elseif btn == "RightButton" and sp.isCustom and SB.CustomSpells then
-        SB.CustomSpells.OpenEdit(sp.id)
     end
 end
 
@@ -1515,7 +1652,7 @@ function SB.UI.UpdateSpellCards()
         if spell then
             local card = spellCards[idx]
             if not card then
-                card = SB.Theme.Card(scrollChild, math.max(scrollChild:GetWidth() - 10, 300), 60)
+                card = SB.Theme.Card(scrollChild, CardWidth(), 60)
  
                 card.icon = card:CreateTexture(nil, "ARTWORK")
                 card.icon:SetSize(43, 43)
@@ -1523,23 +1660,25 @@ function SB.UI.UpdateSpellCards()
                 card.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
                 SB.Theme.IconBorder(card, card.icon)
  
-                card.name = card:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+                card.name = card:CreateFontString(nil, "OVERLAY", "SBFontNormal")
                 card.name:SetPoint("TOPLEFT", card.icon, "TOPRIGHT", 8, 0)
-                card.name:SetPoint("RIGHT", card, "RIGHT", -95, 0)
+                -- Правое поле было −95: столько откусывали кнопки. Теперь
+                -- их нет, и строка идёт до края карточки.
+                card.name:SetPoint("RIGHT", card, "RIGHT", -8, 0)
                 card.name:SetJustifyH("LEFT")
                 card.name:SetWordWrap(false)
                 card.name:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
  
-                card.desc = card:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                card.desc = card:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
                 card.desc:SetPoint("TOPLEFT", card.name, "BOTTOMLEFT", 0, -2)
-                card.desc:SetPoint("RIGHT", card, "RIGHT", -95, 0)
+                card.desc:SetPoint("RIGHT", card, "RIGHT", -8, 0)
                 card.desc:SetJustifyH("LEFT")
                 card.desc:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
  
                 -- #1: дополнительная строка — дистанция / длительность
-                card.extra = card:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                card.extra = card:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
                 card.extra:SetPoint("TOPLEFT", card.desc, "BOTTOMLEFT", 0, -1)
-                card.extra:SetPoint("RIGHT", card, "RIGHT", -95, 0)
+                card.extra:SetPoint("RIGHT", card, "RIGHT", -8, 0)
                 card.extra:SetJustifyH("LEFT")
                 card.extra:SetTextColor(0.55, 0.52, 0.44, 1)
  
@@ -1549,26 +1688,44 @@ function SB.UI.UpdateSpellCards()
                 -- Позиция вычисляется по фактической ширине текста в
                 -- UpdateSpellCards — сама FontString растянута двумя
                 -- точками и своей ширины не знает.
-                card.concLabel = card:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                card.concLabel = card:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
                 card.concLabel:SetJustifyH("LEFT")
  
-                card.castBtn = SB.Theme.Button(card, "Применить",    82, 24, "primary")
-                card.castBtn:SetPoint("TOPRIGHT", card, "TOPRIGHT", -4, -6)
+                -- ============================================
+                -- КНОПОК НА КАРТОЧКЕ БОЛЬШЕ НЕТ
+                --
+                -- Были две — «Применить» и «Разучить», — и на каждой
+                -- карточке они занимали под сотню пикселей ширины. При
+                -- десятке подготовленных заклинаний это сотня пикселей
+                -- экрана, отданная кнопкам, которые повторяют то, что и
+                -- так делает клик по самой карточке.
+                --
+                -- Теперь клик по карточке работает ровно как клик по
+                -- иконке на малой панели (см. UI/SpellBar.lua) — те же
+                -- кнопки мыши, тот же результат, — а «Разучить» переехало
+                -- в карточку заклинания, к «Подготовить»: разучивание и
+                -- подготовка суть одно действие в две стороны, и стоять
+                -- им правильнее рядом (см. UI/Library.lua).
+                -- ============================================
 
-                -- Причина, по которой кнопка погасла. Оборачиваем
-                -- существующие обработчики темы, а не подменяем их:
-                -- в них живёт подсветка кнопки под курсором.
-                local baseEnter = card.castBtn:GetScript("OnEnter")
-                local baseLeave = card.castBtn:GetScript("OnLeave")
-                card.castBtn:SetScript("OnEnter", function(self)
-                    if baseEnter then baseEnter(self) end
-                    if self:IsEnabled() then return end
-                    local sp = GetSpellData(card._spellID)
+                -- ПРИЧИНА, ПО КОТОРОЙ КАСТ НЕДОСТУПЕН, — на самой
+                -- карточке. Раньше её показывала погасшая кнопка; кнопки
+                -- нет, а вопрос «почему не применяется» остался, и без
+                -- ответа игрок узнавал бы о нём строкой в чате уже ПОСЛЕ
+                -- выбора круга.
+                --
+                -- Причин две, и подсказка обязана называть ту, что
+                -- сработала: «Слишком далеко» под нехватку лука — это
+                -- подсказка, которая врёт.
+                -- HookScript, А НЕ SetScript: подсветка карточки под
+                -- курсором живёт в этих же двух обработчиках (см.
+                -- SB.Theme.Card), и обычная установка отобрала бы их —
+                -- карточка перестала бы отзываться на наведение вовсе.
+                card:HookScript("OnEnter", function(self)
+                    if self._canCast ~= false then return end
+                    local sp = GetSpellData(self._spellID)
                     GameTooltip:SetOwner(self, "ANCHOR_TOP")
                     SB.Theme.StyleTooltip(GameTooltip)
-                    -- Причин погаснуть у кнопки две, и подсказка обязана
-                    -- называть ту, что сработала: «Слишком далеко» под
-                    -- нехватку лука — это подсказка, которая врёт.
                     local need = SB.Data.GetEquipRequirement and SB.Data.GetEquipRequirement(sp)
                     local req  = need and SB.Data.EquipRequirements[need]
                     if req and not req.check() then
@@ -1582,14 +1739,8 @@ function SB.UI.UpdateSpellCards()
                     end
                     GameTooltip:Show()
                 end)
-                card.castBtn:SetScript("OnLeave", function(self)
-                    if baseLeave then baseLeave(self) end
-                    GameTooltip:Hide()
-                end)
- 
-                card.unlearnBtn = SB.Theme.Button(card, "Разучить", 82, 24, "danger")
-                card.unlearnBtn:SetPoint("BOTTOMRIGHT", card, "BOTTOMRIGHT", -4, 6)
- 
+                card:HookScript("OnLeave", function() GameTooltip:Hide() end)
+
                 -- Drag-and-drop
                 card:EnableMouse(true)
                 card:RegisterForDrag("LeftButton")
@@ -1666,7 +1817,10 @@ function SB.UI.UpdateSpellCards()
             card._spellName = spell.name or "?"
  
             card.icon:SetTexture(card._iconTex)
-            card.name:SetText(spell.name or "Неизвестно")
+            -- Концентрация — цветом самого названия (см. CONC_COLOR).
+            card.name:SetText(spell.isConcentration
+                and (CONC_COLOR .. (spell.name or "Неизвестно") .. "|r")
+                or  (spell.name or "Неизвестно"))
  
             -- Только уровень (дескриптор убран по запросу)
             local lvl  = spell.level or 0
@@ -1678,12 +1832,12 @@ function SB.UI.UpdateSpellCards()
             table.insert(parts, "Дальность: " .. SB.Logic.FormatSpellRange(spell))
             -- Длительность. -1 значит бессрочно (до Долгого Отдыха);
             -- положительное число — база при касте в свой круг, апкаст
-            -- удваивает её за каждый круг сверх.
+            -- растягивает её на круг сверх (см. GetUpcastMultiplier).
             local dur = spell.duration
             if dur == -1 then
                 table.insert(parts, "Длительность: бессрочно")
             elseif dur and dur > 0 then
-                table.insert(parts, "Длительность: " .. dur .. " ход.")
+                table.insert(parts, "Длительность: " .. SB.UI.TurnsAsTime(dur))
             else
                 table.insert(parts, "Длительность: Мгновенно")
             end
@@ -1698,33 +1852,17 @@ function SB.UI.UpdateSpellCards()
             -- коду, и якоря FontString движок пересчитает лишь к
             -- следующему кадру — GetWidth() вернул бы прошлое значение.
             -- 8 отступ + 43 иконка + 8 зазор слева, 95 под кнопки справа.
-            local nameAvail = math.max(200, (scrollChild:GetWidth() or 340) - 10) - 154
-            if spell.isConcentration then
-                card.concLabel:SetText("|cFF22BFFF(Конц.)|r")
-                -- Под метку резервируем место, поджимая правую границу
-                -- имени: иначе длинное имя дотянулось бы до кнопок, и
-                -- метка легла бы поверх «Применить».
-                card.name:SetPoint("RIGHT", card, "RIGHT", -95 - CONC_LABEL_W, 0)
-                nameAvail = math.max(20, nameAvail - CONC_LABEL_W)
-                local nameW = math.min(card.name:GetStringWidth(), nameAvail)
-                card.concLabel:ClearAllPoints()
-                card.concLabel:SetPoint("LEFT", card.name, "LEFT", nameW + 5, 0)
-                card.concLabel:Show()
-            else
-                card.name:SetPoint("RIGHT", card, "RIGHT", -95, 0)
-                card.concLabel:Hide()
-            end
+            -- Имя занимает всю строку в обоих случаях: метки, под
+            -- которую раньше поджималась правая граница, больше нет.
+            card.name:SetPoint("RIGHT", card, "RIGHT", -8, 0)
+            card.concLabel:Hide()
  
  
-            local cardW = math.max(200, (scrollChild:GetWidth() or 340) - 10)
-            card:SetWidth(cardW)
+            card:SetWidth(CardWidth())
             card:ClearAllPoints()
             card:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 5, -yOff)
             card:Show()
  
-            local capturedID = spellID
-            card.castBtn:SetScript("OnClick",    function() SB.UI.ShowSlotPicker(capturedID) end)
-            card.unlearnBtn:SetScript("OnClick", function() SB.UI.UnprepareSpell(capturedID) end)
  
             yOff = yOff + 64
         end
@@ -1783,19 +1921,18 @@ function SB.UI.RefreshCastButtons()
     -- Очередь ходов одна на все карточки — спрашиваем её тоже один раз.
     local turnOk = not SB.TurnOrder or SB.TurnOrder.CanActLocal()
     for _, card in ipairs(spellCards) do
-        if card:IsShown() and card.castBtn then
+        if card:IsShown() then
             local ok = CanCastNow(GetSpellData(card._spellID), dist, turnOk)
-            -- Только на смену состояния: функция вызывается по таймеру,
-            -- а Enable/Disable перекрашивают backdrop и шрифт.
+            -- Только на смену состояния: функция вызывается по таймеру.
             if ok ~= card._inRange then
                 card._inRange = ok
-                if ok then
-                    card.castBtn:Enable()
-                    card.castBtn:SetAlpha(1)
-                else
-                    card.castBtn:Disable()
-                    card.castBtn:SetAlpha(0.45)
-                end
+                -- Гаснет ВСЯ карточка, а не кнопка на ней: кнопки больше
+                -- нет, а сигнал «сейчас не применить» терять нельзя — он
+                -- единственное, что до нажатия отличает недоступное
+                -- заклинание от доступного. Причина — по наводке (см.
+                -- OnEnter карточки в UpdateSpellCards).
+                card._canCast = ok
+                card:SetAlpha(ok and 1 or 0.45)
             end
         end
     end
@@ -1877,15 +2014,9 @@ local SLOT_BTN_MIN  = 170
 local SLOT_BTN_MAX  = 380
 local SLOT_TEXT_PAD = 26   -- воздух вокруг текста внутри кнопки
 
---- «3 хода» / «1 ход» / «5 ходов» — для подписи длительности эффекта.
-local function TurnsWord(n)
-    local tail100 = n % 100
-    if tail100 >= 11 and tail100 <= 14 then return "ходов" end
-    local tail = n % 10
-    if tail == 1 then return "ход" end
-    if tail >= 2 and tail <= 4 then return "хода" end
-    return "ходов"
-end
+-- СКЛОНЕНИЯ «ход/хода/ходов» ЗДЕСЬ БОЛЬШЕ НЕТ. Длительность подписывается
+-- временем (см. SB.UI.TurnsAsTime), а сокращения «мин.»/«сек.» не
+-- склоняются вовсе — правило исчезло вместе с надобностью в нём.
 
 function SB.UI.ShowSlotPicker(spellID)
     local spell = GetSpellData(spellID)
@@ -1922,7 +2053,27 @@ function SB.UI.ShowSlotPicker(spellID)
         if hit > 0 then
             return string.format(" (+%d атака)", hit)
         end
+        -- ПРИБАВКА ОТ ВИСЯЩИХ ЭФФЕКТОВ — ТА ЖЕ, ЧТО УЙДЁТ В БРОСОК.
+        --
+        -- Её здесь не было вовсе, и пикер занижал: жрец под «Внутренним
+        -- огнём» видел в выборе порядка одну цифру, а бил другой.
+        -- Расхождение читалось как поломка тем вернее, чем больше
+        -- усилений на персонаже.
+        --
+        -- РАЗВИЛКА ТА ЖЕ, ЧТО В КАРТОЧКЕ (см. GetSpellScalingLines):
+        -- у лечения свой канал mods.heal, у урона — школьный
+        -- GetDamageMod, и «+2 огню» на ледяной стреле не работает.
+        -- Третий ответ на тот же вопрос завёлся бы ровно здесь.
+        local effBonus = 0
+        if spell.isHeal then
+            effBonus = (SB.ActiveEffects and SB.ActiveEffects.GetMod)
+                and SB.ActiveEffects.GetMod("heal") or 0
+        else
+            effBonus = (SB.ActiveEffects and SB.ActiveEffects.GetDamageMod)
+                and SB.ActiveEffects.GetDamageMod(spell) or 0
+        end
         local scaled = dmg + SB.Logic.GetSpellScaling(spell, "damage", level)
+                       + effBonus
         if spell.isHeal then
             return string.format(" (%d ХП)", scaled)
         end
@@ -1947,7 +2098,7 @@ function SB.UI.ShowSlotPicker(spellID)
         if not effectID or not SB.Data.Spells[effectID] then return "" end
         local turns = SB.Logic.GetEffectDuration(effectID, spell, level)
         if turns == SB.ActiveEffects.INFINITE then return " | беск." end
-        return string.format(" | %d %s", turns, TurnsWord(turns))
+        return " | " .. SB.UI.TurnsAsTime(turns)
     end
 
     -- ── Собираем ТОЛЬКО доступные варианты ──────────────────
@@ -2000,7 +2151,7 @@ function SB.UI.ShowSlotPicker(spellID)
     -- вернуло бы ширину переноса вместо ширины строки.
     local measure = slotFrame._measureFS
     if not measure then
-        measure = slotFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        measure = slotFrame:CreateFontString(nil, "OVERLAY", "SBFontNormal")
         measure:SetPoint("TOPLEFT", slotFrame, "TOPLEFT", 0, 0)
         measure:SetWordWrap(false)
         measure:Hide()
@@ -2085,7 +2236,7 @@ function SB.UI.ShowSlotPicker(spellID)
     if hint then
         local fs = slotFrame._hintFS
         if not fs then
-            fs = slotFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+            fs = slotFrame:CreateFontString(nil, "OVERLAY", "SBFontDisableSmall")
             fs:SetJustifyH("LEFT")
             slotFrame._hintFS = fs
         end
@@ -2152,9 +2303,13 @@ SB.Events.On("SB_INIT", function()
     -- системным сообщением в чат (никуда не отправляются по сети,
     -- только печатаются в твоём собственном чате).
     SB.Events.On("LOG_MESSAGE_RECEIVED", function(msg)
+        -- В ОКНО ЛОГОВ — ЦЕЛИКОМ, В ЧАТ — БЛОКОМ. Окно листают и ищут
+        -- по тегу, там строка нужна полной; чат читают на ходу, и
+        -- восемь одинаковых тегов подряд там только мешают
+        -- (см. SB.UI.CollapseTag).
         if SB.Logs and SB.Logs.Add then SB.Logs.Add(msg) end
         if msg and DEFAULT_CHAT_FRAME then
-            DEFAULT_CHAT_FRAME:AddMessage(msg)
+            DEFAULT_CHAT_FRAME:AddMessage(SB.UI.CollapseTag(msg))
         end
     end)
  

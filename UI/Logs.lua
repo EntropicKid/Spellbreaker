@@ -135,7 +135,7 @@ function SB.Logs.BuildFrame()
     checkBox:SetChecked(HideEnabled())
     logFrame.hideCheckbox = checkBox
 
-    local cbLabel = checkBg:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local cbLabel = checkBg:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
     cbLabel:SetPoint("LEFT", checkBox, "RIGHT", 4, 0)
     cbLabel:SetText("Скрывать сообщения в чате игры")
     cbLabel:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])

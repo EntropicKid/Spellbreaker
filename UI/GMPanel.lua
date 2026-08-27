@@ -11,6 +11,15 @@ SB.UI = SB.UI or {}
 
 local gmFrame
 local playersTab, queueTab, settingsTab
+
+--- Разложить ряд вкладок во всю ширину панели. Отдельной функцией,
+--- потому что зовут её из двух мест: при сборке окна и каждый раз, когда
+--- «Настройки» появляются или пропадают вместе с правами Ведущего.
+local function LayoutGMTabs()
+    if not (gmFrame and playersTab) then return end
+    SB.Theme.LayoutTabs(gmFrame, { playersTab, queueTab, settingsTab })
+end
+
 local playersPanel, playersChild
 local queuePanel,  queueChild
 -- Вкладка «Настройки» — управление сценой. Видна ТОЛЬКО Ведущему,
@@ -81,6 +90,9 @@ local function RefreshGMAccess()
     if not settingsTab then return end
     local isGM = SB.UI.IsGameMaster()
     settingsTab:SetShown(isGM)
+    -- Вкладка появилась или пропала — ряд перекладывается под новое
+    -- число видимых, чтобы не осталось дыры на её месте.
+    LayoutGMTabs()
 
     -- Лид передали, пока вкладка была открыта — уводим с неё сразу, а не
     -- ждём, пока бывший Ведущий что-нибудь нажмёт.
@@ -259,13 +271,22 @@ function SB.UI.RefreshGMSettings()
         wearTxt = string.format(" |cFFFF8844Исцеление −%d|r", wear)
     end
 
+    -- НОМЕР ХОДА И ПРОШЕДШЕЕ ВРЕМЯ РЯДОМ, а не вместо друг друга.
+    -- Ведущий работает номерами: «Новый ход», инициатива, длительности —
+    -- всё считается ходами, и убрать число значило бы отнять у него
+    -- единственную опору. Время рядом отвечает на другой вопрос —
+    -- «сколько эта сцена уже идёт» (см. SB.UI.TurnsAsTime).
+    local round   = TO.GetRound()
+    local roundTxt = "Ход " .. round ..
+        ((round > 0) and (" |cFF9D9D9D(" .. SB.UI.TurnsAsTimeFull(round) .. ")|r") or "")
+
     local who = TO.GetCurrentNames()
     if #who > 0 then
-        turnStatus:SetText("Ход " .. TO.GetRound() .. ". Ходит: |cFFFFD100" ..
+        turnStatus:SetText(roundTxt .. ". Ходит: |cFFFFD100" ..
             table.concat(who, ", ") .. "|r" ..
             (timed and (" (до " .. TO.GetTurnTimeLimit() .. " с)") or "") .. wearTxt)
     else
-        turnStatus:SetText("Ход " .. TO.GetRound() .. ". Круг пройден — " ..
+        turnStatus:SetText(roundTxt .. ". Круг пройден — " ..
             (SB.TurnOrder.IsAutoRound() and "новый начнётся сам."
                                          or "нажмите «Новый ход».") .. wearTxt)
     end
@@ -300,6 +321,13 @@ local function RealtimeTick()
     -- от друга (см. Core/ActiveEffects.lua).
     if SB.ActiveEffects then
         SB.ActiveEffects.TickAll()
+    end
+    -- И СУЩЕСТВАМ СЦЕНЫ — тем же тиком, что игрокам: время идёт одно на
+    -- всех. Пошаговый парный вызов стоит в TO.NewRound; включены они
+    -- взаимоисключающе (см. SyncRealtimeToTurnMode ниже), так что
+    -- двойного тика не бывает по построению.
+    if SB.NPC and SB.NPC.TickEffects then
+        SB.NPC.TickEffects()
     end
     if IsInGroup() and SB.Net and SB.Net.SendRealtimeDecrement then
         SB.Net.SendRealtimeDecrement()
@@ -371,7 +399,7 @@ function SB.UI.BuildGMPanel()
     C = SB.Theme.C
 
     gmFrame = SB.Theme.Frame("SpellbreakerGMFrame", UIParent,
-        "Spellbreaker — Панель Ведущего", 380, 440)
+        "Spellbreaker — Панель Ведущего", 380, 440, "gm")
     SB.Theme.AttachPositionMemory(gmFrame, "gmFramePos", 100, 0)
 
     -- Статусы участников запрашивает только тот, кому они нужны
@@ -384,13 +412,13 @@ function SB.UI.BuildGMPanel()
         end
     end)
 
-    -- Три вкладки в ширину рамки: 8 + 118*3 + 4*2 = 370 при ширине 380.
+    -- Ширину вкладкам считает SB.Theme.LayoutTabs — по числу ВИДИМЫХ и
+    -- по ширине окна. Здесь она любая: всё равно будет пересчитана.
     -- Отсюда и короткое «Заявки» вместо «Очередь заявок» — в треть
     -- ширины прежняя подпись не помещается.
     local TAB_W = 118
 
     playersTab = SB.Theme.Tab(gmFrame, "Игроки", TAB_W, 24, true)
-    playersTab:SetPoint("TOPLEFT", gmFrame, "TOPLEFT", 8, gmFrame.contentY)
     playersTab:SetScript("OnClick", function()
         SB.Theme.PlaySound("click")
         SelectTab("players")
@@ -401,7 +429,6 @@ function SB.UI.BuildGMPanel()
     end)
 
     queueTab = SB.Theme.Tab(gmFrame, "Заявки", TAB_W, 24, false)
-    queueTab:SetPoint("LEFT", playersTab, "RIGHT", 4, 0)
     queueTab:SetScript("OnClick", function()
         SB.Theme.PlaySound("click")
         SelectTab("queue")
@@ -409,7 +436,6 @@ function SB.UI.BuildGMPanel()
     end)
 
     settingsTab = SB.Theme.Tab(gmFrame, "Настройки", TAB_W, 24, false)
-    settingsTab:SetPoint("LEFT", queueTab, "RIGHT", 4, 0)
     settingsTab:SetScript("OnClick", function()
         -- Второй замок, помимо скрытой вкладки: лид могли передать между
         -- показом панели и щелчком.
@@ -418,6 +444,11 @@ function SB.UI.BuildGMPanel()
         SelectTab("settings")
         SB.UI.RefreshGMSettings()
     end)
+
+    -- Первая раскладка: ширина считается от числа видимых вкладок, а
+    -- «Настройки» к этому моменту уже созданы (скрыть их может только
+    -- RefreshGMAccess, и он перекладывает ряд сам).
+    LayoutGMTabs()
 
     -- Нижняя граница списков — 10, а не 36: плашка реалтайма съехала со
     -- дна панели во вкладку «Настройки», и резервировать место незачем.
@@ -465,7 +496,7 @@ function SB.UI.BuildGMPanel()
         SB.UI.RefreshGMSettings()
     end)
 
-    turnStatus = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    turnStatus = settingsPanel:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
     turnStatus:SetPoint("TOPLEFT", turnBtn, "BOTTOMLEFT", 0, -6)
     turnStatus:SetPoint("RIGHT", settingsPanel, "RIGHT", -4, 0)
     turnStatus:SetJustifyH("LEFT")
@@ -476,7 +507,7 @@ function SB.UI.BuildGMPanel()
     -- Три взаимоисключающих режима. Сделаны обычными галочками, а не
     -- выпадающим списком: их всего три, и видеть все варианты разом
     -- Ведущему полезнее, чем экономить строку.
-    local turnHeader = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local turnHeader = settingsPanel:CreateFontString(nil, "OVERLAY", "SBFontNormal")
     turnHeader:SetPoint("TOPLEFT", turnStatus, "BOTTOMLEFT", 2, -14)
     turnHeader:SetText("Порядок хода")
     turnHeader:SetTextColor(C.accent[1], C.accent[2], C.accent[3])
@@ -493,12 +524,12 @@ function SB.UI.BuildGMPanel()
         chk:SetSize(20, 20)
         chk:SetPoint("TOPLEFT", turnHeader, "BOTTOMLEFT", 0, rowY)
 
-        local lbl = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        local lbl = settingsPanel:CreateFontString(nil, "OVERLAY", "SBFontNormal")
         lbl:SetPoint("LEFT", chk, "RIGHT", 4, 0)
         lbl:SetText(mode.label)
         lbl:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
 
-        local hint = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        local hint = settingsPanel:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
         hint:SetPoint("TOPLEFT", chk, "BOTTOMLEFT", 24, 2)
         hint:SetPoint("RIGHT", settingsPanel, "RIGHT", -4, 0)
         hint:SetJustifyH("LEFT")
@@ -526,7 +557,7 @@ function SB.UI.BuildGMPanel()
     -- Не галочка, а число секунд: темп сцены разный, перестрелке хватает
     -- тридцати секунд, разговору мало и трёх минут. Границы и смысл
     -- «выше максимума = не ограничен» — в Core/TurnOrder.lua.
-    local timerLbl = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local timerLbl = settingsPanel:CreateFontString(nil, "OVERLAY", "SBFontNormal")
     timerLbl:SetPoint("TOPLEFT", turnHeader, "BOTTOMLEFT", 0, rowY - 6)
     timerLbl:SetText("Секунд на ход")
     timerLbl:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
@@ -550,7 +581,7 @@ function SB.UI.BuildGMPanel()
     timerEB:SetScript("OnEnterPressed", ApplyTurnTime)
     timerEB:SetScript("OnEditFocusLost", ApplyTurnTime)
 
-    local timerHint = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local timerHint = settingsPanel:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
     timerHint:SetPoint("TOPLEFT", timerLbl, "BOTTOMLEFT", 0, -4)
     timerHint:SetPoint("RIGHT", settingsPanel, "RIGHT", -4, 0)
     timerHint:SetJustifyH("LEFT")
@@ -574,12 +605,12 @@ function SB.UI.BuildGMPanel()
         SB.UI.RefreshGMSettings()
     end)
 
-    local moveFreeLbl = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local moveFreeLbl = settingsPanel:CreateFontString(nil, "OVERLAY", "SBFontNormal")
     moveFreeLbl:SetPoint("LEFT", moveFreeChk, "RIGHT", 4, 0)
     moveFreeLbl:SetText("Не ограничивать передвижение")
     moveFreeLbl:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
 
-    local moveFreeHint = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local moveFreeHint = settingsPanel:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
     moveFreeHint:SetPoint("TOPLEFT", moveFreeChk, "BOTTOMLEFT", 24, 2)
     moveFreeHint:SetPoint("RIGHT", settingsPanel, "RIGHT", -4, 0)
     moveFreeHint:SetJustifyH("LEFT")
@@ -601,7 +632,7 @@ function SB.UI.BuildGMPanel()
         SB.UI.RefreshGMSettings()
     end)
 
-    local autoRoundLbl = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local autoRoundLbl = settingsPanel:CreateFontString(nil, "OVERLAY", "SBFontNormal")
     autoRoundLbl:SetPoint("LEFT", autoRoundChk, "RIGHT", 4, 0)
     autoRoundLbl:SetText("Новый ход сам")
     autoRoundLbl:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
@@ -624,11 +655,11 @@ function SB.UI.BuildGMPanel()
     -- Строка внизу вкладки: она отвечает на вопрос «почему у него не
     -- работает», который иначе решается получасом догадок
     -- (см. SB.Net.GetVersionReport).
-    versionHeader = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    versionHeader = settingsPanel:CreateFontString(nil, "OVERLAY", "SBFontNormal")
     versionHeader:SetPoint("TOPLEFT", autoRoundChk, "BOTTOMLEFT", 0, -14)
     versionHeader:SetTextColor(C.accent[1], C.accent[2], C.accent[3])
 
-    versionLine = settingsPanel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    versionLine = settingsPanel:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
     versionLine:SetPoint("TOPLEFT", versionHeader, "BOTTOMLEFT", 0, -4)
     versionLine:SetPoint("RIGHT", settingsPanel, "RIGHT", -4, 0)
     versionLine:SetJustifyH("LEFT")
@@ -708,11 +739,11 @@ function SB.UI.UpdateGMQueue()
             row:SetBackdropColor(C.cardBg[1], C.cardBg[2], C.cardBg[3], C.cardBg[4])
             row:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
 
-            row.casterLabel = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            row.casterLabel = row:CreateFontString(nil, "OVERLAY", "SBFontNormal")
             row.casterLabel:SetPoint("TOPLEFT", row, "TOPLEFT", 8, -6)
             row.casterLabel:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
 
-            row.spellLabel = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            row.spellLabel = row:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
             row.spellLabel:SetPoint("TOPLEFT", row.casterLabel, "BOTTOMLEFT", 0, -2)
             row.spellLabel:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
 
@@ -733,7 +764,7 @@ function SB.UI.UpdateGMQueue()
                 end
             end)
 
-            row.targetLabel = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            row.targetLabel = row:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
             row.targetLabel:SetPoint("TOPLEFT", row.spellLabel, "BOTTOMLEFT", 0, -2)
             row.targetLabel:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
 
@@ -759,8 +790,10 @@ function SB.UI.UpdateGMQueue()
             row.forceCritS = SB.Theme.Button(row, "Крит. успех",  90, 20, "primary")
             row.forceCritS:SetPoint("LEFT", row.forceFail, "RIGHT", 4, 0)
 
-            row.forceCritF = SB.Theme.Button(row, "Крит. провал", 90, 20, "danger")
-            row.forceCritF:SetPoint("LEFT", row.forceCritS, "RIGHT", 4, 0)
+            -- КНОПКИ «КРИТ. ПРОВАЛ» ЗДЕСЬ НЕТ: критический провал вырезан
+            -- из аддона (см. SB.Logic.ProcessRollAndCast). Обычный провал
+            -- делает ровно то же самое, и второй кнопкой на то же
+            -- действие Ведущего только путали.
 
         queueRows[i] = row
         end
@@ -791,7 +824,6 @@ function SB.UI.UpdateGMQueue()
 
         local hasCrit = spell and spell.canCrit == true
         row.forceCritS:SetShown(hasCrit)
-        row.forceCritF:SetShown(hasCrit)
 
         -- СПРАВЕДЛИВАЯ СЛ В ПОЛЕ. Ставится ОДИН РАЗ на заявку — по её
         -- ключу, а не на каждую перерисовку: очередь обновляется от
@@ -855,10 +887,6 @@ function SB.UI.UpdateGMQueue()
         end)
         row.forceCritS:SetScript("OnClick", function()
             SB.Net.SendForceOutcome(capturedReq.caster, spellID, 3, slotLvl)
-            removeReq(); SB.UI.UpdateGMQueue()
-        end)
-        row.forceCritF:SetScript("OnClick", function()
-            SB.Net.SendForceOutcome(capturedReq.caster, spellID, 4, slotLvl)
             removeReq(); SB.UI.UpdateGMQueue()
         end)
 
@@ -968,7 +996,23 @@ function SB.UI.UpdateGMPlayers()
         -- ══════ 1. ROW ══════
         local row = playerRows[index]
         if not row then
-            row = CreateFrame("Frame", nil, playersChild, "BackdropTemplate")
+            -- ============================================
+            -- СТРОКА — КНОПКА, А НЕ ПРОСТО ФРЕЙМ
+            --
+            -- Была фреймом с OnMouseUp, и клик по игроку «иногда»
+            -- пропадал. «Иногда» здесь имело причину: список
+            -- перестраивается на каждом чужом статусе, а те идут потоком,
+            -- и строки при этом переанкориваются и переприсваиваются
+            -- другим игрокам ПО ИНДЕКСУ. Нажатие и отпускание попадали в
+            -- разные раскладки — событие либо терялось, либо, хуже,
+            -- открывало выдачу не тому.
+            --
+            -- Кнопка ведёт учёт нажатия сама: клиент помнит, на какой
+            -- кнопке зажали, и отдаёт OnClick ей, что бы ни случилось с
+            -- раскладкой между нажатием и отпусканием.
+            -- ============================================
+            row = CreateFrame("Button", nil, playersChild, "BackdropTemplate")
+            row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
             row:SetHeight(rowH)
             row:SetBackdrop(SB.Theme.BD.card)
             -- Цвет берём из палитры темы — см. ответ ниже
@@ -980,21 +1024,22 @@ function SB.UI.UpdateGMPlayers()
             row.portrait = SB.Theme.RoundPortrait(row, 52)
             row.portrait:SetPoint("LEFT", row, "LEFT", 8, 0)
 
-            row.portrait.classIcon = row.portrait:CreateTexture(nil, "OVERLAY")
-            row.portrait.classIcon:SetSize(24, 24)
-            row.portrait.classIcon:SetPoint("CENTER", row.portrait, "CENTER", 0, 0)
+            -- Иконка класса занимает ТУ ЖЕ дыру, что и портрет: она
+            -- показывается вместо него, когда юнита нет рядом, и обязана
+            -- заполнять кольцо так же плотно (см. SB.Theme.PortraitInset).
+            row.portrait.classIcon = SB.Theme.PortraitInset(row.portrait)
 
-            row.nameLabel = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            row.nameLabel = row:CreateFontString(nil, "OVERLAY", "SBFontNormal")
             row.nameLabel:SetPoint("TOPLEFT", row.portrait, "TOPRIGHT", 8, -2)
             row.nameLabel:SetJustifyH("LEFT")
             row.nameLabel:SetSpacing(2)
             row.nameLabel:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
 			
-			row.infoLabel = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+			row.infoLabel = row:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
             row.infoLabel:SetPoint("TOPLEFT", row.nameLabel, "BOTTOMLEFT", 0, -2)
             row.infoLabel:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
 
-            row.resLabel = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            row.resLabel = row:CreateFontString(nil, "OVERLAY", "SBFontNormal")
             row.resLabel:SetPoint("TOPRIGHT", row, "TOPRIGHT", -5, -8)
             row.resLabel:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
 
@@ -1015,7 +1060,7 @@ function SB.UI.UpdateGMPlayers()
             row.friendChk = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
             row.friendChk:SetSize(20, 20)
             row.friendChk:SetPoint("TOPRIGHT", row.zealBar, "BOTTOMRIGHT", 2, -1)
-            row.friendLbl = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            row.friendLbl = row:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
             row.friendLbl:SetPoint("RIGHT", row.friendChk, "LEFT", -1, 0)
             row.friendLbl:SetText("Друг")
             row.friendLbl:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
@@ -1208,13 +1253,18 @@ function SB.UI.UpdateGMPlayers()
         end
 
         -- ══════ 1b. Обработчики row ══════
+        -- ШИРИНА — ДВУМЯ ЯКОРЯМИ, А НЕ SetWidth ПО ЗАМЕРУ ПАНЕЛИ.
+        -- Замер возвращает ноль, пока панель не разложена, а список
+        -- строится и до этого: строка нулевой ширины видна (её рисуют
+        -- дети), но мышь по ней не попадает никуда. Вторая половина того
+        -- же «иногда не нажимается».
         row:ClearAllPoints()
-        row:SetPoint("TOPLEFT", playersChild, "TOPLEFT", 0, -yOff)
-        row:SetWidth(playersPanel:GetWidth())
+        row:SetPoint("TOPLEFT",  playersChild, "TOPLEFT",  0, -yOff)
+        row:SetPoint("TOPRIGHT", playersChild, "TOPRIGHT", 0, -yOff)
 
         local capturedName = p.name
         row:EnableMouse(true)
-        row:SetScript("OnMouseUp", function(self, btn)
+        row:SetScript("OnClick", function(self, btn)
             if btn == "LeftButton" then
                 if SB.ResourceGrant and SB.ResourceGrant.CanGrant and SB.ResourceGrant.CanGrant() and
                    SB.ResourceGrant.ShowFor then
@@ -1268,9 +1318,11 @@ function SB.UI.UpdateGMPlayers()
                 sub.icons = {}
                 playerSubs[index] = sub
             end
+            -- Двумя якорями, как и сама строка выше: замер панели до её
+            -- раскладки отдаёт ноль, и подстрока схлопывалась в нитку.
             sub:ClearAllPoints()
-            sub:SetPoint("TOPLEFT", playersChild, "TOPLEFT", 0, -yOff - gapRowSub)
-            sub:SetWidth(playersPanel:GetWidth())
+            sub:SetPoint("TOPLEFT",  playersChild, "TOPLEFT",  0, -yOff - gapRowSub)
+            sub:SetPoint("TOPRIGHT", playersChild, "TOPRIGHT", 0, -yOff - gapRowSub)
             sub:Show()
             yOff = yOff + gapRowSub + subH
 

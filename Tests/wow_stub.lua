@@ -70,8 +70,23 @@ function frameMethods.IsVisible(self) return self._shown == true end
 function frameMethods.Show(self) self._shown = true end
 function frameMethods.Hide(self) self._shown = false end
 function frameMethods.SetShown(self, v) self._shown = v and true or false end
-function frameMethods.GetWidth() return 0 end
-function frameMethods.GetHeight() return 0 end
+-- РАЗМЕРЫ ЗАПОМИНАЮТСЯ. Раньше здесь стояли нули: заглушке хватало
+-- «не упасть», а раскладку в прогоне никто не проверял. Теперь по этим
+-- числам считается ширина вкладок (см. SB.Theme.LayoutTabs), и ноль
+-- сделал бы проверку бессмысленной.
+--
+-- Точки привязки при этом НЕ моделируются: настоящее положение фрейма
+-- зависит от цепочки якорей, и подделывать её честнее не пытаться —
+-- GetTop так и остаётся нулём.
+function frameMethods.SetWidth(self, v)  self._w = tonumber(v) or 0 end
+function frameMethods.SetHeight(self, v) self._h = tonumber(v) or 0 end
+function frameMethods.SetSize(self, w, h)
+    self._w = tonumber(w) or 0
+    self._h = tonumber(h) or 0
+end
+function frameMethods.GetWidth(self)  return self._w or 0 end
+function frameMethods.GetHeight(self) return self._h or 0 end
+function frameMethods.GetSize(self)   return self._w or 0, self._h or 0 end
 function frameMethods.GetTop() return 0 end
 function frameMethods.GetAlpha() return 1 end
 function frameMethods.GetNumLetters() return 0 end
@@ -124,7 +139,13 @@ local function unitInfo(unit)
                  -- Своя позиция задаётся отдельно (stub.world.playerPos):
                  -- пока её не было, UnitPosition("player") молчал, и
                  -- любая проверка дистанции проходила «по умолчанию да».
-                 pos = W.playerPos }
+                 pos = W.playerPos,
+                 -- Скорость и «везут ли» — тоже своими полями мира, а не
+                 -- через units.player: у своего персонажа сведения
+                 -- собираются здесь, и класть их во второе место значило
+                 -- бы завести два источника правды об одном юните.
+                 speed     = W.playerSpeed,
+                 inVehicle = W.playerInVehicle }
     end
     return W.units[unit]
 end
@@ -152,8 +173,51 @@ function G.IsInRaid() return W.inRaid end
 function G.UnitIsGroupLeader(unit) return (unit == "player") and W.isLeader or false end
 function G.UnitIsGroupAssistant() return false end
 function G.UnitExists(unit) return unitInfo(unit) ~= nil end
-function G.UnitIsPlayer(unit) return unitInfo(unit) ~= nil end
+
+-- ИГРОК ЛИ ЮНИТ. Раньше здесь стояло «существует = игрок», и это было
+-- верно ровно до появления НПС: теперь юнит с полем npc = true считается
+-- существом, и весь разбор GUID в Core/NPC.lua смотрит именно сюда.
+function G.UnitIsPlayer(unit)
+    local u = unitInfo(unit)
+    return u ~= nil and not u.npc
+end
+
+--- Тип существа строкой, как его отдаёт клиент (локализованной).
+function G.UnitCreatureType(unit)
+    local u = unitInfo(unit)
+    return u and u.creatureType or nil
+end
 function G.UnitIsUnit(a, b) return a == b end
+
+--- Враждебен ли юнит. У игроков это ничего не значит (в РП все синие), а
+--- вот у существ значит ровно то, что нужно: союзная тушка или чужая
+--- (см. SB.Logic.ResolveNpcDispel). В поле юнита ставится hostile = true.
+--- Сторона СМОТРЯЩЕГО. Нужна фракциям НПС: альянсовая тушка своя
+--- альянсовцу и чужая ордынцу (см. SB.NPC.IsFriendlyTo).
+function G.UnitFactionGroup(unit)
+    if unit == "player" then return stub.world.faction or "Alliance" end
+    local u = unitInfo(unit)
+    return u and u.faction or nil
+end
+
+function G.UnitIsFriend(_, unit)
+    local u = unitInfo(unit)
+    if not u then return false end
+    return not u.hostile
+end
+
+--- Штатный клиентский strsplit: режет строку по любому из символов sep.
+--- Нужен разбору GUID существ (см. SB.NPC.ParseGUID).
+function G.strsplit(sep, str, limit)
+    local out, pattern = {}, "([^" .. sep .. "]*)"
+    for piece in tostring(str):gmatch(pattern .. "[" .. sep .. "]?") do
+        out[#out + 1] = piece
+        if limit and #out >= limit then break end
+    end
+    -- gmatch с необязательным разделителем даёт лишний пустой хвост
+    if out[#out] == "" then out[#out] = nil end
+    return unpack(out)
+end
 function G.UnitIsDeadOrGhost() return false end
 -- «Видит ли клиент юнита». В поле юнита ставится invisible = true —
 -- так проверяется запрет каста по невидимой цели (см.
@@ -176,7 +240,11 @@ function G.UnitInParty() return true end
 function G.UnitInRaid() return false end
 function G.UnitCanAssist() return true end
 function G.UnitSex() return 2 end
-function G.UnitGUID(unit) return "Player-0-" .. tostring(unit) end
+function G.UnitGUID(unit)
+    local u = unitInfo(unit)
+    if u and u.guid then return u.guid end
+    return "Player-0-" .. tostring(unit)
+end
 function G.UnitHealth() return 100 end
 function G.UnitHealthMax() return 100 end
 function G.UnitPower() return 100 end
@@ -214,7 +282,21 @@ function G.GetItemInfoInstant(link)
     -- Порядок возврата — как у клиента: classID шестой, subclassID седьмой.
     return link, nil, nil, nil, nil, item[1], item[2]
 end
-function G.GetUnitSpeed() return 0 end
+-- Скорость юнита: задаётся как stub.world.units[unit].speed (ярды в
+-- секунду). Шагомер спрашивает её и у игрока, и у транспорта, который
+-- его везёт (см. CurrentSpeed в Core/Movement.lua), поэтому отвечаем не
+-- одним нулём на всех, а по самому юниту.
+function G.GetUnitSpeed(unit)
+    local info = unitInfo(unit or "player")
+    return (info and tonumber(info.speed)) or 0
+end
+
+--- Везут ли персонажа штатным транспортом. В стенде — просто поле
+--- stub.world.units.player.inVehicle.
+function G.UnitInVehicle(unit)
+    local info = unitInfo(unit or "player")
+    return (info and info.inVehicle) and true or false
+end
 -- Состав рейда — только то, что читает аддон: имя и номер рейдовой
 -- группы (см. SubgroupOf в Core/TurnOrder.lua). Задаётся как
 -- stub.world.raidRoster = { { name = "Ирина", subgroup = 2 }, ... }.
@@ -289,8 +371,32 @@ G.C_Timer = {
         return t
     end,
 }
-G.C_Timer.NewTicker = G.C_Timer.NewTimer
+--- ТИКЕР ПОВТОРЯЕТСЯ, А НЕ СРАБАТЫВАЕТ ОДИН РАЗ.
+---
+--- Раньше NewTicker был просто псевдонимом NewTimer, и в этом заглушка
+--- ВРАЛА о клиенте: настоящий тикер стучит, пока его не отменят. Из-за
+--- лжи целая ветка проверок оказалась пустой — очередь фонового
+--- знакомства (см. DrainPeerQueue в Core/Network.lua) дренируется именно
+--- тикером, и после первого же срабатывания она в стенде вставала
+--- намертво. Проверки при этом зеленели: опроса нет — значит «не
+--- переспрашиваем», хотя причина была совсем другая.
+G.C_Timer.NewTicker = function(delay, fn)
+    local t = { delay = delay, cancelled = false, ticker = true }
+    t.Cancel = function(self) self.cancelled = true end
+    t.fn = function()
+        if t.cancelled then return end
+        fn(t)
+        -- Заводим себя заново — ровно то, чем тикер и отличается от
+        -- одноразового таймера. Отменённый не перезаводится.
+        if not t.cancelled then table.insert(stub.timers, t) end
+    end
+    table.insert(stub.timers, t)
+    return t
+end
 
+--- Прогнать всё, что накопилось. Тикеры при этом перезаводятся, поэтому
+--- разбираем СНЯТУЮ копию очереди: иначе один тикер крутил бы цикл
+--- вечно, дописывая себя в тот же список, по которому мы идём.
 function stub.RunTimers()
     local queue = stub.timers
     stub.timers = {}
@@ -327,6 +433,34 @@ aceMeta = { __index = function(_, key)
                         and function() return false, nil end
                         or  function() end
                 end
+            end
+
+            -- ОТЛОЖЕННЫЕ ЗАДАЧИ Ace КЛАДЁМ В ТУ ЖЕ ОЧЕРЕДЬ, что и
+            -- C_Timer: на них держится разбор входящих пакетов (пачка
+            -- обрабатывается по таймеру, см. EnqueueIncoming), и пока
+            -- это была пустышка, принятый пакет просто оседал в очереди
+            -- навсегда. stub.RunTimers() теперь прокручивает и их.
+            target.ScheduleTimer = function(_, fn, delay, ...)
+                local t = { delay = delay or 0, fn = fn, args = { ... } }
+                if select("#", ...) > 0 then
+                    local a = { ... }
+                    t.fn = function() return fn(unpack(a)) end
+                end
+                table.insert(stub.timers, t)
+                return t
+            end
+            target.CancelTimer = function(_, handle)
+                if type(handle) == "table" then handle.cancelled = true end
+            end
+
+            -- ОБРАБОТЧИК ВХОДЯЩИХ ЗАПОМИНАЕМ. Настоящий AceComm держит
+            -- его у себя и зовёт из сети; здесь сети нет, и без этого
+            -- приёмная сторона пакетов недостижима вовсе — проверить
+            -- можно было бы только отправку, а «что уехало» и «что из
+            -- этого поняли на том конце» — разные вопросы.
+            target.RegisterComm = function(self, prefix, fn)
+                self.__commHandler = fn or self[prefix]
+                self.__commPrefix  = prefix
             end
             return target
         end

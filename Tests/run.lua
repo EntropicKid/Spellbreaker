@@ -41,6 +41,18 @@ end
 
 local function CoreFilesFromToc() return FilesFromToc("Core") end
 
+--- Исходник файла целиком. Нужен там, где проверяется НЕ поведение, а
+--- сам факт вызова: тик существ висит на двух рычагах в TurnOrder и
+--- GMPanel, интерфейс прогон не грузит, а молча отвалившийся вызов
+--- означал бы, что яд на волке не капает вовсе — при том что по коду всё
+--- на месте.
+local function ReadFile(path)
+    local f = assert(io.open(path, "r"), "нет файла: " .. path)
+    local body = f:read("*a")
+    f:close()
+    return body
+end
+
 -- ── Загрузка ─────────────────────────────────────────────────
 local SB = {}
 local loadErrors = 0
@@ -203,7 +215,11 @@ checkTrue("кулдаун: отпустило через 7 сек", CD.Ready(CD.
 -- ровно то, что нужно проверить.
 local sent = {}
 for name in pairs(SB.Net) do
-    if type(SB.Net[name]) == "function" and name:match("^Send") then
+    -- Запросы состояния — такие же исходящие пакеты, как и рассылки:
+    -- пропавший запрос ломает сцену ровно так же, как пропавшая рассылка.
+    if type(SB.Net[name]) == "function"
+        and (name:match("^Send") or name:match("^Request")
+             or name:match("^Probe")) then
         SB.Net[name] = function() sent[name] = (sent[name] or 0) + 1 end
     end
 end
@@ -299,8 +315,12 @@ end
 
 -- duration = 3 задан явно: без него повторное наложение обновило бы
 -- эффект до единицы, и проверка мерила бы длительность, а не тик.
+-- СРОКА У ЭФФЕКТА НЕТ, и это не забывчивость: своей длительности у
+-- контейнеров в аддоне не бывает вовсе — её задаёт заклинание, которое
+-- эффект вешает (см. SB.Logic.GetEffectDuration). Заготовки ниже ставят
+-- срок у себя, как и все настоящие заклинания библиотеки.
 SB.Data.Spells["t_pain"] = { id = "t_pain", name = "Проверочная боль",
-    class = "Эффект", level = 0, duration = 3,
+    class = "Эффект", level = 0,
     effect = { kind = "debuff", tick = { damage = 1 } } }
 
 -- Каждый путь, тратящий ход, обязан списать применение у висящего
@@ -361,7 +381,8 @@ check("в свободном ходу тикает время",       UsesOf("t_
 SB.Data.Spells["t_paincast"] = { id = "t_paincast", name = "Наслать боль",
     class = "Маг", level = 1, distance = 9, resistable = true, debuff = "t_pain" }
 SB.Data.Spells["t_painself"] = { id = "t_painself", name = "Боль на себя",
-    class = "Маг", level = 1, distance = 0, resistable = true, container = "t_pain" }
+    class = "Маг", level = 1, distance = 0, resistable = true,
+    duration = 3, container = "t_pain" }
 
 SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = 1,
     index = 1, slots = { { stub.world.playerName } }, acted = {} })
@@ -532,6 +553,19 @@ SB.TurnOrder.ApplyRemoteState({ active = false, mode = "all", round = 0,
 -- значение в 1 и добавляет в таблицу мусорный элемент [1] = 5.
 -- ============================================================
 do
+    -- СЛЕПОК ЗАВЕЗЁННОЙ БИБЛИОТЕКИ. Проверки «живыми данными» ниже
+    -- обходят SB.Data.Spells целиком, а к тому моменту там лежат ещё и
+    -- заготовки самого прогона («Проверочный залп», «М1»…«М20», когти
+    -- существ). Требовать от них того же, что от библиотеки, нельзя:
+    -- заготовка нарочно неполна — в этом и смысл проверки.
+    --
+    -- Считаем ровно то, что добавили файлы Spells\: что было до них —
+    -- чужое. Глобаль, а не local: до места использования отсюда семь
+    -- тысяч строк, и тащить её через них локальной значило бы держать
+    -- ещё одну живую переменную на весь файл.
+    local beforeSpells = {}
+    for id in pairs(SB.Data.Spells or {}) do beforeSpells[id] = true end
+
     for _, path in ipairs(FilesFromToc("Spells")) do
         local chunk, err = loadfile(path)
         if not chunk then
@@ -544,6 +578,11 @@ do
                 print(("ПРОВАЛ    %s упал: %s"):format(path, runErr))
             end
         end
+    end
+
+    ShippedSpells = {}
+    for id in pairs(SB.Data.Spells or {}) do
+        if not beforeSpells[id] then ShippedSpells[id] = true end
     end
 
     local known = {}
@@ -717,10 +756,12 @@ do
 end
 
 -- ============================================================
--- ПУТЬ ОБНУЛЯЕТСЯ В НАЧАЛЕ СВОЕГО ХОДА, А НЕ ДЕЙСТВИЕМ
+-- ПУТЬ ОБНУЛЯЕТСЯ НОВЫМ КРУГОМ, А НЕ ДЕЙСТВИЕМ
 --
--- Раньше счётчик обнуляло само действие, и метры, пройденные ПОСЛЕ
--- него, уходили в следующий ход и съедали его целиком.
+-- Сначала счётчик обнуляло само действие, и метры, пройденные ПОСЛЕ
+-- него, съедали следующий ход. Потом — начало собственного хода, и
+-- половина круга (всё, что после своего действия) стала бесплатной.
+-- Теперь предел — запас на ВЕСЬ КРУГ, и обнуляется он с кругом.
 -- ============================================================
 do
     SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = 1,
@@ -728,15 +769,14 @@ do
     _G.SpellbreakerCharDB.moveDistance = 7
     _G.SpellbreakerCharDB.health = 10
 
-    -- Действие путь больше не трогает.
+    -- Действие путь не трогает.
     SB.Logic.SpendTurn()
     check("действие не обнуляет путь", SB.Movement.GetDistance(), 7)
 
-    -- А начало своего хода — обнуляет. Круг закрыт и объявлен заново:
-    -- очередь снова дошла до нас, и это тот самый переход.
+    -- А новый круг — обнуляет.
     SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = 2,
         index = 1, slots = { { stub.world.playerName } }, acted = {} })
-    check("начало хода обнуляет путь", SB.Movement.GetDistance(), 0)
+    check("новый круг обнуляет путь", SB.Movement.GetDistance(), 0)
 
     SB.TurnOrder.ApplyRemoteState({ active = false, mode = "all", round = 0,
         index = 0, slots = {}, acted = {} })
@@ -796,10 +836,11 @@ do
     local resBefore = PM.GetCastResource()
     SB.TurnOrder.ApplyRemoteMark({ round = 1, index = 2, names = { me }, skipped = true })
     check("отобранный ход тикнул эффекты", UsesOf("t_pain"), 2)
-    -- ОТОБРАННЫЙ ХОД РАВЕН ПРОПУЩЕННОМУ: та же единица ресурса, что даёт
-    -- кнопка «пропустить ход». Иначе игрок наказан дважды — и хода нет, и
-    -- платы за него нет, — притом что решал не он.
-    check("и вернул единицу ресурса", PM.GetCastResource(), resBefore + 1)
+    -- РЕСУРСА ЗА ХОД БОЛЬШЕ НЕ ДАЮТ — ни за отобранный, ни за
+    -- пропущенный добровольно. Прибавка была заведена, когда восполнять
+    -- ресурс было нечем; теперь есть и классовые механики, и зелья, а
+    -- поверх них она делала выгодным стоять на месте.
+    check("но ресурса за него не дал", PM.GetCastResource(), resBefore)
 
     -- Чужой пропуск нас не касается.
     resBefore = PM.GetCastResource()
@@ -845,13 +886,817 @@ do
     resBefore = PM.GetCastResource()
     SB.TurnOrder.Advance()
     check("Ведущий отобрал ход у себя — эффекты тикнули", UsesOf("t_pain"), 2)
-    check("и ресурс вернулся ему так же",  PM.GetCastResource(), resBefore + 1)
+    check("и ресурса ему тоже не досталось", PM.GetCastResource(), resBefore)
     SB.TurnOrder.Stop()
     stub.world.isLeader, stub.world.inGroup = wasLeader, wasGroup
 
     ResetEffects()
     _G.SpellbreakerCharDB.zeal = 3
     _G.SpellbreakerCharDB.classResource = 0
+end
+
+-- ============================================================
+-- ШАМАН: КАЖДЫЙ КРУГ СКЕЙЛИТСЯ ОТ СВОЕЙ СТИХИИ
+--
+-- Схема простая и держится на одном: круг — единое целое. Он бьёт от
+-- атрибута своей стихии и попадает навыком из ТОЙ ЖЕ ветки, а не «бьёт
+-- от одного, попадает от другого». До раскладки в каналах лежала
+-- россыпь: урон почти везде шёл от «Духа» независимо от круга, а
+-- попадание тянуло навыки из четырёх разных веток вперемешку.
+--
+-- Проверка живыми данными: схема, записанная только в комментарии, при
+-- следующей правке библиотеки расползётся обратно.
+-- ============================================================
+do
+    local ATTR = { ["Вода"] = "Характер", ["Огонь"] = "Интеллект",
+                   ["Воздух"] = "Ловкость", ["Дух"] = "Дух",
+                   ["Земля"] = "Выносливость" }
+    local LEAD = { ["Вода"] = "Милосердие", ["Огонь"] = "Исток",
+                   ["Воздух"] = "Акробатика", ["Дух"] = "Религия",
+                   ["Земля"] = "Живучесть" }
+    -- Второе слагаемое попадания: духи слышат шамана в любом круге.
+    -- В круге Духа Религия уже ведущая, поэтому там Воля из той же ветки.
+    -- «Мощь» — оружейные удары: духи к их попаданию не причастны.
+    local SECOND = { ["Вода"] = "Религия", ["Огонь"] = "Религия",
+                     ["Воздух"] = "Религия", ["Дух"] = "Воля",
+                     ["Земля"] = "Религия" }
+    local CRIT = { ["Точность"] = true, ["Рвение"] = true }
+
+    local badDmg, badHit, badCrit, seen = {}, {}, {}, 0
+
+    for id, sp in pairs(SB.Data.Spells) do
+        local el = ShippedSpells[id] and sp.class == "Шаман" and sp.key
+        if el and ATTR[el] and type(sp.scaling) == "table" then
+            seen = seen + 1
+            local nm = sp.name or id
+
+            -- УРОН — ПОПОЛАМ: атрибут стихии и Дух.
+            --
+            -- Стихия решает, ЧЕМ шаман бьёт, а Дух — насколько он вообще
+            -- слышит стихии: вкладываться в одну стихию нельзя, связь с
+            -- духами нужна в любом круге.
+            --
+            -- КРУГ ДУХА — ИСКЛЮЧЕНИЕ ПО АРИФМЕТИКЕ, а не по решению: там
+            -- атрибут стихии и есть Дух, и «пополам» дало бы два
+            -- одинаковых ключа в одной таблице — второй молча затёр бы
+            -- первый, и половина урона исчезла бы.
+            for _, ch in ipairs({ "damage", "heal" }) do
+                local half = {}
+                for stat, coeff in pairs(sp.scaling[ch] or {}) do
+                    if stat ~= ATTR[el] and stat ~= "Дух" then
+                        badDmg[#badDmg + 1] = nm .. "/" .. ch .. ":" .. stat
+                    end
+                    half[stat] = coeff
+                end
+                -- И ИМЕННО ПОПОЛАМ, а не «две какие-нибудь доли»: перекос
+                -- в сторону Духа обесценил бы стихию, в сторону стихии —
+                -- вернул бы то, от чего уходили.
+                if el ~= "Дух" and half[ATTR[el]] and half["Дух"] then
+                    check("«" .. nm .. "»: " .. ch .. " делится поровну",
+                          half[ATTR[el]], half["Дух"])
+                end
+            end
+
+            -- КРИТ — ТОЛЬКО Точность ИЛИ Рвение.
+            for stat in pairs(sp.scaling.crit or {}) do
+                if not CRIT[stat] then
+                    badCrit[#badCrit + 1] = nm .. ":" .. stat
+                end
+            end
+
+            -- ПОПАДАНИЕ — ведущий навык стихии плюс второе слагаемое.
+            local hit = sp.scaling.hit
+            if type(hit) == "table" then
+                if not hit[LEAD[el]] then
+                    badHit[#badHit + 1] = nm .. " без «" .. LEAD[el] .. "»"
+                end
+                for stat in pairs(hit) do
+                    if stat ~= LEAD[el] and stat ~= SECOND[el]
+                       and stat ~= "Мощь" then
+                        badHit[#badHit + 1] = nm .. ":" .. stat
+                    end
+                end
+            end
+        end
+    end
+
+    checkTrue("заклинания шамана нашлись", seen >= 60)
+    check("урон не от атрибута своей стихии", table.concat(badDmg, ", "), "")
+    check("крит не от Точности и не от Рвения", table.concat(badCrit, ", "), "")
+    check("попадание тянет чужие навыки", table.concat(badHit, ", "), "")
+
+    -- И ЭТО НЕ ПУСТАЯ ПРОВЕРКА: в схеме пять разных атрибутов, а не один
+    -- на всех. Если библиотеку однажды сведут к одному, три проверки
+    -- выше останутся зелёными, а схемы не станет.
+    local used = {}
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] and sp.class == "Шаман"
+           and type(sp.scaling) == "table" then
+            for stat in pairs(sp.scaling.damage or {}) do used[stat] = true end
+        end
+    end
+    local n = 0
+    for _ in pairs(used) do n = n + 1 end
+    checkTrue("стихии бьют от РАЗНЫХ атрибутов, а не от одного", n >= 4)
+end
+
+-- ============================================================
+-- РАЗБРОС УРОНА: КРИТ НЕ ДОЛЖЕН РЕШАТЬ БОЙ ОДИН
+--
+-- В логах живой игры обычный удар давал 1-3 при запасе в 15 ХП, а крит
+-- — 12, то есть убивал с одного раза. Пятнадцать кругов размена
+-- решались одним броском. Причина оказалась не в числах урона, а в
+-- ТРЁХ местах, и проверки ниже стерегут каждое.
+-- ============================================================
+
+-- ── 1. ЗАЩИТА СЧИТАЕТСЯ ДО КРИТА, А НЕ ПОСЛЕ ────────────────
+--
+-- Доспех вычитается плоско, поэтому порядок решает больше, чем сам
+-- множитель: при ударе в 5 и доспехе в 4 «сначала крит» давало 6
+-- прошедшего урона, «сначала доспех» даёт 2. Заявлено удвоение —
+-- дойти должно удвоение, а не ушестерение.
+do
+    ResetEffects()
+    SB.Data.Spells["t_bal_hit"] = { id = "t_bal_hit", name = "Проба удара",
+        class = "Воин", level = 1, canCrit = true, distance = 2.5,
+        damageType = "physical" }
+
+    -- Защиту подменяем: настоящая зависит от надетого доспеха, которого
+    -- у заглушки нет, а проверяется здесь ПОРЯДОК, а не система брони.
+    local ABSORB = 2
+    local realMit = SB.Skills.MitigateDamage
+    SB.Skills.MitigateDamage = function(d)
+        local through = math.max(0, (tonumber(d) or 0) - ABSORB)
+        return through, 0, math.min(ABSORB, tonumber(d) or 0)
+    end
+
+    -- СИЛУ УДАРА БЕРЁМ ПО ПОТОЛКУ СВЕРКИ, а не назначаем.
+    --
+    -- Защищающийся пересчитывает чужие числа сам (VerifyIncomingDamage):
+    -- базу — равенством, скейлинг — потолком. Назначенная пятёрка
+    -- срезалась бы до потолка, урон уходил бы в ноль, и проверка мерила
+    -- бы сверку вместо порядка. Берём ровно то, что сверка пропустит.
+    local _, ceilBonus = SB.Logic.MaxPlausibleDamage(SB.Data.Spells["t_bal_hit"], 1)
+    checkTrue("сила пробного удара пробивает доспех", ceilBonus > ABSORB)
+
+    local PM = SB.PlayerModel
+    local function hit(isCrit)
+        PM.SetHealth(PM.GetMaxHealth())
+        local before = PM.GetHealth()
+        -- Порядок хвоста: (dmgBonus, baseDmg, slot).
+        --
+        -- СИЛА УДАРА НАБИРАЕТСЯ СКЕЙЛИНГОМ, а не базой: базу
+        -- защищающийся пересчитывает сам (VerifyIncomingDamage), и у
+        -- заклинания выше нулевого круга она равна нулю. Прислать
+        -- пятёрку базой значило бы получить в ответ претензию о подлоге
+        -- и обнулённый урон — то есть проверка мерила бы сверку, а не
+        -- порядок защиты и крита.
+        SB.Logic.HandlePvpAttackReceived("Ирина", "t_bal_hit",
+            90, 900, 999, isCrit, ceilBonus, 0, 1)
+        return before - PM.GetHealth()
+    end
+
+    local plain = hit(false)
+    local crit  = hit(true)
+    check("обычный удар: сила минус доспех", plain, ceilBonus - ABSORB)
+    -- ВОТ РАДИ ЧЕГО ВСЁ. При старом порядке было бы
+    -- (сила×2 − доспех), то есть на целый доспех больше.
+    check("крит удваивает ПРОШЕДШЕЕ, а не прилетевшее",
+          crit, (ceilBonus - ABSORB) * 2)
+    checkTrue("крит ровно вдвое опаснее обычного", crit == plain * 2)
+    checkTrue("и это не то же самое, что удвоить до защиты",
+              crit ~= ceilBonus * 2 - ABSORB)
+
+    SB.Skills.MitigateDamage = realMit
+
+    -- ── И ТОТ ЖЕ ПОРЯДОК У СУЩЕСТВА ─────────────────────────
+    --
+    -- Путей резолва два — по игроку и по существу, — и правило,
+    -- живущее только в одном из них, это не правило: существо иначе
+    -- держало бы обычные удары целиком и падало от первого же крита.
+    --
+    -- ПО ИСХОДНИКУ, а не прогоном. Прогнать удар по существу мешает не
+    -- сложность, а цена: своя заглушка мира, свой таймер применения
+    -- урона и запрет на второй удар в том же ходу. Проверка, которую
+    -- всё это устраивает, ломается от любой правки очереди и при этом
+    -- не говорит ничего сверх того, что сказано здесь: защита должна
+    -- считаться РАНЬШЕ удвоения.
+    do
+        local src = ReadFile("Core/Logic/NPC.lua")
+        local mit  = src:find("SB.NPC.MitigateDamage(", 1, true)
+        local crit = src:find("SB.Logic.ApplyCritDamage(", 1, true)
+        checkTrue("в ударе по существу оба шага на месте",
+                  mit ~= nil and crit ~= nil)
+        checkTrue("защита считается раньше удвоения", mit < crit)
+    end
+
+    ResetEffects()
+end
+
+-- ── 2. ПОЛОСА КРИТА ИМЕЕТ ПОТОЛОК ───────────────────────────
+--
+-- Полоса складывается плоско: база плюс скейлинг плюс эффекты. Без
+-- потолка достаточно двух баффов, чтобы крит перестал быть событием.
+do
+    ResetEffects()
+    local cap = SB.Data.Config.CritBandMaxPct
+    check("потолок полосы объявлен", cap, 25)
+
+    -- Заведомо непосильная прибавка: полоса обязана упереться в потолок.
+    local thresh = SB.Logic.GetCritThreshold(9999, 100)
+    check("полоса упирается в потолок", thresh, 100 - cap + 1)
+
+    -- И ПОТОЛОК ЧИТАЕТСЯ ИЗ НАСТРОЙКИ, а не зашит: иначе правка баланса
+    -- меняла бы число в одном месте и не меняла в другом.
+    local was = SB.Data.Config.CritBandMaxPct
+    SB.Data.Config.CritBandMaxPct = 10
+    check("потолок берётся из настройки",
+          SB.Logic.GetCritThreshold(9999, 100), 91)
+    SB.Data.Config.CritBandMaxPct = was
+
+    -- База без прибавок осталась прежней: резали потолок, а не пол.
+    check("база полосы не тронута",
+          SB.Logic.GetCritThreshold(0, 100), 100 - SB.Data.Config.CritBand + 1)
+    ResetEffects()
+end
+
+-- ── 3. НИ ОДИН ЭФФЕКТ НЕ ДАЁТ ПОЛОСУ БОЛЬШЕ ПОТОЛКА ─────────
+--
+-- Пять эффектов давали по +25 при базе в 5 — один бафф превращал
+-- «каждый двадцатый удар» в «каждый третий». Проверка держит потолок
+-- на самих данных: эффект, который в одиночку выбирает всю полосу,
+-- делает потолок бессмысленным.
+do
+    local loud = {}
+    for id, sp in pairs(SB.Data.Spells) do
+        local m = ShippedSpells[id] and sp.isContainer
+                  and sp.effect and sp.effect.mods
+        local v = m and tonumber(m.crit) or 0
+        if v > 10 then
+            loud[#loud + 1] = (sp.name or id) .. "=" .. v
+        end
+    end
+    check("эффекты, дающие больше +10 к полосе",
+          table.concat(loud, ", "), "")
+
+    -- И СИММЕТРИЧНО ВНИЗ: дебафф, срезающий полосу сильнее, чем её даёт
+    -- лучший бафф, — это не защита, а выключение крита у цели.
+    local deep = {}
+    for id, sp in pairs(SB.Data.Spells) do
+        local m = ShippedSpells[id] and sp.isContainer
+                  and sp.effect and sp.effect.mods
+        local v = m and tonumber(m.crit) or 0
+        if v < -12 then
+            deep[#deep + 1] = (sp.name or id) .. "=" .. v
+        end
+    end
+    check("дебаффы, срезающие полосу глубже -12",
+          table.concat(deep, ", "), "")
+end
+
+-- ============================================================
+-- СОТВОРЁННЫЕ ПРЕДМЕТЫ
+--
+-- Вода маны, хлеб, камни. Раньше они были баффом на персонаже, и
+-- «выпить» означало дождаться, пока бафф спадёт. Теперь это предметы,
+-- и проверки следят, чтобы они вели себя как предметы — но не как
+-- покупные.
+-- ============================================================
+do
+    SpellbreakerCharDB.preparedItems = {}
+    local CONJURED = { "item_mana_water", "item_mana_food", "item_mana_gem",
+                       "item_healthstone", "item_magic_stone", "item_soulstone" }
+
+    -- ── ОНИ ВООБЩЕ ЕСТЬ И ОНИ ПРЕДМЕТЫ ──────────────────────
+    for _, id in ipairs(CONJURED) do
+        local sp = SB.Data.Spells[id]
+        checkTrue("«" .. id .. "» есть в библиотеке", sp ~= nil)
+        checkTrue("«" .. id .. "» — предмет", SB.Items.IsItem(sp))
+        checkTrue("«" .. id .. "» — сотворённый", SB.Items.IsConjured(sp))
+    end
+
+    -- ── ИХ НЕЛЬЗЯ ВЗЯТЬ С СОБОЙ ─────────────────────────────
+    --
+    -- Воду маны не наливают перед выходом. Два заслона: список набора и
+    -- сам Prepare — предмет мог прийти и не из библиотеки.
+    local inList = 0
+    for _, sp in ipairs(SB.Items.ListByProfession("alchemy")) do
+        if SB.Items.IsConjured(sp) then inList = inList + 1 end
+    end
+    check("сотворённого нет в списке набора", inList, 0)
+
+    SB.PlayerModel.SetLocked(false)
+    local ok, why = SB.Items.Prepare("item_mana_water")
+    check("и подготовить его нельзя", why, "conjured")
+    checkTrue("а покупное — можно",
+              SB.Items.Prepare("custom_abcdef34567123456789a23de9abcdef") == true)
+    SB.Items.Unprepare("custom_abcdef34567123456789a23de9abcdef")
+
+    -- ── ЗАКЛИНАНИЕ КЛАДЁТ ИХ В СУМКУ ────────────────────────
+    SpellbreakerCharDB.preparedItems = {}
+    local food = SB.Data.Spells["mana_food"]
+    checkTrue("«Создание целебной пищи» что-то создаёт", food.creates ~= nil)
+    checkTrue("и контейнера у него больше нет", food.container == nil)
+
+    check("положено четыре буханки", SB.Logic.GrantCreatedItems(food), 4)
+    check("и они в сумке", SB.Items.CountOf("item_mana_food"), 4)
+    check("заняв одну ячейку", SB.Items.CountPrepared(), 1)
+
+    -- ЧЕТЫРЕ — ЭТО ИЗ ОПИСАНИЯ: «заклинание создаёт четыре буханки
+    -- кислого хлеба». Число не выдумано, и проверка держит его связь с
+    -- текстом.
+    check("четвёрка взята из описания", SB.Items.StackSize("item_mana_food"), 4)
+
+    -- ── ПОВТОРНЫЙ КАСТ ДОЛИВАЕТ, А НЕ ЗАНИМАЕТ ВТОРУЮ ЯЧЕЙКУ ─
+    check("сверх предела не кладётся", SB.Logic.GrantCreatedItems(food), 0)
+    check("ячейка всё ещё одна", SB.Items.CountPrepared(), 1)
+
+    SB.Items.NoteUsed("item_mana_food")
+    SB.Items.NoteUsed("item_mana_food")
+    check("две съедены", SB.Items.CountOf("item_mana_food"), 2)
+    check("каст долил недостающее", SB.Logic.GrantCreatedItems(food), 2)
+    check("снова полная пачка", SB.Items.CountOf("item_mana_food"), 4)
+
+    -- ── ПОТОЛОК У КАЖДОГО СВОЙ, И ОН ИЗ ОПИСАНИЯ ────────────
+    --
+    -- «Только двух камней здоровья», «лишь одного камня», «только один
+    -- магический самоцвет» — три разных числа, сказанных авторами.
+    check("камней здоровья — два", SB.Items.StackSize("item_healthstone"), 2)
+    check("чарокамень — один",     SB.Items.StackSize("item_magic_stone"), 1)
+    check("самоцвет маны — один",  SB.Items.StackSize("item_mana_gem"), 1)
+
+    -- ── КОГДА ЯЧЕЕК НЕТ ─────────────────────────────────────
+    --
+    -- Каст не должен молча проваливаться: он потратил ход и ресурс.
+    SpellbreakerCharDB.preparedItems = {}
+    for i = 1, SB.Items.GetMaxPrepared() do
+        SpellbreakerCharDB.preparedItems[i] =
+            { id = "custom_abcdef34567123456789a23de9abcdef", n = 1 }
+    end
+    -- Все ячейки заняты ОДНИМ и тем же id — но сумка от этого не менее
+    -- полна: свободных ячеек нет, а своей у хлеба ещё не было.
+    SpellbreakerCharDB.preparedItems[1] =
+        { id = "custom_23456719ab789ab12342345", n = 1 }
+    local got, reason = SB.Items.Grant("item_mana_food")
+    check("в полную сумку не лезет", got, 0)
+    check("и причина названа", reason, "no_slot")
+
+    -- ── ДОЛГИЙ ОТДЫХ: ПОКУПНОЕ ДОЛИВАЕТ, СОТВОРЁННОЕ УБИРАЕТ ─
+    --
+    -- «По окончании действия заклинания все несъеденные буханки
+    -- исчезают». Иначе один каст на первой сцене кормил бы мага до
+    -- конца кампании.
+    SpellbreakerCharDB.preparedItems = {}
+    SB.Logic.GrantCreatedItems(food)
+    SB.Items.Prepare("custom_abcdef34567123456789a23de9abcdef")
+    SB.Items.NoteUsed("custom_abcdef34567123456789a23de9abcdef")
+    local boughtLeft = SB.Items.CountOf("custom_abcdef34567123456789a23de9abcdef")
+
+    SB.Items.RefillPrepared()
+    check("сотворённое исчезло", SB.Items.CountOf("item_mana_food"), 0)
+    checkTrue("а покупное долито",
+              SB.Items.CountOf("custom_abcdef34567123456789a23de9abcdef") > boughtLeft)
+
+    -- ── ВЫПЛАТА ПЕРЕЕХАЛА, А НЕ ПРОПАЛА ─────────────────────
+    --
+    -- Раньше числа лежали в onRemove эффекта; теперь — в onCast
+    -- предмета. Пустой предмет означал бы, что «выпить воду маны» не
+    -- делает ничего.
+    for _, id in ipairs(CONJURED) do
+        local sp = SB.Data.Spells[id]
+        -- У камня душ выплаты нет намеренно: его не выпивают, его носят
+        -- при себе, а возрождение отыгрывает Ведущий.
+        if id ~= "item_soulstone" then
+            local pay = sp.onCast
+            checkTrue("«" .. (sp.name or id) .. "» что-то даёт при применении",
+                      type(pay) == "table" and next(pay) ~= nil)
+        end
+    end
+
+    -- ── СТАРЫХ ЭФФЕКТОВ БОЛЬШЕ НЕТ ──────────────────────────
+    --
+    -- Они были заглушкой на месте предмета. Оставить их значило бы
+    -- держать в библиотеке шесть эффектов, которые ничто не вешает.
+    for _, id in ipairs({ "eff_mana_gem", "eff_mana_water", "eff_mana_food",
+                          "eff_healthstone", "eff_create_soulstone",
+                          "eff_create_magic_stone" }) do
+        checkTrue("«" .. id .. "» убран", SB.Data.Spells[id] == nil)
+    end
+
+    -- ── ЕГО ЗОВУТ ИЗ ВСЕХ ПУТЕЙ РЕЗОЛВА ─────────────────────
+    --
+    -- Всё выше зовёт GrantCreatedItems напрямую: так проверяется, что
+    -- механика работает, но НЕ то, что её кто-то зовёт. Путей резолва
+    -- три (свой бросок, форсированный Ведущим исход, ПвП), и вызов,
+    -- забытый в одном из них, — ровно тот баг, который однажды уже был
+    -- у onCast: заклинание работало «через раз» без всякой
+    -- закономерности.
+    --
+    -- ПРОВЕРЯЕМ ПО ИСХОДНИКУ, а не прогоном каста. Настоящий каст
+    -- тянет за собой ранг, круг, очередь ходов и трату ресурса — и
+    -- проверка, которую всё это устраивает, ломается от любой правки
+    -- баланса, ничего при этом не проверяя (тот же приём, что у тика
+    -- существ в TurnOrder/GMPanel — см. ReadFile выше).
+    --
+    -- СЧИТАЕМ ПО КОНТЕЙНЕРУ, а не по прибитому числу: контейнер
+    -- вешается ровно в тех же точках, и если путей резолва станет
+    -- четыре, проверка потребует четвёртый вызов сама.
+    do
+        local src = ReadFile("Core/Logic.lua")
+        local _, containers = src:gsub("ApplyEffect%(spell%.container", "")
+        local _, mentions   = src:gsub("GrantCreatedItems%(spell%)", "")
+        local _, defs       = src:gsub("function SB%.Logic%.GrantCreatedItems", "")
+        -- Объявление функции выглядит так же, как вызов, — вычитаем его,
+        -- иначе проверка требовала бы на один вызов меньше и молчала бы
+        -- ровно тогда, когда один из трёх забыт.
+        check("сотворение зовётся везде, где вешается контейнер",
+              mentions - defs, containers)
+        checkTrue("и путей резолва не один", containers >= 3)
+    end
+
+    -- ── У СОТВОРЯЮЩЕГО НЕТ СВОЕГО СРОКА ─────────────────────
+    --
+    -- Срок стоял там ради контейнера: он задавал, сколько висит бафф.
+    -- Контейнера больше нет, а строка «Длительность: 20 сек.» на
+    -- карточке осталась бы и врала: вода маны лежит в сумке до Долгого
+    -- Отдыха, а не двадцать секунд.
+    do
+        local lying = {}
+        for id, sp in pairs(SB.Data.Spells) do
+            if ShippedSpells[id] and sp.creates and not sp.container
+               and sp.duration then
+                lying[#lying + 1] = sp.name or id
+            end
+        end
+        check("сотворяющие обещают чужой срок", table.concat(lying, ", "), "")
+    end
+
+    -- ── СОТВОРЕНИЕ НЕ УХОДИТ ЗАЯВКОЙ ВЕДУЩЕМУ ───────────────
+    --
+    -- Ведущему тут решать нечего: цели нет, сопротивляться некому, а
+    -- результат — вещь в собственной сумке. Пока ветки не было, все
+    -- шесть таких заклинаний падали в самый низ цепочки, то есть прямо
+    -- в очередь заявок.
+    --
+    -- ГОНЯЕМ НАСТОЯЩИЙ МАРШРУТ, а не проверяем поле: заявка рождается
+    -- именно в разборе ConfirmCast, и никакая проверка данных о нём не
+    -- знает.
+    do
+        SpellbreakerCharDB.preparedItems = {}
+        local wasLocked  = SpellbreakerCharDB.configLocked
+        local wasMastery = SpellbreakerCharDB.mastery
+        local wasPrep    = SpellbreakerCharDB.preparedSpells
+        local wasClass   = SpellbreakerCharDB.class
+        -- ЗАПАСЫ ВОЗВРАЩАЕМ ПОТОМ. Каст тратит ресурс, а вода маны его
+        -- доливает: следующие проверки считают от своих чисел, и
+        -- оставить им чужие — верный способ уронить соседний блок
+        -- правкой, которая его не касается.
+        local wasMana    = SB.PlayerModel.GetPool("mana")
+        local wasHealth  = SB.PlayerModel.GetHealth()
+        SpellbreakerCharDB.configLocked = false
+        SpellbreakerCharDB.mastery = "Эксперт"
+
+        -- Ловим и заявку, и локальный резолв: важно не только «заявки
+        -- нет», но и «вместо неё что-то произошло». Проверка на одно
+        -- лишь отсутствие заявки прошла бы и на заклинании, которое не
+        -- делает вовсе ничего.
+        local asked, resolved, usedDC
+        local offRequest = function(id) asked = id end
+        local offResolved = function(id) resolved = id end
+        SB.Events.On("CAST_REQUEST", offRequest)
+        SB.Events.On("CAST_RESOLVED", offResolved)
+
+        -- Порог подсматриваем на входе в резолв: он и есть предмет спора.
+        local realProcess = SB.Logic.ProcessRollAndCast
+        SB.Logic.ProcessRollAndCast = function(id, dc, ...)
+            usedDC = dc
+            return realProcess(id, dc, ...)
+        end
+
+        local TOKEN = { ["Маг"] = "MAGE", ["Чернокнижник"] = "WARLOCK" }
+        local wasToken = stub.world.classToken
+
+        local CREATORS = { "mana_gem", "mana_water", "mana_food",
+                           "healthstone", "create_soulstone",
+                           "create_magic_stone" }
+        for _, id in ipairs(CREATORS) do
+            local sp = SB.Data.Spells[id]
+            asked, resolved, usedDC = nil, nil, nil
+            SpellbreakerCharDB.preparedSpells = { id }
+            -- СВОЙ КЛАСС ОТКРЫВАЕТ СВОЮ ШКОЛУ. Чужая закрыта целиком
+            -- (GetMaxPrepareOrder возвращает -1), и каст отбился бы
+            -- рангом ещё до разбора — то есть проверка мерила бы отказ,
+            -- а не маршрут.
+            --
+            -- Класс аддон берёт у КЛИЕНТА (SB.Data.CanonicalClass читает
+            -- UnitClass), а не из сохранёнки, — поэтому меняем его в
+            -- заглушке мира, а не в базе персонажа.
+            stub.world.classToken = TOKEN[sp.class]
+            SB.TurnOrder.ApplyRemoteState({ active = false, mode = "all",
+                round = 0, index = 0, slots = {}, acted = {} })
+            SB.Cooldowns.Start(SB.Cooldowns.TURN)
+            stub.world.time = stub.world.time + 10
+
+            SB.Logic.ConfirmCast(id, 1)
+            stub.RunTimers()
+
+            check("«" .. sp.name .. "» не ушло заявкой", asked, nil)
+            check("«" .. sp.name .. "» разобрано на месте", resolved, id)
+            -- Порог: постоянный при resistable, ноль (автоуспех) без него.
+            check("«" .. sp.name .. "»: порог",
+                  usedDC,
+                  (sp.resistable == false) and 0 or SB.Data.Config.ConjureDC)
+        end
+
+        -- ПОРОГ ИМЕННО ШЕСТЬДЕСЯТ, а не «какое-то число»: он назван
+        -- прямо, и проверка обязана заметить, если его молча подвинут.
+        check("порог сотворения", SB.Data.Config.ConjureDC, 60)
+
+        -- И АВТОУСПЕХ ДЕЙСТВИТЕЛЬНО АВТО. Ноль — не «низкий порог», а
+        -- порог, который не может не быть взят: бросок с модификатором
+        -- меньше единицы не бывает.
+        SB.Data.Spells["t_conj_auto"] = { id = "t_conj_auto",
+            name = "Проба автосотворения", class = "Маг", level = 0,
+            isCantrip = true, resistable = false,
+            creates = "item_mana_gem" }
+        asked, resolved, usedDC = nil, nil, nil
+        SpellbreakerCharDB.preparedSpells = { "t_conj_auto" }
+        SpellbreakerCharDB.class = "Маг"
+        SB.Cooldowns.Start(SB.Cooldowns.TURN)
+        stub.world.time = stub.world.time + 10
+        SB.Logic.ConfirmCast("t_conj_auto", 0)
+        stub.RunTimers()
+        check("автосотворение мимо заявок", asked, nil)
+        check("и без порога", usedDC, 0)
+
+        -- ── ВЕТКА СТОИТ ПЕРВОЙ, А НЕ ПРОСТО СУЩЕСТВУЕТ ──────
+        --
+        -- «Всегда минуя заявки» — это и значит «раньше всех остальных
+        -- разборов». Проверить положение можно только заклинанием,
+        -- которое подходит СРАЗУ ДВУМ веткам: здесь оно и создаёт
+        -- предмет, и вешает на себя эффект.
+        --
+        -- ИМЕННО ЭФФЕКТ, а не лечение: лечению нужна годная цель, без
+        -- неё его ветка и так не срабатывает — то есть столкновения не
+        -- происходит, и проверка проходила бы при любом положении
+        -- ветки. Контейнер же вешается на себя всегда, и сдвинь ветку
+        -- сотворения ниже — каст ушёл бы в ResolveEffectCast, предмета
+        -- бы не появилось, а порога 60 не было бы вовсе.
+        SB.Data.Spells["t_conj_dual"] = { id = "t_conj_dual",
+            name = "Проба двойного", class = "Маг", level = 1,
+            isCantrip = false, resistable = true, distance = 0,
+            container = "eff_pain", creates = "item_mana_water" }
+        SpellbreakerCharDB.preparedItems  = {}
+        SpellbreakerCharDB.preparedSpells = { "t_conj_dual" }
+        stub.world.classToken = "MAGE"
+        asked, resolved, usedDC = nil, nil, nil
+        SB.Cooldowns.Start(SB.Cooldowns.TURN)
+        stub.world.time = stub.world.time + 10
+        -- ЦЕЛЬ УБИРАЕМ: она могла остаться от предыдущих блоков, а
+        -- лечение с чужой целью отбивается ещё до разбора («цель не в
+        -- вашей группе») — то есть проверка мерила бы отказ.
+        local wasTarget = stub.world.units["target"]
+        stub.world.units["target"] = nil
+        SB.Logic.ConfirmCast("t_conj_dual", 1)
+        stub.RunTimers()
+        stub.world.units["target"] = wasTarget
+        check("сотворение победило лечение", usedDC, SB.Data.Config.ConjureDC)
+
+        -- «Проба двойного» вешает контейнер, и вешает его ПО БРОСКУ:
+        -- в одних запусках Боль остаётся висеть, в других нет. Чистим —
+        -- иначе соседние блоки считали бы от разного состояния через
+        -- раз, и падение выглядело бы случайным.
+        SB.ActiveEffects.Clear()
+        SpellbreakerCharDB.activeEffects = {}
+
+        SB.Logic.ProcessRollAndCast = realProcess
+        stub.world.classToken = wasToken
+        SB.PlayerModel.SetHealth(wasHealth)
+        -- Прямого сеттера у пула нет — только сдвиг на дельту
+        -- (PM.AdjustPool), и это правильно: пул меняется событиями, а не
+        -- присваиванием. Возвращаем разницей.
+        SB.PlayerModel.AdjustPool("mana", wasMana - SB.PlayerModel.GetPool("mana"))
+        SpellbreakerCharDB.class        = wasClass
+        SpellbreakerCharDB.mastery      = wasMastery
+        SpellbreakerCharDB.configLocked = wasLocked
+        SpellbreakerCharDB.preparedSpells = wasPrep
+        SpellbreakerCharDB.preparedItems  = {}
+    end
+
+    -- ── ССЫЛКА НЕ В ПУСТОТУ ─────────────────────────────────
+    --
+    -- Опечатка в creates молчит: заклинание просто ничего не создаст.
+    local ghosts = {}
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] and sp.creates then
+            local ref = (type(sp.creates) == "table") and sp.creates.item
+                        or sp.creates
+            local made = SB.Data.Spells[ref]
+            if not made or not SB.Items.IsConjured(made) then
+                ghosts[#ghosts + 1] = (sp.name or id) .. " -> " .. tostring(ref)
+            end
+        end
+    end
+    check("создают несуществующее", table.concat(ghosts, "; "), "")
+
+    SpellbreakerCharDB.preparedItems = {}
+end
+
+-- ============================================================
+-- ЧИТАЕМОСТЬ ЧАТА
+--
+-- Драка впятером превращала чат в свалку: у каждого участника одно
+-- действие рождало пять-восемь строк, и каждая начиналась одинаково.
+-- Проверки ниже стерегут ровно то, что было с этим сделано.
+-- ============================================================
+do
+    local T = SB.Theme.MSG_TAG .. "[Spellbreaker]:|r "
+
+    -- ── ТЕГ ОСТАЁТСЯ У ПЕРВОЙ СТРОКИ БЛОКА ──────────────────
+    SB.UI.ResetTagBlock()
+    local first = SB.UI.CollapseTag(T .. "первая", 100)
+    checkTrue("первая строка блока сохраняет тег",
+              first:find("[Spellbreaker]", 1, true) ~= nil)
+
+    local second = SB.UI.CollapseTag(T .. "вторая", 100)
+    checkTrue("вторая — уже без тега",
+              second:find("[Spellbreaker]", 1, true) == nil)
+    checkTrue("но помечена как продолжение",
+              second:find(SB.UI.CHAT_CONT, 1, true) ~= nil)
+    checkTrue("и сам текст цел", second:find("вторая", 1, true) ~= nil)
+
+    -- ── НОВЫЙ КАДР — НОВЫЙ БЛОК ─────────────────────────────
+    --
+    -- Строки соседей приезжают своими кадрами, и слипаться в один блок
+    -- с нашими они не должны: тег — единственное, что их разделяет.
+    local other = SB.UI.CollapseTag(T .. "сосед", 101)
+    checkTrue("следующий кадр начинает новый блок",
+              other:find("[Spellbreaker]", 1, true) ~= nil)
+
+    -- ── ЧЕТЫРЕ НАПИСАНИЯ ТЕГА, ОДИН РАЗБОР ──────────────────
+    --
+    -- В аддоне тег написан по-разному в разных файлах. Разбор обязан
+    -- узнавать все написания: пропущенное означало бы строку с тегом
+    -- посреди блока — ровно тот мусор, от которого уходим.
+    for _, variant in ipairs({
+        SB.Theme.MSG_TAG .. "[Spellbreaker]:|r тело",
+        "|cFFFFCC00[Spellbreaker]|r: тело",
+        SB.Theme.MSG_BAD .. "[Spellbreaker]: тело|r",
+        SB.Theme.MSG_BAD .. "[Spellbreaker] тело|r",
+    }) do
+        SB.UI.ResetTagBlock()
+        SB.UI.CollapseTag("заголовок", 200)      -- заняли блок
+        local cut = SB.UI.CollapseTag(variant, 200)
+        -- СРАВНИВАЕМ ЦЕЛИКОМ, а не «тега нет и тело на месте». От тега
+        -- остаётся хвост — «|r», двоеточие, пробелы, — и в разных
+        -- написаниях он разный. Мягкая проверка пропускала строку вида
+        -- «· : тело»: тега в ней действительно нет, а читать её нельзя.
+        local bare = cut:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+        check("тег срезан начисто: " .. variant:sub(1, 24), bare,
+              (SB.UI.CHAT_CONT:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")) .. "тело")
+    end
+
+    -- ── ЧУЖОЕ УПОМИНАНИЕ ВНУТРИ ТЕКСТА НЕ ТРОГАЕМ ───────────
+    --
+    -- «[Spellbreaker]» может встретиться и в середине строки — например
+    -- в имени заклинания или в сообщении об ошибке. Резать там нечего.
+    SB.UI.ResetTagBlock()
+    SB.UI.CollapseTag("заголовок", 300)
+    local inner = SB.UI.CollapseTag("Ирина роняет [Spellbreaker] на пол", 300)
+    checkTrue("тег в середине строки не трогаем",
+              inner:find("[Spellbreaker]", 1, true) ~= nil)
+
+    -- ── ЗАПИСЬ БРОСКА ───────────────────────────────────────
+    --
+    -- Знак «+» между слагаемыми не ставится: ModText печатает свой
+    -- внутри скобок, и вместе выходило «[14]+[+5]».
+    local rl = SB.UI.RollLine(14, 5, 19)
+    local plain = rl:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+    check("бросок записан формулой", plain, "[14][+5]=19")
+    check("отрицательный модификатор читается",
+          (SB.UI.RollLine(14, -3, 11):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")),
+          "[14][-3]=11")
+    check("итог считается сам, если не передан",
+          (SB.UI.RollLine(7, 2):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")),
+          "[7][+2]=9")
+
+    -- ── БЕЗ ЧАСОВ ТЕГ ОСТАЁТСЯ ──────────────────────────────
+    --
+    -- Схлопывание опознаёт блок по времени кадра. Если часов нет,
+    -- «время» было бы одинаковым всегда, и тег пропал бы навсегда —
+    -- а он единственное, чем речь аддона отличается от чужого чата.
+    do
+        local realGetTime = _G.GetTime
+        _G.GetTime = nil
+        SB.UI.ResetTagBlock()
+        SB.UI.CollapseTag("заголовок")
+        local nextLine = SB.UI.CollapseTag(T .. "тело")
+        checkTrue("без часов тег не режется",
+                  nextLine:find("[Spellbreaker]", 1, true) ~= nil)
+        _G.GetTime = realGetTime
+    end
+
+    -- ── ЗАПИСЬ БРОСКА ОДНА НА ВЕСЬ АДДОН ────────────────────
+    --
+    -- Разнобой заметил игрок: в одном логе подряд стояли
+    --
+    --     Микелла применяет [Внутренний огонь] на себя! Бросок:
+    --     [72] + [+40] (Итог: 112) против порога 60. Успех.
+    --     Микелла — [Кара] по Мок: [58][+49]=107 vs [11][+37]=48.
+    --
+    -- Одно и то же действие, две разные записи. Сжаты были не все
+    -- строители: те, где бросок идёт против ПОРОГА, а не против СЛ,
+    -- искались другим словом и уцелели.
+    --
+    -- ПО ИСХОДНИКУ, а не прогоном: строителей девять, живут они в
+    -- четырёх файлах, и гонять каждый маршрут ради формата вышло бы
+    -- дороже самого формата. Здесь важно ровно одно — что старой записи
+    -- не осталось нигде.
+    do
+        local stale = {}
+        for _, path in ipairs({ "Core/Logic.lua", "Core/Logic/NPC.lua",
+                                "Core/Logic/Aoe.lua", "Core/Logic/NpcCast.lua",
+                                "Core/ActiveEffects.lua", "Core/ResourceGrant.lua",
+                                "Core/TurnOrder.lua", "Core/Strings.lua" }) do
+            for line in ReadFile(path):gmatch("[^" .. string.char(10) .. "]+") do
+                -- Врезки и пояснения не в счёт: старую запись в них
+                -- цитируют нарочно, объясняя, почему её больше нет.
+                local code = line:match("^%s*%-%-") and "" or line
+                if code:find("(Итог: ", 1, true) then
+                    stale[#stale + 1] = path
+                end
+            end
+        end
+        check("строк со старой записью броска", table.concat(stale, ", "), "")
+    end
+
+    SB.UI.ResetTagBlock()
+end
+
+-- ── ВЕСЬ ТИК ХОДА — ОДНОЙ СТРОКОЙ ───────────────────────────
+--
+-- Каналов у тика четыре, эффектов на персонаже бывает пять, и каждое
+-- сочетание печаталось само по себе: три строки об одном мгновении.
+do
+    ResetEffects()
+    _G.SpellbreakerCharDB.health = 10
+
+    SB.Data.Spells["t_chat_bleed"] = { id = "t_chat_bleed", name = "Проба раны",
+        class = "Эффект", level = 0, isContainer = true,
+        icon = "Interface" .. string.char(92) .. "Icons" .. string.char(92) .. "INV_Misc_QuestionMark",
+        effect = { kind = "debuff", tick = { damage = 2 } } }
+    SB.Data.Spells["t_chat_font"] = { id = "t_chat_font", name = "Проба источника",
+        class = "Эффект", level = 0, isContainer = true,
+        icon = "Interface" .. string.char(92) .. "Icons" .. string.char(92) .. "INV_Misc_QuestionMark",
+        effect = { kind = "buff", tick = { mana = 1 } } }
+    SB.Data.Spells["t_chat_mend"] = { id = "t_chat_mend", name = "Проба починки",
+        class = "Эффект", level = 0, isContainer = true,
+        icon = "Interface" .. string.char(92) .. "Icons" .. string.char(92) .. "INV_Misc_QuestionMark",
+        effect = { kind = "buff", tick = { armor = 5 } } }
+
+    local seen = {}
+    local watch = function(msg) seen[#seen + 1] = tostring(msg) end
+    SB.Events.On(SB.E.BROADCAST_LOG, watch)
+
+    -- БРОНЮ ПОДМЕНЯЕМ. Настоящая сдвигается только при НАДЕТОМ доспехе
+    -- нужного класса, которого у заглушки нет и быть не должно: здесь
+    -- проверяется сборка сводки, а не система брони. Подмена — самый
+    -- честный способ сказать «починка сработала на пять» и посмотреть,
+    -- попадёт ли эта пятёрка в строку.
+    local realArmor = SB.Skills.AdjustArmor
+    SB.Skills.AdjustArmor = function(delta) return delta end
+    SB.ActiveEffects.Add("t_chat_bleed", 5, false)
+    SB.ActiveEffects.Add("t_chat_font",  5, false)
+    SB.ActiveEffects.Add("t_chat_mend",  5, false)
+    seen = {}
+    SB.ActiveEffects.TickAll()
+
+    local tickLines = 0
+    for _, m in ipairs(seen) do
+        if m:find("— тик:", 1, true) then tickLines = tickLines + 1 end
+    end
+    check("три канала — одна строка", tickLines, 1)
+
+    -- И В НЕЙ ВСЕ ТРИ ЧИСЛА. Слить строки, потеряв половину сведений, —
+    -- не улучшение читаемости, а потеря: Ведущий сверяет по ним цифры.
+    local line
+    for _, m in ipairs(seen) do
+        if m:find("— тик:", 1, true) then line = m end
+    end
+    checkTrue("в сводке есть ХП", line and line:find("ХП", 1, true) ~= nil)
+    checkTrue("в сводке есть броня", line and line:find("брони", 1, true) ~= nil)
+    checkTrue("в сводке есть пул",
+              line and (line:find("Мана", 1, true) or
+                        line:find("Ярость", 1, true)) ~= nil)
+
+    -- ПОРЯДОК ЧАСТЕЙ ПОСТОЯННЫЙ. Строка боя, каждый ход тасующая свои
+    -- части, читается как новая, даже когда в ней ничего не изменилось.
+    local hpAt = line and line:find("ХП", 1, true)
+    local arAt = line and line:find("брони", 1, true)
+    checkTrue("ХП идёт раньше брони", hpAt and arAt and hpAt < arAt)
+
+    SB.Skills.AdjustArmor = realArmor
+    ResetEffects()
 end
 
 -- ============================================================
@@ -870,7 +1715,11 @@ do
 
     local lines = 0
     local count = function(msg)
-        if tostring(msg):find("под действием эффектов", 1, true) then lines = lines + 1 end
+        -- «— тик:» — маркер СВОДНОЙ строки тика (см. FlushTickSummary).
+        -- Считаем именно её: каналов у тика четыре, и ловить каждый
+        -- отдельно значило бы проверять, что строк много, — ровно то,
+        -- от чего сводка и заводилась.
+        if tostring(msg):find("— тик:", 1, true) then lines = lines + 1 end
     end
     SB.Events.On(SB.E.BROADCAST_LOG, count)
 
@@ -1345,6 +2194,354 @@ check("предел на месте и без эффекта", SB.Attributes.Get
 _G.SpellbreakerCharDB.configLocked = wasLocked
 
 -- ============================================================
+-- МУЛЬТИКЛАСС: ПРЕДМЕТ = КЛАСС + РАНГ
+--
+-- Раньше любая вещь «на адепта» поднимала ранг любому кастеру, а какие
+-- школы ему доступны, решал класс персонажа. Теперь предмет открывает
+-- КОНКРЕТНУЮ школу по КОНКРЕТНЫЙ ранг, и держать их можно несколько.
+--
+-- Проверяется здесь то, что ломается тихо: не «функция вернула», а
+-- «какой круг персонаж реально может подготовить» — потому что ошибка
+-- тут не роняет ничего, она просто отдаёт не тот круг, и заметить это
+-- можно лишь сверив с таблицей вручную.
+-- ============================================================
+do
+    local PM = SB.PlayerModel
+    local M  = SB.Data.Config.MasteryItems
+
+    local savedItems  = stub.world.items
+    -- Класс берётся ПО ТОКЕНУ, а не по локализованному имени
+    -- (см. SB.Data.CanonicalClass): у женского персонажа имя было бы
+    -- «Жрица», и сравнение с «Жрец» провалилось бы.
+    local savedToken  = stub.world.classToken
+    local savedRealm  = SpellbreakerAccountDB and SpellbreakerAccountDB.realmOverride
+
+    -- ── ТАБЛИЦА ПРЕДМЕТОВ ──────────────────────────────────
+    -- Опечатка в имени класса не роняет ничего: предмет просто перестаёт
+    -- открывать хоть что-нибудь, и понять это можно только в игре.
+    local known = {}
+    for _, cn in ipairs(SB.Data.Classes) do known[cn] = true end
+    local bad = {}
+    for itemID, def in pairs(M) do
+        checkTrue("у предмета " .. itemID .. " есть ранг", def.rank ~= nil)
+        checkTrue("и класс",                              def.class ~= nil)
+        if def.class ~= SB.Data.ALL_CLASSES and not known[def.class] then
+            bad[#bad + 1] = tostring(def.class)
+        end
+        checkTrue("ранг предмета " .. itemID .. " известен системе",
+                  SB.Data.MasteryIndex(def.rank) ~= nil)
+    end
+    check("все классы в таблице предметов существуют", #bad, 0)
+
+    -- Пять школ на каждом из трёх нижних рангов плюс мастер-предмет.
+    for _, rank in ipairs({ "Неофит", "Адепт", "Эксперт" }) do
+        local n = 0
+        for _, def in pairs(M) do
+            if def.rank == rank and def.class ~= SB.Data.ALL_CLASSES then n = n + 1 end
+        end
+        check("классовых предметов ранга «" .. rank .. "»", n, 5)
+    end
+
+    -- ── ДОСТУП ПО ПРЕДМЕТУ ─────────────────────────────────
+    local function ItemOf(cls, rank)
+        for itemID, def in pairs(M) do
+            if def.class == cls and def.rank == rank then return itemID end
+        end
+    end
+
+    stub.world.classToken = "PRIEST"
+    stub.world.items = {}
+    PM.RefreshMastery()
+
+    checkTrue("свой класс открыт и без вещей", PM.GetClassRank("Жрец") ~= nil)
+    checkTrue("а чужой — нет",                 PM.GetClassRank("Паладин") == nil)
+
+    -- ПАЛАДИНСКИЙ ПРЕДМЕТ ОТКРЫВАЕТ ПАЛАДИНА, и только его.
+    stub.world.items = { [ItemOf("Паладин", "Адепт")] = 1 }
+    check("паладинский адепт открыл паладина",
+          PM.GetClassRank("Паладин"), "Адепт")
+    checkTrue("шаман при этом закрыт", PM.GetClassRank("Шаман") == nil)
+
+    -- ── КРУГ СЧИТАЕТСЯ ПО РАНГУ ШКОЛЫ ──────────────────────
+    -- Жрец без вещи остаётся Неофитом, паладин по вещи — Адептом. Круги
+    -- у них разные, и брать общий ранг героя на обе школы нельзя.
+    PM.RefreshMastery()
+    local palOrder = PM.GetMaxPrepareOrder("Паладин")
+    local priOrder = PM.GetMaxPrepareOrder("Жрец")
+    check("паладин идёт по кругу адепта",
+          palOrder, SB.Data.MaxOrderFor("Адепт"))
+    check("а жрец — по кругу неофита",
+          priOrder, SB.Data.MaxOrderFor("Неофит"))
+
+    -- ЗАКРЫТАЯ ШКОЛА ЗАКРЫТА ЦЕЛИКОМ. Прежнее «чужая школа на круг ниже»
+    -- отменено: пока оно действовало, жрец и без единой вещи готовил
+    -- чернокнижника с друидом — то есть предметы не решали ничего.
+    --
+    -- Минус единица, а не ноль: ноль — это круг заговоров, вполне
+    -- рабочий, и вернув его, мы оставили бы чужую школу наполовину
+    -- открытой.
+    check("закрытая школа недоступна вовсе",
+          PM.GetMaxPrepareOrder("Шаман"), -1)
+
+    -- ── НЕСКОЛЬКО ПРЕДМЕТОВ СРАЗУ ──────────────────────────
+    stub.world.items = {
+        [ItemOf("Паладин", "Неофит")] = 1,
+        [ItemOf("Шаман",   "Эксперт")] = 1,
+    }
+    PM.RefreshMastery()
+    check("паладин по своей вещи", PM.GetClassRank("Паладин"), "Неофит")
+    check("шаман по своей",        PM.GetClassRank("Шаман"),   "Эксперт")
+
+    -- РАНГ ГЕРОЯ — ЭТО РАНГ ЕГО РОДНОЙ ШКОЛЫ, а не лучшая вещь в сумке.
+    -- Жрец с шаманской вещью эксперта остаётся жрецом-неофитом: чужая
+    -- вещь не делает его сильнее в своём.
+    check("ранг героя — по родной школе", PM.GetMastery(), "Неофит")
+
+    -- ── БОНУС К БРОСКУ — ПО ШКОЛЕ ЗАКЛИНАНИЯ ───────────────
+    -- Ровно то, ради чего ранг и разъехался по школам: одно и то же
+    -- «Мастерство» даёт разное на разные заклинания.
+    local Mods = SB.Data.Config.Modifiers
+    local function MasteryFor(cls)
+        local total = SB.Logic.GetModifierBreakdown("attack",
+            { spell = { class = cls, level = 0 }, slotLevel = 0 })
+        return total
+    end
+    local shamanMod = MasteryFor("Шаман")
+    local palMod    = MasteryFor("Паладин")
+    check("разница ровно в разнице рангов",
+          shamanMod - palMod, Mods["Эксперт"] - Mods["Неофит"])
+
+    -- А ЗАКРЫТАЯ ШКОЛА НЕ ДАЁТ НИЧЕГО: ранга в ней нет, и прибавки тоже.
+    check("закрытая школа прибавки не даёт",
+          palMod - MasteryFor("Друид"), Mods["Неофит"])
+
+    -- ── БЕЗ ЗАКЛИНАНИЯ ПРИБАВКИ НЕТ ВОВСЕ ──────────────────
+    -- Бейдж в шапке считается без контекста. Раз ранг зависит от школы,
+    -- до выбора заклинания он НЕИЗВЕСТЕН — и показывать там ранг родной
+    -- школы значит врать про все остальные: жрец-эксперт видел бы +8 и
+    -- получал +5 на магическое, не понимая, куда делись три.
+    local badge = SB.Logic.GetModifierBreakdown("attack", nil)
+    local named = SB.Logic.GetModifierBreakdown("attack",
+        { spell = { class = "Шаман", level = 0 }, slotLevel = 0 })
+    check("в бейдже мастерства школы нет",
+          named - badge, Mods["Эксперт"])
+    -- И КРУГИ РАЗНЫЕ. Это и есть весь смысл правки: одна вещь не тянет
+    -- за собой другую школу.
+    checkTrue("круги у школ разные",
+              PM.GetMaxPrepareOrder("Паладин") < PM.GetMaxPrepareOrder("Шаман"))
+
+    -- ── МАСТЕР-ПРЕДМЕТ ─────────────────────────────────────
+    local master
+    for itemID, def in pairs(M) do
+        if def.class == SB.Data.ALL_CLASSES and def.rank == "Эксперт" then
+            master = itemID; break
+        end
+    end
+    checkTrue("мастер-предмет в таблице есть", master ~= nil)
+
+    stub.world.items = { [master] = 1 }
+    SpellbreakerAccountDB.realmOverride = "Sanctuary"
+    SB.Data.ResetRealmCache()
+    check("на Sanctuary мастер открывает любую школу",
+          PM.GetClassRank("Чернокнижник"), "Эксперт")
+
+    -- НА ORIGINS ЕГО НЕТ ВОВСЕ. Признать его там значило бы раздать всё
+    -- каждому, кто завёз вещь с другого реалма.
+    SpellbreakerAccountDB.realmOverride = "Origins"
+    SB.Data.ResetRealmCache()
+    checkTrue("на Origins мастер не действует",
+              PM.GetClassRank("Чернокнижник") == nil)
+
+    SpellbreakerAccountDB.realmOverride = savedRealm
+    SB.Data.ResetRealmCache()
+    stub.world.items = savedItems
+    stub.world.classToken = savedToken
+    PM.RefreshMastery()
+end
+
+-- ============================================================
+-- ПРЕДМЕТ ПРОБИВАЕТ СКРЫТОСТЬ КЛАССА
+--
+-- Список скрытых классов писался тогда, когда классы раздавал только
+-- сервер: на Origins паладинов не создают, значит и школы их видеть
+-- незачем. С появлением предметов-ключей правило устарело и стало
+-- прямой поломкой — жрец с вещью «паладин-эксперт» в сумке не видел
+-- паладинской вкладки вовсе, то есть вещь работала везде, кроме того
+-- единственного места, ради которого её и брали.
+-- ============================================================
+do
+    local PM = SB.PlayerModel
+    local savedToken = stub.world.classToken
+    local savedItems = stub.world.items
+    local savedRealm = SpellbreakerAccountDB and SpellbreakerAccountDB.realmOverride
+
+    SpellbreakerAccountDB.realmOverride = "Origins"
+    SB.Data.ResetRealmCache()
+    stub.world.classToken = "PRIEST"
+    stub.world.items = {}
+
+    -- ── БЕЗ ВЕЩИ ПАЛАДИН ЗАКРЫТ ────────────────────────────
+    checkTrue("на Origins паладин скрыт", SB.Data.IsClassHiddenForPlayer("Паладин"))
+    checkTrue("и ранга в нём нет",        PM.GetClassRank("Паладин") == nil)
+
+    -- НО ВКЛАДКА В БИБЛИОТЕКЕ ЕСТЬ, и это не противоречие.
+    --
+    -- «Скрыт» отвечает на вопрос «выдан ли тебе этот класс», а не «можно
+    -- ли посмотреть его книгу». Показывать перестало значить разрешать:
+    -- заклинания неоткрытой школы лежат серыми и без «Подготовить», а
+    -- отказ живёт в PM.PrepareSpell (проверка ниже).
+    local visible = {}
+    for _, cn in ipairs(SB.Data.GetVisibleClasses()) do visible[cn] = true end
+    checkTrue("но книга его видна", visible["Паладин"])
+
+    -- ЗАПЕРТО ЦЕЛИКОМ, ВКЛЮЧАЯ ЗАГОВОРЫ: у неоткрытой школы потолок
+    -- круга −1, и под него не проходит даже нулевой.
+    local palSpell
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] and sp.class == "Паладин" and (sp.level or 0) == 0 then
+            palSpell = sp
+        end
+    end
+    checkTrue("паладинский заговор нашёлся", palSpell ~= nil)
+    checkTrue("и он заперт", SB.Data.IsSpellLockedForPlayer(palSpell))
+    checkTrue("но не спрятан",
+              not SB.Data.IsSpellHiddenFromLibrary(palSpell))
+
+    -- И ПОДГОТОВИТЬ ЕГО НЕЛЬЗЯ — тем же отказом, что и раньше.
+    local wasLk = SpellbreakerCharDB.configLocked
+    SpellbreakerCharDB.configLocked = false
+    checkTrue("подготовить нельзя",
+              SB.PlayerModel.PrepareSpell(palSpell.id) ~= true)
+    SpellbreakerCharDB.configLocked = wasLk
+
+    -- ── С ВЕЩЬЮ — ОТКРЫТ ───────────────────────────────────
+    local palExpert
+    for itemID, def in pairs(SB.Data.Config.MasteryItems) do
+        if def.class == "Паладин" and def.rank == "Эксперт" then palExpert = itemID end
+    end
+    checkTrue("паладинский эксперт есть в таблице", palExpert ~= nil)
+
+    stub.world.items = { [palExpert] = 1 }
+    checkTrue("вещь снимает скрытость",
+              not SB.Data.IsClassHiddenForPlayer("Паладин"))
+    check("и открывает школу по своему рангу",
+          PM.GetClassRank("Паладин"), "Эксперт")
+
+    visible = {}
+    for _, cn in ipairs(SB.Data.GetVisibleClasses()) do visible[cn] = true end
+    checkTrue("вкладка появилась в библиотеке", visible["Паладин"])
+
+    check("и круг подготовки — экспертский",
+          PM.GetMaxPrepareOrder("Паладин"), SB.Data.MaxOrderFor("Эксперт"))
+
+    -- ── ОСТАЛЬНЫЕ СКРЫТЫЕ ОСТАЛИСЬ СКРЫТЫМИ ────────────────
+    -- Вещь открывает СВОЙ класс, а не «все, которых тут нет». И монах
+    -- при этом не должен открыться некастерской лестницей по уровню:
+    -- иначе его «выучил» бы любой, просто дорастя до пятнадцатого.
+    checkTrue("монах на Origins по-прежнему скрыт",
+              SB.Data.IsClassHiddenForPlayer("Монах"))
+    checkTrue("и ранга в нём нет, хоть он и некастер",
+              PM.GetClassRank("Монах") == nil)
+
+    SpellbreakerAccountDB.realmOverride = savedRealm
+    SB.Data.ResetRealmCache()
+    stub.world.classToken = savedToken
+    stub.world.items = savedItems
+    PM.RefreshMastery()
+end
+
+-- ============================================================
+-- НЕКАСТЕРСКИЕ ШКОЛЫ: ДВЕ ЛЕСТНИЦЫ УРОВНЕЙ
+--
+-- Они открыты всем — это выучка, а не магия, и предметов ранга для них
+-- не бывает. Но СВОЕЙ выучкой персонаж обязан владеть лучше чужой,
+-- иначе воин и разбойник одинаково хороши в разбойничьем, и класс
+-- перестаёт что-либо значить.
+-- ============================================================
+do
+    local PM = SB.PlayerModel
+    local savedToken = stub.world.classToken
+    local savedLevel = stub.world.level
+    local savedRealm = SpellbreakerAccountDB and SpellbreakerAccountDB.realmOverride
+    local savedItems = stub.world.items
+    stub.world.items = {}
+
+    SpellbreakerAccountDB.realmOverride = "Origins"
+    SB.Data.ResetRealmCache()
+    stub.world.classToken = "ROGUE"      -- разбойник, некастер
+
+    -- ── СВОЯ ШКОЛА: 10 и 18 ────────────────────────────────
+    stub.world.level = 9
+    check("на девятом разбойник ещё неофит", PM.GetClassRank("Разбойник"), "Неофит")
+    stub.world.level = 10
+    check("на десятом — адепт",              PM.GetClassRank("Разбойник"), "Адепт")
+    stub.world.level = 17
+    check("на семнадцатом всё ещё адепт",    PM.GetClassRank("Разбойник"), "Адепт")
+    stub.world.level = 18
+    check("на восемнадцатом — эксперт",      PM.GetClassRank("Разбойник"), "Эксперт")
+
+    -- ── ЧУЖАЯ ШКОЛА: 15 и 21 ───────────────────────────────
+    -- Тот же персонаж в воинском отстаёт: своя выучка идёт впереди.
+    stub.world.level = 10
+    check("в воинском на десятом ещё неофит", PM.GetClassRank("Воин"), "Неофит")
+    stub.world.level = 15
+    check("в воинском адепт с пятнадцатого",  PM.GetClassRank("Воин"), "Адепт")
+    stub.world.level = 20
+    check("на двадцатом всё ещё адепт",       PM.GetClassRank("Воин"), "Адепт")
+    stub.world.level = 21
+    check("эксперт с двадцать первого",       PM.GetClassRank("Воин"), "Эксперт")
+
+    -- СВОЯ ВСЕГДА НЕ ХУЖЕ ЧУЖОЙ — на каждом уровне до потолка. Правило
+    -- задано долями от капа, и «подобраны так, что чужая идёт позади» —
+    -- утверждение, которое надо проверять, а не обещать.
+    local behind = 0
+    for lvl = 1, 25 do
+        local own     = SB.Data.MasteryIndex(SB.Data.GetMasteryForLevel(lvl)) or 0
+        local foreign = SB.Data.MasteryIndex(SB.Data.GetForeignMasteryForLevel(lvl)) or 0
+        if foreign > own then behind = behind + 1 end
+    end
+    check("чужая школа нигде не обгоняет свою", behind, 0)
+
+    -- ── КАСТЕР В НЕКАСТЕРСКОЙ ШКОЛЕ ────────────────────────
+    -- Жрецу воинское тоже открыто, но по чужой лестнице.
+    stub.world.classToken = "PRIEST"
+    stub.world.level = 15
+    check("жрецу воинское открыто адептом", PM.GetClassRank("Воин"), "Адепт")
+    checkTrue("и разбойничье тоже",         PM.GetClassRank("Разбойник") ~= nil)
+    -- А чужая КАСТЕРСКАЯ школа без вещи закрыта наглухо.
+    checkTrue("а чужая магия — нет", PM.GetClassRank("Чернокнижник") == nil)
+
+    -- ── SANCTUARY: ТЕ ЖЕ ДОЛИ ОТ ПОТОЛКА ───────────────────
+    -- Пороги чужой школы заданы долей от капа реалма, а не числами:
+    -- 60% и 84%. На Origins это 15 и 21, на Sanctuary — 60 и 84.
+    SpellbreakerAccountDB.realmOverride = "Sanctuary"
+    SB.Data.ResetRealmCache()
+    stub.world.level = 59
+    check("на Sanctuary в чужой школе 59 — ещё неофит",
+          SB.Data.GetForeignMasteryForLevel(59), "Неофит")
+    check("шестьдесят — адепт",  SB.Data.GetForeignMasteryForLevel(60), "Адепт")
+    check("восемьдесят три — всё ещё адепт",
+          SB.Data.GetForeignMasteryForLevel(83), "Адепт")
+    check("восемьдесят четыре — эксперт",
+          SB.Data.GetForeignMasteryForLevel(84), "Эксперт")
+
+    -- ВЫШЕ ЭКСПЕРТА ЧУЖАЯ ШКОЛА НЕ ИДЁТ, даже на сотом уровне: мастер и
+    -- герой — это глубина, до которой в чужой выучке не доходят.
+    check("на сотом чужая школа не выше эксперта",
+          SB.Data.GetForeignMasteryForLevel(100), "Эксперт")
+    -- А своя — идёт: на Sanctuary у неё пять ступеней.
+    check("своя школа на сотом — герой",
+          SB.Data.GetMasteryForLevel(100), "Герой")
+
+    SpellbreakerAccountDB.realmOverride = savedRealm
+    SB.Data.ResetRealmCache()
+    stub.world.classToken = savedToken
+    stub.world.level = savedLevel
+    stub.world.items = savedItems
+    PM.RefreshMastery()
+end
+
+-- ============================================================
 -- РАНГ ПО ПРЕДМЕТАМ: СУМКИ ЧИТАЮТСЯ НЕ СРАЗУ
 --
 -- При входе в игру GetItemCount какое-то время отвечает нулём по всему,
@@ -1353,7 +2550,16 @@ _G.SpellbreakerCharDB.configLocked = wasLocked
 -- переложит вещь в другой слот (это первый настоящий BAG_UPDATE).
 -- ============================================================
 local PM = SB.PlayerModel
-local ADEPT_ITEM = SB.Data.Config.MasteryItems["Адепт"][1]
+-- Таблица предметов теперь плоская: id → { class, rank }, и ранг героя
+-- считается по ЕГО РОДНОЙ школе. Значит и предмет нужен своего класса:
+-- чужая вещь ранг героя не поднимает вовсе (см. PM.RefreshMastery).
+local ADEPT_ITEM
+for itemID, def in pairs(SB.Data.Config.MasteryItems) do
+    if def.rank == "Адепт" and def.class == SB.PlayerModel.GetClass() then
+        ADEPT_ITEM = itemID; break
+    end
+end
+checkTrue("адептский предмет своего класса найден", ADEPT_ITEM ~= nil)
 
 checkTrue("сумки при загрузке не считаются прочитанными", not PM.AreBagsReady())
 
@@ -1373,6 +2579,87 @@ checkTrue("сумки отмечены прочитанными", PM.AreBagsRead
 stub.world.items = {}                     -- предмет правда потеряли
 stub.FireEvent("BAG_UPDATE")
 check("после чтения сумок потеря предмета понижает ранг", PM.GetMastery(), "Неофит")
+
+-- ============================================================
+-- ОТКРЫВШАЯСЯ ШКОЛА ОБЪЯВЛЯЕТСЯ СРАЗУ
+--
+-- Ранг героя и набор открытых школ меняются НЕЗАВИСИМО: подобранная
+-- паладинская вещь открывает целую школу, не сдвинув родной ранг ни на
+-- ступень. Пока об этом не сообщалось, библиотека показывала прежние
+-- вкладки до перезагрузки интерфейса — и предмет выглядел неработающим
+-- ровно в том месте, ради которого его и брали.
+-- ============================================================
+do
+    local PM = SB.PlayerModel
+    local savedToken = stub.world.classToken
+    local savedItems = stub.world.items
+    local savedRealm = SpellbreakerAccountDB and SpellbreakerAccountDB.realmOverride
+
+    SpellbreakerAccountDB.realmOverride = "Origins"
+    SB.Data.ResetRealmCache()
+    stub.world.classToken = "PRIEST"
+    stub.world.items = {}
+
+    local fired = 0
+    local function onAccess() fired = fired + 1 end
+    SB.Events.On(SB.E.CLASS_ACCESS_CHANGED, onAccess)
+
+    -- Сумки к этому месту прогона уже подтверждены (см. блок выше про
+    -- чтение сумок), и это важно: до подтверждения аддон намеренно
+    -- молчит об УБЫЛИ школ — «вещи нет» там значит «мы ещё не знаем».
+    -- Приводим слепок к текущему состоянию: интересует изменение, а не
+    -- первый расчёт.
+    PM.RefreshMastery()
+
+    local shamanNeo, shamanExp
+    for itemID, def in pairs(SB.Data.Config.MasteryItems) do
+        if def.class == "Шаман" and def.rank == "Неофит"  then shamanNeo = itemID end
+        if def.class == "Шаман" and def.rank == "Эксперт" then shamanExp = itemID end
+    end
+
+    -- ── ВЕЩЬ ОТКРЫЛА ШКОЛУ ─────────────────────────────────
+    -- Ранг героя при этом НЕ меняется: жрец как был неофитом в своём,
+    -- так и остался. Раньше проверка «ранг не изменился» стояла раньше
+    -- оповещения, и событие не уходило вовсе.
+    fired = 0
+    local rankBefore = PM.GetMastery()
+    stub.world.items = { [shamanNeo] = 1 }
+    PM.RefreshMastery()
+    check("о новой школе сообщено", fired, 1)
+    check("а ранг героя не сдвинулся", PM.GetMastery(), rankBefore)
+
+    -- ── ПОВТОРНЫЙ ПЕРЕСЧЁТ МОЛЧИТ ──────────────────────────
+    -- Пересчёт висит на BAG_UPDATE_DELAYED и случается на каждое
+    -- движение в сумках: сообщай он всякий раз, библиотека
+    -- пересобиралась бы от подобранной травы.
+    fired = 0
+    PM.RefreshMastery()
+    check("ничего не изменилось — и сообщать нечего", fired, 0)
+
+    -- ── РАНГ ШКОЛЫ ТОЖЕ СЧИТАЕТСЯ ИЗМЕНЕНИЕМ ───────────────
+    -- Набор школ тот же, но круги подготовки и бонус к броску другие, и
+    -- библиотеке об этом надо знать.
+    fired = 0
+    stub.world.items = { [shamanExp] = 1 }
+    PM.RefreshMastery()
+    check("рост ранга школы тоже объявлен", fired, 1)
+
+    -- ── ПОТЕРЯ ВЕЩИ ────────────────────────────────────────
+    fired = 0
+    stub.world.items = {}
+    PM.RefreshMastery()
+    check("закрытие школы объявлено тоже", fired, 1)
+    checkTrue("и школа действительно закрыта",
+              PM.GetClassRank("Шаман") == nil)
+
+    SB.Events.Off(SB.E.CLASS_ACCESS_CHANGED, onAccess)
+    SpellbreakerAccountDB.realmOverride = savedRealm
+    SB.Data.ResetRealmCache()
+    stub.world.classToken = savedToken
+    stub.world.items = savedItems
+    PM.RefreshMastery()
+end
+
 
 -- ============================================================
 -- РЕЙДОВЫЙ МАСШТАБ: ЧТО УЕДЕТ ПО СЕТИ
@@ -1867,6 +3154,17 @@ do
     -- Ранг мог упасть в проверках выше, а «Очищение» — заклинание
     -- первого круга: без ранга каст отобьётся раньше выбора пути.
     _G.SpellbreakerCharDB.mastery = "Эксперт"
+    -- «Очищение» — ПАЛАДИНСКОЕ, а проверочный персонаж маг. Раньше чужая
+    -- школа была доступна на круг ниже и каст проходил; теперь закрытая
+    -- школа закрыта совсем, и без ключа до выбора пути дело не дойдёт.
+    -- Даём паладинскую вещь — ровно так это и открывается в игре.
+    local savedItemsD = stub.world.items
+    for itemID, def in pairs(SB.Data.Config.MasteryItems) do
+        if def.class == "Паладин" and def.rank == "Эксперт" then
+            stub.world.items = { [itemID] = 1 }
+            break
+        end
+    end
     SB.Cooldowns.Start(SB.Cooldowns.TURN)
     stub.world.time = stub.world.time + 10
     smoke("каст рассеивания", function() SB.Logic.ConfirmCast("purify", 1) end)
@@ -1883,6 +3181,7 @@ do
     smoke("каст рассеивания без цели", function() SB.Logic.ConfirmCast("purify", 1) end)
     checkTrue("без цели рассеивание ушло Ведущему", requested)
     check("и себя оно при этом не почистило", #SB.ActiveEffects.GetAll(), 1)
+    stub.world.items = savedItemsD
     SB.ActiveEffects.Clear()
 
     _G.SpellbreakerCharDB.configLocked = wasLockedD
@@ -2204,6 +3503,1339 @@ do
 end
 
 -- ============================================================
+-- КАРТОЧКА ЭФФЕКТА НЕ УМАЛЧИВАЕТ НИ ОБ ОДНОМ КАНАЛЕ
+--
+-- Карточка и применение — два независимых списка каналов, и разъезжаются
+-- они молча: ApplyPayload научили чинить броню, а GetEffectLines о ней
+-- не узнала. «Оборонительная стойка» из-за этого показывала игроку один
+-- штраф к урону — то есть выглядела приёмом, который только вредит,
+-- притом что чинить доспех каждый ход и есть вся её польза.
+--
+-- Проверяем не «есть строка про броню», а СВЕРКУ ДВУХ СПИСКОВ: любой
+-- новый канал обязан появиться на карточке вместе с применением.
+-- ============================================================
+do
+    local Lines = SB.ActiveEffects.GetEffectLines
+
+    -- ── ОБОРОНИТЕЛЬНАЯ СТОЙКА ГОВОРИТ О ГЛАВНОМ ────────────
+    local function Joined(id)
+        return table.concat(Lines(id), "\n")
+    end
+    local stance = Joined("eff_defensive_stance")
+    checkTrue("стойка сообщает о починке брони", stance:find("брони", 1, true) ~= nil)
+    checkTrue("и говорит, что это каждый ход",
+              stance:find("Каждый ход", 1, true) ~= nil)
+    -- Штраф при этом никуда не делся — проверяем, что не заменили одно
+    -- другим.
+    checkTrue("штраф к урону остался на месте", stance:find("Урон", 1, true) ~= nil)
+
+    -- ── ВСЕ ТРИ ЭФФЕКТА С БРОНЁЙ В ТИКЕ ────────────────────
+    -- Живыми данными, а не списком в проверке: добавят четвёртый —
+    -- он попадёт сюда сам.
+    local silent = {}
+    for id, sp in pairs(SB.Data.Spells) do
+        local def = sp.effect
+        if type(def) == "table" then
+            for _, block in ipairs({ "tick", "onRemove", "onCast" }) do
+                local payload = def[block]
+                if type(payload) == "table" and (tonumber(payload.armor) or 0) ~= 0 then
+                    if not Joined(id):find("брони", 1, true) then
+                        silent[#silent + 1] = id .. " (" .. block .. ")"
+                    end
+                end
+            end
+        end
+    end
+    table.sort(silent)
+    check("эффектов с бронёй, о которой карточка молчит", #silent, 0)
+    if #silent > 0 then print("          " .. table.concat(silent, ", ")) end
+
+    -- ── СВЕРКА СПИСКОВ КАНАЛОВ ─────────────────────────────
+    -- Кладём в тик по одному каналу за раз и смотрим, что карточка о нём
+    -- сказала. Канал, который применяется, но на карточке невидим, —
+    -- ровно та поломка, что была с бронёй.
+    local CHANNELS = { "damage", "heal", "armor", "mana", "resource", "castResource" }
+    local mute = {}
+    for _, ch in ipairs(CHANNELS) do
+        SB.Data.Spells["t_chan"] = { id = "t_chan", name = "Канал",
+            class = "Эффект", level = 0, isContainer = true,
+            effect = { kind = "buff", tick = { [ch] = 3 } } }
+        if #Lines("t_chan") == 0 then mute[#mute + 1] = ch end
+    end
+    SB.Data.Spells["t_chan"] = nil
+    table.sort(mute)
+    check("каналов, о которых карточка молчит", #mute, 0)
+    if #mute > 0 then print("          " .. table.concat(mute, ", ")) end
+end
+
+-- ============================================================
+-- ПОДСВЕТКУ КНОПКИ НЕ ОТОБРАТЬ ЧУЖОЙ ПОДСКАЗКОЙ
+--
+-- Сорок с лишним мест по аддону вешают на кнопку подсказку через
+-- SetScript("OnEnter") — то есть ровно туда, где живёт её подсветка.
+-- Пока SetScript замещал, у всех таких кнопок подсветка пропадала
+-- целиком: наведение ничего не красило, а нажатие красило и не
+-- возвращалось никогда. Лечилось только /reload.
+--
+-- Проверка живёт здесь, а не в сорока местах: чинили один раз и в одном
+-- месте, ломаться будет так же.
+-- ============================================================
+do
+    local btn = SB.Theme.Button(UIParent, "Проба", 80, 20, "primary")
+
+    -- ── ЧУЖОЙ ОБРАБОТЧИК НЕ ВЫТЕСНЯЕТ НАШ ──────────────────
+    local mine = 0
+    btn:SetScript("OnEnter", function() mine = mine + 1 end)
+
+    local onEnter = btn:GetScript("OnEnter")
+    checkTrue("обработчик наведения на месте", type(onEnter) == "function")
+    onEnter(btn)
+    check("чужой обработчик всё-таки вызван", mine, 1)
+
+    -- ── ТО ЖЕ ДЛЯ УХОДА КУРСОРА ────────────────────────────
+    -- Половина беды была именно здесь: без OnLeave кнопка застревала в
+    -- цвете нажатия навсегда.
+    local left = 0
+    btn:SetScript("OnLeave", function() left = left + 1 end)
+    local onLeave = btn:GetScript("OnLeave")
+    checkTrue("обработчик ухода на месте", type(onLeave) == "function")
+    onLeave(btn)
+    check("и чужой уход вызван", left, 1)
+
+    -- ── ПОВТОРНАЯ УСТАНОВКА ЗАМЕЩАЕТ ТОЛЬКО ЧУЖОЕ ──────────
+    -- SetScript обязан вести себя как SetScript: второй вызов отменяет
+    -- первый, а не копит обработчики.
+    local second = 0
+    btn:SetScript("OnEnter", function() second = second + 1 end)
+    btn:GetScript("OnEnter")(btn)
+    check("первый чужой больше не зовётся", mine, 1)
+    check("а второй зовётся", second, 1)
+
+    -- ── nil СНИМАЕТ ЧУЖОЙ, НЕ ТРОГАЯ НАШ ───────────────────
+    btn:SetScript("OnEnter", nil)
+    checkTrue("подсветка пережила снятие подсказки",
+              type(btn:GetScript("OnEnter")) == "function")
+    btn:GetScript("OnEnter")(btn)
+    check("снятый чужой молчит", second, 1)
+
+    -- ── HookScript КОПИТ, КАК И ПОЛОЖЕНО ───────────────────
+    local a1, a2 = 0, 0
+    btn:HookScript("OnEnter", function() a1 = a1 + 1 end)
+    btn:HookScript("OnEnter", function() a2 = a2 + 1 end)
+    btn:GetScript("OnEnter")(btn)
+    check("первый хук вызван",  a1, 1)
+    check("второй хук тоже",    a2, 1)
+
+    -- ── КОЛЬЦО НЕ ЗАМЫКАЕТСЯ ───────────────────
+    -- Старый способ сохранить подсветку — взять обработчик через
+    -- GetScript и позвать внутри своего. В новой схеме это замыкает
+    -- кольцо: наш зовёт чужого, чужой зовёт нашего. Это не
+    -- некрасиво, а зависание клиента при наведении мышью.
+    do
+        local wrapper = SB.Theme.Button(UIParent, "Кольцо", 80, 20, "primary")
+        local base    = wrapper:GetScript("OnEnter")
+        local runs    = 0
+        wrapper:SetScript("OnEnter", function(self)
+            runs = runs + 1
+            if base then base(self) end   -- именно так и писали раньше
+        end)
+        local ok = pcall(function() wrapper:GetScript("OnEnter")(wrapper) end)
+        checkTrue("самообёртка не уходит в бесконечность", ok)
+        check("чужой обработчик вызван ровно раз", runs, 1)
+    end
+
+    -- ── ОСТАЛЬНЫЕ СОБЫТИЯ ИДУТ КАК ПРЕЖДЕ ──────────────────
+    -- Подмена касается ровно двух событий; клик обязан ставиться обычным
+    -- образом, иначе кнопки перестанут нажиматься вовсе.
+    local clicked = 0
+    btn:SetScript("OnClick", function() clicked = clicked + 1 end)
+    btn:GetScript("OnClick")(btn)
+    check("клик ставится и зовётся как раньше", clicked, 1)
+end
+
+-- ============================================================
+-- СПОСОБНОСТИ СУЩЕСТВА
+--
+-- Существо впервые действует само, а не только принимает удары. Всё
+-- ниже — про то, чтобы оно действовало ПО СВОИМ цифрам и по тем же
+-- правилам, что игрок: разъедься эти два расчёта, и «дракон бьёт как
+-- дракон» держалось бы на честном слове Ведущего.
+-- ============================================================
+do
+    -- ── У КАЖДОГО ВИДА ЕСТЬ ЧТО ПРИМЕНИТЬ ──────────────────
+    -- Пустой шаблон означает существо, которое не умеет ничего, и
+    -- собирать его пришлось бы с нуля каждый раз.
+    local bad = {}
+    for id, tpl in pairs(SB.NPC.Templates) do
+        local n = 0
+        for _, spellID in ipairs(tpl.spells or {}) do
+            n = n + 1
+            -- ID из шаблона обязан существовать: опечатка здесь не роняет
+            -- ничего, она просто даёт пункт меню, который ничего не
+            -- делает, и заметить его можно только в сцене.
+            if not SB.Data.Spells[spellID] then
+                bad[#bad + 1] = id .. ": нет заклинания «" .. spellID .. "»"
+            elseif not SB.NPC.CanKnowSpell(spellID) then
+                bad[#bad + 1] = id .. ": «" .. spellID .. "» существу не годится"
+            end
+        end
+        if n < 3 then bad[#bad + 1] = id .. ": способностей " .. n end
+    end
+    table.sort(bad)
+    check("видов с негодным набором способностей", #bad, 0)
+    if #bad > 0 then print("          " .. table.concat(bad, "; ")) end
+
+    -- ── ПОТОЛОК КРУГА ──────────────────────────────────────
+    -- Существу открыт пятый круг независимо от реалма: ранга у него нет,
+    -- цифры выставляет Ведущий. Это не обход прогрессии игроков.
+    SB.Data.Spells["t_npc5"] = { id = "t_npc5", name = "Пятый",
+        class = "Маг", level = 5, canCrit = true, distance = 30 }
+    SB.Data.Spells["t_npc6"] = { id = "t_npc6", name = "Шестой",
+        class = "Маг", level = 6, canCrit = true, distance = 30 }
+    SB.Data.Spells["t_npceff"] = { id = "t_npceff", name = "Контейнер",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "debuff" } }
+    checkTrue("пятый круг существу доступен",  SB.NPC.CanKnowSpell("t_npc5"))
+    checkTrue("шестого круга нет ни у кого",   not SB.NPC.CanKnowSpell("t_npc6"))
+    checkTrue("контейнер-эффект не способность", not SB.NPC.CanKnowSpell("t_npceff"))
+
+    -- ── СПИСОК ЧИСТИТСЯ ПРИ СОХРАНЕНИИ ─────────────────────
+    -- Мёртвый id приезжает и по сети, и из старой сохранёнки; форма — не
+    -- единственный вход.
+    -- Через сам аддон, а не голым обращением к глобали: базу он заводит
+    -- лениво, и до первого вызова её ещё нет.
+    local saved = SB.NPC.DB()
+    _G.SpellbreakerNPCDB = { npcs = {} }
+    SB.NPC.Save({
+        npcID = 90001, name = "Проба", classification = "beast",
+        level = 5, maxHealth = 5, resourceName = "Ярость", maxResource = 3,
+        spells = { "t_npc5", "нет_такого", "t_npc6", "t_npceff", "t_npc5" },
+    })
+    local rec = SB.NPC.Get(90001)
+    check("выжило способностей", #(rec.spells or {}), 1)
+    check("и это годная", rec.spells[1], "t_npc5")
+
+    -- Потолок в десять — тоже здесь, а не в форме.
+    local many = {}
+    for i = 1, 20 do
+        local id = "t_many" .. i
+        SB.Data.Spells[id] = { id = id, name = "М" .. i, class = "Маг",
+            level = 1, canCrit = true, distance = 30 }
+        many[i] = id
+    end
+    SB.NPC.Save({
+        npcID = 90002, name = "Многознайка", classification = "beast",
+        level = 5, maxHealth = 5, resourceName = "Ярость", maxResource = 3,
+        spells = many,
+    })
+    check("больше десяти не сохраняется",
+          #(SB.NPC.Get(90002).spells or {}), SB.NPC.MAX_SPELLS)
+
+    -- ── ЕДИНИЦА ЗНАЧИТ «НЕ ЗАДАНО» ─────────────────────────
+    --
+    -- Правило жило в форме редактора, а форма — не единственный вход:
+    -- запись приезжает по сети и лежит в старых сохранёнках. Единицы
+    -- ничего не меняют в расчётах (StatOver считает сверх минимума), но
+    -- раздувают сохранёнку и в редакторе выглядят как «задано вручную».
+    SB.NPC.Save({
+        npcID = 90003, name = "Единичный", classification = "beast",
+        level = 5, maxHealth = 5, resourceName = "Ярость", maxResource = 3,
+        attributes = { ["Сила"] = 4, ["Дух"] = 1, ["Интеллект"] = 0 },
+        skills     = { ["Воля"] = 3, ["Атлетика"] = 1, ["Мощь"] = -2 },
+    })
+    local one = SB.NPC.Get(90003)
+    check("сила выше единицы сохранена", one.attributes["Сила"], 4)
+    checkTrue("единица не сохранена",     one.attributes["Дух"] == nil)
+    checkTrue("ноль тоже не сохранён",    one.attributes["Интеллект"] == nil)
+    check("навык выше единицы сохранён",  one.skills["Воля"], 3)
+    checkTrue("единичный навык не сохранён", one.skills["Атлетика"] == nil)
+    checkTrue("отрицательный тем более",     one.skills["Мощь"] == nil)
+
+    -- ── СПИСОК ОСОБИ: СВОЙ ИЛИ ШАБЛОННЫЙ ───────────────────────────
+    check("у настроенного берём его", #SB.NPC.SpellsFor(90001, "beast"), 1)
+    check("у ненастроенного — шаблон вида",
+          #SB.NPC.SpellsFor(999999, "beast"), #SB.NPC.Templates.beast.spells)
+
+    -- ── СУЩЕСТВО СЧИТАЕТ СКЕЙЛИНГ ПО СВОИМ ЦИФРАМ ──────────
+    --
+    -- Это главное во всём блоке. Правила перевода очков в прибавку —
+    -- одни на игрока и существо (SB.Logic.GetSpellScaling); отличается
+    -- только то, ЧЬИ характеристики подставили. Заведись у существа своя
+    -- копия правил, «дракон с Силой 5» и «игрок с Силой 5» считались бы
+    -- по-разному, и заметить это было бы нечем.
+    SB.Data.Spells["t_npcatk"] = { id = "t_npcatk", name = "Когти",
+        class = "Маг", level = 1, canCrit = true, distance = 5,
+        scaling = { hit = { ["Сила"] = 1 } } }
+
+    local weak = { level = 1, attributes = { ["Сила"] = 1 }, skills = {} }
+    local buff = { level = 1, attributes = { ["Сила"] = 5 }, skills = {} }
+    local mWeak = SB.NPC.AttackModifier(weak, nil, SB.Data.Spells["t_npcatk"])
+    local mBuff = SB.NPC.AttackModifier(buff, nil, SB.Data.Spells["t_npcatk"])
+    checkTrue("сильное существо бьёт точнее слабого", mBuff > mWeak)
+
+    -- И ровно настолько, насколько тот же скейлинг дал бы игроку.
+    local reader = SB.NPC.StatReader(buff, nil)
+    local asPlayer = SB.Logic.GetSpellScaling(
+        SB.Data.Spells["t_npcatk"], "hit", nil, reader)
+    check("прибавка та же, что у игрока с такими же цифрами",
+          mBuff - mWeak, asPlayer)
+
+    -- Уровень существа тоже в модификаторе — как у игрока.
+    local high = { level = 25, attributes = { ["Сила"] = 1 }, skills = {} }
+    checkTrue("существо выше уровнем бьёт точнее",
+              SB.NPC.AttackModifier(high, nil, SB.Data.Spells["t_npcatk"]) > mWeak)
+
+    _G.SpellbreakerNPCDB = saved
+end
+
+-- ============================================================
+-- ЗАЛП СУЩЕСТВА ПО ИГРОКАМ
+--
+-- Ловим на том самом шве, где залп превращается в отправку: настоящая
+-- сеть в прогоне подменена писцом (см. врезку о нём выше), и смотреть
+-- на неё бессмысленно — а вот ЧТО именно NpcCast просит отправить и
+-- кому, проверить и нужно.
+-- ============================================================
+do
+    local realSend = SB.Net.SendPvpAttack
+    local calls = {}
+    SB.Net.SendPvpAttack = function(target, spellID, roll, mod, total,
+                                    isCrit, dmgBonus, baseDmg, slot, persuade, npcName)
+        calls[#calls + 1] = { target = target, spellID = spellID, roll = roll,
+            mod = mod, total = total, isCrit = isCrit, baseDmg = baseDmg,
+            slot = slot, npcName = npcName }
+    end
+
+    SB.Data.Spells["t_claw"] = { id = "t_claw", name = "Когти твари",
+        class = "Маг", level = 2, canCrit = true, distance = 5 }
+
+    -- Существо в цели. Без настоящего GUID существа StatsForUnit не
+    -- находит ни записи, ни вида — и подготовка правильно не начинается.
+    local savedTarget = stub.world.units["target"]
+    stub.world.units["target"] = { name = "Медведь-ледолап", level = 12, npc = true,
+        creatureType = "Животное", guid = "Creature-0-970-0-11-4242-00BB01" }
+
+    checkTrue("подготовка началась", SB.NpcCast.Begin("target", "t_claw"))
+    checkTrue("и она активна", SB.NpcCast.IsActive())
+
+    -- ── ПОВТОРНЫЙ КЛИК СНИМАЕТ ─────────────────────────────
+    SB.NpcCast.Toggle("Алиссия")
+    checkTrue("игрок отмечен", SB.NpcCast.IsSelected("Алиссия"))
+    check("и он один", SB.NpcCast.CountSelected(), 1)
+    SB.NpcCast.Toggle("Алиссия")
+    checkTrue("повторный клик снял отметку", not SB.NpcCast.IsSelected("Алиссия"))
+    check("никого не осталось", SB.NpcCast.CountSelected(), 0)
+
+    -- ── БЕЗ ОТМЕЧЕННЫХ ЗАЛПА НЕТ ───────────────────────────
+    checkTrue("пустой залп не уходит", not SB.NpcCast.Confirm())
+    checkTrue("и подготовка не сброшена", SB.NpcCast.IsActive())
+
+    -- ── ЗАЛП ПО ТРОИМ ──────────────────────────────────────
+    SB.NpcCast.Toggle("Алиссия")
+    SB.NpcCast.Toggle("Борис")
+    SB.NpcCast.Toggle("Вадим")
+    local done, count = SB.NpcCast.Confirm()
+    checkTrue("залп ушёл", done)
+    check("задето трое", count, 3)
+    checkTrue("подготовка закрылась", not SB.NpcCast.IsActive())
+
+    check("ушло три удара", #calls, 3)
+
+    -- ── ИМЯ СУЩЕСТВА ЕДЕТ ОТДЕЛЬНЫМ ПОЛЕМ ──────────────────
+    -- Не подменой отправителя: отправителя берут у транспорта именно
+    -- затем, чтобы им нельзя было прикрыться (см. ParsePVPATK).
+    check("бьёт существо, а не Ведущий", calls[1].npcName, "Медведь-ледолап")
+
+    -- ── ОДИН БРОСОК НА ВСЕХ ────────────────────────────────
+    -- По броску на цель означало бы, что вероятность зацепить хоть кого-то
+    -- растёт просто от числа целей.
+    local same = true
+    for _, c in ipairs(calls) do
+        if c.roll ~= calls[1].roll or c.total ~= calls[1].total then same = false end
+    end
+    checkTrue("бросок у всех целей один", same)
+    check("итог сходится с броском и модификатором",
+          calls[1].total, calls[1].roll + calls[1].mod)
+    checkTrue("бросок лежит на кубике",
+              calls[1].roll >= 1 and calls[1].roll <= SB.Logic.ROLL_MAX)
+
+    -- Каждому — свой пакет, а не три раза одному.
+    local who = {}
+    for _, c in ipairs(calls) do who[c.target] = true end
+    local n = 0
+    for _ in pairs(who) do n = n + 1 end
+    check("три разных адресата", n, 3)
+
+    -- ── МОДИФИКАТОР — ОТ ЦИФР СУЩЕСТВА ─────────────────────
+    -- Не ноль и не «как у Ведущего»: существо бьёт по своему уровню и
+    -- своим характеристикам (см. SB.NPC.AttackModifier).
+    local stats = SB.NPC.StatsForUnit("target")
+    local expect = SB.NPC.AttackModifier(stats, "target", SB.Data.Spells["t_claw"])
+    check("модификатор посчитан по существу", calls[1].mod, expect)
+
+    -- ── ЧУЖОЙ НЕ БЬЁТ ОТ ЛИЦА СУЩЕСТВА ─────────────────────
+    -- Залп по всей группе — команда Ведущего. Участник, объявивший себя
+    -- чудовищем, бил бы, ни за что не отвечая.
+    local savedLeader = stub.world.isLeader
+    local savedAssist = stub.world.isAssist
+    stub.world.isLeader, stub.world.isAssist = false, false
+    checkTrue("не Ведущему подготовка не даётся",
+              not SB.NpcCast.Begin("target", "t_claw"))
+    stub.world.isLeader, stub.world.isAssist = savedLeader, savedAssist
+
+    -- ============================================================
+    -- СУЩЕСТВО ПЛАТИТ ЗА СПОСОБНОСТЬ
+    --
+    -- Ресурс у существа был, полоска рисовалась — и не тратилась ни на
+    -- что. Ведущий мог сыпать пятым кругом бесконечно, а «у дракона
+    -- кончилась мана» существовало только у него в голове.
+    -- ============================================================
+    do
+        local st = SB.NPC.GetState("target")
+        st.res, st.maxRes = 4, 4
+
+        check("заговор бесплатен", SB.NpcCast.CostOf({ level = 0 }), 0)
+        check("а второй круг стоит два", SB.NpcCast.CostOf({ level = 2 }), 2)
+
+        -- ── ОТМЕНЁННЫЙ ЗАЛП НЕ СТОИТ НИЧЕГО ────────────────
+        -- Этот порядок я сначала перепутал: списание стояло выше проверки
+        -- целей, и существо платило за несостоявшееся действие. Тест
+        -- поймал сразу — на нём и держится.
+        SB.NpcCast.Begin("target", "t_claw")     -- второй круг, цена 2
+        checkTrue("без целей залп не уходит", not SB.NpcCast.Confirm())
+        check("и ресурс не тронут", SB.NPC.GetState("target").res, 4)
+
+        -- ── СОСТОЯВШИЙСЯ — СТОИТ ───────────────────────────
+        SB.NpcCast.Toggle("Алиссия")
+        checkTrue("залп ушёл", SB.NpcCast.Confirm())
+        check("ресурс списан по кругу", SB.NPC.GetState("target").res, 2)
+
+        -- ── НЕ ХВАТИЛО — СПОСОБНОСТИ НЕ БЫЛО ВОВСЕ ─────────
+        SB.NPC.GetState("target").res = 1
+        SB.NpcCast.Begin("target", "t_claw")
+        SB.NpcCast.Toggle("Алиссия")
+        checkTrue("на нехватке залп не уходит", not SB.NpcCast.Confirm())
+        check("и остаток не ушёл в минус", SB.NPC.GetState("target").res, 1)
+        checkTrue("подготовка при этом жива", SB.NpcCast.IsActive())
+        SB.NpcCast.Cancel()
+
+        -- ── САМОКАСТ ТОЖЕ ПЛАТИТ ───────────────────────────
+        SB.NPC.GetState("target").res = 4
+        SB.Data.Spells["t_self2"] = { id = "t_self2", name = "Стойка второго круга",
+            class = "Маг", level = 2, distance = 0, resistable = false,
+            container = "t_eff" }
+        SB.NpcCast.Begin("target", "t_self2")
+        checkTrue("самокаст применился", SB.NpcCast.Confirm())
+        check("и он тоже стоил ресурса", SB.NPC.GetState("target").res, 2)
+
+        local fin = SB.NPC.GetState("target")
+        fin.res, fin.maxRes = 4, 4
+    end
+
+    -- ============================================================
+    -- СПОСОБНОСТЬ ДОСТАВЛЯЕТСЯ ПО СВОЕМУ РОДУ, А НЕ ВСЕГДА УДАРОМ
+    --
+    -- Пока развилки не было, ВСЁ уходило SendPvpAttack: «Божественный
+    -- дух» (чистый бафф жреца) прилетал игроку атакой, тот бросал защиту
+    -- и отражал подарок. Проверяем не текст в логе, а то, КАКОЙ
+    -- отправкой ушла способность — именно там ошибка и жила.
+    -- ============================================================
+    local realBuff = SB.Net.SendBuff
+    local realHeal = SB.Net.SendHealResult
+    local buffs, heals = {}, {}
+    SB.Net.SendBuff = function(target, spellID, effectID, slot, npcName)
+        buffs[#buffs + 1] = { target = target, effectID = effectID, npcName = npcName }
+    end
+    SB.Net.SendHealResult = function(target, spellID, success, amount, armor, npcName)
+        heals[#heals + 1] = { target = target, success = success,
+                              amount = amount, npcName = npcName }
+    end
+
+    SB.Data.Spells["t_npc_eff"] = { id = "t_npc_eff", name = "Хватка",
+        class = "Маг", level = 1, distance = 18, resistable = false,
+        debuff = "t_eff" }
+    SB.Data.Spells["t_npc_buff"] = { id = "t_npc_buff", name = "Благодать",
+        class = "Маг", level = 1, distance = 18, resistable = false,
+        buff = "t_eff" }
+    SB.Data.Spells["t_npc_self"] = { id = "t_npc_self", name = "Стойка твари",
+        class = "Маг", level = 0, distance = 0, resistable = false,
+        container = "t_eff" }
+
+    check("уронное — удар",   SB.NpcCast.KindOf(SB.Data.Spells["t_claw"]),     "attack")
+    check("дебафф — эффект",  SB.NpcCast.KindOf(SB.Data.Spells["t_npc_eff"]),  "effect")
+    check("бафф — тоже эффект", SB.NpcCast.KindOf(SB.Data.Spells["t_npc_buff"]), "effect")
+    check("контейнер — самокаст", SB.NpcCast.KindOf(SB.Data.Spells["t_npc_self"]), "self")
+
+    -- ── БАФФ УХОДИТ БАФФОМ, А НЕ УДАРОМ ────────────────────
+    calls, buffs = {}, {}
+    SB.NpcCast.Begin("target", "t_npc_buff")
+    SB.NpcCast.Toggle("Алиссия")
+    SB.NpcCast.Confirm()
+    check("ударов не ушло", #calls, 0)
+    check("а баффов — один", #buffs, 1)
+    check("баффом от лица существа", buffs[1].npcName, "Медведь-ледолап")
+    check("и это эффект заклинания", buffs[1].effectID, "t_eff")
+
+    -- ── ЛЕЧЕНИЕ УХОДИТ ЛЕЧЕНИЕМ ────────────────────────────
+    calls, heals = {}, {}
+    SB.Data.Spells["t_npc_heal"] = { id = "t_npc_heal", name = "Зализать раны",
+        class = "Маг", level = 1, isHeal = true, distance = 18, resistable = false }
+    check("лечащее — лечение", SB.NpcCast.KindOf(SB.Data.Spells["t_npc_heal"]), "heal")
+    SB.NpcCast.Begin("target", "t_npc_heal")
+    SB.NpcCast.Toggle("Алиссия")
+    SB.NpcCast.Confirm()
+    check("ударов не ушло и здесь", #calls, 0)
+    check("ушло одно лечение", #heals, 1)
+    checkTrue("и оно успешное (без сопротивления)", heals[1].success == true)
+    checkTrue("на положительную величину", (heals[1].amount or 0) > 0)
+
+    -- ── САМОКАСТ НЕ ТРЕБУЕТ ЦЕЛЕЙ ──────────────────────────
+    -- И не уходит по сети вовсе: стойка ложится на само существо.
+    calls, buffs, heals = {}, {}, {}
+    SB.NpcCast.Begin("target", "t_npc_self")
+    checkTrue("самокасту цели не нужны", not SB.NpcCast.NeedsTargets())
+    local selfOk = SB.NpcCast.Confirm()
+    checkTrue("и он применяется без единой отметки", selfOk)
+    check("наружу ничего не ушло", #calls + #buffs + #heals, 0)
+    checkTrue("подготовка закрылась", not SB.NpcCast.IsActive())
+
+    -- А уронной способности цели по-прежнему нужны.
+    SB.NpcCast.Begin("target", "t_claw")
+    checkTrue("удару цели нужны", SB.NpcCast.NeedsTargets())
+    SB.NpcCast.Cancel()
+
+    SB.Net.SendBuff       = realBuff
+    SB.Net.SendHealResult = realHeal
+
+    stub.world.units["target"] = savedTarget
+    SB.Net.SendPvpAttack = realSend
+end
+
+-- ============================================================
+-- СВЕДЕНИЕ СОСТОЯНИЯ СУЩЕСТВ ПРИ СМЕНЕ ВЕДУЩЕГО
+--
+-- Состояние существ держит владелец сцены, а владелец — это лидер
+-- группы, и лидерство передают посреди боя. До пересведения смена
+-- лидера не значила для существ ничего: прежний владелец переставал
+-- рассылать, новый не начинал, и сцена застывала на последних цифрах.
+--
+-- Хуже: новый владелец мог не знать части тушек. GetState заводит такую
+-- особь лениво, из СВОЕГО шаблона — то есть с полным здоровьем, — и
+-- первый же его ShareState воскресил бы всех раненых разом.
+-- ============================================================
+do
+    local NPC = SB.NPC
+    local savedUnits = stub.world.units["target"]
+    local savedLead  = stub.world.isLeader
+    local savedGroup = stub.world.inGroup
+
+    stub.world.inGroup = true
+    stub.world.units["target"] = { name = "Медведь", level = 12, npc = true,
+        creatureType = "Животное", guid = "Creature-0-970-0-11-4242-00CC01" }
+    local key = NPC.SpawnKey("target")
+
+    -- ── ВЛАДЕЛЕЦ РАССЫЛАЕТ ВСЁ, ЧТО ЗНАЕТ ──────────────────
+    stub.world.isLeader = true
+    NPC.ResetState()
+    local st = NPC.GetState("target")
+    st.hp = 3
+    checkTrue("состояние заведено", st ~= nil)
+
+    local realState = SB.Net.SendNpcState
+    local sentStates = {}
+    SB.Net.SendNpcState = function(k, hp) sentStates[#sentStates + 1] = { k = k, hp = hp } end
+    check("владелец разослал одну особь", NPC.BroadcastAll(), 1)
+    check("и разослал её нынешние цифры", sentStates[1].hp, 3)
+
+    -- ── НЕ ВЛАДЕЛЕЦ НЕ РАССЫЛАЕТ ───────────────────────────
+    -- Иначе двое объявляли бы правду одновременно, и побеждал бы тот,
+    -- чей пакет пришёл вторым.
+    stub.world.isLeader = false
+    check("рядовой участник не рассылает", NPC.BroadcastAll(), 0)
+
+    -- ── ЗАТО ПРЕДЛАГАЕТ ────────────────────────────────────
+    local realOffer = SB.Net.SendNpcOffer
+    local offers = {}
+    SB.Net.SendNpcOffer = function(k, hp) offers[#offers + 1] = { k = k, hp = hp } end
+    check("рядовой предложил свою особь", NPC.OfferAll(), 1)
+    check("с теми цифрами, что у него есть", offers[1].hp, 3)
+
+    -- А владелец — не предлагает: у него правда своя.
+    stub.world.isLeader = true
+    offers = {}
+    check("владелец не предлагает", NPC.OfferAll(), 0)
+    SB.Net.SendNpcOffer = realOffer
+
+    -- ── ПЕРЕДАЧА ДЕЛ: ВЛАДЕЛЕЦ БЕЗ ПРАВДЫ ──────────────────
+    --
+    -- Это и есть тот баг. Лидерство передали, новый владелец тушки не
+    -- застал; предложение закрывает дыру, и полное здоровье по шаблону
+    -- не объявляется.
+    stub.world.isLeader = true
+    NPC.ResetState()
+    checkTrue("новый владелец о тушке не знает", not NPC.HasState("target"))
+
+    checkTrue("предложение принято", NPC.AcceptOffer(key, 3, 10, 1, 4, nil))
+    checkTrue("теперь знает", NPC.HasState("target"))
+    check("и знает верные цифры", NPC.GetState("target").hp, 3)
+
+    -- ── СВОЁ МНЕНИЕ СТАРШЕ ЧУЖОГО ПРЕДЛОЖЕНИЯ ──────────────
+    -- Предложение приходит от рядового участника, то есть правдой по
+    -- определению не является: оно закрывает дыру — и только.
+    checkTrue("повторное предложение отвергнуто",
+              not NPC.AcceptOffer(key, 9, 10, 4, 4, nil))
+    check("цифры не подменились", NPC.GetState("target").hp, 3)
+
+    -- ── ПРЕДЛОЖЕНИЕ РАЗБИРАЕТ ТОЛЬКО ВЛАДЕЛЕЦ ──────────────
+    stub.world.isLeader = false
+    NPC.ResetState()
+    checkTrue("рядовой чужое предложение не принимает",
+              not NPC.AcceptOffer(key, 3, 10, 1, 4, nil))
+    checkTrue("и состояния у него не появилось", not NPC.HasState("target"))
+
+    -- ── ВЛАДЕЛЕЦ ОТВЕЧАЕТ И ПРО ТУШКУ, КОТОРОЙ НЕ ВИДЕЛ ────
+    --
+    -- Он молчал, и спрашивающий навсегда оставался со СВОИМ шаблоном —
+    -- а шаблоны у всех разные, настройки вида по сети не ездят. В игре
+    -- это выглядело так: у Ведущего волк 4/4, у игрока 11/11, и оба
+    -- уверены, что смотрят на одно и то же.
+    stub.world.isLeader = true
+    NPC.ResetState()
+    sentStates = {}
+    SB.Net.SendNpcState = function(k, hp, maxHp)
+        sentStates[#sentStates + 1] = { k = k, hp = hp, maxHp = maxHp }
+    end
+
+    -- Заводим запись вида, чтобы ответ шёл из настроек Ведущего.
+    local savedDB = SB.NPC.DB()
+    _G.SpellbreakerNPCDB = { npcs = {} }
+    NPC.Save({ npcID = 4242, name = "Медведь", classification = "beast",
+               level = 12, maxHealth = 7, resourceName = "Ярость", maxResource = 4 })
+
+    checkTrue("тушки в памяти нет", not NPC.HasState("target"))
+    NPC.ReplyState(key)
+    check("ответ всё равно ушёл", #sentStates, 1)
+    check("и цифры взяты из записи вида", sentStates[1].maxHp, 7)
+
+    -- ── ДЕЛЬТА ПО НЕВИДАННОЙ ТУШКЕ НЕ ТЕРЯЕТСЯ ─────────────
+    -- Участник бьёт существо, которого Ведущий в цель не брал: раньше
+    -- такой удар не засчитывался никому.
+    NPC.ResetState()
+    sentStates = {}
+    NPC.ApplyRemoteDelta(key, -3, 0)
+    check("удар засчитан", NPC.GetState("target").hp, 4)
+    checkTrue("и разослан", #sentStates > 0)
+
+    _G.SpellbreakerNPCDB = savedDB
+    SB.Net.SendNpcState = realState
+
+    -- ── ЗАПРОС ПЕРЕСВЕДЕНИЯ ШЛЁТ ТОЛЬКО ВЛАДЕЛЕЦ ───────────
+    local realReq = SB.Net.RequestNpcResync
+    local asked = 0
+    SB.Net.RequestNpcResync = function() asked = asked + 1 end
+
+    stub.world.isLeader = false
+    checkTrue("рядовой пересведения не просит", not NPC.RequestResync())
+    check("и запроса не ушло", asked, 0)
+
+    stub.world.isLeader = true
+    checkTrue("владелец просит", NPC.RequestResync())
+    check("и запрос ушёл ровно один", asked, 1)
+
+    -- Соло просить некого: сцена своя, правда своя.
+    stub.world.inGroup = false
+    asked = 0
+    checkTrue("вне группы не просим", not NPC.RequestResync())
+    check("запросов нет", asked, 0)
+
+    SB.Net.RequestNpcResync = realReq
+    NPC.ResetState()
+    stub.world.units["target"] = savedUnits
+    stub.world.isLeader = savedLead
+    stub.world.inGroup  = savedGroup
+end
+
+-- ============================================================
+-- ЧИСЛА УДАРА СВЕРЯЮТСЯ, А НЕ ПРИНИМАЮТСЯ НА ВЕРУ
+--
+-- Сверка ловила ровно две вещи: кубик вне диапазона и итог, не равный
+-- сумме. А здоровье отнимается по совсем другим полям — базе и
+-- скейлингу, — и они принимались целиком на веру. Подменённому клиенту
+-- хватало согласованной тройки «бросок-модификатор-итог», чтобы
+-- приложить сотней: арифметика в ней честная, а сотня лежит рядом.
+--
+-- Здесь одинаково важны обе половины: что мухлёж ловится И что честный
+-- удар проходит нетронутым. Потолок, задевающий честных, хуже
+-- отсутствующего — он ломает игру тем, кто ничего не делал.
+-- ============================================================
+do
+    local V = SB.Logic.VerifyIncomingDamage
+
+    SB.Data.Spells["t_ac"] = { id = "t_ac", name = "Проверка чисел",
+        class = "Маг", level = 1, canCrit = true, distance = 30,
+        scaling = { damage = { ["Интеллект"] = 1 }, hit = { ["Интеллект"] = 1 } } }
+    local sp = SB.Data.Spells["t_ac"]
+
+    -- ── ЧЕСТНЫЙ УДАР ПРОХОДИТ НЕТРОНУТЫМ ───────────────────
+    local okBase, ceilBonus = SB.Logic.MaxPlausibleDamage(sp, 1)
+    local b, d, note = V(sp, 1, okBase, 0)
+    check("честная база не тронута", b, okBase)
+    check("нулевой скейлинг не тронут", d, 0)
+    checkTrue("и претензии нет", note == nil)
+
+    -- Развитый маг под баффами — тоже честный: потолок нарочно щедрый,
+    -- он отсекает порядок величины, а не единицу.
+    local _, d2, note2 = V(sp, 1, okBase, ceilBonus)
+    check("скейлинг ровно по потолку проходит", d2, ceilBonus)
+    checkTrue("без претензии", note2 == nil)
+
+    -- ── ПОДМЕНЁННАЯ БАЗА ЗАЖИМАЕТСЯ ────────────────────────
+    -- База — чистая функция заклинания и круга, и оба едут в том же
+    -- пакете: тут не потолок, а равенство.
+    local b3, _, note3 = V(sp, 1, okBase + 100, 0)
+    check("база выправлена", b3, okBase)
+    checkTrue("и претензия названа", note3 ~= nil)
+
+    -- ── «+100 УРОНА» ЗАЖИМАЕТСЯ ────────────────────────────
+    local _, d4, note4 = V(sp, 1, okBase, 100)
+    check("скейлинг зажат до потолка", d4, ceilBonus)
+    checkTrue("претензия названа", note4 ~= nil)
+    checkTrue("сотня не прошла", d4 < 100)
+
+    -- ── ОТРИЦАТЕЛЬНЫЙ СКЕЙЛИНГ ЗАКОНЕН ─────────────────────
+    -- Характеристику могли увести ниже единицы дебаффом, и тогда
+    -- заклинание бьёт слабее обычного. Пола здесь нет намеренно.
+    local _, d5, note5 = V(sp, 1, okBase, -4)
+    check("минус не выправляется", d5, -4)
+    checkTrue("и претензии не вызывает", note5 == nil)
+
+    -- ── ПОТОЛОК МОДИФИКАТОРА ───────────────────────────────
+    local capMod = SB.Logic.MaxPlausibleAttackMod(sp)
+    checkTrue("потолок модификатора положителен", capMod > 0)
+
+    local savedStatus = SB.Data.PlayersStatus
+    SB.Data.PlayersStatus = {}
+
+    -- Честный модификатор проходит.
+    local _, n1 = SB.Logic.VerifyIncomingCast("Мухлёвщик", "t_ac", 50, 10, 60, 1)
+    checkTrue("честный модификатор проходит", n1 == nil)
+
+    -- А сотня — нет, хотя сумма сходится.
+    local t2, n2 = SB.Logic.VerifyIncomingCast("Мухлёвщик", "t_ac", 50, 500, 550, 1)
+    checkTrue("накрученный модификатор пойман", n2 ~= nil)
+    check("и итог пересчитан по потолку", t2, 50 + capMod)
+
+    -- ── НИ ОДНО ЗАКЛИНАНИЕ БИБЛИОТЕКИ НЕ ЛОЖНОСРАБАТЫВАЕТ ──
+    --
+    -- Это главная проверка всего блока, и сторожит она не мухлёвщика, а
+    -- ЧЕСТНОГО игрока. Потолок считается из тех же Config, что и сами
+    -- прибавки; подкрутит кто-нибудь шаг навыка или таблицу рангов при
+    -- балансировке — и потолок окажется ниже законного максимума. Тогда
+    -- аддон начнёт публично обвинять в накрутке развитых персонажей, и
+    -- узнаем мы об этом от них.
+    --
+    -- Берём предельного персонажа: всё вложено по максимуму, эксперт,
+    -- потолок уровня — и прогоняем по всей библиотеке.
+    do
+        local savedAttr  = _G.SpellbreakerCharDB.attributes
+        local savedSkill = _G.SpellbreakerCharDB.skills
+        local savedLevel = stub.world.level
+
+        _G.SpellbreakerCharDB.attributes = {}
+        _G.SpellbreakerCharDB.skills     = {}
+        for _, def in ipairs(SB.Data.Attributes) do
+            _G.SpellbreakerCharDB.attributes[def.key] = SB.Attributes.GetMaxValue()
+            for _, sk in ipairs(def.skills or {}) do
+                _G.SpellbreakerCharDB.skills[sk] = 5
+            end
+        end
+        stub.world.level = SB.Data.GetRealm().maxLevel or 25
+        SB.PlayerModel.SetMastery(SB.Data.GetMaxMastery())
+
+        local overModel, overDamage, tightest = {}, {}, 1e9
+        for id, spell in pairs(SB.Data.Spells) do
+            if spell.canCrit and not spell.isContainer and spell.class ~= "Эффект" then
+                local slot = spell.level or 0
+                local realMod = SB.Logic.GetModifierBreakdown("attack",
+                                    { spell = spell, slotLevel = slot })
+                              + SB.Logic.GetSpellScaling(spell, "hit")
+                local capMod = SB.Logic.MaxPlausibleAttackMod(spell)
+                if realMod > capMod then overModel[#overModel + 1] = id end
+                if capMod - realMod < tightest then tightest = capMod - realMod end
+
+                local realDmg = SB.Logic.GetSpellScaling(spell, "damage", slot)
+                local _, capDmg = SB.Logic.MaxPlausibleDamage(spell, slot)
+                if realDmg > capDmg then overDamage[#overDamage + 1] = id end
+            end
+        end
+        table.sort(overModel); table.sort(overDamage)
+        check("заклинаний, где честный максимум выше потолка модификатора",
+              #overModel, 0)
+        if #overModel > 0 then print("          " .. table.concat(overModel, ", ")) end
+        check("то же по урону", #overDamage, 0)
+        if #overDamage > 0 then print("          " .. table.concat(overDamage, ", ")) end
+
+        -- И ПОТОЛОК НЕ ДОЛЖЕН БЫТЬ ДЕКОРАЦИЕЙ. Слишком щедрый пропускает
+        -- ту самую накрутку, ради которой заведён: замер до подгонки
+        -- давал запас в 108 при настоящем максимуме в 42, то есть «+100»
+        -- проходило насквозь.
+        checkTrue("но и не вчетверо выше честного максимума", tightest < 60)
+
+        _G.SpellbreakerCharDB.attributes = savedAttr
+        _G.SpellbreakerCharDB.skills     = savedSkill
+        stub.world.level = savedLevel
+        SB.PlayerModel.RefreshMastery()
+    end
+
+    -- ── СУЩЕСТВО ПОД ПОТОЛКИ НЕ ПОДПАДАЕТ ──────────────────────────
+    --
+    -- Потолок считается от предела вложения ИГРОКА (пять очков), а у
+    -- существа предела нет: рейдовому боссу Ведущий ставит хоть
+    -- девяносто девять, ради того цифры и открыты. Пакет от лица
+    -- существа принимается только от лидера, то есть от того, кто эти
+    -- цифры и назначил.
+    local b6, d6, note6 = V(sp, 1, 500, 500, true)
+    check("база существа не тронута", b6, 500)
+    check("и скейлинг тоже", d6, 500)
+    checkTrue("претензии нет", note6 == nil)
+
+    local t7, n7 = SB.Logic.VerifyIncomingCast("Босс", "t_ac", 50, 500, 550, 1, true)
+    checkTrue("модификатор существа не зажат", n7 == nil)
+    check("итог оставлен как есть", t7, 550)
+
+    SB.Data.PlayersStatus = savedStatus
+end
+
+-- ============================================================
+-- РЕЙД ПОД НАГРУЗКОЙ: ЧТО ПРИЛЕТАЕТ В ОДИН КАДР
+--
+-- Аддон разбирает входящие пачками по восемь через таймер — ровно
+-- затем, чтобы четыреста пакетов от тридцати клиентов не выполнились
+-- синхронно в одном обработчике и не подвесили интерфейс.
+--
+-- Но часть команд объявлена СРОЧНОЙ и очередь обходит (IMMEDIATE_ACTIONS),
+-- и среди них те, что в рейде приходят самыми крупными пачками: отметка
+-- хода уходит на каждое действие каждого из тридцати, ответы на
+-- площадной залп прилетают заклинателю все разом, состояние существ
+-- рассылается по тушке за раз.
+--
+-- Меряем, а не рассуждаем: гоним рейдовый круг и смотрим, сколько
+-- разошлось прямо в кадре, сколько встало в очередь и сколько потерялось.
+-- ============================================================
+do
+    local handler = SB.Net.__commHandler
+    local prefix  = SB.Net.__commPrefix
+    checkTrue("обработчик входящих доступен", type(handler) == "function")
+
+    local realDeserialize = SB.Net.Deserialize
+    SB.Net.Deserialize = function(_, m) return true, m end
+
+    local savedGroup = stub.world.inGroup
+    local savedRaid  = stub.world.inRaid
+    stub.world.inGroup = true
+    stub.world.inRaid  = true
+
+    -- Считаем, что успел сделать разбор: сколько раз дёрнулись самые
+    -- дорогие подписки. Именно они и составляют «подвисание».
+    local redraws = 0
+    SB.Events.On(SB.E.PLAYERS_STATUS_UPDATED, function() redraws = redraws + 1 end)
+
+    local RAID = 30
+
+    --- Один «круг»: каждый из тридцати сделал по действию.
+    --- Что при этом прилетает КАЖДОМУ клиенту:
+    ---   * отметка хода на каждое чужое действие (TURNM);
+    ---   * строка боя от каждого (LOGM);
+    ---   * статус от каждого (STATUS);
+    ---   * площадной залп от троих (AOEATK).
+    local function RaidRound()
+        for i = 1, RAID do
+            local who = "Игрок" .. i
+            handler(prefix, { action = "TURNM", round = 1, index = i,
+                              names = { who } }, "RAID", who)
+            handler(prefix, { action = "LOGM", msgs = { "строка боя " .. i } },
+                    "RAID", who)
+            handler(prefix, { action = "STATUS", class = "Маг",
+                              mastery = "Эксперт", zeal = 5, maxZeal = 8,
+                              health = 10, maxHealth = 12 }, "RAID", who)
+            if i % 10 == 0 then
+                handler(prefix, { action = "AOEATK", caster = who,
+                                  spellID = "t_aoe", roll = 50, mod = 10,
+                                  total = 60, radius = 8, slot = 1 }, "RAID", who)
+            end
+        end
+    end
+
+    -- ── СРОЧНОЕ НЕ РАЗБИРАЕТСЯ ВСЁ РАЗОМ В КАДРЕ ───────────
+    --
+    -- Замер до правки: тридцать отметок хода за круг, двадцать девять
+    -- ответов на площадной залп — все заклинателю, — и двенадцать
+    -- состояний существ при пересведении сцены. Все синхронно, в одном
+    -- кадре, мимо очереди. Это и есть та самая пачка, ради которой
+    -- батчинг заводили, только в обход него.
+    --
+    -- Заглушка держит GetTime постоянным, так что весь блок ниже
+    -- считается ОДНИМ кадром — то есть проверяется худший случай.
+    for i = 1, RAID do
+        handler(prefix, { action = "TURNM", round = 1, index = i,
+                          names = { "Игрок" .. i } }, "RAID", "Лидерсцены")
+    end
+    local queued = SB.Net.QueueLength()
+    checkTrue("бо́льшая часть отметок ушла в очередь, а не в кадр",
+              queued >= RAID - 8)
+
+    -- Ответы на залп — туда же, и очередь от этого только растёт.
+    for i = 1, 29 do
+        handler(prefix, { action = "PVPRES", attacker = UnitName("player"),
+                          target = "Игрок" .. i, defRoll = 40, defMod = 10,
+                          defTotal = 50, dmg = 2, newHealth = 8, maxHealth = 10,
+                          isAoe = true, landed = true }, "RAID", "Игрок" .. i)
+    end
+    checkTrue("ответы на залп тоже встали в очередь",
+              SB.Net.QueueLength() > queued)
+
+    -- И всё это разгребается без потерь.
+    for _ = 1, 80 do stub.RunTimers() end
+    check("очередь разобрана", SB.Net.QueueLength(), 0)
+    check("срочное не выброшено", SB.Net.QueueDropped(), 0)
+
+    -- ── ОДИН КРУГ ───────────────────────────────────────────────────
+    redraws = 0
+    RaidRound()
+    -- Всё, что осталось в очереди, разбирается таймерами.
+    for _ = 1, 40 do stub.RunTimers() end
+
+    -- ЗДЕСЬ ВАЖНО НЕ ЧИСЛО, А ТО, ЧТО ОНО ОГРАНИЧЕНО. Перерисовка
+    -- панели Ведущего — самая дорогая подписка в аддоне, и коалесцирование
+    -- заведено ровно затем, чтобы её не звали по разу на пакет.
+    checkTrue("перерисовок меньше, чем пакетов статуса",
+              redraws < RAID)
+
+    -- ── ДЕСЯТЬ КРУГОВ ПОДРЯД, БЕЗ ПЕРЕДЫШКИ ────────────────
+    -- Затяжной бой: очередь обязана разгрестись, а не переполниться.
+    -- Потолок очереди — 400, и при переполнении самые старые пакеты
+    -- ВЫБРАСЫВАЮТСЯ молча. Для статуса это не беда (придёт свежий), а
+    -- вот потерянная строка боя или выдача ресурсов не вернётся никогда.
+    for _ = 1, 10 do
+        RaidRound()
+        for _ = 1, 4 do stub.RunTimers() end
+    end
+    for _ = 1, 200 do stub.RunTimers() end
+    check("очередь разгреблась досуха", SB.Net.QueueLength and SB.Net.QueueLength() or 0, 0)
+    check("ничего не потеряно", SB.Net.QueueDropped and SB.Net.QueueDropped() or 0, 0)
+
+    SB.Net.Deserialize = realDeserialize
+    stub.world.inGroup = savedGroup
+    stub.world.inRaid  = savedRaid
+end
+
+-- ============================================================
+-- ПРЕДМЕТЫ И СУМКА
+--
+-- Предмет устроен как заклинание и лежит в той же таблице — в этом весь
+-- смысл (бросок, эффект и срок считаются одним кодом). Отличается он
+-- тремя полями, и всё ниже про то, чтобы эти три поля действительно
+-- разводили предмет с заклинанием, а не только помечали его.
+-- ============================================================
+do
+    local saved = _G.SpellbreakerCharDB.preparedItems
+    _G.SpellbreakerCharDB.preparedItems = {}
+
+    SB.Data.Spells["t_potion"] = { id = "t_potion", name = "Проверочное зелье",
+        class = "Предмет", level = 0, isItem = true, profession = "alchemy",
+        distance = 1.5, resistable = false }
+    SB.Data.Spells["t_potion2"] = { id = "t_potion2", name = "Второе зелье",
+        class = "Предмет", level = 0, isItem = true, profession = "alchemy",
+        distance = 1.5, resistable = false }
+    SB.Data.Spells["t_potion3"] = { id = "t_potion3", name = "Третье зелье",
+        class = "Предмет", level = 0, isItem = true, profession = "alchemy",
+        distance = 1.5, resistable = false }
+    SB.Data.Spells["t_potion4"] = { id = "t_potion4", name = "Четвёртое зелье",
+        class = "Предмет", level = 0, isItem = true, profession = "alchemy",
+        distance = 1.5, resistable = false }
+
+    checkTrue("зелье — предмет", SB.Items.IsItem("t_potion"))
+    checkTrue("а заклинание — нет", not SB.Items.IsItem("t_strike"))
+
+    -- ── ТРИ ЯЧЕЙКИ, И НЕ БОЛЬШЕ ────────────────────────────
+    -- Одинаково на любом ранге: носить склянки умеет кто угодно.
+    _G.SpellbreakerCharDB.configLocked = false
+    checkTrue("первое влезло",  SB.Items.Prepare("t_potion"))
+    checkTrue("второе влезло",  SB.Items.Prepare("t_potion2"))
+    checkTrue("третье влезло",  SB.Items.Prepare("t_potion3"))
+    local ok, why = SB.Items.Prepare("t_potion4")
+    checkTrue("четвёртое не влезло", not ok)
+    check("и причина названа", why, "full")
+    -- Геттер, а не константа: MAX_PREPARED теперь потолок вообще,
+    -- а ячеек у персонажа столько, сколько открыло «Ремесло».
+    check("в сумке ровно три", SB.Items.CountPrepared(), SB.Items.GetMaxPrepared())
+
+    -- Повтор не занимает второе место.
+    local ok2, why2 = SB.Items.Prepare("t_potion")
+    checkTrue("повтор отклонён", not ok2)
+    check("и это сказано", why2, "already")
+
+    -- ── СУМКА НЕ ЗАНИМАЕТ ЯЧЕЙКИ ЗАКЛИНАНИЙ ────────────────
+    -- Иначе игрок выбирал бы между «выучить заклинание» и «взять
+    -- лечилку», а это не тот выбор, ради которого разделяли.
+    check("предмет нельзя подготовить как заклинание",
+          SB.PlayerModel.PrepareSpell("t_potion4"), "is_item")
+
+    -- ── И НЕ ПОКАЗЫВАЕТСЯ В БИБЛИОТЕКЕ ЗАКЛИНАНИЙ ──────────
+    -- Круг у предмета нулевой: не отсеки мы его, он лёг бы к заговорам
+    -- родной школы.
+    checkTrue("предмет скрыт из списка заклинаний",
+              SB.Data.IsSpellBeyondPlayer(SB.Data.Spells["t_potion"]))
+
+    -- ── ЯЧЕЙКА — ЭТО ПАЧКА ─────────────────────────────────
+    -- Ячеек три, и держи каждая по одной склянке, сумка была бы
+    -- бессмысленной: три слабых зелья на всю сцену — не запас.
+    SB.Data.Spells["t_potion"].stack  = 3
+    SB.Data.Spells["t_potion2"].stack = 1
+    SB.Items.ClearPrepared()
+    SB.Items.Prepare("t_potion")
+    SB.Items.Prepare("t_potion2")
+    check("пачка взята целиком",    SB.Items.CountOf("t_potion"), 3)
+    check("а поштучное — по одной", SB.Items.CountOf("t_potion2"), 1)
+    check("ячеек занято две",       SB.Items.CountPrepared(), 2)
+
+    -- ── РАСХОДУЕТСЯ ПО ОДНОЙ ───────────────────────────────
+    SB.Items.NoteUsed("t_potion")
+    check("осталось две", SB.Items.CountOf("t_potion"), 2)
+    checkTrue("и ячейку предмет не покинул", SB.Items.IsPrepared("t_potion"))
+    check("ячеек по-прежнему две", SB.Items.CountPrepared(), 2)
+
+    -- ── КОНЧИЛСЯ — ЯЧЕЙКА ПУСТА ────────────────────────────
+    -- Держать в ячейке ноль склянок значило бы занимать одно из трёх
+    -- мест ничем.
+    SB.Items.NoteUsed("t_potion")
+    SB.Items.NoteUsed("t_potion")
+    check("склянок не осталось", SB.Items.CountOf("t_potion"), 0)
+    checkTrue("и ячейка освободилась", not SB.Items.IsPrepared("t_potion"))
+    check("занята одна", SB.Items.CountPrepared(), 1)
+
+    -- Расход не зависит от замка после каста: применяли-то уже в бою.
+    _G.SpellbreakerCharDB.configLocked = true
+    SB.Items.NoteUsed("t_potion2")
+    checkTrue("под замком тоже расходуется", not SB.Items.IsPrepared("t_potion2"))
+    _G.SpellbreakerCharDB.configLocked = false
+
+    -- ── «ВЫЛОЖИТЬ» УБИРАЕТ ПАЧКУ ЦЕЛИКОМ ───────────────────
+    -- Это не то же, что применение: выкладывают всё, тратят по одной.
+    SB.Items.ClearPrepared()
+    SB.Items.Prepare("t_potion")
+    check("взята пачка", SB.Items.CountOf("t_potion"), 3)
+    SB.Items.Unprepare("t_potion")
+    check("выложена целиком", SB.Items.CountOf("t_potion"), 0)
+
+    -- ── СТАРАЯ ЗАПИСЬ В СОХРАНЁНКЕ ЧИТАЕТСЯ ────────────────
+    -- До пачек в сумке лежали голые id. Обнулять чужую сумку ради нового
+    -- формата нельзя — она уже набрана.
+    _G.SpellbreakerCharDB.preparedItems = { "t_potion3" }
+    check("голый id понят как полная пачка",
+          SB.Items.CountOf("t_potion3"), SB.Items.StackSize("t_potion3"))
+    SB.Items.ClearPrepared()
+
+    -- ── ПРЕДМЕТ ИЗ СУМКИ ПРОХОДИТ ПРОВЕРКУ ПОДГОТОВКИ ──────
+    --
+    -- Это была прямая поломка: каст ищет заклинание среди
+    -- ПОДГОТОВЛЕННЫХ, а предмет туда не попадает никогда — ячейки у него
+    -- свои. Любое зелье отбивалось словами «вы не подготовили это
+    -- заклинание»: сумка есть, а выпить из неё нельзя.
+    do
+        local realMsg = SB.UI.PrintMsg
+        local said
+        SB.UI.PrintMsg = function(key) said = key end
+
+        SB.Items.ClearPrepared()
+        SB.Items.Prepare("t_potion")
+        SB.Logic.ConfirmCast("t_potion", 0)
+        checkTrue("зелье из сумки не отбивается как неподготовленное",
+                  said ~= "spellNotPrepared" and said ~= "itemNotInBag")
+
+        -- А вот зелья, которого в сумке нет, — отбивается, и своим
+        -- сообщением: «подготовьте заклинание» про склянку сбивает с толку.
+        --
+        -- Замок и темп сбрасываем: первый каст их взвёл, и без сброса до
+        -- проверки подготовки дело просто не дошло бы.
+        said = nil
+        _G.SpellbreakerCharDB.configLocked = false
+        if SB.Cooldowns then SB.Cooldowns.Check = function() return true end end
+        SB.Items.ClearPrepared()
+        SB.Logic.ConfirmCast("t_potion", 0)
+        check("а которого нет — отбивается по-своему", said, "itemNotInBag")
+
+        SB.UI.PrintMsg = realMsg
+        SB.Items.ClearPrepared()
+    end
+
+    -- ── ЗЕЛЬЕ И ПРАВДА ДЕЙСТВУЕТ ───────────────────────────
+    --
+    -- Это главная проверка всей алхимии. Бонусы у авторов стояли ТЕКСТОМ
+    -- в описании, то есть зелье не делало ничего: карточка обещала «+25
+    -- брони», а движок не знал об этом ничего. Числа собраны разбором
+    -- тех же описаний — и обязаны доехать до персонажа.
+    do
+        ResetEffects()
+        SB.Data.Spells["t_eff_armor"] = { id = "t_eff_armor", name = "Проба брони",
+            class = "Эффект", level = 0, isContainer = true, duration = 5,
+            effect = { kind = "buff", mods = { armor = 25 }, stats = { ["Воля"] = 2 } } }
+        SB.Data.Spells["t_pot_armor"] = { id = "t_pot_armor", name = "Зелье пробы",
+            class = "Предмет", level = 0, isItem = true, profession = "alchemy",
+            distance = 1.5, resistable = false, stack = 2, buff = "t_eff_armor" }
+
+        local willBefore  = SB.Skills.GetEffective("Воля")
+        local armorBefore = SB.Skills.GetArmorMax()
+
+        SB.ActiveEffects.Add("t_eff_armor", 5, false)
+        checkTrue("эффект зелья повесился", UsesOf("t_eff_armor") ~= nil)
+        check("и броня выросла ровно на заявленное",
+              SB.Skills.GetArmorMax(), armorBefore + 25)
+        check("и навык — тоже", SB.Skills.GetEffective("Воля"), willBefore + 2)
+
+        SB.ActiveEffects.Remove("t_eff_armor", true)
+        check("сняли — броня вернулась", SB.Skills.GetArmorMax(), armorBefore)
+        ResetEffects()
+    end
+
+    -- ── ЗАВЕЗЁННЫЕ ЗЕЛЬЯ НЕ ПУСТЫШКИ ───────────────────────
+    -- Живыми данными: если разбор описаний однажды перестанет работать,
+    -- зелья тихо превратятся обратно в декорацию.
+    do
+        local withEffect, working = 0, 0
+        for _, sp in ipairs(SB.Items.ListByProfession("alchemy")) do
+            local e = sp.buff and SB.Data.Spells[sp.buff]
+            if e then
+                withEffect = withEffect + 1
+                local d = e.effect
+                if d and (next(d.mods or {}) or next(d.stats or {}) or next(d.tick or {})) then
+                    working = working + 1
+                end
+            end
+        end
+        checkTrue("зелий с эффектом много", withEffect > 40)
+        -- Часть эффектов чисто описательная («дышит чем угодно») — у них
+        -- чисел нет и не должно быть. Но большинство обязано работать.
+        checkTrue("и большинство из них действительно что-то делает",
+                  working >= withEffect * 0.7)
+    end
+
+    -- МАРШРУТИЗАЦИЯ БРОСКА (SB.UI.RouteDroppedSpell) здесь не
+    -- проверяется: она живёт в UI/Items.lua, а стенд грузит только Core и
+    -- Spells. Правило, которое она применяет, — «решает сама вещь, а не
+    -- точка броска» — держится на SB.Items.IsItem, и та проверена выше.
+
+    -- ── ВЫПИТОЕ ЗЕЛЬЕ ВОСПОЛНЯЕТ СРАЗУ ─────────────────────
+    --
+    -- Лечебное зелье, зелье маны и зелье ярости обещают в описании
+    -- мгновенное восполнение. Раньше это была только надпись: у предмета
+    -- не было блока onCast, и выпитая склянка не двигала ни одной цифры.
+    do
+        ResetEffects()
+        _G.SpellbreakerCharDB.configLocked = false
+
+        SB.Data.Spells["t_pot_heal"] = { id = "t_pot_heal", name = "Проба лечения",
+            class = "Предмет", level = 0, isItem = true, profession = "alchemy",
+            distance = 1.5, resistable = false, stack = 1,
+            onCast = { heal = 3 } }
+
+        local PM = SB.PlayerModel
+        PM.GrantHealth(-5)
+        local before = PM.GetHealth()
+
+        SB.ActiveEffects.ApplyPayload("t_pot_heal", SB.Data.Spells["t_pot_heal"].onCast)
+        check("выпитое лечит ровно на заявленное", PM.GetHealth(), before + 3)
+
+        -- Пул: у кастера мана, у некастера свой ресурс. Канал mana
+        -- некастеру ничего не даёт, и это не ошибка — «Воду маны» может
+        -- выпить и Воин, для него это пустышка.
+        SB.Data.Spells["t_pot_mana"] = { id = "t_pot_mana", name = "Проба маны",
+            class = "Предмет", level = 0, isItem = true, profession = "alchemy",
+            distance = 1.5, resistable = false, stack = 1,
+            onCast = { mana = 4 } }
+        _G.SpellbreakerCharDB.zeal = 0
+        local manaBefore = PM.GetPool("mana")
+        SB.ActiveEffects.ApplyPayload("t_pot_mana", SB.Data.Spells["t_pot_mana"].onCast)
+        checkTrue("зелье маны двигает пул маны", PM.GetPool("mana") >= manaBefore)
+
+        ResetEffects()
+    end
+
+    -- ── У ЗАВЕЗЁННЫХ ЗЕЛИЙ ВОСПОЛНЕНИЕ НА МЕСТЕ ────────────
+    -- Живыми данными: числа взяты из описаний, и если разбор однажды
+    -- отвалится, лечебные зелья тихо перестанут лечить.
+    do
+        local withOnCast, healers = 0, 0
+        for _, sp in ipairs(SB.Items.ListByProfession("alchemy")) do
+            if sp.onCast and next(sp.onCast) then
+                withOnCast = withOnCast + 1
+                -- Каждое число обязано быть положительным: onCast с нулём
+                -- или минусом означал бы зелье, которое вредит молча.
+                for k, v in pairs(sp.onCast) do
+                    checkTrue("«" .. (sp.name or "?") .. "»: " .. k .. " положителен",
+                              type(v) == "number" and v > 0)
+                end
+                if sp.onCast.heal then healers = healers + 1 end
+            end
+        end
+        checkTrue("зелий с мгновенным восполнением хватает", withOnCast >= 15)
+        checkTrue("и лечебные среди них есть", healers >= 5)
+    end
+
+    -- ── СКЛЯНКА БЕЗ ЦЕЛИ — ВЫПИТА САМИМ ────────────────────
+    --
+    -- Это была прямая поломка, и тихая. Зелье объявлено с дальностью
+    -- ближнего боя (выпить самому или подойти и напоить), и без таргета
+    -- вся маршрутизация читала эту дальность как «промахнулся мимо
+    -- союзника»: склянка расходовалась, в лог шло «эффект -> цель
+    -- Ведущего», а на выпившем не оказывалось ничего.
+    --
+    -- Для ЗАКЛИНАНИЯ то правило верное и остаётся: «Могущество» с
+    -- дальностью 1.5 м не про себя, и молча превращать промах в самобафф
+    -- нельзя. У предмета наоборот — склянка уже в руке.
+    do
+        ResetEffects()
+        _G.SpellbreakerCharDB.configLocked = false
+        if SB.Cooldowns then SB.Cooldowns.Check = function() return true end end
+
+        local savedTarget = stub.world.units["target"]
+
+        SB.Data.Spells["t_eff_self"] = { id = "t_eff_self", name = "Проба самокаста",
+            class = "Эффект", level = 0, isContainer = true, duration = 4,
+            resistable = false, effect = { kind = "buff" } }
+        SB.Data.Spells["t_pot_self"] = { id = "t_pot_self", name = "Зелье самокаста",
+            class = "Предмет", level = 0, isItem = true, profession = "alchemy",
+            distance = 1.5, resistable = false, stack = 5, buff = "t_eff_self" }
+        -- Заклинание-близнец: те же поля, кроме isItem. Оно и есть
+        -- контроль — без него проверка ниже доказывала бы только то, что
+        -- «на себя ложится всё подряд».
+        SB.Data.Spells["t_spell_self"] = { id = "t_spell_self", name = "Проба не-предмета",
+            class = "Жрец", level = 0, distance = 1.5, resistable = false,
+            buff = "t_eff_self" }
+
+        -- ЦЕЛИ НЕТ.
+        stub.world.units["target"] = nil
+        local effID, onSelf = SB.Logic.GetTargetedEffect(SB.Data.Spells["t_pot_self"])
+        check("зелье без цели наводится на себя", effID, "t_eff_self")
+        checkTrue("и именно на себя", onSelf == true)
+
+        local sEff = SB.Logic.GetTargetedEffect(SB.Data.Spells["t_spell_self"])
+        checkTrue("а заклинание без цели по-прежнему уходит Ведущему",
+                  sEff == nil)
+
+        -- И доезжает до персонажа целиком, общим путём каста.
+        SB.Items.ClearPrepared()
+        SB.Items.Prepare("t_pot_self")
+        SB.Logic.ConfirmCast("t_pot_self", 0)
+        checkTrue("выпитое без цели легло на выпившего",
+                  UsesOf("t_eff_self") ~= nil)
+        check("и склянка при этом потрачена ровно одна",
+              SB.Items.CountOf("t_pot_self"), 4)
+
+        -- ── «ПРИМЕНИТЬ НА СЕБЯ» ПРИ ВЫБРАННОМ СОЮЗНИКЕ ─────
+        --
+        -- Пункт меню обязан значить то, что написано. Раньше оба пункта
+        -- («на себя» и «поделиться») звали ConfirmCast одинаково, и при
+        -- выбранном союзнике «на себя» отправляло зелье ему.
+        ResetEffects()
+        _G.SpellbreakerCharDB.configLocked = false
+        stub.world.units["target"] = { name = "Ирина", level = 25,
+            class = "Жрец", classToken = "PRIEST", pos = { 100, 100, 1 } }
+
+        local sent = 0
+        local realSendBuff = SB.Net.SendBuff
+        SB.Net.SendBuff = function() sent = sent + 1 end
+
+        SB.Logic.ConfirmCast("t_pot_self", 0, { onSelf = true })
+        checkTrue("«на себя» при выбранном союзнике легло на себя",
+                  UsesOf("t_eff_self") ~= nil)
+        check("и союзнику ничего не ушло", sent, 0)
+
+        -- А «поделиться» — то же зелье, тот же таргет, но без onSelf —
+        -- обязано уйти по сети. Иначе первая проверка проходила бы
+        -- просто потому, что доставка сломана целиком.
+        ResetEffects()
+        _G.SpellbreakerCharDB.configLocked = false
+        SB.Logic.ConfirmCast("t_pot_self", 0)
+        check("а «поделиться» доезжает до союзника", sent, 1)
+        checkTrue("и на самого выпившего не ложится",
+                  UsesOf("t_eff_self") == nil)
+
+        SB.Net.SendBuff = realSendBuff
+
+        -- ── ДАЛЬНЯЯ ЦЕЛЬ НЕ ЗАПРЕЩАЕТ ВЫПИТЬ СВОЁ ──────────
+        --
+        -- Проверки цели (дальность, видимость, общая группа) считают
+        -- расстояние до таргета. Объявленный самокаст цели не имеет
+        -- вовсе, и мерить до неё нечего: иначе выбранный на другом конце
+        -- зала союзник отбивал бы глоток словами «цель вне
+        -- досягаемости».
+        ResetEffects()
+        _G.SpellbreakerCharDB.configLocked = false
+        -- Обе позиции задаём явно: расстояние меряется по ним, а без
+        -- своей точки проверка дальности молча пропускает всё.
+        local savedPPos = stub.world.playerPos
+        stub.world.playerPos = { 100, 100, 1 }
+        stub.world.units["target"].pos = { 100, 160, 1 }   -- 60 ярдов
+        checkTrue("дальняя цель запрещает поделиться",
+                  not SB.Logic.CanCastNow(SB.Data.Spells["t_pot_self"]))
+        checkTrue("но не запрещает выпить самому",
+                  SB.Logic.CanCastNow(SB.Data.Spells["t_pot_self"], true))
+
+        -- ── ТА ЖЕ РАЗВИЛКА, ВТОРАЯ ПОЛОВИНА ───────────────
+        --
+        -- Зелье с пометкой isHeal (а такие приезжают в кастомных данных)
+        -- до GetTargetedEffect не доходит вовсе: лечащий каст выведен
+        -- оттуда своей веткой. Оно идёт «без сопротивления» и вешает
+        -- эффект через ApplyBuffToTarget — вторую половину того же
+        -- правила. Пока её не правили, эта дорога вела ровно туда же,
+        -- откуда пришли: «эффект -> цель Ведущего», на игроке пусто.
+        ResetEffects()
+        _G.SpellbreakerCharDB.configLocked = false
+        stub.world.playerPos = savedPPos
+        stub.world.units["target"] = nil
+        SB.Data.Spells["t_pot_healself"] = { id = "t_pot_healself",
+            name = "Лечебное зелье пробы", class = "Предмет", level = 0,
+            isItem = true, profession = "alchemy", distance = 1.5,
+            resistable = false, stack = 1, isHeal = true, buff = "t_eff_self" }
+        SB.Items.ClearPrepared()
+        SB.Items.Prepare("t_pot_healself")
+        SB.Logic.ConfirmCast("t_pot_healself", 0)
+        checkTrue("лечебное зелье без цели тоже ложится на выпившего",
+                  UsesOf("t_eff_self") ~= nil)
+
+        stub.world.playerPos = savedPPos
+        stub.world.units["target"] = savedTarget
+        SB.Items.ClearPrepared()
+        ResetEffects()
+    end
+
+    -- ── ЗАВЕЗЁННАЯ АЛХИМИЯ ───────────────────────────────────────────────────────────────────────────
+    -- Живыми данными: перенос из чужих сохранёнок мог потерять поля.
+    local alch = SB.Items.ListByProfession("alchemy")
+    checkTrue("зелья завезены", #alch > 50)
+    local badDist, badEff = {}, {}
+    for _, sp in ipairs(alch) do
+        -- Дальность ближнего боя: выпить самому или подойти и напоить.
+        if (tonumber(sp.distance) or 0) <= 0
+           or sp.distance > (SB.Logic.MELEE_RANGE or 1.5) then
+            badDist[#badDist + 1] = sp.name or sp.id
+        end
+        -- Эффект, на который ссылается зелье, обязан существовать: иначе
+        -- выпитое зелье не делает ничего и молча.
+        if sp.buff and not SB.Data.Spells[sp.buff] then
+            badEff[#badEff + 1] = sp.name or sp.id
+        end
+    end
+    check("зелий не в ближнем бою", #badDist, 0)
+    if #badDist > 0 then print("          " .. table.concat(badDist, ", ")) end
+    check("зелий с потерянным эффектом", #badEff, 0)
+    if #badEff > 0 then print("          " .. table.concat(badEff, ", ")) end
+
+    _G.SpellbreakerCharDB.preparedItems = saved
+end
+
+-- ============================================================
 -- ПОДСКАЗКИ И ПОДПИСИ
 --
 -- Половина строк в подсказках — ФУНКЦИИ: они собираются из Config в
@@ -2249,6 +4881,41 @@ do
         local key = SB.Logic.GetResourceTooltipKey(cn)
         checkTrue("подсказка ресурса для «" .. cn .. "»",
             SB.Data.Tooltips[key] ~= nil)
+    end
+
+    -- ── ПОДСКАЗКА НЕ ДЛИННЕЕ ЧЕТЫРЁХ СТРОК ─────────────────
+    --
+    -- Правило кажется косметическим, но держит оно вещь несмешную:
+    -- подсказку читают наведением мышью, на весу, и всё, что не помещается
+    -- в четыре строки, не читается вовсе — человек закрывает её и идёт
+    -- спрашивать в чат. Расползаются они сами: каждая отдельная правка
+    -- добавляет одну строку и каждая по-своему права.
+    --
+    -- Пустые строки-отбивки не в счёт: они разделяют, а не рассказывают.
+    local MAX_TIP_LINES = 4
+    local fatTips = {}
+    for key, tip in pairs(SB.Data.Tooltips or {}) do
+        local n = 0
+        for _, line in ipairs(tip.lines or {}) do
+            if type(line) == "function" then
+                local ok, res = pcall(line)
+                line = ok and res or ""
+            end
+            if type(line) == "string" and line:gsub("%s", "") ~= "" then
+                n = n + 1
+            end
+        end
+        if n > MAX_TIP_LINES then
+            fatTips[#fatTips + 1] = ("%s: %d строк"):format(key, n)
+        end
+    end
+    table.sort(fatTips)
+    if #fatTips > 0 then
+        failed = failed + 1
+        print("ПРОВАЛ    подсказки длиннее " .. MAX_TIP_LINES .. " строк:")
+        for _, line in ipairs(fatTips) do print("          " .. line) end
+    else
+        passed = passed + 1
     end
 end
 
@@ -2335,6 +5002,130 @@ do
 end
 
 -- ============================================================
+-- ТИПЫ УРОНА
+--
+-- Семь школ классического Warcraft. Тип пока ничего не считает — он
+-- подпись на карточке, — но подпись эта раздана руками по всей
+-- библиотеке, а всё, что раздано руками, разъезжается.
+--
+-- Проверяем три вещи, и все три ловят разные поломки: реестр цел,
+-- раздача полна и не содержит опечаток, строка урона и правда красится.
+-- ============================================================
+do
+    local DT = SB.Data.DamageTypes
+
+    -- ── РЕЕСТР ЦЕЛ ──────────────────────────────────────────
+    -- Обход по ключам, а по алфавиту — только для вывода: порядок школ
+    -- на экране нигде не показывается, и заводить его ради одной
+    -- отсортированной строки в прогоне значило бы держать в аддоне
+    -- таблицу, которую сам аддон не читает.
+    local ids = {}
+    for id in pairs(DT) do ids[#ids + 1] = id end
+    table.sort(ids)
+
+    check("школ ровно семь", #ids, 7)
+    for _, id in ipairs(ids) do
+        -- id внутри записи обязан совпадать с ключом: по нему эффект
+        -- когда-нибудь будет искать сопротивление, и запись, которая
+        -- зовёт себя иначе, чем лежит, найдётся не та.
+        check("id внутри записи " .. id .. " совпадает с ключом", DT[id].id, id)
+        checkTrue("у типа " .. id .. " есть имя",
+                  type(DT[id].name) == "string" and #DT[id].name > 0)
+        -- Цвет — ровно восемь шестнадцатеричных цифр: сколько их берёт
+        -- |c-код в игре. Семь или девять клиент читает молча и криво,
+        -- утаскивая в цвет кусок следующего текста.
+        checkTrue("цвет типа " .. id .. " — 8 шестнадцатеричных цифр",
+                  type(DT[id].color) == "string"
+                  and DT[id].color:match("^%x%x%x%x%x%x%x%x$") ~= nil)
+    end
+
+    -- ── РАЗДАЧА ПОЛНА ───────────────────────────────────────
+    -- Живыми данными: атакующая способность без типа — это дыра в
+    -- раздаче, а с чужим типом — опечатка, и молча не видно ни того,
+    -- ни другого.
+    local noType, badType = {}, {}
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] and sp.canCrit and not sp.isContainer then
+            if not sp.damageType then
+                noType[#noType + 1] = sp.name or id
+            elseif not DT[sp.damageType] then
+                badType[#badType + 1] = (sp.name or id) .. "=" .. sp.damageType
+            end
+        end
+    end
+    check("атакующих способностей без типа урона", #noType, 0)
+    if #noType > 0 then print("          " .. table.concat(noType, ", ")) end
+    check("способностей с несуществующим типом", #badType, 0)
+    if #badType > 0 then print("          " .. table.concat(badType, ", ")) end
+
+    -- Тип есть у КАЖДОЙ школы, а не «все физические». Раздача, где
+    -- половина библиотеки свалена в один тип, прошла бы проверку выше
+    -- и не значила бы ничего.
+    local used = {}
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] and sp.damageType then
+            used[sp.damageType] = (used[sp.damageType] or 0) + 1
+        end
+    end
+    for _, id in ipairs(ids) do
+        checkTrue("тип «" .. DT[id].name .. "» кому-то раздан", (used[id] or 0) > 0)
+    end
+
+    -- ── СТРОКА УРОНА КРАСИТСЯ ───────────────────────────────
+    SB.Data.Spells["t_dmgtype"] = { id = "t_dmgtype", name = "Проверочный тип",
+        class = "Маг", level = 1, canCrit = true, distance = 18,
+        damageType = "shadow", scaling = { damage = { ["Сила"] = 1 } } }
+    -- Близнец без типа: он и есть доказательство, что красит именно
+    -- тип, а не «строка урона красится всегда».
+    SB.Data.Spells["t_dmgplain"] = { id = "t_dmgplain", name = "Проверочный без типа",
+        class = "Маг", level = 1, canCrit = true, distance = 18,
+        scaling = { damage = { ["Сила"] = 1 } } }
+
+    local function DamageLine(spellID)
+        for _, line in ipairs(SB.Logic.GetSpellScalingLines(SB.Data.Spells[spellID])) do
+            if line:find("Урон:", 1, true) then return line end
+        end
+    end
+
+    local colored = DamageLine("t_dmgtype")
+    checkTrue("строка урона есть", colored ~= nil)
+    checkTrue("в ней цвет своего типа",
+              colored ~= nil and colored:find("|c" .. DT.shadow.color, 1, true) ~= nil)
+    checkTrue("и название типа словом",
+              colored ~= nil and colored:find(DT.shadow.name, 1, true) ~= nil)
+    -- Число никуда не делось: подпись добавлена К нему, а не вместо.
+    checkTrue("число урона на месте",
+              colored ~= nil and colored:find("|c" .. DT.shadow.color .. "%d") ~= nil)
+
+    local plain = DamageLine("t_dmgplain")
+    checkTrue("у заклинания без типа строка урона тоже есть", plain ~= nil)
+    checkTrue("но без цвета типа и без подписи",
+              plain ~= nil and plain:find(" — ", 1, true) == nil)
+
+    -- ЛЕЧЕНИЕ ТИПА НЕ ПОЛУЧАЕТ. Тип урона у лечения — это оксюморон, и
+    -- покрасить строку «Лечение» значило бы объявить, каким уроном оно
+    -- лечит.
+    SB.Data.Spells["t_dmgheal"] = { id = "t_dmgheal", name = "Проверочное лечение",
+        class = "Маг", level = 1, isHeal = true, distance = 18,
+        damageType = "shadow", scaling = { damage = { ["Сила"] = 1 } } }
+    local healLine
+    for _, line in ipairs(SB.Logic.GetSpellScalingLines(SB.Data.Spells["t_dmgheal"])) do
+        if line:find("Лечение:", 1, true) then healLine = line end
+    end
+    checkTrue("строка лечения есть", healLine ~= nil)
+    checkTrue("и она не покрашена типом урона",
+              healLine ~= nil and healLine:find(DT.shadow.color, 1, true) == nil)
+
+    -- Раскладка по типам в вывод прогона: раздача правится руками, и
+    -- перекос в ней виднее числом, чем чтением четырнадцати файлов.
+    local report = {}
+    for _, id in ipairs(ids) do
+        report[#report + 1] = ("%s %d"):format(DT[id].name, used[id] or 0)
+    end
+    print("[типы урона] " .. table.concat(report, "; "))
+end
+
+-- ============================================================
 -- ОГРАНИЧЕНИЯ РЕАЛМА
 --
 -- Заглушка живёт на Origins («Aviana - Origins», кап 25, три ранга), и
@@ -2363,10 +5154,46 @@ checkTrue("паладин скрыт от не-паладина",
     SB.Data.IsClassHiddenForPlayer("Паладин"))
 check("друид открыт всем", SB.Data.IsClassHiddenForPlayer("Друид"), false)
 do
+    -- СПИСОК КЛАССОВ ПОЛНЫЙ, на обоих реалмах. Он отвечает на вопрос
+    -- «какие книги показать», а не «какие классы тебе выданы»: на
+    -- второй по-прежнему отвечает IsClassHiddenForPlayer выше, и
+    -- ответы у них теперь РАЗНЫЕ — в этом весь смысл правки.
     local visible = {}
     for _, cn in ipairs(SB.Data.GetVisibleClasses()) do visible[cn] = true end
-    checkTrue("друид есть в списке классов",   visible["Друид"] == true)
-    checkTrue("паладина в списке классов нет", visible["Паладин"] == nil)
+    checkTrue("друид есть в списке классов",  visible["Друид"] == true)
+    checkTrue("и паладин тоже есть",          visible["Паладин"] == true)
+    check("в списке ровно столько классов, сколько их в игре",
+          #SB.Data.GetVisibleClasses(), #SB.Data.Classes)
+
+    -- ── ВКЛАДКИ БИБЛИОТЕКИ НИКОГО НЕ ТЕРЯЮТ ────────────────
+    --
+    -- Отбор стоял ДВАЖДЫ: реалмовый в GetVisibleClasses (снят выше) и
+    -- ранговый прямо в ModeSections. Снять первый и забыть про второй —
+    -- значит не изменить ничего: у жреца как была одна вкладка, так и
+    -- осталась бы.
+    --
+    -- ПО ИСХОДНИКУ: UI прогон не грузит вовсе (там вёрстка, и заглушка
+    -- отвечала бы сама себе). Проверяем то единственное, что здесь
+    -- вообще можно проверить, — что неоткрытые школы дописываются в
+    -- список, а не отбрасываются.
+    do
+        local src = ReadFile("UI/Library.lua")
+        local body = src:match("local function ModeSections%(%)(.-)" ..
+                               string.char(10) .. "end")
+        checkTrue("ModeSections нашлась", body ~= nil and #body > 0)
+        if body then
+            -- Ищем САМУ ДОПИСКУ, а не упоминание переменной: строка
+            -- «local _ = locked» тоже содержит слово «locked» и
+            -- удовлетворила бы мягкой проверке, ничего не дописав.
+            checkTrue("неоткрытые школы дописываются в список",
+                      body:find("for _, cn in ipairs(locked) do", 1, true) ~= nil)
+            -- Прежний односторонний отбор: добавлял только открытые и
+            -- молча терял остальные.
+            checkTrue("и односторонний отбор не вернулся",
+                      body:find("if PM.GetClassRank(cn) then out[#out + 1] = cn end",
+                                1, true) == nil)
+        end
+    end
 end
 
 -- ============================================================
@@ -2662,6 +5489,2917 @@ do
 
     SB.Events.Off(SB.E.BROADCAST_LOG, listener)
     SB.TurnOrder.Stop()
+    _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
+end
+
+-- ============================================================
+-- ПРОВЕРКА НАВЫКА СЧИТАЕТ И ЕГО АТРИБУТ
+--
+--     бросок + мод. НАВЫКА + мод. АТРИБУТА + бонус за уровень
+--
+-- Пока считался только навык, вложенная в Силу пятёрка не значила для
+-- «Ношения брони» ровно ничего, если само «Ношение брони» не тронуто:
+-- половина листа персонажа не работала, пока не оплачена вторая.
+-- ============================================================
+do
+    local savedAttrs = _G.SpellbreakerCharDB.attributes
+    local savedSkills = _G.SpellbreakerCharDB.skills
+    ResetEffects()
+
+    -- ── АТРИБУТ РАБОТАЕТ БЕЗ НАВЫКА ─────────────────────────
+    _G.SpellbreakerCharDB.attributes = { ["Сила"] = 5 }
+    _G.SpellbreakerCharDB.skills     = {}
+
+    local attrOnly = SB.Attributes.GetModifier("Сила")
+    checkTrue("вложенная Сила даёт модификатор", attrOnly > 0)
+
+    local total, skillMod, attrMod = SB.Skills.GetCheckModifier("Ношение брони")
+    check("нетронутый навык сам по себе не даёт ничего", skillMod, 0)
+    check("но атрибут-родитель даёт", attrMod, attrOnly)
+    check("и это весь модификатор проверки", total, attrOnly)
+
+    -- ── И СКЛАДЫВАЮТСЯ ──────────────────────────────────────
+    SB.Skills.Set("Ношение брони", 5)
+    local both, bSkill, bAttr = SB.Skills.GetCheckModifier("Ношение брони")
+    checkTrue("вложенный навык даёт своё", bSkill > 0)
+    check("атрибут при этом никуда не делся", bAttr, attrOnly)
+    check("модификатор проверки — их сумма", both, bSkill + bAttr)
+
+    -- ── У АТРИБУТА РОДИТЕЛЯ НЕТ ─────────────────────────────
+    -- Иначе проверка Силы считала бы Силу дважды.
+    local aTotal, aSelf, aParent = SB.Skills.GetCheckModifier("Сила")
+    check("у атрибута нет родителя", aParent, 0)
+    check("и его проверка — это он сам", aTotal, aSelf)
+    check("ровно тот же модификатор", aTotal, attrOnly)
+
+    -- ── БРОСОК СКЛАДЫВАЕТ ВСЁ ТРИ СЛАГАЕМЫХ ─────────────────
+    if SB.Cooldowns then SB.Cooldowns.Check = function() return true end end
+    local rolled, roll, mod = SB.Logic.RollCheck("Ношение брони")
+    check("итог = бросок + модификатор", rolled, roll + mod)
+    check("а модификатор = навык + атрибут + уровень",
+          mod, both + SB.PlayerModel.GetLevelModifier())
+
+    -- ── СТРОКА ОБЪЯСНЯЕТ СОСТАВНОЙ МОДИФИКАТОР ──────────────
+    --
+    -- Проверка складывает три слагаемых, и без разбивки игрок видит
+    -- число, которое не сходится ни с одной цифрой в его листе.
+    do
+        local seen
+        local listener = function(t) seen = t end
+        SB.Events.On(SB.E.BROADCAST_LOG, listener)
+
+        stub.world.time = stub.world.time + 30
+        SB.Logic.RollCheck("Ношение брони")
+        checkTrue("строка проверки ушла в лог", seen ~= nil)
+        checkTrue("в ней назван сам навык",
+                  seen ~= nil and seen:find("Ношение брони +", 1, true) ~= nil)
+        checkTrue("и его атрибут",
+                  seen ~= nil and seen:find("Сила +", 1, true) ~= nil)
+
+        -- А у нетронутого навыка слагаемое одно, и скобки не нужны.
+        _G.SpellbreakerCharDB.skills     = {}
+        _G.SpellbreakerCharDB.attributes = {}
+        seen = nil
+        stub.world.time = stub.world.time + 30
+        SB.Logic.RollCheck("Ношение брони")
+        checkTrue("у пустого навыка разбивки нет",
+                  seen ~= nil and seen:find(" (", 1, true) == nil)
+
+        SB.Events.Off(SB.E.BROADCAST_LOG, listener)
+        _G.SpellbreakerCharDB.attributes = { ["Сила"] = 5 }
+        SB.Skills.Set("Ношение брони", 5)
+    end
+
+    -- ── ЗАКЛИНАНИЯ ЭТА СХЕМА НЕ КАСАЕТСЯ ────────────────────
+    --
+    -- У них свой скейлинг: автор перечисляет характеристики и их вес
+    -- сам. Подмешать туда родителя значило бы молча удвоить прибавку у
+    -- каждого заклинания, которое скейлится от навыка и его атрибута
+    -- сразу, — а таких в библиотеке большинство.
+    SB.Data.Spells["t_chk_spell"] = { id = "t_chk_spell", name = "Проба скейлинга",
+        class = "Маг", level = 1, canCrit = true, distance = 18,
+        scaling = { hit = { ["Ношение брони"] = 1 } } }
+    local before = SB.Logic.GetSpellScaling(SB.Data.Spells["t_chk_spell"], "hit")
+    _G.SpellbreakerCharDB.attributes = { ["Сила"] = 1 }   -- обвалили атрибут
+    local after = SB.Logic.GetSpellScaling(SB.Data.Spells["t_chk_spell"], "hit")
+    check("скейлинг заклинания на атрибут-родитель не смотрит", after, before)
+
+    _G.SpellbreakerCharDB.skills     = savedSkills
+    _G.SpellbreakerCharDB.attributes = savedAttrs
+    ResetEffects()
+end
+
+-- ============================================================
+-- АВТОПРОПУСК НЕ ОБЪЯВЛЯЕТ ТОГО, ЧЕГО НЕ СДЕЛАЛ
+--
+-- Пропуск упирался в шесть секунд общего темпа, молча возвращался, а
+-- сообщение «ход пропущен» печаталось всё равно. Игрок читал, что ход
+-- ушёл, и оставался с открытым ходом, которым не мог воспользоваться:
+-- действовать не давал предел, а пропуск «уже случился».
+-- ============================================================
+do
+    local me = stub.world.playerName
+    ResetEffects()
+    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = 1,
+        index = 1, slots = { { me } }, acted = {} })
+    _G.SpellbreakerCharDB.moveDistance = SB.Movement.GetCap()
+    _G.SpellbreakerCharDB.health = SB.PlayerModel.GetMaxHealth()
+
+    -- ── ТЕМП В ПОШАГОВОМ РЕЖИМЕ НЕ РАБОТАЕТ ВОВСЕ ───────────
+    --
+    -- Здесь и был исходный баг: очередь выдала ход, а шесть секунд темпа
+    -- его не пускали. Теперь в пошаговом режиме сдерживает только
+    -- очередь (см. врезку в Core/Cooldowns.lua).
+    SB.Cooldowns.Start(SB.Cooldowns.TURN)
+    checkTrue("в пошаговом режиме темп действия не держит",
+              SB.Cooldowns.Ready(SB.Cooldowns.TURN))
+    -- А свободный бросок он держит по-прежнему: ход тот не тратит, и
+    -- очередь его не видит.
+    SB.Cooldowns.Start(SB.Cooldowns.ROLL)
+    checkTrue("а темп свободного броска — держит",
+              not SB.Cooldowns.Ready(SB.Cooldowns.ROLL))
+
+    -- Вне пошагового режима темп действия возвращается.
+    SB.TurnOrder.ApplyRemoteState({ active = false })
+    SB.Cooldowns.Start(SB.Cooldowns.TURN)
+    checkTrue("в свободной игре темп действия держит",
+              not SB.Cooldowns.Ready(SB.Cooldowns.TURN))
+    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = 1,
+        index = 1, slots = { { me } }, acted = {} })
+    _G.SpellbreakerCharDB.moveDistance = SB.Movement.GetCap()
+
+    -- ── АВТОПРОПУСК НЕ ОБЪЯВЛЯЕТ ТОГО, ЧЕГО НЕ СДЕЛАЛ ───────
+    --
+    -- Отказать пропуску может не только темп: очередь, павший, будущие
+    -- правила. Печатать «ход пропущен», не закрыв ход, нельзя ни в одном
+    -- из этих случаев — игрок остаётся с ходом, которым не может
+    -- воспользоваться, и не знает об этом.
+    local realSpend = SB.Logic.SpendTurnManually
+    SB.Logic.SpendTurnManually = function() end   -- отказался молча
+    checkTrue("пропуск не состоялся — и объявлять нечего",
+              not SB.Movement.AutoSkipIfExhausted())
+    checkTrue("ход остался открытым", not SB.TurnOrder.HasActed(me))
+    SB.Logic.SpendTurnManually = realSpend
+
+    checkTrue("а настоящий пропуск проходит", SB.Movement.AutoSkipIfExhausted())
+    checkTrue("и ход закрыт", SB.TurnOrder.HasActed(me))
+
+    _G.SpellbreakerCharDB.moveDistance = 0
+    SB.TurnOrder.Stop()
+end
+
+-- ============================================================
+-- ПЕРЕДВИЖЕНИЕ — ЗАПАС НА КРУГ
+--
+-- Раньше сброс стоял на начале собственного хода, и метры делились
+-- бесплатной чертой на «до» и «после»: отбежал после своего действия — к
+-- следующему ходу счётчик уже чист. Половина круга не стоила ничего.
+-- ============================================================
+do
+    local me = stub.world.playerName
+    local savedGroup = stub.world.inGroup
+    ResetEffects()
+
+    local function Round(n, acted)
+        SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = n,
+            index = 1, slots = { { me } }, acted = acted or {} })
+    end
+
+    Round(1)
+    check("новый круг начинается с чистого счётчика",
+          SB.Movement.GetDistance(), 0)
+
+    _G.SpellbreakerCharDB.moveDistance = 7
+    -- ПАКЕТ ВНУТРИ КРУГА НЕ СБРАСЫВАЕТ. Состояние очереди рассылается и
+    -- посреди круга (кто-то походил, Ведущий поправил слоты) — приняв
+    -- это за новый круг, счётчик обнулялся бы по чужому действию.
+    Round(1)
+    check("состояние внутри круга путь не трогает",
+          SB.Movement.GetDistance(), 7)
+
+    Round(2)
+    check("новый круг обнуляет", SB.Movement.GetDistance(), 0)
+
+    -- ── ЗАПАС КОНЧИЛСЯ — ХОД ПРОПУЩЕН ───────────────────────
+    Round(3)
+    local cap = SB.Movement.GetCap()
+    checkTrue("предел есть", cap ~= SB.Movement.NO_LIMIT and cap > 0)
+
+    _G.SpellbreakerCharDB.moveDistance = cap
+    -- Темп отпускаем явно: автопропуск его уважает (см. отдельную
+    -- проверку ниже), а здесь мы меряем сам пропуск, а не темп.
+    stub.world.time = stub.world.time + 10
+    checkTrue("упёрся в предел", SB.Movement.IsExhausted())
+    checkTrue("до автопропуска ход открыт", not SB.TurnOrder.HasActed(me))
+    checkTrue("автопропуск сработал", SB.Movement.AutoSkipIfExhausted())
+    checkTrue("и ход закрыт", SB.TurnOrder.HasActed(me))
+
+    -- ВТОРОЙ РАЗ НЕ СРАБАТЫВАЕТ: ход уже закрыт, закрывать его нечем.
+    checkTrue("повторно не пропускает", not SB.Movement.AutoSkipIfExhausted())
+
+    -- НЕ УПЁРСЯ — НЕ ТРОГАЕМ.
+    Round(4)
+    _G.SpellbreakerCharDB.moveDistance = 1
+    checkTrue("с запасом ход не отбирают", not SB.Movement.AutoSkipIfExhausted())
+    checkTrue("и он открыт", not SB.TurnOrder.HasActed(me))
+
+    -- ВНЕ ПОШАГОВОГО РЕЖИМА ХОДОВ НЕТ — и пропускать нечего.
+    SB.TurnOrder.ApplyRemoteState({ active = false })
+    _G.SpellbreakerCharDB.moveDistance = 99
+    checkTrue("в свободной игре ход не пропускается",
+              not SB.Movement.AutoSkipIfExhausted())
+
+    stub.world.inGroup = savedGroup
+    _G.SpellbreakerCharDB.moveDistance = 0
+    SB.TurnOrder.Stop()
+end
+
+-- ============================================================
+-- ПРЕДМЕТ — БОНУСНОЕ ДЕЙСТВИЕ
+--
+-- Выпил зелье — ход не потратил, ударил — потратил. Ломается это тихо:
+-- в логе всё выглядит одинаково, а очередь либо уходит раньше времени,
+-- либо не уходит вовсе.
+-- ============================================================
+do
+    local me = stub.world.playerName
+    local PM = SB.PlayerModel
+    ResetEffects()
+
+    local function Round(n)
+        SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = n,
+            index = 1, slots = { { me } }, acted = {} })
+    end
+
+    SB.Data.Spells["t_bonus_potion"] = { id = "t_bonus_potion", name = "Проба глотка",
+        class = "Предмет", level = 0, isItem = true, profession = "alchemy",
+        distance = 1.5, resistable = false, stack = 5, onCast = { heal = 1 } }
+    SB.Data.Spells["t_bonus_act"] = { id = "t_bonus_act", name = "Проба действия",
+        class = "Маг", level = 0, distance = 0, resistable = false }
+
+    local function Fresh(n)
+        Round(n)
+        _G.SpellbreakerCharDB.moveDistance = 0
+        _G.SpellbreakerCharDB.configLocked = false
+        if SB.Cooldowns then SB.Cooldowns.Check = function() return true end end
+        SB.Items.ClearPrepared()
+        SB.Items.Prepare("t_bonus_potion")
+        PM.PrepareSpell("t_bonus_act")
+        _G.SpellbreakerCharDB.health = 1
+    end
+
+    -- ── ЗЕЛЬЕ ХОДА НЕ СТОИТ ─────────────────────────────────
+    Fresh(1)
+    checkTrue("бонусное действие доступно", SB.TurnOrder.CanUseBonus())
+    local hp = PM.GetHealth()
+    SB.Logic.ConfirmCast("t_bonus_potion", 0, { onSelf = true })
+    checkTrue("зелье подействовало", PM.GetHealth() > hp)
+    checkTrue("но ход не потрачен", not SB.TurnOrder.HasActed(me))
+    checkTrue("а бонусное израсходовано", not SB.TurnOrder.CanUseBonus())
+
+    -- ── ВТОРОЕ ЗЕЛЬЕ В ТОТ ЖЕ ХОД УЖЕ СТОИТ ХОДА ────────────
+    --
+    -- Бонусное действие одно за ход. Не будь этого, три ячейки сумки
+    -- выпивались бы залпом, и «бонусное действие» означало бы просто
+    -- «бесплатно».
+    _G.SpellbreakerCharDB.health = 1
+    SB.Logic.ConfirmCast("t_bonus_potion", 0, { onSelf = true })
+    checkTrue("второе зелье закрывает ход", SB.TurnOrder.HasActed(me))
+
+    -- ── ОБЫЧНОЕ ДЕЙСТВИЕ ХОД ТРАТИТ ─────────────────────────
+    Fresh(2)
+    SB.Logic.ConfirmCast("t_bonus_act", 0)
+    checkTrue("способность закрывает ход", SB.TurnOrder.HasActed(me))
+
+    -- ── И ЗЕЛЬЕ ПОСЛЕ НЕЁ ВСЁ ЕЩЁ МОЖНО ─────────────────────
+    -- «Сделал обычное действие — передал ход» логику не меняет: бонусное
+    -- у игрока своё, и тратится оно отдельно.
+    checkTrue("бонусное после действия ещё цело", SB.TurnOrder.CanUseBonus())
+
+    -- ── НОВЫЙ КРУГ ВОЗВРАЩАЕТ БОНУСНОЕ ──────────────────────
+    Fresh(3)
+    checkTrue("на новом ходу бонусное снова доступно", SB.TurnOrder.CanUseBonus())
+
+    -- ── ВНЕ ПОШАГОВОГО РЕЖИМА БОНУСНОГО НЕТ ─────────────────
+    -- Ходов там нет, и «одно за ход» не к чему привязать.
+    SB.TurnOrder.ApplyRemoteState({ active = false })
+    checkTrue("в свободной игре бонусного действия нет",
+              not SB.TurnOrder.CanUseBonus())
+    checkTrue("и зелье там — обычное действие",
+              not SB.Logic.IsBonusAction(SB.Data.Spells["t_bonus_potion"]))
+
+    SB.Items.ClearPrepared()
+    _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
+    SB.TurnOrder.Stop()
+end
+
+-- ============================================================
+-- БАЗОВЫЙ МАКСИМУМ ЗДОРОВЬЯ
+--
+-- Шкала поднималась дважды (2..8 → 3..9 → 5..11), и оба раза ПРЯМО В
+-- БАЗЕ, а не отдельным слагаемым: прибавка должна доставаться всем
+-- одинаково и не показываться игроку ещё одним источником в разбивке.
+-- Проверка сторожит именно это — что прибавка в базе, а не сбоку.
+-- ============================================================
+do
+    local PM = SB.PlayerModel
+    local savedLevel = stub.world.level
+    local savedRace  = stub.world.race
+    local savedAttrs = _G.SpellbreakerCharDB.attributes
+    local savedEff   = _G.SpellbreakerCharDB.activeEffects
+
+    ResetEffects()
+    stub.world.race = "Human"          -- профиль без health
+    _G.SpellbreakerCharDB.attributes = {}
+    SB.Skills.Set("Живучесть", 1)
+
+    -- Профиль класса складывается с базой (у Мага он, например, −1), и
+    -- проверяем мы именно БАЗУ: 5 на первом уровне, 11 на капе.
+    local soft = SB.Data.GetSoftBonus("health")
+    stub.world.level = 1
+    check("на первом уровне пятёрка", PM.GetMaxHealth(), math.max(2, 5 + soft))
+    -- Середина шкалы тоже: зажим снизу её не трогает, и правка одной
+    -- строки таблицы иначе прошла бы мимо проверки.
+    stub.world.level = 10
+    check("на десятом семёрка",       PM.GetMaxHealth(), 7 + soft)
+    stub.world.level = 20
+    check("на двадцатом восьмёрка",   PM.GetMaxHealth(), 8 + soft)
+    stub.world.level = 25
+    check("на капе одиннадцать",      PM.GetMaxHealth(), 11 + soft)
+
+    -- МИНУС ПРОФИЛЯ РАБОТАЕТ И НА СТАРТЕ. Пока зажим повторял базу
+    -- первого уровня, невыгодная пара раса+класс не стоила ровно ничего
+    -- там, где должна стоить больше всего: Гном-Маг с двумя минусами
+    -- получал ту же пятёрку, что и все.
+    stub.world.level = 1
+    stub.world.race = "Gnome"          -- health = -1
+    check("минус расы работает на первом уровне", PM.GetMaxHealth(), 4 + soft)
+
+    -- Двойка — последний предохранитель, и он не про профиль, а про
+    -- дебафф: ноль максимума означает павшего без единого удара.
+    ResetEffects()
+    SB.Data.Spells["t_hp_crush"] = { id = "t_hp_crush", name = "Проба обвала",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "debuff", mods = { maxHealth = -99 } } }
+    SB.ActiveEffects.Add("t_hp_crush", 5, false)
+    check("сильнейший дебафф упирается в двойку", PM.GetMaxHealth(), 2)
+    ResetEffects()
+
+    _G.SpellbreakerCharDB.activeEffects = savedEff
+    _G.SpellbreakerCharDB.attributes    = savedAttrs
+    stub.world.race  = savedRace
+    stub.world.level = savedLevel
+    ResetEffects()
+end
+
+-- ============================================================
+-- ЭФФЕКТ, СРАБАТЫВАЮЩИЙ НА ДЕЙСТВИЕ НОСИТЕЛЯ (onAction)
+--
+-- До него висящий эффект умел три вещи: менять числа, капать по ходам и
+-- что-то сделать на снятии. «Восстанавливает ману успешными ударами»
+-- пришлось бы вписывать куском кода в путь резолва — и так с каждой
+-- такой способностью.
+-- ============================================================
+do
+    local PM = SB.PlayerModel
+    ResetEffects()
+    _G.SpellbreakerCharDB.zeal = 0
+
+    SB.Data.Spells["t_oa_melee"] = { id = "t_oa_melee", name = "Проба в упор",
+        class = "Шаман", level = 1, canCrit = true, distance = 2.5 }
+    SB.Data.Spells["t_oa_far"] = { id = "t_oa_far", name = "Проба издали",
+        class = "Шаман", level = 1, canCrit = true, distance = 19 }
+
+    SB.Data.Spells["t_oa_hit"] = { id = "t_oa_hit", name = "Проба отдачи",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff",
+                   onAction = { when = "hit", melee = true,
+                                payload = { mana = 1 } } } }
+
+    -- ── СРАБАТЫВАЕТ НА СВОЙ ПОПАВШИЙ УДАР ───────────────────
+    SB.ActiveEffects.Add("t_oa_hit", 9, false)
+    local before = PM.GetPool("mana")
+    SB.Events.Fire(SB.E.PVP_HIT_RESOLVED, 3, "t_oa_melee", true)
+    checkTrue("попавший удар в упор вернул ману", PM.GetPool("mana") > before)
+
+    -- ПРОМАХ НЕ СЧИТАЕТСЯ: событие приходит и на промах тоже, и без
+    -- проверки эффект кормился бы мимо цели.
+    before = PM.GetPool("mana")
+    SB.Events.Fire(SB.E.PVP_HIT_RESOLVED, 0, "t_oa_melee", false)
+    check("промах ничего не даёт", PM.GetPool("mana"), before)
+
+    -- УТОЧНЕНИЕ melee РАБОТАЕТ: дальнобойное заклинание не кормит стойку
+    -- ближнего боя.
+    before = PM.GetPool("mana")
+    SB.Events.Fire(SB.E.PVP_HIT_RESOLVED, 3, "t_oa_far", true)
+    check("дальний удар стойку не кормит", PM.GetPool("mana"), before)
+    ResetEffects()
+
+    -- ── ПОВОД «cast»: ЛЮБОЕ ПРИМЕНЕНИЕ ──────────────────────
+    SB.Data.Spells["t_oa_cast"] = { id = "t_oa_cast", name = "Проба применения",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff",
+                   onAction = { when = "cast", payload = { mana = 1 } } } }
+    SB.ActiveEffects.Add("t_oa_cast", 9, false)
+    before = PM.GetPool("mana")
+    SB.Events.Fire(SB.E.CAST_CONFIRMED, "t_oa_far", 1)
+    checkTrue("применение способности сработало", PM.GetPool("mana") > before)
+    ResetEffects()
+
+    -- ── ПОВОД «damaged»: ПО НОСИТЕЛЮ УДАРИЛИ ────────────────
+    --
+    -- Приходит ОТ УДАРА, а не от изменения здоровья. Сначала он висел на
+    -- HEALTH_CHANGED, и это было неверно дважды: имени ударившего там
+    -- нет (а без него возмездию некому отвечать), и событие приходит на
+    -- что угодно — тик яда, правку Ведущего. Щит, вспыхивающий в ответ
+    -- кровотечению, не отвечает ни одному описанию в библиотеке.
+    SB.Data.Spells["t_oa_hurt"] = { id = "t_oa_hurt", name = "Проба отклика",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff",
+                   onAction = { when = "damaged", payload = { mana = 1 } } } }
+    SB.ActiveEffects.Add("t_oa_hurt", 9, false)
+    _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
+
+    before = PM.GetPool("mana")
+    SB.ActiveEffects.FireAction("damaged", SB.Data.Spells["t_oa_melee"], "Ирина")
+    checkTrue("удар по носителю сработал", PM.GetPool("mana") > before)
+
+    -- ТИК И ПРАВКА ЗДОРОВЬЯ — НЕ УДАР. Оба идут мимо этого повода.
+    before = PM.GetPool("mana")
+    PM.GrantHealth(-1)
+    check("потеря здоровья сама по себе повода не даёт",
+          PM.GetPool("mana"), before)
+    PM.Heal(1)
+    check("и лечение тоже", PM.GetPool("mana"), before)
+    ResetEffects()
+
+    -- ── ВОЗМЕЗДИЕ УХОДИТ ТОМУ, КТО УДАРИЛ ───────────────────
+    --
+    -- Навесить эффект на чужого персонажа наш клиент не может — это
+    -- делает ЕГО клиент по нашему пакету. Проверяем, что пакет уходит
+    -- нужному человеку и с нужным эффектом.
+    do
+        SB.Data.Spells["t_oa_burn"] = { id = "t_oa_burn", name = "Проба искр",
+            class = "Эффект", level = 0, isContainer = true,
+            damageType = "fire", effect = { kind = "debuff", tick = { damage = 1 } } }
+        SB.Data.Spells["t_oa_shield"] = { id = "t_oa_shield", name = "Проба щита",
+            class = "Эффект", level = 0, isContainer = true,
+            effect = { kind = "buff",
+                       onAction = { when = "damaged", toAttacker = "t_oa_burn" } } }
+
+        local sentTo, sentEff
+        local realSend = SB.Net.SendBuff
+        SB.Net.SendBuff = function(target, _, effectID)
+            sentTo, sentEff = target, effectID
+        end
+
+        SB.ActiveEffects.Add("t_oa_shield", 9, false)
+        SB.ActiveEffects.FireAction("damaged", nil, "Ирина")
+        check("возмездие ушло ударившему", sentTo, "Ирина")
+        check("и именно заказанным эффектом", sentEff, "t_oa_burn")
+
+        -- БЕЗ ИМЕНИ ОТВЕЧАТЬ НЕКОМУ: удар от существа или правка
+        -- Ведущего имени не несут.
+        sentTo = nil
+        SB.ActiveEffects.FireAction("damaged", nil, nil)
+        check("без имени пакет не уходит", sentTo, nil)
+
+        -- И САМОМУ СЕБЕ — ТОЖЕ НЕТ: площадь бьёт и по своим, а щит,
+        -- отвечающий собственному владельцу, поджигал бы его самого.
+        SB.ActiveEffects.FireAction("damaged", nil, stub.world.playerName)
+        check("самому себе не отвечаем", sentTo, nil)
+
+        SB.Net.SendBuff = realSend
+        ResetEffects()
+    end
+
+    -- ── ШАНС СРАБАТЫВАНИЯ ───────────────────────────────────
+    SB.Data.Spells["t_oa_never"] = { id = "t_oa_never", name = "Проба нуля",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff",
+                   onAction = { when = "cast", chance = 0,
+                                payload = { mana = 1 } } } }
+    SB.ActiveEffects.Add("t_oa_never", 9, false)
+    before = PM.GetPool("mana")
+    for _ = 1, 20 do SB.Events.Fire(SB.E.CAST_CONFIRMED, "t_oa_far", 1) end
+    check("при нулевом шансе не срабатывает ни разу",
+          PM.GetPool("mana"), before)
+    ResetEffects()
+
+    -- ── ПОВОД МОЖЕТ ВЕШАТЬ ЭФФЕКТ ───────────────────────────
+    -- «Попал — получи прибавку к криту на два хода» числом не выражается.
+    SB.Data.Spells["t_oa_gift"] = { id = "t_oa_gift", name = "Проба подъёма",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff", mods = { crit = 5 } } }
+    SB.Data.Spells["t_oa_giver"] = { id = "t_oa_giver", name = "Проба дарителя",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff",
+                   onAction = { when = "hit", effect = "t_oa_gift", turns = 2 } } }
+    SB.ActiveEffects.Add("t_oa_giver", 9, false)
+    checkTrue("подарка ещё нет", UsesOf("t_oa_gift") == nil)
+    SB.Events.Fire(SB.E.PVP_HIT_RESOLVED, 3, "t_oa_far", true)
+    checkTrue("после попадания эффект повешен", UsesOf("t_oa_gift") ~= nil)
+    check("и ровно на заказанный срок", UsesOf("t_oa_gift"), 2)
+    ResetEffects()
+
+    -- ── БЕЗ ЭФФЕКТА НИЧЕГО НЕ ПРОИСХОДИТ ────────────────────
+    -- Механика висит на эффекте, а не на классе: снял — перестало.
+    before = PM.GetPool("mana")
+    SB.Events.Fire(SB.E.PVP_HIT_RESOLVED, 3, "t_oa_melee", true)
+    check("без эффекта повод ничего не делает", PM.GetPool("mana"), before)
+
+    -- ── И ЖИВЫМИ ДАННЫМИ: КТО ИМ ПОЛЬЗУЕТСЯ ─────────────────
+    local users = {}
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] and type(sp.effect) == "table"
+           and type(sp.effect.onAction) == "table" then
+            users[#users + 1] = sp.name or id
+            -- Повод обязан быть известным: опечатка в when молчит.
+            -- Поводов бывает несколько — проверяем каждый.
+            for _, act in ipairs(SB.ActiveEffects.ActionsOf(sp) or {}) do
+                local w = act.when
+                checkTrue("«" .. (sp.name or id) .. "»: повод известен",
+                          w == "cast" or w == "hit" or w == "damaged")
+            end
+        end
+    end
+    checkTrue("механизмом уже пользуются", #users > 0)
+    print("[onAction] " .. table.concat(users, "; "))
+
+    -- ── РАЗДАЧА ПО БИБЛИОТЕКЕ ───────────────────────────────
+    --
+    -- Список прибит: у всех этих эффектов срабатывание было ОБЕЩАНО
+    -- описанием и не работало никак. Числа шансов взяты у авторов
+    -- дословно — они сами прописали их броском 1d100.
+    local PROMISED = {
+        -- эффект,                     повод,      шанс, что даёт
+        { "eff_lightseal",             "hit",      30,  "payload"    },
+        { "eff_sealwisdom",            "hit",      20,  "payload"    },
+        { "eff_shield_flame_shield",   "damaged",  nil, "toAttacker" },
+        { "eff_shield_lightningshield","damaged",  nil, "toAttacker" },
+        { "eff_fire_cape",             "damaged",  nil, "toAttacker" },
+        { "eff_auraoflight",           "damaged",  nil, "toAttacker" },
+        { "eff_shield_water_shield",   "damaged",  nil, "effect"     },
+        { "eff_shaman_fury",           "hit",      nil, "payload"    },
+    }
+    for _, row in ipairs(PROMISED) do
+        local id, when, chance, kind = row[1], row[2], row[3], row[4]
+        local sp  = SB.Data.Spells[id]
+        local nm  = (sp and sp.name) or id
+        -- Ищем ПОДХОДЯЩИЙ повод среди всех: у эффекта их может быть
+        -- несколько, и прибивать порядок в списке незачем.
+        local act
+        for _, one in ipairs(SB.ActiveEffects.ActionsOf(sp) or {}) do
+            if one.when == when and one[kind] ~= nil then act = one end
+        end
+        checkTrue("«" .. nm .. "»: срабатывание есть", act ~= nil)
+        if act then
+            check("«" .. nm .. "»: повод", act.when, when)
+            check("«" .. nm .. "»: шанс",  act.chance, chance)
+            checkTrue("«" .. nm .. "»: есть что делать", act[kind] ~= nil)
+        end
+    end
+
+    -- ── ОДНА МЕХАНИКА — ОДИН ИСТОЧНИК ───────────────────────
+    --
+    -- Так и попалась «Печать Мудрости». До onAction «шанс восстановить
+    -- ячейку при ударе» выражали единственным, что было под рукой, —
+    -- гарантированным tick = { castResource = 1 } каждый ход. Когда
+    -- появился настоящий механизм, приближение осталось на месте, и
+    -- печать стала делать работу ДВАЖДЫ.
+    --
+    -- Хуже всего, что в логе обе прибавки печатаются ОДНОЙ И ТОЙ ЖЕ
+    -- строкой: со стороны это выглядело как «печать срабатывает всегда»,
+    -- и понять, что строк две разных природы, было нельзя.
+    --
+    -- Правило: если эффект кормит канал через onAction, тик тот же канал
+    -- кормить не должен.
+    local doubled = {}
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] and type(sp.effect) == "table" then
+            local tick = sp.effect.tick
+            for _, act in ipairs(SB.ActiveEffects.ActionsOf(sp) or {}) do
+                if type(act.payload) == "table" and type(tick) == "table" then
+                    for ch, v in pairs(act.payload) do
+                        if (tonumber(v) or 0) ~= 0
+                           and (tonumber(tick[ch]) or 0) ~= 0 then
+                            doubled[#doubled + 1] = (sp.name or id) .. "/" .. ch
+                        end
+                    end
+                end
+            end
+        end
+    end
+    check("эффектов, кормящих один канал и тиком, и срабатыванием",
+          #doubled, 0)
+    if #doubled > 0 then print("          " .. table.concat(doubled, ", ")) end
+
+    -- И у самой печати тика больше нет — она ровно то, что обещает.
+    do
+        local seal = SB.Data.Spells["eff_sealwisdom"].effect
+        check("у Печати Мудрости нет тика", seal.tick, nil)
+        check("а срабатывание на месте", seal.onAction.chance, 20)
+    end
+
+    -- ЦЕЛОСТНОСТЬ ССЫЛОК. Опечатка в id эффекта возмездия молчит: пакет
+    -- уйдёт, а на той стороне не найдётся ничего.
+    local broken = {}
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] and type(sp.effect) == "table"
+           and type(sp.effect.onAction) == "table" then
+            for _, act in ipairs(SB.ActiveEffects.ActionsOf(sp) or {}) do
+                for _, f in ipairs({ "effect", "toAttacker" }) do
+                    local ref = act[f]
+                    if type(ref) == "string" and not SB.Data.Spells[ref] then
+                        broken[#broken + 1] = (sp.name or id) .. "." .. f .. "=" .. ref
+                    end
+                end
+                -- И ссылка на ЗАКЛИНАНИЕ-повод: «сработать только на
+                -- Удар Бури» с опечаткой в id молчит навсегда.
+                if type(act.spell) == "string" and not SB.Data.Spells[act.spell] then
+                    broken[#broken + 1] = (sp.name or id) .. ".spell=" .. act.spell
+                end
+            end
+        end
+    end
+    check("срабатываний со ссылкой в пустоту", #broken, 0)
+    if #broken > 0 then print("          " .. table.concat(broken, ", ")) end
+
+    -- ШКОЛА ВОЗМЕЗДИЯ СОВПАДАЕТ С ТЕМ, ЧЕМ ОНО БЬЁТ. Аура воздаяния
+    -- карает СВЕТОМ, щит молний — природой; взять первый попавшийся
+    -- готовый тик значило бы, что сопротивление тьме держит удар Света.
+    local SCHOOL = {
+        eff_auraoflight            = "holy",
+        eff_shield_lightningshield = "nature",
+        eff_shield_flame_shield    = "fire",
+        eff_fire_cape              = "fire",
+    }
+    for id, school in pairs(SCHOOL) do
+        local ret
+        for _, act in ipairs(SB.ActiveEffects.ActionsOf(SB.Data.Spells[id]) or {}) do
+            if act.toAttacker then ret = SB.Data.Spells[act.toAttacker] end
+        end
+        check("«" .. SB.Data.Spells[id].name .. "» отвечает своей школой",
+              ret and ret.damageType, school)
+    end
+
+    -- ── НАСТОЯЩИЙ УДАР БУДИТ ЩИТ ────────────────────────────
+    --
+    -- Всё выше зовёт FireAction напрямую — то есть проверяет механизм, а
+    -- не то, что его кто-то дёргает. Хук стоит ровно в одном месте
+    -- (HandlePvpAttackReceived, куда сходятся ПвП, площадь и удар
+    -- существа), и пропади он — щиты замолчат, а все проверки останутся
+    -- зелёными.
+    do
+        ResetEffects()
+        _G.SpellbreakerCharDB.health = SB.PlayerModel.GetMaxHealth()
+        SB.TurnOrder.Stop()
+
+        SB.Data.Spells["t_hook_burn"] = { id = "t_hook_burn", name = "Проба ответа",
+            class = "Эффект", level = 0, isContainer = true,
+            damageType = "fire", effect = { kind = "debuff", tick = { damage = 1 } } }
+        SB.Data.Spells["t_hook_shield"] = { id = "t_hook_shield",
+            name = "Проба щита у хука", class = "Эффект", level = 0,
+            isContainer = true, effect = { kind = "buff",
+                onAction = { when = "damaged", toAttacker = "t_hook_burn" } } }
+        SB.Data.Spells["t_hook_hit"] = { id = "t_hook_hit", name = "Проба удара",
+            class = "Маг", level = 1, canCrit = true, distance = 19,
+            damageType = "fire" }
+
+        local sentTo
+        local realSend = SB.Net.SendBuff
+        SB.Net.SendBuff = function(target) sentTo = target end
+
+        SB.ActiveEffects.Add("t_hook_shield", 9, false)
+        -- Гарантированное попадание: атака 999 против любой защиты.
+        SB.Logic.HandlePvpAttackReceived("Ирина", "t_hook_hit",
+            90, 900, 999, false, 1, 0, 1)
+        check("настоящий удар разбудил щит", sentTo, "Ирина")
+
+        -- ПРОМАХ ЩИТ НЕ БУДИТ: «кто-либо попытался навредить» — это про
+        -- попавший удар, а отражённый до цели не дошёл.
+        sentTo = nil
+        SB.Logic.HandlePvpAttackReceived("Ирина", "t_hook_hit",
+            1, 0, 1, false, 1, 0, 1)
+        check("отражённый удар щит не будит", sentTo, nil)
+
+        SB.Net.SendBuff = realSend
+        ResetEffects()
+        _G.SpellbreakerCharDB.health = SB.PlayerModel.GetMaxHealth()
+    end
+
+    -- ── УТОЧНЕНИЕ «ТОЛЬКО МАГИЯ» ────────────────────────────
+    --
+    -- «Ответная реакция» карает чародеев, а не мечников: меч, стрела и
+    -- кулак ауру не будят вовсе, и это половина смысла способности.
+    do
+        ResetEffects()
+        SB.Data.Spells["t_mg_steel"] = { id = "t_mg_steel", name = "Проба стали",
+            class = "Воин", level = 1, canCrit = true, distance = 2.5,
+            damageType = "physical" }
+        SB.Data.Spells["t_mg_fire"] = { id = "t_mg_fire", name = "Проба чар",
+            class = "Маг", level = 1, canCrit = true, distance = 19,
+            damageType = "fire" }
+        SB.Data.Spells["t_mg_none"] = { id = "t_mg_none", name = "Проба без школы",
+            class = "Маг", level = 1, canCrit = true, distance = 19 }
+        SB.Data.Spells["t_mg_burn"] = { id = "t_mg_burn", name = "Проба отдачи",
+            class = "Эффект", level = 0, isContainer = true,
+            effect = { kind = "debuff", tick = { damage = 1 } } }
+        SB.Data.Spells["t_mg_aura"] = { id = "t_mg_aura", name = "Проба антимагии",
+            class = "Эффект", level = 0, isContainer = true,
+            effect = { kind = "buff", onAction = { when = "damaged",
+                       magic = true, toAttacker = "t_mg_burn" } } }
+
+        local sentTo
+        local realSend = SB.Net.SendBuff
+        SB.Net.SendBuff = function(target) sentTo = target end
+
+        SB.ActiveEffects.Add("t_mg_aura", 9, false)
+
+        SB.ActiveEffects.FireAction("damaged", SB.Data.Spells["t_mg_fire"], "Ирина")
+        check("чары ауру будят", sentTo, "Ирина")
+
+        sentTo = nil
+        SB.ActiveEffects.FireAction("damaged", SB.Data.Spells["t_mg_steel"], "Ирина")
+        check("сталь — нет", sentTo, nil)
+
+        -- Заклинание без школы магией НЕ считается: выдумывать за автора
+        -- нельзя, а ошибиться в сторону «не сработало» дешевле.
+        SB.ActiveEffects.FireAction("damaged", SB.Data.Spells["t_mg_none"], "Ирина")
+        check("и заклинание без школы — тоже нет", sentTo, nil)
+
+        SB.Net.SendBuff = realSend
+        ResetEffects()
+    end
+
+    -- ── УТОЧНЕНИЕ «ТОЛЬКО ЭТА СПОСОБНОСТЬ» ──────────────────
+    --
+    -- «Пока на оружии чары, Удар Бури возвращает ману»: условие живёт на
+    -- ЧАРАХ, а срабатывает на чужом касте. Без уточнения чары кормили бы
+    -- маной любое действие подряд.
+    do
+        ResetEffects()
+        _G.SpellbreakerCharDB.zeal = 0
+        local PM2 = SB.PlayerModel
+
+        SB.Data.Spells["t_sp_a"] = { id = "t_sp_a", name = "Проба нужная",
+            class = "Шаман", level = 1, canCrit = true, distance = 2.5 }
+        SB.Data.Spells["t_sp_b"] = { id = "t_sp_b", name = "Проба чужая",
+            class = "Шаман", level = 1, canCrit = true, distance = 2.5 }
+        SB.Data.Spells["t_sp_brand"] = { id = "t_sp_brand", name = "Проба чар",
+            class = "Эффект", level = 0, isContainer = true,
+            effect = { kind = "buff", onAction = { when = "cast",
+                       spell = "t_sp_a", payload = { mana = 1 } } } }
+
+        SB.ActiveEffects.Add("t_sp_brand", 9, false)
+        local before = PM2.GetPool("mana")
+        SB.Events.Fire(SB.E.CAST_CONFIRMED, "t_sp_b", 1)
+        check("чужая способность чары не кормит", PM2.GetPool("mana"), before)
+        SB.Events.Fire(SB.E.CAST_CONFIRMED, "t_sp_a", 1)
+        checkTrue("а нужная — кормит", PM2.GetPool("mana") > before)
+        ResetEffects()
+    end
+
+    -- ── ДВА ПОВОДА НА ОДНОМ ЭФФЕКТЕ ─────────────────────────
+    --
+    -- У «Пламенного клейма» их два: оно кормит Удар Бури маной и
+    -- разгоняет Вскипание лавы. Ограничение «один повод на эффект»
+    -- пришлось бы обходить вторым полем с другим именем.
+    do
+        local acts = SB.ActiveEffects.ActionsOf(
+            SB.Data.Spells["eff_weapon_enchant_flame_weapon"])
+        check("у Пламенного клейма два повода", #acts, 2)
+        local bySpell = {}
+        for _, act in ipairs(acts) do bySpell[act.spell] = act end
+        checkTrue("один кормит Удар Бури", bySpell["stormstrike"] ~= nil)
+        checkTrue("другой разгоняет Вскипание лавы",
+                  bySpell["lava_seethe"] ~= nil)
+
+        -- ПОРЯДОК: повод "cast" приходит ДО резолва, поэтому прилив
+        -- успевает попасть в расчёт урона ТОГО ЖЕ каста. На этом и
+        -- держится «пока горит клеймо, Вскипание лавы бьёт злее».
+        ResetEffects()
+        SB.ActiveEffects.Add("eff_weapon_enchant_flame_weapon", 9, false)
+        local seethe = SB.Data.Spells["lava_seethe"]
+        local plain  = SB.ActiveEffects.GetDamageMod(seethe)
+        SB.Events.Fire(SB.E.CAST_CONFIRMED, "lava_seethe", 2)
+        checkTrue("прилив лавы поднял огненный урон",
+                  SB.ActiveEffects.GetDamageMod(seethe) > plain)
+        -- А на ледяную стрелу он не действует: прибавка школьная.
+        SB.Data.Spells["t_sp_ice"] = { id = "t_sp_ice", name = "Проба льда",
+            class = "Шаман", level = 1, canCrit = true, distance = 10,
+            damageType = "frost" }
+        check("а на лёд — нет",
+              SB.ActiveEffects.GetDamageMod(SB.Data.Spells["t_sp_ice"]), 0)
+        ResetEffects()
+    end
+
+    -- ── КАМЕННЫЙ КОГОТЬ ОТВЕЧАЕТ ────────────────────────────
+    do
+        local act
+        for _, one in ipairs(SB.ActiveEffects.ActionsOf(
+                SB.Data.Spells["eff_stone_claw"]) or {}) do
+            act = one
+        end
+        checkTrue("у Каменного Когтя есть ответ", act ~= nil)
+        check("повод — удар по носителю", act and act.when, "damaged")
+        check("шанс — половина, как у автора", act and act.chance, 50)
+        checkTrue("и отвечает оглушением",
+                  act and SB.Data.Spells[act.toAttacker] ~= nil)
+    end
+
+    -- ════════════════════════════════════════════════════════
+    -- ЭФФЕКТЫ-ПОДАВИТЕЛИ
+    -- ════════════════════════════════════════════════════════
+    do
+        ResetEffects()
+        SB.Data.Spells["t_su_stun"] = { id = "t_su_stun", name = "Проба оглушения",
+            class = "Эффект", level = 0, isContainer = true,
+            effect = { kind = "debuff", family = "Оглушение", mods = { movePct = -50 } } }
+        SB.Data.Spells["t_su_pois"] = { id = "t_su_pois", name = "Проба яда",
+            class = "Эффект", level = 0, isContainer = true,
+            effect = { kind = "debuff", school = "poison", tick = { damage = 1 } } }
+        SB.Data.Spells["t_su_bleed"] = { id = "t_su_bleed", name = "Проба крови",
+            class = "Эффект", level = 0, isContainer = true,
+            effect = { kind = "debuff", school = "bleed", tick = { damage = 1 } } }
+        SB.Data.Spells["t_su_free"] = { id = "t_su_free", name = "Проба свободы",
+            class = "Эффект", level = 0, isContainer = true,
+            effect = { kind = "buff", suppress = { "Оглушение", "poison" } } }
+        SB.Data.Spells["t_su_keep"] = { id = "t_su_keep", name = "Проба защиты вперёд",
+            class = "Эффект", level = 0, isContainer = true,
+            effect = { kind = "buff", suppress = { "Оглушение" },
+                       suppressClears = false } }
+
+        -- ── НЕ ДАЁТ ЗАКРЕПИТЬСЯ ─────────────────────────────
+        SB.ActiveEffects.Add("t_su_free", 5, false)
+        SB.ActiveEffects.Add("t_su_stun", 3, false)
+        checkTrue("оглушение не легло на подавитель",
+                  not (UsesOf("t_su_stun") ~= nil))
+        SB.ActiveEffects.Add("t_su_pois", 3, false)
+        checkTrue("и яд тоже — подавитель называет школу, а не только семейство",
+                  not (UsesOf("t_su_pois") ~= nil))
+        -- А НЕНАЗВАННОЕ — ложится. Иначе «невосприимчив к оглушению»
+        -- на деле означало бы «невосприимчив ко всему».
+        SB.ActiveEffects.Add("t_su_bleed", 3, false)
+        checkTrue("кровотечение не названо — и легло",
+                  (UsesOf("t_su_bleed") ~= nil))
+
+        -- ── СНИМАЕТ УЖЕ ВИСЯЩЕЕ ─────────────────────────────
+        ResetEffects()
+        SB.ActiveEffects.Add("t_su_stun", 3, false)
+        SB.ActiveEffects.Add("t_su_bleed", 3, false)
+        checkTrue("оглушение висит до подавителя",
+                  (UsesOf("t_su_stun") ~= nil))
+        SB.ActiveEffects.Add("t_su_free", 5, false)
+        checkTrue("подавитель снял его", not (UsesOf("t_su_stun") ~= nil))
+        checkTrue("а чужое не тронул", (UsesOf("t_su_bleed") ~= nil))
+
+        -- ── «НЕ ВЛИЯЕТ НА УЖЕ ДЕЙСТВУЮЩИЕ» ──────────────────
+        --
+        -- Разница между «Зельем актерства» и «Зельем свободы действий»
+        -- проведена авторами описаний, и стоить она должна ровно этого.
+        ResetEffects()
+        SB.ActiveEffects.Add("t_su_stun", 3, false)
+        SB.ActiveEffects.Add("t_su_keep", 5, false)
+        checkTrue("свобода-вперёд не сняла висящее оглушение",
+                  (UsesOf("t_su_stun") ~= nil))
+        SB.ActiveEffects.Remove("t_su_stun")
+        SB.ActiveEffects.Add("t_su_stun", 3, false)
+        checkTrue("но нового не пустила", not (UsesOf("t_su_stun") ~= nil))
+
+        -- ── ПОДАВИТЕЛЬ НЕ ПОДАВЛЯЕТ ПОДАВИТЕЛЯ ──────────────
+        --
+        -- Иначе две защиты подряд гасили бы друг друга: чем больше
+        -- обороны на персонаже, тем меньше её работает.
+        ResetEffects()
+        -- ДЕБАФФ, А НЕ БАФФ, и это единственный вариант, который здесь
+        -- что-то проверяет. Баффы подавлению не подлежат вовсе (см.
+        -- MatchesSuppress), поэтому подавитель-бафф уцелел бы и без
+        -- всякой оговорки о неприкосновенности — проверка прошла бы,
+        -- ничего не проверив.
+        --
+        -- Подавитель-дебафф в библиотеке есть: «Успокоение разума» жреца
+        -- вешается на врага и при этом закрывает его от страха.
+        SB.Data.Spells["t_su_other"] = { id = "t_su_other", name = "Проба второй защиты",
+            class = "Эффект", level = 0, isContainer = true,
+            -- Нарочно называет семейство ПЕРВОГО подавителя.
+            effect = { kind = "debuff", family = "Оглушение",
+                       suppress = { "Страх" } } }
+        SB.ActiveEffects.Add("t_su_free", 5, false)
+        SB.ActiveEffects.Add("t_su_other", 5, false)
+        checkTrue("вторая защита легла рядом с первой",
+                  (UsesOf("t_su_other") ~= nil))
+        checkTrue("и первая осталась", (UsesOf("t_su_free") ~= nil))
+
+        -- И В ОБРАТНОМ ПОРЯДКЕ. Проверять только один порядок мало:
+        -- «не пускать» и «снимать» — два разных места в коде, и
+        -- неприкосновенность подавителя нужна в обоих. Здесь первым
+        -- ложится тот, чьё семейство названо вторым, — значит, работает
+        -- именно оговорка в снятии.
+        ResetEffects()
+        SB.ActiveEffects.Add("t_su_other", 5, false)
+        SB.ActiveEffects.Add("t_su_free", 5, false)
+        checkTrue("подавитель не снял подавителя",
+                  (UsesOf("t_su_other") ~= nil))
+        checkTrue("и сам лёг", (UsesOf("t_su_free") ~= nil))
+
+        -- А ОБЫЧНЫЙ ЭФФЕКТ ТОГО ЖЕ СЕМЕЙСТВА — снял бы. Без этой
+        -- половины предыдущая проверка прошла бы и на подавителе,
+        -- который вообще ничего не снимает.
+        ResetEffects()
+        SB.Data.Spells["t_su_plain"] = { id = "t_su_plain", name = "Проба без защиты",
+            class = "Эффект", level = 0, isContainer = true,
+            effect = { kind = "debuff", family = "Оглушение" } }
+        SB.ActiveEffects.Add("t_su_plain", 5, false)
+        SB.ActiveEffects.Add("t_su_free", 5, false)
+        checkTrue("обычное оглушение снято", not (UsesOf("t_su_plain") ~= nil))
+
+        -- ── СНЯТОЕ НАЗЫВАЕТСЯ ПОИМЁННО ──────────────────────
+        --
+        -- «Свобода действий снимает: 1» не сообщает ничего: сколько на
+        -- тебе висело, ты и так видел, а вот ЧТО именно слетело —
+        -- единственное, ради чего строка написана.
+        ResetEffects()
+        SB.ActiveEffects.Add("t_su_stun", 3, false)
+        local said = {}
+        local realPrint = print
+        print = function(...) said[#said + 1] = tostring((...)) end
+        SB.ActiveEffects.Add("t_su_free", 5, false)
+        print = realPrint
+
+        local named = false
+        for _, line in ipairs(said) do
+            if line:find("снимает", 1, true)
+               and line:find("Проба оглушения", 1, true) then named = true end
+        end
+        checkTrue("снятое названо по имени, а не числом", named)
+
+        -- ── СПАЛ — И СНОВА УЯЗВИМ ───────────────────────────
+        ResetEffects()
+        SB.ActiveEffects.Add("t_su_free", 1, false)
+        SB.ActiveEffects.TickAll()
+        checkTrue("подавитель спал", not (UsesOf("t_su_free") ~= nil))
+        SB.ActiveEffects.Add("t_su_stun", 3, false)
+        checkTrue("оглушение снова проходит", (UsesOf("t_su_stun") ~= nil))
+        ResetEffects()
+    end
+
+    -- ── ТИП УРОНА ВИДЕН В КАРТОЧКЕ ──────────────────────────
+    --
+    -- Тип у капающих эффектов был проставлен и честно считался в
+    -- сопротивлениях, но карточка о нём молчала — со стороны это
+    -- выглядело как «типов урона у эффектов нет».
+    do
+        local function card(id)
+            return table.concat(SB.ActiveEffects.GetEffectLines(id) or {}, " | ")
+        end
+
+        local pain = card("eff_pain")
+        checkTrue("«Боль» называет свою школу урона",
+                  pain:find("Тьма", 1, true) ~= nil)
+        checkTrue("и красит её в цвет школы",
+                  pain:find(SB.Data.DamageTypes.shadow.color, 1, true) ~= nil)
+
+        local bleed = card("eff_bleeding")
+        checkTrue("у кровотечения урон физический",
+                  bleed:find("Физический", 1, true) ~= nil)
+
+        -- ЛЕЧЕНИЕ ТИПА НЕ ПОЛУЧАЕТ: сопротивление Свету не уменьшает
+        -- исцеление Светом, и подписывать его школой значило бы обещать
+        -- зависимость, которой нет.
+        local heal = card("eff_rejuvenation")
+        checkTrue("лечение школой не подписано",
+                  heal:find("+1 ХП", 1, true) ~= nil and
+                  heal:find("Природа", 1, true) == nil)
+
+        -- НЕТ УРОНА — НЕТ И ПОДПИСИ. «Ледяная кайма» замедляет и только;
+        -- строка «Тип урона: Лёд» обещала бы урон, которого не будет.
+        local chill = card("eff_frost_armor_chill")
+        checkTrue("у безуронного эффекта школы урона нет",
+                  chill:find("Лёд", 1, true) == nil)
+
+        -- И ЭТО НЕ СЛУЧАЙНОСТЬ ОДНОГО ЭФФЕКТА: у каждого капающего
+        -- уроном тип должен быть проставлен, иначе сопротивление по нему
+        -- не сработает вовсе (см. ApplyPayload).
+        local bare = {}
+        for id, sp in pairs(SB.Data.Spells) do
+            local def = ShippedSpells[id] and type(sp.effect) == "table"
+                        and sp.effect
+            local tick = def and def.tick
+            if type(tick) == "table" and (tonumber(tick.damage) or 0) > 0
+               and not SB.Data.GetDamageType(sp) then
+                bare[#bare + 1] = sp.name or id
+            end
+        end
+        check("капают уроном без школы", table.concat(bare, ", "), "")
+    end
+
+    -- ── ПОДАВЛЕНИЕ ВИДНО В КАРТОЧКЕ ─────────────────────────
+    --
+    -- Невидимая невосприимчивость хуже, чем её отсутствие: игрок решит,
+    -- что оглушение «не сработало» из-за поломки.
+    do
+        local txt = table.concat(
+            SB.ActiveEffects.GetEffectLines("eff_shaman_fury") or {}, "\n")
+        checkTrue("карточка Ярости шамана называет подавление",
+                  txt:find("Не даёт наложить", 1, true) ~= nil)
+        checkTrue("и называет, что именно",
+                  txt:find("Оглушение", 1, true) ~= nil)
+
+        -- Школы подписаны по-русски, а не ключом bleed/poison.
+        local brew = table.concat(
+            SB.ActiveEffects.GetEffectLines("eff_fortitude_purifying_brew") or {}, "\n")
+        checkTrue("школа подписана словом, а не ключом",
+                  brew:find("Яд", 1, true) ~= nil and
+                  brew:find("poison", 1, true) == nil)
+
+        -- Оговорка «не снимает» — тоже в карточке: без неё два зелья
+        -- выглядят одинаково, а стоят по-разному.
+        local keep = table.concat(SB.ActiveEffects.GetEffectLines(
+            "custom_cont_3456789ab0123456789a") or {}, "\n")
+        checkTrue("«уже наложенное не снимает» сказано вслух",
+                  keep:find("не снимает", 1, true) ~= nil)
+    end
+
+    -- ── СПИСКИ ПОДАВЛЕНИЯ БЕЗ ОПЕЧАТОК ──────────────────────
+    --
+    -- Опечатка в списке молчит: эффект просто никогда ничего не
+    -- подавит. Проверяем, что каждое имя существует в библиотеке —
+    -- либо как семейство, либо как школа.
+    do
+        local families, schools = {}, {}
+        for id, sp in pairs(SB.Data.Spells) do
+            if ShippedSpells[id] and type(sp.effect) == "table" then
+                if sp.effect.family then families[sp.effect.family] = true end
+                if sp.effect.school then schools[sp.effect.school] = true end
+            end
+        end
+
+        local ghosts, users = {}, 0
+        for id, sp in pairs(SB.Data.Spells) do
+            local lst = ShippedSpells[id] and type(sp.effect) == "table"
+                        and sp.effect.suppress
+            if type(lst) == "table" then
+                users = users + 1
+                for _, name in ipairs(lst) do
+                    if not families[name] and not schools[name] then
+                        ghosts[#ghosts + 1] = (sp.name or id) .. " → " .. name
+                    end
+                end
+            end
+        end
+        check("подавление названо в пустоту", table.concat(ghosts, "; "), "")
+        checkTrue("и подавители в библиотеке есть", users >= 10)
+    end
+
+    -- ── СЕМЕЙСТВО «ЗАМЕДЛЕНИЕ» СУЩЕСТВУЕТ ───────────────────
+    --
+    -- На него ссылаются пять способностей; без него их подавление
+    -- было бы списком в пустоту (см. проверку выше) — но проверить
+    -- стоит и сам факт, а не только отсутствие опечатки.
+    do
+        local n = 0
+        for id, sp in pairs(SB.Data.Spells) do
+            if ShippedSpells[id] and type(sp.effect) == "table"
+               and sp.effect.family == "Замедление" then
+                n = n + 1
+                checkTrue("«" .. (sp.name or id) .. "» и правда замедляет",
+                          (tonumber(sp.effect.mods and sp.effect.mods.movePct) or 0) < 0)
+            end
+        end
+        checkTrue("замедлений в семействе несколько", n >= 10)
+    end
+
+    -- ════════════════════════════════════════════════════════
+    -- СРАБАТЫВАНИЕ РАСХОДУЕТ ЭФФЕКТ (consume)
+    -- ════════════════════════════════════════════════════════
+    do
+        ResetEffects()
+        SB.Data.Spells["t_cn_hit"] = { id = "t_cn_hit", name = "Проба удара",
+            class = "Воин", level = 1, canCrit = true, distance = 2.5,
+            damageType = "physical" }
+        SB.Data.Spells["t_cn_bone"] = { id = "t_cn_bone", name = "Проба зарядов",
+            class = "Эффект", level = 0, isContainer = true,
+            effect = { kind = "buff", mods = { armor = 10 },
+                       onAction = { when = "damaged", consume = true } } }
+
+        SB.ActiveEffects.Add("t_cn_bone", 3, false)
+        check("зарядов вначале", UsesOf("t_cn_bone"), 3)
+
+        -- РАСХОД ОТЛОЖЕН НА КОНЕЦ КАДРА, и это не мелочь реализации, а
+        -- то, ради чего он отложен: заклинание, потратившее заряд,
+        -- обязано досчитаться ЕЩЁ С НИМ (см. врезку про consume).
+        SB.ActiveEffects.FireAction("damaged", SB.Data.Spells["t_cn_hit"], "Ирина")
+        check("внутри кадра заряд ещё на месте", UsesOf("t_cn_bone"), 3)
+        stub.RunTimers()
+        check("к концу кадра удар его снял", UsesOf("t_cn_bone"), 2)
+
+        SB.ActiveEffects.FireAction("damaged", SB.Data.Spells["t_cn_hit"], "Ирина")
+        stub.RunTimers()
+        SB.ActiveEffects.FireAction("damaged", SB.Data.Spells["t_cn_hit"], "Ирина")
+        stub.RunTimers()
+        -- КОСТИ КОНЧИЛИСЬ — щита больше нет.
+        checkTrue("щит рассыпался", UsesOf("t_cn_bone") == nil)
+
+        -- ЧУЖОЙ ПОВОД ЗАРЯД НЕ ТРАТИТ: щит считает удары по себе, а не
+        -- собственные касты носителя.
+        ResetEffects()
+        SB.ActiveEffects.Add("t_cn_bone", 3, false)
+        SB.Events.Fire(SB.E.CAST_CONFIRMED, "t_cn_hit", 1)
+        stub.RunTimers()
+        check("свой каст заряд не тратит", UsesOf("t_cn_bone"), 3)
+
+        -- И НА ЖИВЫХ ДАННЫХ. Проверка на заготовке говорит только о том,
+        -- что механика работает; она молчит, если её забыли выдать
+        -- Костяному щиту — а он единственный, ради кого она заведена.
+        ResetEffects()
+        SB.ActiveEffects.Add("eff_shield_bone_shield", 4, false)
+        SB.ActiveEffects.FireAction("damaged", SB.Data.Spells["t_cn_hit"], "Ирина")
+        stub.RunTimers()
+        check("кость приняла удар и рассыпалась",
+              UsesOf("eff_shield_bone_shield"), 3)
+        ResetEffects()
+    end
+
+    -- ── ЗАРЯД НЕ ТРАТИТСЯ НА СОБСТВЕННОЕ ПРИМЕНЕНИЕ ─────────
+    --
+    -- «Внутренний огонь» и вешается кастом, и гаснет от каста — то есть
+    -- он единственный эффект в библиотеке, который может съесть себя
+    -- сам. Не съедает: повод приходит из ConfirmCast сразу, а эффект
+    -- ложится позже, отложенным вызовом.
+    --
+    -- Проверка идёт настоящим маршрутом каста именно поэтому: через
+    -- прямой вызов FireAction этот зазор не воспроизвести, и вопрос
+    -- «загорелся ли огонь после собственной молитвы» остался бы
+    -- неотвеченным. Сторожит она исход, а не порядок строк: если зазор
+    -- когда-нибудь схлопнется, огонь погаснет в тот же миг, и проверка
+    -- покраснеет.
+    do
+        ResetEffects()
+        -- Берём НАСТОЯЩИЙ «Внутренний огонь», а не заготовку: заготовка
+        -- прошла бы мимо половины маршрута (выбор цели, самонаведение),
+        -- и порядок, ради которого проверка заведена, остался бы
+        -- непроверенным.
+        local wasLockedIF = _G.SpellbreakerCharDB.configLocked
+        _G.SpellbreakerCharDB.configLocked = false
+        _G.SpellbreakerCharDB.preparedSpells = { "inner_fire" }
+        -- Свободный ход: чужой ход отбил бы каст раньше, чем дело дошло
+        -- бы до наложения эффекта, и проверка молчала бы не о том.
+        SB.TurnOrder.ApplyRemoteState({ active = false, mode = "all",
+            round = 0, index = 0, slots = {}, acted = {} })
+        SB.Cooldowns.Start(SB.Cooldowns.TURN)
+        stub.world.time = stub.world.time + 10
+        SB.Logic.ConfirmCast("inner_fire", 0)
+        stub.RunTimers()
+        _G.SpellbreakerCharDB.configLocked = wasLockedIF
+        -- ЗАРЯДЫ НА МЕСТЕ, И СПЕРВА — ЧТО ЭФФЕКТ ВООБЩЕ ЛЁГ. Без первой
+        -- половины вторая проходит сама собой: у неналоженного эффекта
+        -- зарядов нет ни одного, и «не съел» звучит правдой.
+        checkTrue("огонь лёг от собственного каста",
+                  UsesOf("eff_inner_fire") ~= nil)
+
+        -- И ГАСНЕТ ОТ СЛЕДУЮЩЕЙ МОЛИТВЫ, а не от этой. «Внутренний огонь»
+        -- бессрочен (duration = -1) именно потому, что кончается
+        -- применением, а не временем: расход снимает его целиком.
+        SB.Data.Spells["t_if_next"] = { id = "t_if_next", name = "Проба следующей молитвы",
+            class = "Жрец", level = 1, canCrit = true, distance = 19,
+            damageType = "holy" }
+        SB.Events.Fire(SB.E.CAST_CONFIRMED, "t_if_next", 1)
+        checkTrue("бессрочный огонь внутри кадра ещё горит",
+                  UsesOf("eff_inner_fire") ~= nil)
+        stub.RunTimers()
+        checkTrue("следующая молитва погасила огонь",
+                  UsesOf("eff_inner_fire") == nil)
+        ResetEffects()
+    end
+
+    -- ── РАСХОД НАПИСАН В КАРТОЧКЕ ───────────────────────────
+    --
+    -- «4 хода» у щита на зарядах означают «4 удара», и не сказать об
+    -- этом — значит соврать игроку цифрой, которую он видит.
+    do
+        local txt = table.concat(
+            SB.ActiveEffects.GetEffectLines("eff_shield_bone_shield") or {}, "\n")
+        checkTrue("карточка Костяного щита говорит о зарядах",
+                  txt:find("тратит заряд", 1, true) ~= nil)
+    end
+
+    -- ── ВНУТРЕННИЙ ОГОНЬ НЕ СЪЕДАЕТ САМ СЕБЯ ────────────────
+    --
+    -- Повод «cast» и наложение эффекта случаются в одном применении, и
+    -- если бы порядок был обратным, «Внутренний огонь» гас бы ровно в
+    -- тот момент, когда загорается. Проверка держит этот порядок.
+    do
+        ResetEffects()
+        SB.ActiveEffects.Add("eff_inner_fire", 3, false)
+        check("огонь зажёгся", UsesOf("eff_inner_fire"), 3)
+
+        -- Первая же молитва после него — гаснет на один заряд.
+        SB.Data.Spells["t_if_pray"] = { id = "t_if_pray", name = "Проба молитвы",
+            class = "Жрец", level = 1, canCrit = true, distance = 19,
+            damageType = "holy" }
+
+        -- ГЛАВНОЕ ЗДЕСЬ — ПОРЯДОК, А НЕ ФАКТ РАСХОДА.
+        --
+        -- Повод "cast" приходит ДО того, как посчитан урон. Пока расход
+        -- случался тут же, «Внутренний огонь» гас в тот же миг, и Кара,
+        -- которая его потратила, била как без него: подсказка обещала
+        -- три, в бою выходила единица. Проверка держит обе половины:
+        -- внутри кадра прибавка ещё действует, к концу кадра огня нет.
+        SB.Events.Fire(SB.E.CAST_CONFIRMED, "t_if_pray", 1)
+        check("внутри кадра огонь ещё горит", UsesOf("eff_inner_fire"), 3)
+        checkTrue("и молитва считается ещё с прибавкой",
+                  SB.ActiveEffects.GetDamageMod(SB.Data.Spells["t_if_pray"]) > 0)
+        stub.RunTimers()
+        check("молитва погасила огонь", UsesOf("eff_inner_fire"), 2)
+
+        -- И ПРИБАВКА БЫЛА В ТОМ ЖЕ КАСТЕ. Повод приходит до резолва,
+        -- иначе «усиливает следующую молитву» усиливало бы через одну.
+        ResetEffects()
+        local plain = SB.ActiveEffects.GetDamageMod(SB.Data.Spells["t_if_pray"])
+        SB.ActiveEffects.Add("eff_inner_fire", 3, false)
+        checkTrue("огонь поднимает урон Светом",
+                  SB.ActiveEffects.GetDamageMod(SB.Data.Spells["t_if_pray"]) > plain)
+        ResetEffects()
+    end
+
+    -- ════════════════════════════════════════════════════════
+    -- ПОДАВЛЕНИЕ НЕ ТРОГАЕТ БАФФЫ
+    -- ════════════════════════════════════════════════════════
+    --
+    -- «Плащ теней» назван школой целиком — { "magic" }, — и школу magic
+    -- носят две сотни эффектов, добрая половина из них баффы. Без
+    -- оговорки о kind плащ снимал бы с разбойника его же чары.
+    do
+        ResetEffects()
+        SB.Data.Spells["t_cs_curse"] = { id = "t_cs_curse", name = "Проба вражьих чар",
+            class = "Эффект", level = 0, isContainer = true,
+            effect = { kind = "debuff", school = "magic", mods = { attack = -20 } } }
+        SB.Data.Spells["t_cs_boon"] = { id = "t_cs_boon", name = "Проба своих чар",
+            class = "Эффект", level = 0, isContainer = true,
+            effect = { kind = "buff", school = "magic", mods = { attack = 20 } } }
+        SB.Data.Spells["t_cs_steel"] = { id = "t_cs_steel", name = "Проба стали",
+            class = "Эффект", level = 0, isContainer = true,
+            effect = { kind = "debuff", mods = { attack = -20 } } }
+
+        SB.ActiveEffects.Add("t_cs_boon", 5, false)
+        SB.ActiveEffects.Add("eff_cloak_of_shadows", 3, false)
+        checkTrue("плащ не сдул собственный бафф разбойника",
+                  UsesOf("t_cs_boon") ~= nil)
+
+        SB.ActiveEffects.Add("t_cs_curse", 5, false)
+        checkTrue("вражьи чары плащ не пустил", UsesOf("t_cs_curse") == nil)
+
+        -- «Против стали и стрел плащ не даёт ничего»: у эффекта без
+        -- школы magic нет — значит и подавления нет.
+        SB.ActiveEffects.Add("t_cs_steel", 5, false)
+        checkTrue("а сталь прошла насквозь", UsesOf("t_cs_steel") ~= nil)
+        ResetEffects()
+    end
+
+    -- ════════════════════════════════════════════════════════
+    -- ОТВЕТЫ ОСТАЛЬНЫХ КЛАССОВ
+    -- ════════════════════════════════════════════════════════
+    do
+        local sentTo, sentWhat
+        local realSend = SB.Net.SendBuff
+        SB.Net.SendBuff = function(target, _, what) sentTo, sentWhat = target, what end
+
+        SB.Data.Spells["t_cl_melee"] = { id = "t_cl_melee", name = "Проба клинка",
+            class = "Воин", level = 1, canCrit = true, distance = 2.5,
+            damageType = "physical" }
+        SB.Data.Spells["t_cl_bow"] = { id = "t_cl_bow", name = "Проба стрелы",
+            class = "Охотник", level = 1, canCrit = true, distance = 25,
+            damageType = "physical" }
+        SB.Data.Spells["t_cl_spell"] = { id = "t_cl_spell", name = "Проба чар",
+            class = "Маг", level = 1, canCrit = true, distance = 25,
+            damageType = "fire" }
+
+        -- ШИПЫ ДРУИДА: «когда кто-то попытается поразить друида КЛИНКОМ».
+        ResetEffects()
+        SB.ActiveEffects.Add("eff_thorns", 3, false)
+        sentTo = nil
+        SB.ActiveEffects.FireAction("damaged", SB.Data.Spells["t_cl_melee"], "Ирина")
+        check("шипы кольнули того, кто подошёл", sentWhat, "eff_thorn_prick")
+        sentTo, sentWhat = nil, nil
+        SB.ActiveEffects.FireAction("damaged", SB.Data.Spells["t_cl_bow"], "Ирина")
+        check("а до лучника не достали", sentTo, nil)
+
+        -- ЛЕДЯНОЙ ДОСПЕХ МАГА: «ударяет цель своим телом или рукопашным
+        -- оружием» — оговорку про копья описание делает само.
+        ResetEffects()
+        SB.ActiveEffects.Add("eff_armor_magic_frost_armor_mage", 3, false)
+        sentTo, sentWhat = nil, nil
+        SB.ActiveEffects.FireAction("damaged", SB.Data.Spells["t_cl_melee"], "Ирина")
+        check("доспех обжёг холодом", sentWhat, "eff_frost_armor_chill")
+
+        -- ОТРАЖЕНИЕ ЧАР ВОИНА: только магия, и не всегда.
+        ResetEffects()
+        SB.ActiveEffects.Add("eff_spell_reflection", 3, false)
+        -- СОРОК РАЗ, А НЕ ОДИН. У отражения шанс 50: одиночная проверка
+        -- «сталь не отразилась» проходила бы и со снятым условием
+        -- «только магия» — ровно в половине запусков. Такая проверка не
+        -- ловит ошибку, она подбрасывает монетку.
+        local steel = 0
+        for _ = 1, 40 do
+            sentTo, sentWhat = nil, nil
+            SB.ActiveEffects.FireAction("damaged", SB.Data.Spells["t_cl_melee"], "Ирина")
+            if sentTo then steel = steel + 1 end
+        end
+        check("сталь щит не отражает ни разу", steel, 0)
+
+        local hits = 0
+        for _ = 1, 60 do
+            sentTo = nil
+            SB.ActiveEffects.FireAction("damaged", SB.Data.Spells["t_cl_spell"], "Ирина")
+            if sentTo then hits = hits + 1 end
+        end
+        checkTrue("чары иногда возвращаются", hits > 0)
+        checkTrue("но не всегда — угол успевает не каждый", hits < 60)
+
+        SB.Net.SendBuff = realSend
+        ResetEffects()
+    end
+
+    -- ── УКУС ГАДЮКИ БЕРЁТ ПЛАТУ ЗА КАСТ, А НЕ ЗА ХОД ────────
+    --
+    -- «На тех, кто не колдует, яд действует лишь как жгучая боль»:
+    -- лучник под этим ядом не должен терять ничего.
+    do
+        ResetEffects()
+        local PM3 = SB.PlayerModel
+        SB.Data.Spells["t_vs_spell"] = { id = "t_vs_spell", name = "Проба чар",
+            class = "Маг", level = 1, canCrit = true, distance = 25,
+            damageType = "frost" }
+        SB.Data.Spells["t_vs_shot"] = { id = "t_vs_shot", name = "Проба стрелы",
+            class = "Охотник", level = 1, canCrit = true, distance = 25,
+            damageType = "physical" }
+
+        SB.ActiveEffects.Add("eff_viper_sting", 4, false)
+        local before = PM3.GetPool("mana")
+        SB.Events.Fire(SB.E.CAST_CONFIRMED, "t_vs_shot", 1)
+        check("выстрел яду не интересен", PM3.GetPool("mana"), before)
+        SB.Events.Fire(SB.E.CAST_CONFIRMED, "t_vs_spell", 1)
+        checkTrue("а заклинание — стоило маны", PM3.GetPool("mana") < before)
+        ResetEffects()
+    end
+
+    -- ── ДЕМОНИЧЕСКИЙ ДОСПЕХ ЗАТЯГИВАЕТ ПОРЕЗЫ ───────────────
+    do
+        ResetEffects()
+        local PM4 = SB.PlayerModel
+        SB.Data.Spells["t_da_hit"] = { id = "t_da_hit", name = "Проба удара",
+            class = "Воин", level = 1, canCrit = true, distance = 2.5,
+            damageType = "physical" }
+        SB.ActiveEffects.Add("eff_demonic_armor", 9, false)
+        PM4.SetHealth(1)
+        local healed = 0
+        for _ = 1, 60 do
+            local was = PM4.GetHealth()
+            SB.ActiveEffects.FireAction("damaged", SB.Data.Spells["t_da_hit"], "Ирина")
+            if PM4.GetHealth() > was then healed = healed + 1 end
+            PM4.SetHealth(1)
+        end
+        checkTrue("шкура иногда затягивает рану", healed > 0)
+        checkTrue("но не каждый раз", healed < 60)
+        ResetEffects()
+    end
+
+    -- ── МЕДИТАЦИЯ ДЗЕН СБИВАЕТСЯ ОТ УДАРА ───────────────────
+    do
+        ResetEffects()
+        SB.ActiveEffects.Add("eff_concentration_zen_meditation", 4, false)
+        checkTrue("монах сел медитировать",
+                  UsesOf("eff_concentration_zen_meditation") ~= nil)
+        SB.ActiveEffects.BreakOn("damaged")
+        checkTrue("любое прикосновение выбило его",
+                  UsesOf("eff_concentration_zen_meditation") == nil)
+        ResetEffects()
+    end
+
+    -- ════════════════════════════════════════════════════════
+    -- НИ ОДИН КЛАСС НЕ ОСТАВЛЕН БЕЗ МЕХАНИКИ
+    -- ════════════════════════════════════════════════════════
+    --
+    -- Ровно та жалоба, ради которой всё это делалось: у шамана с
+    -- паладином изобилие, у остальных — ничего. Проверка следит, чтобы
+    -- разрыв не вернулся при следующей правке библиотеки.
+    do
+        -- Кто вешает эффект — тот и класс эффекта.
+        local ownerOf = {}
+        for id, sp in pairs(SB.Data.Spells) do
+            if ShippedSpells[id] and sp.class and not sp.isContainer then
+                -- Ссылка на контейнер называется в библиотеке по-разному:
+                -- buff, debuff и container живут бок о бок. Перебираем все
+                -- три, иначе проверка молча пропустит половину классов.
+                for _, key in ipairs({ "buff", "debuff", "container" }) do
+                    local ref = sp[key]
+                    if type(ref) == "string" then
+                        ownerOf[ref] = ownerOf[ref] or sp.class
+                    end
+                end
+            end
+        end
+
+        local rich = {}
+        for eid, cls in pairs(ownerOf) do
+            local sp = SB.Data.Spells[eid]
+            local def = sp and sp.effect
+            if type(def) == "table"
+               and (def.onAction ~= nil or def.suppress ~= nil) then
+                rich[cls] = (rich[cls] or 0) + 1
+            end
+        end
+
+        local bare = {}
+        for _, cls in ipairs({ "Воин", "Разбойник", "Охотник", "Маг", "Жрец",
+                              "Чернокнижник", "Рыцарь смерти", "Монах",
+                              "Друид", "Охотник на демонов", "Паладин",
+                              "Шаман" }) do
+            if not rich[cls] then bare[#bare + 1] = cls end
+        end
+        check("классы без единой такой механики", table.concat(bare, ", "), "")
+    end
+
+    -- ── КАРТОЧКА ОБЪЯСНЯЕТ СРАБАТЫВАНИЕ ─────────────────────
+    -- Механика, о которой нигде не написано, для игрока не существует:
+    -- Печать Света без этой строки — «+2 к урону» и ничего больше.
+    do
+        local seen = false
+        for _, l in ipairs(SB.ActiveEffects.GetEffectLines("eff_lightseal")) do
+            if l:find("при попадании", 1, true) then seen = true end
+        end
+        checkTrue("карточка называет повод", seen)
+
+        local hasChance = false
+        for _, l in ipairs(SB.ActiveEffects.GetEffectLines("eff_lightseal")) do
+            if l:find("30%%") then hasChance = true end
+        end
+        checkTrue("и шанс", hasChance)
+
+        -- И НАЗЫВАЕТ СПОСОБНОСТЬ, если повод только о ней: без имени две
+        -- строки Пламенного клейма читаются как «любая способность делает
+        -- и то, и другое».
+        local namesSpell = false
+        for _, l in ipairs(SB.ActiveEffects.GetEffectLines(
+                "eff_weapon_enchant_flame_weapon")) do
+            if l:find("Удар Бури", 1, true) then namesSpell = true end
+        end
+        checkTrue("карточка называет способность-повод", namesSpell)
+
+        -- И оговорку «чарами» — у Ответной реакции она половина смысла.
+        local saysMagic = false
+        for _, l in ipairs(SB.ActiveEffects.GetEffectLines("eff_feedback")) do
+            if l:find("чарами", 1, true) then saysMagic = true end
+        end
+        checkTrue("и оговорку про чары", saysMagic)
+
+        local hasWhom = false
+        for _, l in ipairs(SB.ActiveEffects.GetEffectLines("eff_shield_flame_shield")) do
+            if l:find("ударившему", 1, true) then hasWhom = true end
+        end
+        checkTrue("а у щита — кому именно прилетит", hasWhom)
+    end
+
+    _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
+    ResetEffects()
+end
+
+-- ============================================================
+-- БЛИЖНИЙ БОЙ — ДВА С ПОЛОВИНОЙ МЕТРА
+--
+-- Полтора метра — вытянутая рука без оружия, и «подойти в упор» на
+-- такой дистанции означало стоять внутри цели: модели в игре того же
+-- роста, ближе полутора метров не добежать физически. Вся библиотека
+-- сдвинута вместе с константой (+1 м каждому), так что относительные
+-- расстояния между заклинаниями остались прежними.
+-- ============================================================
+do
+    check("ближний бой — два с половиной", SB.Logic.MELEE_RANGE, 2.5)
+
+    -- ── НИЖЕ БЛИЖНЕГО БОЯ В БИБЛИОТЕКЕ НИЧЕГО НЕТ ───────────
+    --
+    -- Заклинание с дальностью 1.5 после сдвига означало бы «ближе, чем
+    -- ближний бой», а такого расстояния в системе не существует: пол в
+    -- GetSpellRange всё равно поднял бы его до 2.5, и число в карточке
+    -- разошлось бы с тем, как заклинание работает.
+    local tooClose, minDist = {}, nil
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] then
+            local d = tonumber(sp.distance) or 0
+            if d > 0 then
+                if d < SB.Logic.MELEE_RANGE then
+                    tooClose[#tooClose + 1] = (sp.name or id) .. "=" .. d
+                end
+                if not minDist or d < minDist then minDist = d end
+            end
+        end
+    end
+    check("заклинаний ближе ближнего боя", #tooClose, 0)
+    if #tooClose > 0 then print("          " .. table.concat(tooClose, ", ")) end
+    check("самое близкое в библиотеке — ровно ближний бой",
+          minDist, SB.Logic.MELEE_RANGE)
+
+    -- ── «НА СЕБЯ» ОСТАЛОСЬ НУЛЁМ ────────────────────────────
+    -- Ноль — не расстояние, а признак: у такого заклинания цели нет
+    -- вовсе (см. GetTargetedEffect). Сдвинь мы и его, каждая стойка и
+    -- каждый самобафф стали бы прицельными.
+    local selfCast = 0
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] and (tonumber(sp.distance) or 0) == 0
+           and not sp.isContainer then
+            selfCast = selfCast + 1
+        end
+    end
+    checkTrue("заклинания «на себя» на месте", selfCast > 20)
+
+    -- ── ПОЛ ДЕЙСТВУЕТ ПО НОВОЙ КОНСТАНТЕ ────────────────────
+    -- Дебафф на дальность не может увести заклинание ближе ближнего боя.
+    ResetEffects()
+    SB.Data.Spells["t_rng"] = { id = "t_rng", name = "Проба дальности",
+        class = "Маг", level = 1, canCrit = true, distance = 10 }
+    SB.Data.Spells["t_rng_cut"] = { id = "t_rng_cut", name = "Проба обрезки",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "debuff", mods = { range = -99 } } }
+    SB.ActiveEffects.Add("t_rng_cut", 5, false)
+    check("сильнейший дебафф упирается в ближний бой",
+          SB.Logic.GetSpellRange(SB.Data.Spells["t_rng"]), SB.Logic.MELEE_RANGE)
+    ResetEffects()
+
+    -- ── ЗЕЛЬЯ ЕДУТ ЗА КОНСТАНТОЙ ────────────────────────────
+    -- Они объявлены через MELEE, а не числом, поэтому двойной прибавки
+    -- получить не могли — но проверить это дешевле, чем вспоминать.
+    local badPotion = {}
+    for _, sp in ipairs(SB.Items.ListByProfession("alchemy")) do
+        if ShippedSpells[sp.id]
+           and (tonumber(sp.distance) or 0) ~= SB.Logic.MELEE_RANGE then
+            badPotion[#badPotion + 1] = (sp.name or sp.id) .. "=" ..
+                tostring(sp.distance)
+        end
+    end
+    check("зелий не в ближнем бою", #badPotion, 0)
+    if #badPotion > 0 then print("          " .. table.concat(badPotion, ", ")) end
+end
+
+-- ============================================================
+-- РЕМЕСЛО И НАУКА — ЧТО АЛХИМИК УМЕЕТ СВЕРХ ОСТАЛЬНЫХ
+--
+-- Ни то, ни другое не трогает СИЛУ зелий: она у всех одинакова, и
+-- лестница «зелье слабее заклинания» от этих двух навыков не шатается.
+-- Алхимик отличается тем, что приходит подготовленным и тратит запас
+-- медленнее.
+-- ============================================================
+do
+    local savedAttrs  = _G.SpellbreakerCharDB.attributes
+    local savedSkills = _G.SpellbreakerCharDB.skills
+    ResetEffects()
+    _G.SpellbreakerCharDB.attributes = { ["Сила"] = 5, ["Интеллект"] = 5 }
+
+    -- ── РЕМЕСЛО ОТКРЫВАЕТ ЯЧЕЙКИ: 2, 3, 5 ───────────────────
+    local EXPECT = { [1] = 3, [2] = 4, [3] = 5, [4] = 5, [5] = 6 }
+    for craft, slots in pairs(EXPECT) do
+        _G.SpellbreakerCharDB.skills = { ["Ремесло"] = craft }
+        check("Ремесло " .. craft .. " → ячеек", SB.Items.GetMaxPrepared(), slots)
+    end
+
+    -- ПОТОЛОК СХОДИТСЯ С ПОРОГАМИ. Интерфейс заводит кнопки по нему, и
+    -- разойдись они — шестая ячейка открылась бы в модели и не
+    -- нарисовалась бы на экране.
+    check("потолок ячеек", SB.Items.MAX_PREPARED,
+          SB.Items.BASE_PREPARED + #SB.Items.SLOT_STEPS)
+    _G.SpellbreakerCharDB.skills = { ["Ремесло"] = 5 }
+    check("и на полном навыке он достигнут",
+          SB.Items.GetMaxPrepared(), SB.Items.MAX_PREPARED)
+
+    -- ── БАФФЫ ЯЧЕЕК НЕ ДВИГАЮТ ──────────────────────────────
+    --
+    -- Ячейка — это форма сумки, а не сила эффекта. Появись она от зелья
+    -- и исчезни от проклятия, игрок с шестью склянками гадал бы, куда
+    -- денется шестая, когда на него что-нибудь навесят.
+    _G.SpellbreakerCharDB.skills = { ["Ремесло"] = 3 }
+    SB.Data.Spells["t_craft_up"] = { id = "t_craft_up", name = "Проба ремесла",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff", stats = { ["Ремесло"] = 2 } } }
+    local before = SB.Items.GetMaxPrepared()
+    SB.ActiveEffects.Add("t_craft_up", 5, false)
+    checkTrue("бафф поднял действующий навык",
+              SB.Skills.GetEffective("Ремесло") > 3)
+    check("а ячеек столько же", SB.Items.GetMaxPrepared(), before)
+    ResetEffects()
+
+    -- ── ЯЧЕЙКИ И ПРАВДА ИСПОЛЬЗУЮТСЯ ────────────────────────
+    -- Геттер мог бы врать: важно, что Prepare пускает ровно столько.
+    do
+        _G.SpellbreakerCharDB.configLocked = false
+        _G.SpellbreakerCharDB.skills = { ["Ремесло"] = 5 }
+        SB.Items.ClearPrepared()
+        local taken = 0
+        for _, sp in ipairs(SB.Items.ListByProfession("alchemy")) do
+            if SB.Items.Prepare(sp.id) then taken = taken + 1 end
+        end
+        check("в сумку влезло ровно столько, сколько открыто",
+              taken, SB.Items.GetMaxPrepared())
+
+        _G.SpellbreakerCharDB.skills = { ["Ремесло"] = 1 }
+        SB.Items.ClearPrepared()
+        taken = 0
+        for _, sp in ipairs(SB.Items.ListByProfession("alchemy")) do
+            if SB.Items.Prepare(sp.id) then taken = taken + 1 end
+        end
+        check("без Ремесла — базовые три", taken, SB.Items.BASE_PREPARED)
+        SB.Items.ClearPrepared()
+    end
+
+    -- ── НАУКА БЕРЕЖЁТ СКЛЯНКИ ───────────────────────────────
+    --
+    -- Шанс — модификатор навыка ПЯТИКРАТНО. Сам модификатор растёт по три
+    -- за очко, и в чистом виде он не чувствуется: шесть процентов на
+    -- половине вложенного навыка выглядят как выброшенное очко.
+    local CHANCE = { [1] = 0, [2] = 15, [3] = 30, [4] = 45, [5] = 60 }
+    for sci, pct in pairs(CHANCE) do
+        _G.SpellbreakerCharDB.skills = { ["Наука"] = sci, ["Ремесло"] = 1 }
+        check("Наука " .. sci .. " → шанс", SB.Items.GetThriftChance(), pct)
+    end
+
+    -- И ровно впятеро от модификатора — а не «по три», как всё остальное.
+    _G.SpellbreakerCharDB.skills = { ["Наука"] = 4, ["Ремесло"] = 1 }
+    check("шанс — модификатор впятеро",
+          SB.Items.GetThriftChance(), SB.Attributes.GetModifier("Наука") * 5)
+
+    -- ПОТОЛОК — СОТНЯ, и только баффом: вложенным навыком выше 60 не выйти.
+    SB.Data.Spells["t_sci_up"] = { id = "t_sci_up", name = "Проба науки",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff", stats = { ["Наука"] = 9 } } }
+    SB.ActiveEffects.Add("t_sci_up", 5, false)
+    check("баффом шанс упирается в сотню", SB.Items.GetThriftChance(), 100)
+    ResetEffects()
+
+    -- ── И РАСХОД ПРАВДА МЕНЯЕТСЯ ────────────────────────────
+    do
+        _G.SpellbreakerCharDB.configLocked = false
+        SB.Data.Spells["t_thrift"] = { id = "t_thrift", name = "Проба расхода",
+            class = "Предмет", level = 0, isItem = true, profession = "alchemy",
+            distance = 1.5, resistable = false, stack = 5 }
+
+        -- ЛЮБОЙ ПРЕДМЕТ, А НЕ ТОЛЬКО ЗЕЛЬЕ. Проверка стоит в NoteUsed —
+        -- единственной точке, через которую списывается всё из сумки, — и
+        -- ремесла не спрашивает вовсе.
+        SB.Data.Spells["t_thrift_any"] = { id = "t_thrift_any",
+            name = "Проба не-зелья", class = "Предмет", level = 0,
+            isItem = true, profession = "alchemy", distance = 2.5,
+            resistable = false, stack = 5, key = "Яд" }
+        _G.SpellbreakerCharDB.skills = { ["Наука"] = 5, ["Ремесло"] = 1 }
+        SB.Items.ClearPrepared()
+        SB.Items.Prepare("t_thrift_any")
+        checkTrue("шанс работает и на не-зелье", SB.Items.GetThriftChance() > 0)
+        SB.Items.ClearPrepared()
+
+        -- Шанс НОЛЬ — тратится всегда.
+        _G.SpellbreakerCharDB.skills = { ["Наука"] = 1, ["Ремесло"] = 1 }
+        SB.Items.ClearPrepared()
+        SB.Items.Prepare("t_thrift")
+        SB.Items.NoteUsed("t_thrift")
+        check("без Науки склянка тратится", SB.Items.CountOf("t_thrift"), 4)
+
+        -- Шанс СОТНЯ — не тратится никогда.
+        SB.ActiveEffects.Add("t_sci_up", 5, false)
+        check("шанс поднят до потолка", SB.Items.GetThriftChance(), 100)
+        SB.Items.ClearPrepared()
+        SB.Items.Prepare("t_thrift")
+        for _ = 1, 20 do SB.Items.NoteUsed("t_thrift") end
+        check("при сотне пачка цела после двадцати применений",
+              SB.Items.CountOf("t_thrift"), 5)
+        ResetEffects()
+        SB.Items.ClearPrepared()
+    end
+
+    -- ── ОБА НАВЫКА ОБЪЯСНЕНЫ ИГРОКУ ─────────────────────────
+    -- Механика, о которой нигде не написано, не существует для игрока.
+    for _, name in ipairs({ "Наука", "Ремесло" }) do
+        local tip = SB.Data.SkillEffects[name]
+        checkTrue("у «" .. name .. "» есть описание эффекта",
+                  type(tip) == "string" and #tip > 0)
+    end
+    -- И говорит про ПРЕДМЕТ, а не про склянку: механика общая на всю
+    -- сумку, и обещать одну алхимию было бы неправдой.
+    checkTrue("описание «Науки» говорит о предмете",
+              SB.Data.SkillEffects["Наука"]:find("ПРЕДМЕТ", 1, true) ~= nil)
+
+    _G.SpellbreakerCharDB.skills     = savedSkills
+    _G.SpellbreakerCharDB.attributes = savedAttrs
+    ResetEffects()
+end
+
+-- ============================================================
+-- АЛХИМИЯ: ТРИ ТИПА И ПОТОЛКИ
+--
+-- Зелья составлены игроками и правятся руками, а значит разъезжаются.
+-- Правило одно: зелье слабее заклинания-аналога, но действует
+-- гарантированно, без броска. Всё ниже сторожит именно это.
+-- ============================================================
+do
+    local KEYS = { ["Зелье"] = true, ["Эликсир"] = true, ["Яд"] = true }
+    -- ТОЛЬКО ЗАВЕЗЁННЫЕ: к этому месту прогон уже наделал своих зелий
+    -- («Проба маны», «Проверочное зелье»), и они нарочно неполны.
+    local list = {}
+    for _, sp in ipairs(SB.Items.ListByProfession("alchemy")) do
+        if ShippedSpells[sp.id] then list[#list + 1] = sp end
+    end
+    checkTrue("зелья на месте", #list > 70)
+
+    -- ── ТРИ ТИПА, И НИ ОДНОГО ЧЕТВЁРТОГО ────────────────────
+    local badKey, badStack = {}, {}
+    for _, sp in ipairs(list) do
+        if not KEYS[sp.key or ""] then
+            badKey[#badKey + 1] = (sp.name or sp.id) .. "=" .. tostring(sp.key)
+        end
+        -- Градация по связке: сильное — 1, среднее — 2, слабое — 5.
+        local n = SB.Items.StackSize(sp)
+        if n ~= 1 and n ~= 2 and n ~= 5 then
+            badStack[#badStack + 1] = (sp.name or sp.id) .. "=" .. n
+        end
+    end
+    check("зелий с чужим типом", #badKey, 0)
+    if #badKey > 0 then print("          " .. table.concat(badKey, ", ")) end
+    check("зелий с чужой связкой", #badStack, 0)
+    if #badStack > 0 then print("          " .. table.concat(badStack, ", ")) end
+
+    -- ── ТИП ОПРЕДЕЛЯЕТ СРОК ─────────────────────────────────
+    -- Зелье — мгновенное или короткий бурст, эликсир — длинный баф.
+    -- Разъедься это, и «зелье» стало бы неотличимо от «эликсира» ничем,
+    -- кроме подписи.
+    local badDur = {}
+    for _, sp in ipairs(list) do
+        local d = tonumber(sp.duration) or 0
+        if sp.key == "Зелье" and d > 5 then
+            badDur[#badDur + 1] = (sp.name or sp.id) .. " (зелье на " .. d .. ")"
+        elseif sp.key == "Эликсир" and d < 100 then
+            badDur[#badDur + 1] = (sp.name or sp.id) .. " (эликсир на " .. d .. ")"
+        end
+    end
+    check("зелий с неподходящим сроку типом", #badDur, 0)
+    if #badDur > 0 then print("          " .. table.concat(badDur, ", ")) end
+
+    -- ── ПОТОЛОК ВОСПОЛНЕНИЯ — ЧЕТВЁРКА ──────────────────────
+    --
+    -- Эталон: «Божественный дух» (Жрец, круг 2) даёт ману тиком, и
+    -- третьим кругом это шесть маны минус два вложенных = +4 чистыми.
+    -- Зелье обязано быть НЕ СИЛЬНЕЕ, потому что действует без броска.
+    local overCap = {}
+    for _, sp in ipairs(list) do
+        for _, ch in ipairs({ "heal", "mana", "resource", "castResource" }) do
+            local v = tonumber((sp.onCast or {})[ch]) or 0
+            if v > 4 then
+                overCap[#overCap + 1] = (sp.name or sp.id) .. "/" .. ch .. "=" .. v
+            end
+        end
+    end
+    check("зелий, восполняющих больше четырёх", #overCap, 0)
+    if #overCap > 0 then print("          " .. table.concat(overCap, ", ")) end
+
+    -- И потолок ДОСТИГНУТ ровно один раз: иначе «сильнейшее» ничем не
+    -- отличалось бы от просто сильного.
+    local atCap = 0
+    for _, sp in ipairs(list) do
+        if (tonumber((sp.onCast or {}).mana) or 0) == 4 then atCap = atCap + 1 end
+    end
+    check("зелий маны на потолке", atCap, 1)
+
+    -- ── ЗЕЛЬЕ НЕВИДИМОСТИ — ЭТАЛОННЫЙ СЛУЧАЙ ────────────────
+    --
+    -- Ровно баф «Невидимости» Мага (круг 2), но вдвое короче. Это и есть
+    -- правило «слабее аналога, но гарантированно», записанное числами.
+    do
+        local potion
+        for _, sp in ipairs(list) do
+            if sp.name == "Зелье невидимости" then potion = sp end
+        end
+        checkTrue("зелье невидимости на месте", potion ~= nil)
+
+        local spellDef  = SB.ActiveEffects.GetEffectDef("eff_stealth_mage_invisibility")
+        local potionDef = potion and SB.ActiveEffects.GetEffectDef(potion.buff)
+        checkTrue("оба эффекта читаются", spellDef ~= nil and potionDef ~= nil)
+
+        check("полоса крита та же", potionDef.mods.crit,     spellDef.mods.crit)
+        check("защита та же",       potionDef.mods.defense,  spellDef.mods.defense)
+        check("и Скрытность та же",
+              potionDef.stats["Скрытность"], spellDef.stats["Скрытность"])
+        check("а срок — ровно половина",
+              potion.duration, SB.Data.Spells["mage_invisibility"].duration / 2)
+    end
+
+    -- ── ПОТОЛКИ БАФОВ ───────────────────────────────────────
+    --
+    -- Броня: «Каменная кожа» (Шаман, круг 1) даёт 20 единиц, и то со
+    -- штрафами к броскам. Зелье даёт не больше и без штрафов.
+    -- Характеристики: +2 — потолок («Божественный дух» даёт ровно два),
+    -- и только у сильнейших.
+    local overBuff = {}
+    for _, sp in ipairs(list) do
+        local def = sp.buff and SB.ActiveEffects.GetEffectDef(sp.buff)
+        if def then
+            if (def.mods.armor or 0) > 20 then
+                overBuff[#overBuff + 1] = (sp.name or sp.id) .. "/броня=" .. def.mods.armor
+            end
+            -- ОДНО ИСКЛЮЧЕНИЕ, И ОНО ЖЕ ОБРАЗЕЦ ПРАВИЛА. «Зелье
+            -- невидимости» копирует баф Мага слово в слово, включая
+            -- Скрытность 3, и платит за это вдвое меньшим сроком —
+            -- проверка на это стоит отдельно, выше.
+            local copiesSpell = (sp.name == "Зелье невидимости")
+            for st, v in pairs(def.stats or {}) do
+                if v > 2 and not copiesSpell then
+                    overBuff[#overBuff + 1] = (sp.name or sp.id) .. "/" .. st .. "=" .. v
+                end
+            end
+            -- Тик тоже: «Озарение» (Друид, круг 2) лечит по два за ход.
+            local raw = SB.Data.Spells[sp.buff].effect
+            for _, ch in ipairs({ "heal", "mana" }) do
+                local v = tonumber(((raw or {}).tick or {})[ch]) or 0
+                if v > 3 then
+                    overBuff[#overBuff + 1] = (sp.name or sp.id) .. "/тик " .. ch .. "=" .. v
+                end
+            end
+        end
+    end
+    check("зелий выше потолка бафа", #overBuff, 0)
+    if #overBuff > 0 then print("          " .. table.concat(overBuff, ", ")) end
+
+    -- ── ОДНОВРЕМЕННО ОДИН ЭЛИКСИР, ОДНО ЗЕЛЬЕ, ОДИН ЯД ─────
+    --
+    -- Семейство в аддоне значит «новый эффект вытесняет предыдущий того
+    -- же семейства». Без него игрок вешал на себя всю сумку разом:
+    -- четыре эликсира характеристик — это +4 к листу за один ход и
+    -- бесплатно, потому что зелья действуют гарантированно.
+    local noFamily, wrongFamily = {}, {}
+    for _, sp in ipairs(list) do
+        if sp.buff then
+            local cont = SB.Data.Spells[sp.buff]
+            local fam  = cont and cont.effect and cont.effect.family
+            if not fam then
+                noFamily[#noFamily + 1] = sp.name or sp.id
+            elseif fam ~= sp.key then
+                wrongFamily[#wrongFamily + 1] =
+                    (sp.name or sp.id) .. ": " .. fam .. " вместо " .. sp.key
+            end
+        end
+    end
+    check("зелий с эффектом, но без семейства", #noFamily, 0)
+    if #noFamily > 0 then print("          " .. table.concat(noFamily, ", ")) end
+    check("зелий с чужим семейством", #wrongFamily, 0)
+    if #wrongFamily > 0 then print("          " .. table.concat(wrongFamily, ", ")) end
+
+    -- И семейство ПРАВДА вытесняет: два эликсира разом не висят.
+    do
+        ResetEffects()
+        local first, second
+        for _, sp in ipairs(list) do
+            if sp.key == "Эликсир" and sp.buff and sp.buff ~= (first and first.buff) then
+                if not first then first = sp elseif not second then second = sp end
+            end
+        end
+        checkTrue("нашлись два разных эликсира",
+                  first ~= nil and second ~= nil and first.buff ~= second.buff)
+        SB.ActiveEffects.Add(first.buff, 5, false)
+        checkTrue("первый эликсир висит", UsesOf(first.buff) ~= nil)
+        SB.ActiveEffects.Add(second.buff, 5, false)
+        checkTrue("второй встал", UsesOf(second.buff) ~= nil)
+        checkTrue("а первый вытеснен", UsesOf(first.buff) == nil)
+        ResetEffects()
+    end
+
+    -- ── ИМЯ СОГЛАСОВАНО С ТИПОМ ─────────────────────────────
+    --
+    -- «Зелье защиты от магии», висящее триста ходов, — это эликсир, и
+    -- называться оно должно эликсиром. Разъедься имя с типом, и
+    -- классификация останется только в поле, которого игрок не видит.
+    local mismatched = {}
+    -- ТОЛЬКО ДВА СЛОВА, и ЯДА СРЕДИ НИХ НЕТ. «Зелье» и «эликсир» в имени
+    -- называют ФОРМУ и ничего больше, а «яд» — обычное слово: «Зелье
+    -- сопротивления яду» — честное зелье, которое ОТ яда лечит. Лови мы
+    -- его по подстроке, проверка требовала бы переименовать то, что
+    -- названо верно.
+    --
+    -- ОБА НАПИСАНИЯ ПЕРЕЧИСЛЕНЫ РУКАМИ, и это не лень. Здесь стояло
+    -- name:lower(), и проверка была ВЫРОЖДЕННОЙ: lower в Lua побайтовый
+    -- и кириллицу не трогает вовсе, так что «Зелье» с большой буквы не
+    -- совпадало с «зель» никогда. Проверка не могла провалиться — то
+    -- есть не проверяла ничего.
+    local WORD = {
+        ["Зелье"]   = { "Зель", "зель" },
+        ["Эликсир"] = { "Эликсир", "эликсир" },
+    }
+    for _, sp in ipairs(list) do
+        local nm = sp.name or ""
+        for key, forms in pairs(WORD) do
+            if key ~= sp.key then
+                for _, word in ipairs(forms) do
+                    if nm:find(word, 1, true) then
+                        mismatched[#mismatched + 1] = nm .. " → " .. sp.key
+                        break
+                    end
+                end
+            end
+        end
+    end
+    check("предметов, чьё имя спорит с типом", #mismatched, 0)
+    if #mismatched > 0 then print("          " .. table.concat(mismatched, ", ")) end
+
+    -- ── ДОЛГИЙ ОТДЫХ ПОПОЛНЯЕТ СУМКУ ────────────────────────
+    --
+    -- Выпитое за сцену возвращается. Без этого сумка пустела навсегда, и
+    -- «взять с собой зелий» было разовым решением на всю кампанию.
+    do
+        _G.SpellbreakerCharDB.configLocked = false
+        SB.Items.ClearPrepared()
+        local sample
+        for _, sp in ipairs(list) do
+            if SB.Items.StackSize(sp) > 1 then sample = sp break end
+        end
+        checkTrue("нашлось зелье с пачкой", sample ~= nil)
+
+        SB.Items.Prepare(sample.id)
+        local full = SB.Items.StackSize(sample)
+        SB.Items.NoteUsed(sample.id)
+        check("после применения в пачке меньше",
+              SB.Items.CountOf(sample.id), full - 1)
+
+        SB.PlayerModel.FullReset()
+        check("Долгий Отдых долил пачку доверху",
+              SB.Items.CountOf(sample.id), full)
+
+        -- ПУСТАЯ ЯЧЕЙКА НЕ ВОСКРЕСАЕТ: она освободилась, когда кончилась,
+        -- и вернуть её значило бы вернуть предмет, которого нет.
+        SB.Items.ClearPrepared()
+        SB.Items.Prepare(sample.id)
+        for _ = 1, full do SB.Items.NoteUsed(sample.id) end
+        check("кончившееся зелье покинуло сумку", SB.Items.CountPrepared(), 0)
+        SB.PlayerModel.FullReset()
+        check("и Долгий Отдых его не воскрешает", SB.Items.CountPrepared(), 0)
+        SB.Items.ClearPrepared()
+    end
+
+    -- Раскладка в вывод прогона: раздача правится руками.
+    do
+        local byKey = {}
+        for _, sp in ipairs(list) do
+            byKey[sp.key] = (byKey[sp.key] or 0) + 1
+        end
+        local rep = {}
+        for _, k in ipairs({ "Зелье", "Эликсир", "Яд" }) do
+            rep[#rep + 1] = ("%s %d"):format(k, byKey[k] or 0)
+        end
+        print("[алхимия] " .. table.concat(rep, "; "))
+    end
+end
+
+-- ============================================================
+-- СРОК ЭФФЕКТА ЗАДАЁТ ТОЛЬКО ЗАКЛИНАНИЕ
+--
+-- Своей длительности у контейнеров больше нет вовсе. Пока она была
+-- запасным значением, у одного эффекта было два источника правды, и
+-- понять по карточке, откуда взялись эти шесть ходов, было нельзя.
+-- ============================================================
+do
+    ResetEffects()
+    SB.TurnOrder.Stop()
+
+    SB.Data.Spells["t_dur_eff"] = { id = "t_dur_eff", name = "Проба срока",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff", mods = { armor = 1 } } }
+    SB.Data.Spells["t_dur_short"] = { id = "t_dur_short", name = "Короткое",
+        class = "Маг", level = 1, distance = 0, duration = 2,
+        container = "t_dur_eff" }
+    SB.Data.Spells["t_dur_long"] = { id = "t_dur_long", name = "Долгое",
+        class = "Маг", level = 1, distance = 0, duration = 8,
+        container = "t_dur_eff" }
+    SB.Data.Spells["t_dur_none"] = { id = "t_dur_none", name = "Без срока",
+        class = "Маг", level = 1, distance = 0, container = "t_dur_eff" }
+
+    -- ОДИН ЭФФЕКТ — РАЗНЫЙ СРОК ОТ РАЗНЫХ ЗАКЛИНАНИЙ. Ровно то, чего
+    -- «своя» длительность контейнера не позволяла: заговор и третий круг
+    -- вешали бы одно и то же на одинаковое число ходов.
+    check("короткое заклинание вешает на свой срок",
+          SB.Logic.GetEffectDuration("t_dur_eff", SB.Data.Spells["t_dur_short"], 0), 2)
+    check("долгое — на свой",
+          SB.Logic.GetEffectDuration("t_dur_eff", SB.Data.Spells["t_dur_long"], 0), 8)
+    check("без срока — один ход",
+          SB.Logic.GetEffectDuration("t_dur_eff", SB.Data.Spells["t_dur_none"], 0), 1)
+
+    -- И СОБСТВЕННОЕ ПОЛЕ ЭФФЕКТА НЕ ЧИТАЕТСЯ, даже если кто-то его
+    -- припишет: второй источник правды не должен вернуться тихо.
+    SB.Data.Spells["t_dur_eff"].duration = 99
+    check("приписанный эффекту срок игнорируется",
+          SB.Logic.GetEffectDuration("t_dur_eff", SB.Data.Spells["t_dur_none"], 0), 1)
+    SB.Data.Spells["t_dur_eff"].duration = nil
+
+    -- Бесконечность заклинания по-прежнему работает.
+    SB.Data.Spells["t_dur_none"].duration = -1
+    check("минус единица — бесконечный эффект",
+          SB.Logic.GetEffectDuration("t_dur_eff", SB.Data.Spells["t_dur_none"], 0),
+          SB.ActiveEffects.INFINITE)
+    SB.Data.Spells["t_dur_none"].duration = nil
+
+    -- ЖИВЫМИ ДАННЫМИ: ни один контейнер библиотеки не держит свой срок.
+    local withDur = {}
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] and sp.isContainer and sp.duration ~= nil then
+            withDur[#withDur + 1] = sp.name or id
+        end
+    end
+    check("контейнеров с собственным сроком", #withDur, 0)
+    if #withDur > 0 then print("          " .. table.concat(withDur, ", ")) end
+
+    -- И обратная сторона: каждое заклинание, которое что-то вешает,
+    -- свой срок объявляет само. Иначе эффект молча повиснет на один ход.
+    local noDur = {}
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] and not sp.isContainer and sp.duration == nil then
+            for _, f in ipairs({ "container", "buff", "debuff" }) do
+                local t = sp[f]
+                -- Мгновенные эффекты бывают: «Оживление мертвеца» вешает
+                -- вурдалака до конца сцены через onCast. Ловим только те,
+                -- у кого эффект есть, а срока нет ни в каком виде.
+                if type(t) == "string" and SB.Data.Spells[t] then
+                    noDur[#noDur + 1] = (sp.name or id) .. "/" .. f
+                    break
+                end
+            end
+        end
+    end
+    check("заклинаний с эффектом, но без срока", #noDur, 0)
+    if #noDur > 0 then print("          " .. table.concat(noDur, ", ")) end
+
+    ResetEffects()
+end
+
+-- ============================================================
+-- КРИТИЧЕСКОГО ПРОВАЛА НЕТ
+--
+-- Натуральная единица — обычный неудачный бросок. Прежняя ветка не
+-- добавляла ни одного последствия (succeeded всё равно false), зато
+-- отнимала у игрока право на модификаторы: развитый персонаж с +40
+-- проваливал каст ровно так же, как новичок.
+-- ============================================================
+do
+    -- Проверяем ИСХОДНИКИ, а не поведение: ветка выпадала по чистому
+    -- кубику, и подстроить его в прогоне — значит проверить заглушку, а
+    -- не аддон.
+    local src = ReadFile("Core/Logic.lua")
+    checkTrue("ветки на натуральную единицу нет",
+              src:find("roll == 1 and mayCrit", 1, true) == nil)
+    checkTrue("флага isFumble нет", src:find("isFumble", 1, true) == nil)
+    checkTrue("исхода «критический провал» нет",
+              src:find("Критический провал", 1, true) == nil)
+    checkTrue("и кнопки у Ведущего тоже",
+              ReadFile("UI/GMPanel.lua"):find("forceCritF", 1, true) == nil)
+
+    -- Форсированных исходов осталось три, и нумерация не поехала:
+    -- по ней ездят пакеты со старых клиентов.
+    checkTrue("исходов у Ведущего три",
+              src:find('{ "Успех.", "Провал.", "Критический успех!" }', 1, true) ~= nil)
+
+    -- rollFloor ОСТАЛСЯ: он срезает неудачные грани и поднимает средний
+    -- бросок — это самостоятельная прибавка, а не подпорка к вырезанному.
+    check("расовый пол кубика на месте", SB.Data.RaceProfiles.Orc.rollFloor, 10)
+end
+
+-- ============================================================
+-- ПОДСКАЗКА К СКРЫТНОСТИ
+-- ============================================================
+do
+    local tip = SB.Data.SkillEffects["Скрытность"]
+    checkTrue("у Скрытности есть описание механики", type(tip) == "string")
+    checkTrue("в нём названы метры", tip:find("метр", 1, true) ~= nil)
+    checkTrue("и оговорка про вредоносность",
+              tip:find("ВРЕДОНОСН", 1, true) ~= nil)
+    checkTrue("и про ближний бой",
+              tip:find("ближн", 1, true) ~= nil)
+end
+
+-- ============================================================
+-- ПОБЕГ НЕ ПЕРЕЖИВАЕТ СМЕНУ ГРУППЫ
+--
+-- Флаг снимался ровно одним способом: новым номером сессии от Ведущего.
+-- Между сценами это разваливалось — сбежал из одного рейда, вступил в
+-- другой, и новый Ведущий честно пролистывал первый ход.
+-- ============================================================
+do
+    local savedGroup = stub.world.inGroup
+    local PM = SB.PlayerModel
+
+    stub.world.inGroup = true
+    PM.SetFled(true)
+    checkTrue("побег зафиксирован", PM.HasFled())
+
+    -- В ГРУППЕ ФЛАГ ДЕРЖИТСЯ: приход новичка, уход соседа и передача
+    -- лидерства — это всё одна и та же сцена.
+    stub.FireEvent("GROUP_ROSTER_UPDATE")
+    checkTrue("состав менялся, а побег остался", PM.HasFled())
+
+    -- ВЫШЕЛ ИЗ ГРУППЫ — вышел из сцены.
+    stub.world.inGroup = false
+    stub.FireEvent("GROUP_ROSTER_UPDATE")
+    checkTrue("вне группы отметка снята", not PM.HasFled())
+
+    -- И в статус она больше не едет: у нового Ведущего поля fled не
+    -- будет, а его отсутствие там значит «вернулся в строй».
+    check("и в снимке статуса её нет", PM.GetStatusSnapshot().fled, false)
+
+    stub.world.inGroup = savedGroup
+end
+
+-- ============================================================
+-- ПРИБАВКА К УРОНУ ПО ШКОЛАМ
+--
+-- Зеркало сопротивлений: три уровня (весь урон, вся магия, одна школа),
+-- те же правила сложения. Ломается так же тихо — «Эликсир огневой мощи»,
+-- разгоняющий ледяную стрелу, в логе выглядит совершенно правдоподобно.
+-- ============================================================
+do
+    ResetEffects()
+    SB.TurnOrder.Stop()
+
+    -- ── ЧТО РАБОТАЕТ НА КАКУЮ ШКОЛУ ─────────────────────────
+    local function Keys(id)
+        local out = {}
+        for _, k in ipairs(SB.Data.DamageKeysFor(id)) do out[k] = true end
+        return out
+    end
+
+    local ph = Keys("physical")
+    checkTrue("на сталь работает общий канал", ph[SB.Data.DAMAGE_ALL])
+    checkTrue("и свой, физический",            ph["damagePhysical"])
+    checkTrue("но не магический",              not ph[SB.Data.DAMAGE_MAGIC])
+    check("ровно два ключа", #SB.Data.DamageKeysFor("physical"), 2)
+
+    -- У ФИЗИЧЕСКОГО ЗДЕСЬ КЛЮЧ ЕСТЬ — в отличие от сопротивлений. Там его
+    -- роль играет доспех; на атаке «доспеха наоборот» не существует, и
+    -- «+1 к урону оружием» выразить было бы нечем.
+    checkTrue("у физического есть ключ прибавки",
+              SB.Data.DamageTypes.physical.damageKey ~= nil)
+    checkTrue("а ключа сопротивления по-прежнему нет",
+              SB.Data.DamageTypes.physical.resistKey == nil)
+
+    local fi = Keys("fire")
+    checkTrue("на огонь работает общий",  fi[SB.Data.DAMAGE_ALL])
+    checkTrue("и магический",             fi[SB.Data.DAMAGE_MAGIC])
+    checkTrue("и свой, огненный",         fi["damageFire"])
+    check("ровно три ключа", #SB.Data.DamageKeysFor("fire"), 3)
+
+    check("у заклинания без школы работает только общий",
+          #SB.Data.DamageKeysFor(nil), 1)
+
+    -- ── ТРИ УРОВНЯ СКЛАДЫВАЮТСЯ И НЕ ТЕКУТ В ЧУЖУЮ ШКОЛУ ────
+    SB.Data.Spells["t_d_fire"] = { id = "t_d_fire", name = "Проба огня",
+        class = "Маг", level = 1, canCrit = true, distance = 18,
+        damageType = "fire" }
+    SB.Data.Spells["t_d_frost"] = { id = "t_d_frost", name = "Проба льда",
+        class = "Маг", level = 1, canCrit = true, distance = 18,
+        damageType = "frost" }
+    SB.Data.Spells["t_d_steel"] = { id = "t_d_steel", name = "Проба стали",
+        class = "Воин", level = 1, canCrit = true, distance = 1.5,
+        damageType = "physical" }
+    SB.Data.Spells["t_d_none"] = { id = "t_d_none", name = "Проба без школы",
+        class = "Маг", level = 1, canCrit = true, distance = 18 }
+
+    local S = SB.Data.Spells
+    local function Mod(id) return (SB.ActiveEffects.GetDamageMod(S[id])) end
+
+    SB.Data.Spells["t_buff_all"] = { id = "t_buff_all", name = "Всему урону",
+        class = "Эффект", level = 0, isContainer = true, duration = 9,
+        effect = { kind = "buff", mods = { damage = 1 } } }
+    SB.Data.Spells["t_buff_magic"] = { id = "t_buff_magic", name = "Всей магии",
+        class = "Эффект", level = 0, isContainer = true, duration = 9,
+        effect = { kind = "buff", mods = { damageMagic = 1 } } }
+    SB.Data.Spells["t_buff_fire"] = { id = "t_buff_fire", name = "Огню",
+        class = "Эффект", level = 0, isContainer = true, duration = 9,
+        effect = { kind = "buff", mods = { damageFire = 2 } } }
+
+    check("без эффектов прибавки нет", Mod("t_d_fire"), 0)
+
+    SB.ActiveEffects.Add("t_buff_all", 9, false)
+    check("общая прибавка достаёт огонь",  Mod("t_d_fire"), 1)
+    check("и сталь тоже",                  Mod("t_d_steel"), 1)
+    check("и заклинание без школы",        Mod("t_d_none"), 1)
+
+    SB.ActiveEffects.Add("t_buff_magic", 9, false)
+    check("магическая легла поверх общей", Mod("t_d_fire"), 2)
+    check("и на лёд — он тоже магия",      Mod("t_d_frost"), 2)
+    -- ГЛАВНАЯ ПРОВЕРКА РАЗВИЛКИ: сталь магией не разгоняется.
+    check("а сталь магией не разгоняется", Mod("t_d_steel"), 1)
+    check("и заклинание без школы — тоже", Mod("t_d_none"), 1)
+
+    SB.ActiveEffects.Add("t_buff_fire", 9, false)
+    check("школьная легла поверх обеих",   Mod("t_d_fire"), 4)
+    check("а на лёд не потекла",           Mod("t_d_frost"), 2)
+    check("и на сталь не потекла",         Mod("t_d_steel"), 1)
+    ResetEffects()
+
+    -- ── КАРТОЧКА ПОКАЗЫВАЕТ ТО ЖЕ ЧИСЛО ─────────────────────
+    --
+    -- Раньше карточка звала GetMod("damage") напрямую. Останься она на
+    -- нём — «+2 огню» показывалось бы на ледяной стреле, то есть карточка
+    -- обещала бы урон, которого не будет.
+    do
+        SB.Data.Spells["t_d_fire2"] = { id = "t_d_fire2", name = "Проба огня 2",
+            class = "Маг", level = 1, canCrit = true, distance = 18,
+            damageType = "fire", scaling = { damage = { ["Сила"] = 1 } } }
+        SB.Data.Spells["t_d_frost2"] = { id = "t_d_frost2", name = "Проба льда 2",
+            class = "Маг", level = 1, canCrit = true, distance = 18,
+            damageType = "frost", scaling = { damage = { ["Сила"] = 1 } } }
+
+        local function CardDamage(id)
+            for _, l in ipairs(SB.Logic.GetSpellScalingLines(S[id])) do
+                local n = l:match("Урон:|r%s*|c%x%x%x%x%x%x%x%x(%d+)")
+                if n then return tonumber(n) end
+                n = l:match("Урон:|r%s*(%d+)")
+                if n then return tonumber(n) end
+            end
+        end
+
+        local fireBefore = CardDamage("t_d_fire2")
+        local iceBefore  = CardDamage("t_d_frost2")
+        checkTrue("карточка показывает урон", fireBefore ~= nil and iceBefore ~= nil)
+
+        SB.ActiveEffects.Add("t_buff_fire", 9, false)
+        check("карточка огненного выросла на два",
+              CardDamage("t_d_fire2"), fireBefore + 2)
+        check("а карточка ледяного не тронута",
+              CardDamage("t_d_frost2"), iceBefore)
+        ResetEffects()
+    end
+
+    -- ── ВСЕ ПЯТЬ ПУТЕЙ РЕЗОЛВА ХОДЯТ ОДНОЙ ДВЕРЬЮ ───────────
+    --
+    -- Проверяем не поведение, а сам факт: путей резолва пять, и
+    -- забытый GetMod("damage") в одном из них дал бы разный урон за один
+    -- и тот же удар — смотря во что игрок целился. Прогон боевых веток
+    -- целиком тут не поможет: он проверит ту, что вспомнили написать.
+    for _, path in ipairs({ "Core/Logic.lua", "Core/Logic/Aoe.lua",
+                            "Core/Logic/NPC.lua", "Core/Logic/NpcCast.lua" }) do
+        local src = ReadFile(path)
+        -- Вырезаем комментарии: в них старое имя упоминается нарочно.
+        local code = src:gsub("%-%-[^\n]*", "")
+        checkTrue(path .. " не зовёт GetMod(\"damage\") напрямую",
+                  code:find('GetMod%("damage"%)') == nil)
+        checkTrue(path .. " не зовёт EffectMod(unit, \"damage\")",
+                  code:find('EffectMod%(%s*unit%s*,%s*"damage"%s*%)') == nil)
+    end
+
+    -- ── РАЗДАЧА ПО БИБЛИОТЕКЕ ───────────────────────────────
+    --
+    -- Прибит список: эти эффекты названы школой, и общий канал у них был
+    -- бы прямой ошибкой — «Эликсир огневой мощи» разгонял бы ледяную
+    -- стрелу.
+    local SCHOOLED = {
+        -- зелья: число прежнее, сузилась только область
+        { "custom_cont_56789a0123456789123456789a23456789abcd", "damageFire",    1 },
+        { "custom_cont_bcd356787",                              "damageFire",    2 },
+        { "custom_cont_a456789abc789abcd045789",                "damageFrost",   1 },
+        { "custom_cont_019ab40123456789abcdeabc",               "damageShadow",  1 },
+        { "custom_cont_bcde56789a566789abc",                    "damageMagic",   1 },
+        { "custom_cont_56789abc456789abcdef45678923456789a",    "damageMagic",   1 },
+        -- чары оружия: бьёт оружие, значит физический
+        { "eff_weapon_enchant_flame_weapon",     "damagePhysical",  2 },
+        { "eff_weapon_enchant_lightning_brand",  "damagePhysical",  2 },
+        { "eff_weapon_enchant_ice_fringe",       "damagePhysical",  2 },
+        { "eff_lightseal",                       "damagePhysical",  2 },
+        { "eff_priest_bless_weapon",             "damagePhysical",  2 },
+        -- дебаффы: минус прежний, сузилась область
+        { "eff_weakness_abonish_magic",          "damageMagic",    -1 },
+        { "eff_curse_of_weakness",               "damagePhysical", -1 },
+        { "eff_weakness_frost_fever",            "damagePhysical", -1 },
+        -- «следующая молитва срывается с губ сильнее задуманного»
+        { "eff_inner_fire",                      "damageHoly",      2 },
+    }
+    for _, row in ipairs(SCHOOLED) do
+        local id, key, want = row[1], row[2], row[3]
+        local def = SB.ActiveEffects.GetEffectDef(id)
+        local nm  = (SB.Data.Spells[id] and SB.Data.Spells[id].name) or id
+        check("«" .. nm .. "»: " .. key, def and def.mods[key], want)
+        -- И общий канал у них снят: иначе прибавка считалась бы дважды.
+        check("«" .. nm .. "» не двоит общим каналом",
+              def and (def.mods[SB.Data.DAMAGE_ALL] or 0), 0)
+    end
+
+    -- Живыми данными: ни один эффект не должен держать общий канал
+    -- ВМЕСТЕ со школьным — это двойной счёт, и в логе он не виден.
+    local doubled = {}
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] then
+            local def = SB.ActiveEffects.GetEffectDef(id)
+            if def and (def.mods[SB.Data.DAMAGE_ALL] or 0) ~= 0 then
+                for _, k in ipairs(SB.Data.DamageBonusKeys) do
+                    if (def.mods[k] or 0) ~= 0 then
+                        doubled[#doubled + 1] = (sp.name or id) .. "/" .. k
+                    end
+                end
+            end
+        end
+    end
+    check("эффектов с двойным счётом урона", #doubled, 0)
+    if #doubled > 0 then print("          " .. table.concat(doubled, ", ")) end
+
+    -- И раскладка в вывод прогона: раздача правится руками.
+    do
+        local used = {}
+        for id, sp in pairs(SB.Data.Spells) do
+            if ShippedSpells[id] then
+                local def = SB.ActiveEffects.GetEffectDef(id)
+                if def then
+                    for _, k in ipairs(SB.Data.DamageBonusKeys) do
+                        if (def.mods[k] or 0) ~= 0 then
+                            used[k] = (used[k] or 0) + 1
+                        end
+                    end
+                end
+            end
+        end
+        local rep = {}
+        for _, k in ipairs(SB.Data.DamageBonusKeys) do
+            if (used[k] or 0) > 0 then
+                rep[#rep + 1] = ("%s %d"):format(
+                    SB.Data.DamageBonusLabel(k):gsub("Урон: ", ""), used[k])
+            end
+        end
+        print("[урон по школам] " .. table.concat(rep, "; "))
+    end
+
+    ResetEffects()
+end
+
+-- ============================================================
+-- СКРЫТНОСТЬ — ЭТО РАССТОЯНИЕ
+--
+-- Спрятавшийся кажется дальше, чем стоит, тому, кто целится в него
+-- вредоносным заклинанием. Механика тонкая: она собрана из чужого навыка
+-- (значение приезжает по сети), признака вредоносности и пола в ближнем
+-- бою — и сломать её можно с трёх разных сторон.
+-- ============================================================
+do
+    local savedTarget = stub.world.units["target"]
+    local savedPPos   = stub.world.playerPos
+
+    stub.world.playerPos = { 100, 100, 1 }
+    stub.world.units["target"] = { name = "Ирина", level = 25,
+        class = "Разбойник", pos = { 100, 100, 1 } }
+    SB.Data.PlayersStatus = SB.Data.PlayersStatus or {}
+
+    SB.Data.Spells["t_sneak_hit"] = { id = "t_sneak_hit", name = "Проба удара",
+        class = "Маг", level = 1, canCrit = true, distance = 18,
+        damageType = "fire" }
+    SB.Data.Spells["t_sneak_deb"] = { id = "t_sneak_deb", name = "Проба дебаффа",
+        class = "Маг", level = 1, distance = 18, debuff = "t_eff_sneak" }
+    SB.Data.Spells["t_sneak_heal"] = { id = "t_sneak_heal", name = "Проба лечения",
+        class = "Маг", level = 1, isHeal = true, distance = 18 }
+    SB.Data.Spells["t_sneak_buff"] = { id = "t_sneak_buff", name = "Проба баффа",
+        class = "Маг", level = 1, distance = 18, buff = "t_eff_sneak" }
+    SB.Data.Spells["t_sneak_melee"] = { id = "t_sneak_melee", name = "Проба вплотную",
+        class = "Воин", level = 1, canCrit = true, distance = 1.5 }
+
+    local S = SB.Data.Spells
+
+    -- ── ЧТО СЧИТАЕТСЯ ВРЕДОНОСНЫМ ───────────────────────────
+    checkTrue("урон — вредоносно",   SB.Logic.IsHarmful(S["t_sneak_hit"]))
+    checkTrue("дебафф — вредоносно", SB.Logic.IsHarmful(S["t_sneak_deb"]))
+    checkTrue("лечение — нет",   not SB.Logic.IsHarmful(S["t_sneak_heal"]))
+    checkTrue("бафф — нет",      not SB.Logic.IsHarmful(S["t_sneak_buff"]))
+
+    -- ── ШТРАФ СЧИТАЕТСЯ ОТ НЕОБУЧЕННОСТИ ────────────────────
+    -- Единица есть у КАЖДОГО без единого вложенного очка. Считай мы от
+    -- нуля — весь мир разом стал бы дальше, и это была бы не скрытность,
+    -- а сдвиг всех дальностей в библиотеке.
+    SB.Data.PlayersStatus["Ирина"] = { stealth = 1 }
+    check("необученная скрытность не даёт ничего",
+          SB.Logic.GetStealthPenalty(S["t_sneak_hit"]), 0)
+
+    SB.Data.PlayersStatus["Ирина"] = { stealth = 3 }
+    local pen3 = SB.Logic.GetStealthPenalty(S["t_sneak_hit"])
+    checkTrue("обученная — даёт", pen3 > 0)
+    SB.Data.PlayersStatus["Ирина"] = { stealth = 5 }
+    check("и растёт ровно вдвое от 3 к 5",
+          SB.Logic.GetStealthPenalty(S["t_sneak_hit"]), pen3 * 2)
+
+    -- В МИНУС НЕ УХОДИТ: дебафф уводит навык ниже единицы, но
+    -- отрицательный штраф означал бы, что чужие заклинания бьют ДАЛЬШЕ
+    -- своей заявленной дальности.
+    SB.Data.PlayersStatus["Ирина"] = { stealth = -4 }
+    check("сбитая скрытность чужих рук не удлиняет",
+          SB.Logic.GetStealthPenalty(S["t_sneak_hit"]), 0)
+
+    -- НЕТ ДАННЫХ — НЕТ ШТРАФА. У цели может не быть аддона.
+    SB.Data.PlayersStatus["Ирина"] = {}
+    check("без сетевого значения штрафа нет",
+          SB.Logic.GetStealthPenalty(S["t_sneak_hit"]), 0)
+
+    -- ── ТОЛЬКО ПРОТИВ ВРЕДОНОСНОГО ──────────────────────────
+    SB.Data.PlayersStatus["Ирина"] = { stealth = 5 }
+    local full = SB.Logic.GetStealthPenalty(S["t_sneak_hit"])
+    checkTrue("удар штрафуется", full > 0)
+    check("дебафф тоже", SB.Logic.GetStealthPenalty(S["t_sneak_deb"]), full)
+    -- Лекарь не должен бегать за разбойником по комнате.
+    check("лечение — нет", SB.Logic.GetStealthPenalty(S["t_sneak_heal"]), 0)
+    check("бафф — нет",    SB.Logic.GetStealthPenalty(S["t_sneak_buff"]), 0)
+
+    -- ── ОТ СВОИХ НЕ ПРЯЧУТСЯ ────────────────────────────────
+    _G.SpellbreakerAccountDB = _G.SpellbreakerAccountDB or {}
+    SB.Data.SetFriend("Ирина", true)
+    check("помеченный другом штрафа не наводит",
+          SB.Logic.GetStealthPenalty(S["t_sneak_hit"]), 0)
+    SB.Data.SetFriend("Ирина", nil)
+    check("а снятая пометка возвращает его",
+          SB.Logic.GetStealthPenalty(S["t_sneak_hit"]), full)
+
+    -- ── ДАЛЬНОСТЬ ЗАКЛИНАНИЯ НЕ МЕНЯЕТСЯ ────────────────────
+    -- Правится доставаемость, а не само заклинание: в карточке стоит та
+    -- дальность, что записана, и врать ей нельзя.
+    check("в карточке дальность прежняя",
+          SB.Logic.GetSpellRange(S["t_sneak_hit"]), 18)
+
+    -- ── ДОСТАВАЕМОСТЬ ──────────────────────────────────────
+    -- Метры в ярды: заглушка держит позиции в ярдах, как и клиент.
+    local function PutAway(m)
+        stub.world.units["target"].pos = { 100, 100 + m / 0.9144, 1 }
+    end
+
+    SB.Data.PlayersStatus["Ирина"] = { stealth = 1 }
+    PutAway(17)
+    checkTrue("без скрытности 18-метровое достаёт с 17 м",
+              SB.Logic.IsSpellInRange(S["t_sneak_hit"]))
+
+    SB.Data.PlayersStatus["Ирина"] = { stealth = 5 }
+    checkTrue("со скрытностью 5 — уже нет",
+              not SB.Logic.IsSpellInRange(S["t_sneak_hit"]))
+    PutAway(18 - full - 1)
+    checkTrue("а стоит подойти — достаёт",
+              SB.Logic.IsSpellInRange(S["t_sneak_hit"]))
+
+    -- Лечение с тех же 17 метров проходит при любой скрытности.
+    PutAway(17)
+    checkTrue("лечение достаёт по-прежнему",
+              SB.Logic.IsSpellInRange(S["t_sneak_heal"]))
+
+    -- ── ПОЛ В БЛИЖНЕМ БОЮ ───────────────────────────────────
+    --
+    -- Главная проверка всей механики. Приёмы ближнего боя объявлены на
+    -- 1.5 м, а штраф при скрытности 5 — двенадцать: без пола скрытный
+    -- стал бы просто неуязвим для всех, кто дерётся руками, и это была
+    -- бы не «подойди ближе», а «не подходи вовсе».
+    PutAway(1.4)
+    checkTrue("вплотную приём ближнего боя достаёт всегда",
+              SB.Logic.IsSpellInRange(S["t_sneak_melee"]))
+    checkTrue("и дальнобойное на этой же дистанции — тоже",
+              SB.Logic.IsSpellInRange(S["t_sneak_hit"]))
+    PutAway(4)
+    checkTrue("а с четырёх метров ближний бой не достаёт и без скрытности",
+              not SB.Logic.IsSpellInRange(S["t_sneak_melee"]))
+
+    -- ── ЗНАЧЕНИЕ ЕДЕТ ПО СЕТИ ───────────────────────────────
+    --
+    -- Чужой навык локально взять неоткуда. Проверяем весь путь: снимок →
+    -- пакет → разбор. Плюс отпечаток: без Скрытности в нём смена навыка
+    -- не рассылалась бы вовсе — пакет считался бы «тем же самым».
+    -- Потолок навыка — его атрибут-родитель, поэтому поднимаем Ловкость:
+    -- иначе Set молча прижмёт значение к единице.
+    local savedAgi = _G.SpellbreakerCharDB.attributes["Ловкость"]
+    _G.SpellbreakerCharDB.attributes["Ловкость"] = 5
+    SB.Skills.Set("Скрытность", 4)
+    local snap = SB.PlayerModel.GetStatusSnapshot()
+    check("снимок несёт Скрытность", snap.stealth, 4)
+
+    -- ОТПЕЧАТОК. Рассылка молчит, если состояние «то же самое», и без
+    -- Скрытности в отпечатке смена навыка не уехала бы вовсе: сокомандники
+    -- продолжали бы целиться по старому значению.
+    local savedGroup      = stub.world.inGroup
+    local realSerialize   = SB.Net.Serialize
+    local realDeserialize = SB.Net.Deserialize
+    local realSend        = SB.Net.SendCommMessage
+    stub.world.inGroup = true
+    -- Заглушка Ace не умеет ни сериализовать, ни разбирать; подменяем
+    -- парой, которая просто возит таблицу как есть.
+    SB.Net.Serialize   = function(_, t) return t end
+    SB.Net.Deserialize = function(_, m) return true, m end
+
+    local sent
+    SB.Net.SendCommMessage = function(_, _, msg) sent = msg end
+    SB.Net.BroadcastStatus(true)            -- первый — принудительный
+    sent = nil
+    SB.Net.BroadcastStatus()                -- ничего не менялось — молчим
+    checkTrue("без изменений статус не рассылается", sent == nil)
+    SB.Skills.Set("Скрытность", 5)
+    SB.Net.BroadcastStatus()
+    checkTrue("а смена Скрытности рассылку будит", sent ~= nil)
+    check("и несёт новое значение", sent and sent.stealth, 5)
+
+    -- Разбор входящего: поле есть — берём, поля нет — не затираем.
+    -- Входящие складываются в очередь и разбираются пачкой, поэтому
+    -- после каждого пакета крутим таймеры (см. Core/Network.lua).
+    SB.Data.PlayersStatus["Ирина"] = { stealth = 3 }
+    SB.Net.__commHandler(SB.Net.__commPrefix, {
+        action = "STATUS", class = "Разбойник", mastery = "Эксперт",
+        stealth = 5, health = 5, maxHealth = 5,
+    }, "PARTY", "Ирина")
+    for _ = 1, 5 do stub.RunTimers() end
+    check("пришедшее значение принято", SB.Data.PlayersStatus["Ирина"].stealth, 5)
+    SB.Net.__commHandler(SB.Net.__commPrefix, {
+        action = "STATUS", class = "Разбойник", mastery = "Эксперт",
+        health = 5, maxHealth = 5,
+    }, "PARTY", "Ирина")
+    for _ = 1, 5 do stub.RunTimers() end
+    check("а пакет без поля прежнего не затирает",
+          SB.Data.PlayersStatus["Ирина"].stealth, 5)
+
+    SB.Net.Serialize       = realSerialize
+    SB.Net.Deserialize     = realDeserialize
+    SB.Net.SendCommMessage = realSend
+    stub.world.inGroup     = savedGroup
+
+    _G.SpellbreakerCharDB.attributes["Ловкость"] = savedAgi
+    SB.Skills.Set("Скрытность", 1)
+    SB.Data.PlayersStatus["Ирина"] = nil
+    stub.world.units["target"] = savedTarget
+    stub.world.playerPos = savedPPos
+end
+
+-- ============================================================
+-- СОПРОТИВЛЕНИЯ
+--
+-- Три уровня защиты (общий, магический, школьный), два источника у
+-- каждого (раса с классом и висящие эффекты) и жёсткий порядок гашения:
+-- сперва резист, потом доспех. Всё это правится в четырёх разных файлах,
+-- и разъехаться может любая пара.
+-- ============================================================
+do
+    local savedRace = stub.world.race
+    ResetEffects()
+    SB.TurnOrder.Stop()
+
+    -- ── ЧТО ГАСИТ КАКУЮ ШКОЛУ ───────────────────────────────
+    local function Keys(id)
+        local out = {}
+        for _, k in ipairs(SB.Data.ResistKeysFor(id)) do out[k] = true end
+        return out
+    end
+
+    -- ФИЗИЧЕСКИЙ ГАСИТСЯ ТОЛЬКО ОБЩИМ. Своего ключа у него нет и быть не
+    -- должно: сопротивление стали в аддоне уже есть, и это доспех.
+    local phys = Keys("physical")
+    checkTrue("физический гасит общий резист", phys[SB.Data.RESIST_ALL])
+    checkTrue("но не магический",              not phys[SB.Data.RESIST_MAGIC])
+    check("и всего один ключ", #SB.Data.ResistKeysFor("physical"), 1)
+    checkTrue("отдельного ключа у физического нет",
+              SB.Data.DamageTypes.physical.resistKey == nil)
+
+    -- Магическая школа — все три уровня.
+    local sh = Keys("shadow")
+    checkTrue("тьму гасит общий",     sh[SB.Data.RESIST_ALL])
+    checkTrue("и магический",         sh[SB.Data.RESIST_MAGIC])
+    checkTrue("и свой, теневой",      sh["resistShadow"])
+    check("ровно три ключа", #SB.Data.ResistKeysFor("shadow"), 3)
+
+    -- НЕИЗВЕСТНАЯ ШКОЛА ЗАЩИЩЕНА ОБЩИМ, а не оставлена голой: тип урона
+    -- у своего заклинания игрок не пишет, и «нет школы — нет защиты»
+    -- означало бы, что от самоделок не спасает ничто.
+    check("у заклинания без школы работает общий резист",
+          #SB.Data.ResistKeysFor(nil), 1)
+
+    -- ── РАСОВЫЕ РЕЗИСТЫ ─────────────────────────────────────
+    -- Живыми данными: профили правятся руками, и опечатка в ключе
+    -- («resistShadov») тихо не читается никем.
+    local RACE = {
+        Scourge  = "resistShadow", Worgen   = "resistShadow",
+        Draenei  = "resistShadow", Gnome    = "resistArcane",
+        Dwarf    = "resistFrost",  Tauren   = "resistNature",
+        NightElf = "resistNature", BloodElf = "resistMagic",
+    }
+    for race, key in pairs(RACE) do
+        stub.world.race = race
+        check(race .. " держит свою школу", SB.Data.GetSoftBonus(key), 1)
+    end
+
+    -- Раса НЕ получает общий резист: «стойкий ко всему на свете» — это
+    -- не народ, это артефакт.
+    local withAll = {}
+    for token, prof in pairs(SB.Data.RaceProfiles) do
+        if (tonumber(prof[SB.Data.RESIST_ALL]) or 0) ~= 0 then
+            withAll[#withAll + 1] = token
+        end
+    end
+    check("рас с общим резистом", #withAll, 0)
+
+    -- И ключи в профилях — только существующие.
+    local known = {}
+    for _, k in ipairs(SB.Data.ResistKeys) do known[k] = true end
+    local badKeys = {}
+    for token, prof in pairs(SB.Data.RaceProfiles) do
+        for k in pairs(prof) do
+            if k:sub(1, 6) == "resist" and not known[k] then
+                badKeys[#badKeys + 1] = token .. "." .. k
+            end
+        end
+    end
+    check("расовых профилей с выдуманным ключом", #badKeys, 0)
+    if #badKeys > 0 then print("          " .. table.concat(badKeys, ", ")) end
+
+    -- ── ТРИ УРОВНЯ СКЛАДЫВАЮТСЯ ─────────────────────────────
+    stub.world.race = "Scourge"          -- resistShadow = 1
+    check("своя школа даёт единицу", SB.Skills.GetResistance("shadow"), 1)
+    check("а чужая — ноль",          SB.Skills.GetResistance("fire"), 0)
+
+    SB.Data.Spells["t_res_magic"] = { id = "t_res_magic", name = "Проба магрезиста",
+        class = "Эффект", level = 0, isContainer = true, duration = 5,
+        effect = { kind = "buff", mods = { resistMagic = 1 } } }
+    SB.Data.Spells["t_res_all"] = { id = "t_res_all", name = "Проба общего",
+        class = "Эффект", level = 0, isContainer = true, duration = 5,
+        effect = { kind = "buff", mods = { resistAll = 2 } } }
+
+    SB.ActiveEffects.Add("t_res_magic", 5, false)
+    check("магический резист прибавился к теневому",
+          SB.Skills.GetResistance("shadow"), 2)
+    check("и к огню тоже — он магия", SB.Skills.GetResistance("fire"), 1)
+    check("а физический не тронут",   SB.Skills.GetResistance("physical"), 0)
+
+    SB.ActiveEffects.Add("t_res_all", 5, false)
+    check("общий лёг поверх обоих",  SB.Skills.GetResistance("shadow"), 4)
+    check("и на физический — он общий", SB.Skills.GetResistance("physical"), 2)
+    ResetEffects()
+
+    -- ── РЕЗИСТ ГАСИТ ДО НУЛЯ, И БРОНЮ ПРИ ЭТОМ НЕ ТРАТИТ ────
+    --
+    -- Здесь стоял пол «единица проходит всегда», и он ломал главное
+    -- правило порядка: удар в единицу при резисте в единицу проходил
+    -- резист насквозь и ложился на броню — десять её единиц уходило на
+    -- то, что сопротивление сняло бы даром. Со стороны это выглядело
+    -- ровно как «сначала броня», хотя порядок вызовов был правильный.
+    SB.Data.Spells["t_res_wall"] = { id = "t_res_wall", name = "Проба стены",
+        class = "Эффект", level = 0, isContainer = true, duration = 5,
+        effect = { kind = "buff", mods = { resistShadow = 99 } } }
+    SB.ActiveEffects.Add("t_res_wall", 5, false)
+    local left, cut = SB.Skills.ApplyResistance(1, "shadow")
+    check("единицу резист снимает целиком", left, 0)
+    check("и это видно числом", cut, 1)
+    check("пятёрку — тоже", SB.Skills.ApplyResistance(5, "shadow"), 0)
+    check("но не больше, чем было урона",
+          select(2, SB.Skills.ApplyResistance(5, "shadow")), 5)
+
+    -- И БРОНЯ ПРИ ЭТОМ ЦЕЛА — то самое, ради чего порядок и заведён.
+    SB.Skills.ResetArmor()
+    local spentBefore = SB.Skills.GetArmorSpent()
+    local final, res, abs = SB.Skills.MitigateDamage(1, "shadow")
+    check("удар снят резистом дочиста", final, 0)
+    check("доспех не понадобился", abs, 0)
+    check("и не потрачен", SB.Skills.GetArmorSpent(), spentBefore)
+    ResetEffects()
+
+    -- ── ОТРИЦАТЕЛЬНЫЙ РЕЗИСТ — ЭТО УЯЗВИМОСТЬ ───────────────
+    -- Канал эффекта принимает минус везде, и запрещать его здесь было бы
+    -- произволом. Пол на уязвимость не действует: она не гасит, а добавляет.
+    SB.Data.Spells["t_res_weak"] = { id = "t_res_weak", name = "Проба уязвимости",
+        class = "Эффект", level = 0, isContainer = true, duration = 5,
+        effect = { kind = "debuff", mods = { resistFire = -2 } } }
+    SB.ActiveEffects.Add("t_res_weak", 5, false)
+    local hurt, extra = SB.Skills.ApplyResistance(3, "fire")
+    check("уязвимость к огню добавляет урона", hurt, 5)
+    check("и это видно отдельным числом", extra, -2)
+    ResetEffects()
+
+    -- ── ПОРЯДОК: РЕЗИСТ, ПОТОМ ДОСПЕХ ───────────────────────
+    --
+    -- Порядок не косметический. Доспех — расходуемый запас на всю сцену,
+    -- и потраченный на урон, который резист снял бы даром, он не
+    -- вернётся до Долгого Отдыха.
+    stub.world.race = "Human"           -- никаких расовых резистов
+    _G.SpellbreakerCharDB.attributes["Выносливость"] = 5
+    SB.Skills.Set("Ношение брони", 5)
+    stub.world.equipped = { [17] = { 4, 6 } }
+    for _, slot in ipairs({ 1, 3, 5, 6, 7, 8, 9, 10 }) do
+        stub.world.equipped[slot] = { 4, 4 }
+    end
+    SB.Skills.ResetEquipCache()
+    SB.Skills.ResetArmor()
+
+    local perDR = SB.Data.ArmorPerDR
+    SB.ActiveEffects.Add("t_res_magic", 5, false)   -- resistMagic = 1
+
+    local armorBefore = SB.Skills.GetArmorPoints()
+    local final, res, abs = SB.Skills.MitigateDamage(4, "fire")
+    check("резист снял единицу", res, 1)
+    check("доспех доел остаток", abs, 3)
+    check("до здоровья не дошло ничего", final, 0)
+    -- ГЛАВНОЕ ЧИСЛО ВСЕЙ ПРОВЕРКИ: доспеха потрачено на ТРИ единицы, а не
+    -- на четыре. Пойди удар сперва через железо — те же 4 урона стоили бы
+    -- 40 брони, и одна десятка сгорела бы впустую.
+    check("и стоило это трёх единиц брони, а не четырёх",
+          armorBefore - SB.Skills.GetArmorPoints(), 3 * perDR)
+
+    -- Физический тем же резистом не гасится — доспех работает один.
+    SB.Skills.ResetArmor()
+    local pFinal, pRes, pAbs = SB.Skills.MitigateDamage(4, "physical")
+    check("против стали магрезист не помогает", pRes, 0)
+    check("всё принял доспех", pAbs, 4)
+    check("и удар не дошёл", pFinal, 0)
+
+    ResetEffects()
+    SB.Skills.ResetArmor()
+
+    -- ── ТИКИ: ТИП ЕСТЬ, РЕЗИСТ РАБОТАЕТ, ДОСПЕХ НЕТ ─────────
+    stub.world.race = "Scourge"          -- resistShadow = 1
+    local PM = SB.PlayerModel
+    _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
+
+    SB.Data.Spells["t_tick_dark"] = { id = "t_tick_dark", name = "Проба порчи",
+        class = "Эффект", level = 0, isContainer = true, duration = 5,
+        damageType = "shadow", effect = { kind = "debuff", tick = { damage = 3 } } }
+    SB.Data.Spells["t_tick_fire"] = { id = "t_tick_fire", name = "Проба горения",
+        class = "Эффект", level = 0, isContainer = true, duration = 5,
+        damageType = "fire", effect = { kind = "debuff", tick = { damage = 3 } } }
+
+    local hp = PM.GetHealth()
+    SB.ActiveEffects.ApplyPayload("t_tick_dark",
+        SB.Data.Spells["t_tick_dark"].effect.tick, "tick")
+    check("теневой тик срезан расой", hp - PM.GetHealth(), 2)
+
+    _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
+    hp = PM.GetHealth()
+    SB.ActiveEffects.ApplyPayload("t_tick_fire",
+        SB.Data.Spells["t_tick_fire"].effect.tick, "tick")
+    check("огненный тик прошёл целиком", hp - PM.GetHealth(), 3)
+
+    -- ДОСПЕХ ПРОТИВ ТИКА НЕ РАБОТАЕТ — правило старое и намеренное.
+    -- Проверяем при ПОЛНОМ запасе: будь он подключён, тик исчез бы вовсе.
+    SB.Skills.ResetArmor()
+    checkTrue("запас брони полон", SB.Skills.GetDamageReduction() >= 3)
+    _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
+    hp = PM.GetHealth()
+    SB.ActiveEffects.ApplyPayload("t_tick_fire",
+        SB.Data.Spells["t_tick_fire"].effect.tick, "tick")
+    check("доспех тик не гасит", hp - PM.GetHealth(), 3)
+    check("и запаса не потратил", SB.Skills.GetArmorSpent(), 0)
+
+    -- ЦЕНА ПРИМЕНЕНИЯ РЕЗИСТОМ НЕ ГАСИТСЯ. «Жизнеотвод» платит СВОЕЙ
+    -- кровью, и сопротивляться ей нельзя: иначе Отрекшийся чернокнижник
+    -- платил бы за теневые заклинания дешевле остальных.
+    SB.Data.Spells["t_cost_dark"] = { id = "t_cost_dark", name = "Проба цены",
+        class = "Чернокнижник", level = 1, damageType = "shadow",
+        onCast = { damage = 3 } }
+    _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
+    hp = PM.GetHealth()
+    SB.ActiveEffects.ApplyPayload("t_cost_dark",
+        SB.Data.Spells["t_cost_dark"].onCast)
+    check("своя кровь платится полностью", hp - PM.GetHealth(), 3)
+
+    -- ── У ТИКАЮЩИХ ЭФФЕКТОВ БИБЛИОТЕКИ ТИП ЕСТЬ ─────────────
+    -- Живыми данными: эффект, который капает без школы, защищён только
+    -- общим резистом — то есть раса против него бессильна, хотя по
+    -- описанию должна держать.
+    local noType = {}
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] and sp.isContainer and type(sp.effect) == "table" then
+            local t = sp.effect.tick
+            if type(t) == "table" and (tonumber(t.damage) or 0) > 0
+               and not sp.damageType then
+                noType[#noType + 1] = sp.name or id
+            end
+        end
+    end
+    check("тикающих уроном эффектов без школы", #noType, 0)
+    if #noType > 0 then print("          " .. table.concat(noType, ", ")) end
+
+    -- ── ЗАЩИТНЫЕ СПОСОБНОСТИ ДЕЛАЮТ ТО, ЧТО ОБЕЩАЮТ ─────────
+    --
+    -- Все они названы «защитой от ...» и до сих пор давали что угодно,
+    -- кроме сопротивления: канала для него не существовало, и авторы
+    -- выражали замысел бронёй и Волей. Раздача правится руками — значит,
+    -- разъедется с описаниями.
+    local GUARDS = {
+        -- заклинания: личный оберег — двойка, аура на группу — единица
+        { "eff_aura_against_dark",             "resistShadow",  1 },
+        { "eff_aura_against_frost",            "resistFrost",   1 },
+        { "eff_aura_against_fire",             "resistFire",    1 },
+        { "eff_mage_resistance",               "resistArcane",  2 },
+        { "eff_protect_from_evil",             "resistShadow",  2 },
+        { "eff_protection_from_dark_forces",   "resistShadow",  2 },
+        { "eff_shield_dark_amulet",            "resistShadow",  2 },
+        { "eff_armor_magic_frost_armor_mage",  "resistFire",    2 },
+        { "eff_shield_water_shield",           "resistFire",    2 },
+        { "eff_armor_magic_anti_magic_shell",  "resistMagic",   2 },
+        { "eff_feedback",                      "resistMagic",   1 },
+        -- Эти трое нашлись позже остальных, и не случайно: первый проход
+        -- искал школы по одному написанию («тёмн») и молча терял всё, что
+        -- писано через «е». Поиск по прозе исчерпывающим не бывает —
+        -- список ниже потому и прибит проверкой.
+        { "eff_anti_shadow",                   "resistShadow",  2 },
+        { "eff_prayer_of_shadow_protection",   "resistShadow",  1 },
+        { "eff_cloak_of_shadows",              "resistMagic",   2 },
+        { "eff_divine_protection",             "resistAll",     2 },
+        { "eff_divineshield",                  "resistAll",     3 },
+        -- «Оберег от стихий» защищает от ДВУХ школ, поэтому по единице:
+        -- в сумме та же двойка, что у оберега на одну.
+        { "eff_frostfire_amulet",              "resistFire",    1 },
+        { "eff_frostfire_amulet",              "resistFrost",   1 },
+    }
+    for _, row in ipairs(GUARDS) do
+        local id, key, want = row[1], row[2], row[3]
+        local def = SB.ActiveEffects.GetEffectDef(id)
+        local nm  = (SB.Data.Spells[id] and SB.Data.Spells[id].name) or id
+        check("«" .. nm .. "»: " .. key, def and def.mods[key], want)
+    end
+
+    -- ── УЯЗВИМОСТИ ВЗЯТЫ ИЗ ТЕХ ЖЕ ОПИСАНИЙ ─────────────────
+    --
+    -- «Дубовая кора умножит в два раза получаемый урон от пламени» и
+    -- «заклинания холода или огня оказывают на цель двойной урон» —
+    -- это написали авторы заклинаний, а не мы. Минус в канале работает
+    -- ровно затем, чтобы такие строки перестали быть только текстом.
+    local WEAK = {
+        { "eff_stone_skin_druid_stoneskin",   "resistFire",  -2 },
+        { "eff_vulnerable_curse_of_elements", "resistFire",  -2 },
+        { "eff_vulnerable_curse_of_elements", "resistFrost", -2 },
+    }
+    for _, row in ipairs(WEAK) do
+        local def = SB.ActiveEffects.GetEffectDef(row[1])
+        check("уязвимость «" .. (SB.Data.Spells[row[1]].name or row[1]) ..
+              "»: " .. row[2], def and def.mods[row[2]], row[3])
+    end
+    -- Дубовая кожа при этом ДЕРЖИТ холод и яд — то же описание, обе
+    -- стороны сразу.
+    do
+        local def = SB.ActiveEffects.GetEffectDef("eff_stone_skin_druid_stoneskin")
+        check("«Дубовая кожа» держит холод",  def and def.mods.resistFrost, 1)
+        check("и яд",                         def and def.mods.resistNature, 1)
+    end
+
+    -- ── ЗЕЛЬЯ СЛАБЕЕ ЗАКЛИНАНИЙ ─────────────────────────────
+    --
+    -- Правило балансировки: зелье действует гарантированно и без броска,
+    -- и платит за это величиной. Ни одно защитное зелье не имеет права
+    -- догнать личный оберег.
+    local POTION_GUARDS = {
+        "custom_cont_0123456784567789abcde23456789",     -- Защита от магии
+        "custom_cont_e456789abc1234567789abcde",         -- от магии льда
+        "custom_cont_2345456789abcd",                    -- Тёмная защита
+        "custom_cont_123456789abcdef4567815678",         -- Огненная защита
+        "custom_cont_567cd45678912349a789",              -- Священная защита
+        "custom_cont_78234561234563456789abcde6789abc",  -- сильное, лёд
+        "custom_cont_78978789a01234e",                   -- сильное, огонь
+        "custom_cont_cdef6789abcdea3456789abcde",        -- слабое, огонь
+    }
+    for _, id in ipairs(POTION_GUARDS) do
+        local def = SB.ActiveEffects.GetEffectDef(id)
+        local nm  = (SB.Data.Spells[id] and SB.Data.Spells[id].name) or id
+        local total = 0
+        for _, k in ipairs(SB.Data.ResistKeys) do
+            total = total + (def and def.mods[k] or 0)
+        end
+        check("«" .. nm .. "» даёт ровно единицу сопротивления", total, 1)
+    end
+
+    -- И то же самое живыми данными, чтобы новое зелье не проскочило мимо
+    -- правила: у ПРЕДМЕТА резист не бывает больше единицы.
+    local tooStrong = {}
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] and SB.Items.IsItem(sp) and sp.buff then
+            local def = SB.ActiveEffects.GetEffectDef(sp.buff)
+            for _, k in ipairs(SB.Data.ResistKeys) do
+                if (def and def.mods[k] or 0) > 1 then
+                    tooStrong[#tooStrong + 1] = (sp.name or id) .. "/" .. k
+                end
+            end
+        end
+    end
+    check("зелий с резистом сильнее единицы", #tooStrong, 0)
+    if #tooStrong > 0 then print("          " .. table.concat(tooStrong, ", ")) end
+
+    -- ── ЛЕСТНИЦА ЦЕЛА ───────────────────────────────────────
+    -- Живыми данными: значение выше тройки в этой системе — уже не
+    -- сопротивление, а неуязвимость (запас здоровья 3-9).
+    local overCap = {}
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] and type(sp.effect) == "table"
+           and type(sp.effect.mods) == "table" then
+            for _, k in ipairs(SB.Data.ResistKeys) do
+                local v = tonumber(sp.effect.mods[k]) or 0
+                if v > 3 then overCap[#overCap + 1] = (sp.name or id) .. "/" .. k .. "=" .. v end
+            end
+        end
+    end
+    check("эффектов с резистом выше тройки", #overCap, 0)
+    if #overCap > 0 then print("          " .. table.concat(overCap, ", ")) end
+
+    -- И расовый потолок — единица (лестница начинается с неё).
+    local raceOver = {}
+    for token, prof in pairs(SB.Data.RaceProfiles) do
+        for _, k in ipairs(SB.Data.ResistKeys) do
+            if (tonumber(prof[k]) or 0) > 1 then
+                raceOver[#raceOver + 1] = token .. "/" .. k
+            end
+        end
+    end
+    check("рас с резистом сильнее единицы", #raceOver, 0)
+
+    stub.world.race = savedRace
+    ResetEffects()
+    SB.Skills.ResetArmor()
     _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
 end
 
@@ -3288,6 +9026,2816 @@ do
     SB.ActiveEffects.Clear()
     _G.SpellbreakerCharDB.activeEffects = {}
     _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
+end
+
+-- ============================================================
+-- НПС: ВИД И ОСОБЬ — РАЗНЫЕ КЛЮЧИ
+--
+-- Главное, что здесь может пойти не так: спутать npcID (вид) со
+-- spawnUID (особь). По первому настраивают «кобольда-надзирателя» один
+-- раз на всех, по второму живёт здоровье конкретной тушки. Склей их — и
+-- удар по одному кобольду снимет здоровье у всех троих в комнате.
+-- ============================================================
+do
+    local N = SB.NPC
+    checkTrue("модуль НПС загружен", N ~= nil)
+
+    -- Формат GUID существа: Creature-0-сервер-инстанс-зона-npcID-spawnUID
+    local guidA = "Creature-0-3299-0-70-1553-0000029F19"
+    local guidB = "Creature-0-3299-0-70-1553-000002AB44"   -- тот же вид, другая особь
+    local guidC = "Creature-0-3299-0-70-9999-0000029F19"   -- другой вид, тот же spawn
+
+    check("npcID вынимается", (N.ParseGUID(guidA)), 1553)
+    local _, spawnA = N.ParseGUID(guidA)
+    local _, spawnB = N.ParseGUID(guidB)
+    check("spawnUID вынимается", spawnA, "0000029F19")
+    checkTrue("у двух особей одного вида spawnUID разный", spawnA ~= spawnB)
+    -- И ключ особи обязан их различать, а не склеивать по виду.
+    local unitsSaved = stub.world.units["target"]
+    stub.world.units["target"] = { name = "A", npc = true, guid = guidA }
+    local keyA = N.SpawnKey("target")
+    stub.world.units["target"] = { name = "B", npc = true, guid = guidB }
+    local keyB = N.SpawnKey("target")
+    stub.world.units["target"] = unitsSaved
+    checkTrue("ключ особи различает двух одинаковых НПС", keyA ~= keyB)
+    check("вид у них при этом один", (N.ParseGUID(guidB)), 1553)
+
+    -- Игрок — не НПС: разбор обязан честно вернуть nil, а не выдумать id.
+    check("GUID игрока не разбирается", N.ParseGUID("Player-0-0123ABCD"), nil)
+    check("мусор не разбирается",       N.ParseGUID("что-то не то"), nil)
+    check("nil не роняет разбор",       N.ParseGUID(nil), nil)
+
+    -- ── Классификации ──────────────────────────────────────
+    check("тип опознаётся по-русски",     N.ClassifyByType("Нежить"), "undead")
+    check("и по-английски тоже",          N.ClassifyByType("Undead"), "undead")
+    check("зверь под двумя именами",      N.ClassifyByType("Животное"), "beast")
+    check("незнакомый тип — «прочее»",    N.ClassifyByType("Ктулху"), "other")
+    check("отсутствие типа — «прочее»",   N.ClassifyByType(nil), "other")
+
+    -- Неизвестный id классификации не роняет список, а откатывается:
+    -- запись из будущей версии должна остаться читаемой.
+    check("незнакомая классификация откатывается",
+          N.GetClassification("чего-то-нет").id, "other")
+
+    -- ── Шаблоны ────────────────────────────────────────────
+    for _, c in ipairs(N.Classifications) do
+        local t = N.GetTemplate(c.id)
+        checkTrue("у «" .. c.name .. "» есть шаблон", t ~= nil)
+        checkTrue("и в нём положительное здоровье", (t.maxHealth or 0) > 0)
+        checkTrue("и назван ресурс", type(t.resourceName) == "string" and t.resourceName ~= "")
+    end
+
+    -- ШАБЛОН ОТДАЁТСЯ КОПИЕЙ. Форма создания правит то, что ей выдали, и
+    -- испортить эталон при этом не должна.
+    local t1 = N.GetTemplate("humanoid")
+    t1.maxHealth = 999
+    t1.attributes["Сила"] = 99
+    local t2 = N.GetTemplate("humanoid")
+    checkTrue("правка копии не портит эталон", t2.maxHealth ~= 999)
+    check("и вложенные таблицы тоже копируются", t2.attributes["Сила"], nil)
+
+    -- ── Свой пул ───────────────────────────────────────────
+    _G.SpellbreakerNPCDB = { npcs = {} }
+
+    check("без записи Get отдаёт nil", N.Get(1553), nil)
+    check("без id не сохраняем", (N.Save({ name = "Безымянный" })), false)
+    check("без имени не сохраняем", (N.Save({ npcID = 1553, name = "   " })), false)
+
+    checkTrue("запись сохраняется", N.Save({
+        npcID = 1553, name = "Кобольд-надзиратель", classification = "humanoid",
+        level = 12, maxHealth = 20, resourceName = "Ярость", maxResource = 6,
+    }))
+    local rec = N.Get(1553)
+    check("и читается обратно", rec and rec.name, "Кобольд-надзиратель")
+    check("id приводится к числу", rec.npcID, 1553)
+    check("строковый id тоже находит", N.Get("1553") ~= nil, true)
+
+    -- Отрицательные и дробные значения приводятся к разумным.
+    N.Save({ npcID = 77, name = "Тест", classification = "undead",
+             level = -5, maxHealth = 0, maxResource = -3 })
+    local bad = N.Get(77)
+    check("уровень не ниже единицы",  bad.level, 1)
+    check("здоровье не ниже единицы", bad.maxHealth, 1)
+    check("ресурс не уходит в минус", bad.maxResource, 0)
+
+    -- Список по классификации не смешивает разные виды.
+    local humans = N.ListByClassification("humanoid")
+    check("в гуманоидах одна запись", #humans, 1)
+    check("нежить своя",              #N.ListByClassification("undead"), 1)
+    check("у демонов пусто",          #N.ListByClassification("demon"), 0)
+
+    checkTrue("удаление срабатывает", N.Delete(77))
+    check("повторное удаление — нет", N.Delete(77), false)
+    check("после удаления запись пропала", N.Get(77), nil)
+
+    -- ── Ресурсы: те же, что у игроков ──────────────────────
+    -- Список ВЫВОДИТСЯ из SB.Data.ClassResourceNames, а не пишется
+    -- заново: своя копия разошлась бы с игроцкой на первом же новом
+    -- классе. Проверяем именно связь, а не содержимое списка.
+    local res = N.ResourceList()
+    checkTrue("ресурсов больше одного", #res > 1)
+    check("мана идёт первой", res[1].name, "Мана")
+    check("и она из пула заклинателей", res[1].pool, "mana")
+
+    local byName = {}
+    for _, r in ipairs(res) do byName[r.name] = r.pool end
+    for cls, resName in pairs(SB.Data.ClassResourceNames) do
+        checkTrue("ресурс «" .. resName .. "» (" .. cls .. ") есть у существ",
+                  byName[resName] ~= nil)
+        check("и он классовый, а не мана", byName[resName], "resource")
+    end
+
+    -- Повторов быть не должно: «Энергия» у Разбойника и Монаха — один и
+    -- тот же ресурс, а не два пункта в списке.
+    local seenRes, dupRes = {}, 0
+    for _, r in ipairs(res) do
+        if seenRes[r.name] then dupRes = dupRes + 1 end
+        seenRes[r.name] = true
+    end
+    check("ресурсы в списке не повторяются", dupRes, 0)
+
+    check("незнакомый ресурс откатывается к мане", N.PoolFor("Мимикрия"), "mana")
+    check("известный опознаётся",  N.IsKnownResource("Ярость"), true)
+    check("выдуманный — нет",      N.IsKnownResource("Скверна"), false)
+
+    -- ПУЛ СЧИТАЕТСЯ ОТ ИМЕНИ, а не берётся из формы: рассогласовать их
+    -- нельзя, иначе «Ярость» существа считалась бы по правилам маны.
+    N.Save({ npcID = 501, name = "Ярый", classification = "beast",
+             resourceName = "Ярость", resourcePool = "mana" })
+    check("пул выправлен по имени ресурса", N.Get(501).resourcePool, "resource")
+
+    N.Save({ npcID = 502, name = "Чудик", classification = "other",
+             resourceName = "Придуманное" })
+    check("выдуманный ресурс заменён", N.Get(502).resourceName, "Мана")
+    check("и пул при этом верный",     N.Get(502).resourcePool, "mana")
+    N.Delete(501); N.Delete(502)
+
+    -- Шаблоны обязаны пользоваться только известными ресурсами: шаблон
+    -- достаётся случайному существу молча, и проверить его глазами
+    -- некому.
+    local badTpl = {}
+    for _, c in ipairs(N.Classifications) do
+        local t = N.GetTemplate(c.id)
+        if not N.IsKnownResource(t.resourceName) then
+            badTpl[#badTpl + 1] = c.name .. ": " .. tostring(t.resourceName)
+        end
+        check("у шаблона «" .. c.name .. "» пул выведен", t.resourcePool,
+              N.PoolFor(t.resourceName))
+    end
+    check("во всех шаблонах ресурсы известные", #badTpl, 0)
+    if #badTpl > 0 then print("          " .. table.concat(badTpl, "; ")) end
+
+    -- ── Что уезжает в сохранёнку ───────────────────────────
+    -- Форма хранит ТОЛЬКО отличия от минимума: единица — то же самое,
+    -- что «не задано», и записав все двадцать четыре навыка по единице,
+    -- мы раздули бы базу тем, что и так подразумевается.
+    N.Save({
+        npcID = 601, name = "Матёрый", classification = "beast",
+        level = 9, maxHealth = 14, resourceName = "Ярость", maxResource = 5,
+        attributes = { ["Сила"] = 4 },
+        skills     = { ["Точность"] = 3 },
+    })
+    local rec601 = N.Get(601)
+    check("заданный атрибут сохранён",  rec601.attributes["Сила"], 4)
+    check("незаданный не выдуман",      rec601.attributes["Дух"], nil)
+    check("заданный навык сохранён",    rec601.skills["Точность"], 3)
+    check("незаданный навык не выдуман", rec601.skills["Живучесть"], nil)
+
+    -- Правка идёт по КОПИИ: пока форма открыта, изменения не должны
+    -- просачиваться в базу, иначе закрытие крестиком сохраняло бы
+    -- половину правок. Проверяем, что запись отдаётся не ссылкой на
+    -- внутренности, которые можно испортить мимо Save.
+    local copy = {}
+    for k, v in pairs(rec601) do copy[k] = v end
+    copy.name = "Испорченный"
+    check("правка копии не трогает базу", N.Get(601).name, "Матёрый")
+
+    N.Delete(601)
+
+    -- ── Юнит в мире ────────────────────────────────────────
+    local saved = stub.world.units["target"]
+
+    -- Настроенный вручную: цифры Ведущего, признак «не шаблон».
+    stub.world.units["target"] = { name = "Кобольд-надзиратель", level = 12,
+        npc = true, creatureType = "Гуманоид", guid = guidA }
+    local stats, fromTemplate = N.StatsForUnit("target")
+    check("настроенный НПС найден по npcID", stats and stats.name, "Кобольд-надзиратель")
+    check("и это не шаблон", fromTemplate, false)
+    check("здоровье из записи Ведущего", stats.maxHealth, 20)
+
+    -- Ненастроенный: подставляется шаблон по типу существа.
+    stub.world.units["target"] = { name = "Случайный скелет", level = 14,
+        npc = true, creatureType = "Нежить", guid = guidC }
+    stats, fromTemplate = N.StatsForUnit("target")
+    checkTrue("случайному НПС достался шаблон", fromTemplate)
+    check("шаблон выбран по типу существа", stats.classification, "undead")
+    -- УРОВЕНЬ БЕРЁТСЯ У ЖИВОГО ЮНИТА, а не из шаблона: он известен точно
+    -- и отличает вожака от рядового в той же стае.
+    check("уровень взят у самого юнита", stats.level, 14)
+
+    -- Игрок в цели — не НПС ни при каких условиях.
+    stub.world.units["target"] = { name = "Ирина", level = 25, class = "Жрец" }
+    check("у игрока характеристик НПС нет", (N.StatsForUnit("target")), nil)
+    check("и npcID у него нет",             N.UnitNpcID("target"), nil)
+
+    stub.world.units["target"] = saved
+
+    -- ── СОСТОЯНИЕ ОСОБИ ────────────────────────────────────
+    -- Ради этого вся возня с двумя ключами и затевалась: у трёх
+    -- одинаковых кобольдов должно быть три отдельных запаса здоровья.
+    local wasGroupN, wasLeaderN = stub.world.inGroup, stub.world.isLeader
+    stub.world.inGroup, stub.world.isLeader = false, true   -- соло: сам себе владелец
+    N.ResetState()
+    _G.SpellbreakerNPCDB = { npcs = {} }
+    N.Save({ npcID = 1553, name = "Кобольд", classification = "humanoid",
+             level = 5, maxHealth = 10, resourceName = "Ярость", maxResource = 4 })
+
+    local function TargetGuid(g, name)
+        stub.world.units["target"] = { name = name or "Кобольд", level = 5,
+            npc = true, creatureType = "Гуманоид", guid = g }
+    end
+
+    TargetGuid(guidA)
+    local stA = N.GetState("target")
+    check("состояние заводится по настройкам вида", stA.maxHp, 10)
+    check("и начинается с полного здоровья",        stA.hp, 10)
+    check("ресурс тоже",                            stA.maxRes, 4)
+
+    check("удар снял здоровье", N.AdjustHealth("target", -4), 6)
+    check("ниже нуля не уходит", N.AdjustHealth("target", -99), 0)
+    check("выше максимума не поднимается", N.AdjustHealth("target", 99), 10)
+
+    -- ВТОРАЯ ОСОБЬ ТОГО ЖЕ ВИДА — свой запас, чужой не трогается.
+    N.AdjustHealth("target", -3)          -- у первой стало 7
+    TargetGuid(guidB, "Кобольд рядом")
+    check("у соседа своё здоровье", N.GetState("target").hp, 10)
+    N.AdjustHealth("target", -6)
+    TargetGuid(guidA)
+    check("а у первого осталось своё", N.GetState("target").hp, 7)
+
+    check("аддон помнит обеих особей", N.StateCount(), 2)
+
+    -- Сброс по виду убирает всех кобольдов разом.
+    N.ResetState(1553)
+    check("сброс вида очистил обеих", N.StateCount(), 0)
+
+    -- ── КТО ВПРАВЕ МЕНЯТЬ ──────────────────────────────────
+    -- У НПС нет своего клиента: правду держит владелец сцены, остальные
+    -- только рисуют присланное. Иначе двое, бьющих одного кобольда,
+    -- разойдутся в цифрах на первом же ударе.
+    checkTrue("вне группы владелец — сам игрок", N.IsOwner())
+
+    stub.world.inGroup, stub.world.isLeader = true, true
+    checkTrue("лидер группы — владелец", N.IsOwner())
+
+    stub.world.isLeader = false
+    check("рядовой участник — нет", N.IsOwner(), false)
+
+    -- БЬЮТ ВСЕ, СВОДИТ ВЛАДЕЛЕЦ. Рядовой участник применяет правку у
+    -- себя сразу — иначе он бьёт в пустоту и не понимает, попал ли, —
+    -- а владельцу уходит дельта, и его рассылка затирает всё, что каждый
+    -- насчитал у себя.
+    TargetGuid(guidA)
+    N.GetState("target")
+    sent.SendNpcDelta = nil
+    check("рядовой применяет правку у себя", N.AdjustHealth("target", -5), 5)
+    checkTrue("и сообщает её владельцу", sent.SendNpcDelta)
+
+    -- Присланная дельта применяется ТОЛЬКО у владельца: у остальных она
+    -- уже посчитана своим же ударом, и второй раз считать её нельзя.
+    local keyA = N.SpawnKey("target")
+    N.ApplyRemoteDelta(keyA, -3, 0)
+    check("рядовой чужую дельту не считает", N.GetState("target").hp, 5)
+
+    -- Зато присланное лидером применяется как есть — своих цифр у
+    -- рядового участника нет и быть не должно.
+    N.ApplyRemoteState(N.SpawnKey("target"), 3, 10, 1, 4)
+    check("присланное состояние принято", N.GetState("target").hp, 3)
+    check("и ресурс тоже",                N.GetState("target").res, 1)
+
+    -- ── РАССЫЛКА ───────────────────────────────────────────
+    -- Правка состояния и рассылка связаны в одной точке: разойтись молча
+    -- они не должны.
+    stub.world.isLeader = true
+    sent.SendNpcState = nil
+    N.AdjustHealth("target", -1)
+    checkTrue("правка владельца ушла в группу", sent.SendNpcState)
+
+    sent.SendNpcState = nil
+    stub.world.isLeader = false
+    N.AdjustHealth("target", -1)
+    checkTrue("а рядовой ничего не рассылает", not sent.SendNpcState)
+
+    -- ── ЗАПРОС СОСТОЯНИЯ ───────────────────────────────────
+    -- Пришедший в сцену позже своей записи о тушке не имеет и завёл бы
+    -- её по шаблону — отсюда и брались «у Ведущего 4/4, у второго 11/11».
+    -- Спрашивать вправе только тот, у кого записи нет.
+    sent.RequestNpcState = nil
+    N.RequestState("target")
+    checkTrue("со своей записью не спрашивают", not sent.RequestNpcState)
+
+    N.ResetState()
+    sent.RequestNpcState = nil
+    N.RequestState("target")
+    checkTrue("без записи — спрашивают", sent.RequestNpcState)
+
+    stub.world.isLeader = true
+    sent.RequestNpcState = nil
+    N.RequestState("target")
+    checkTrue("владелец не спрашивает никого", not sent.RequestNpcState)
+
+    -- ── ПЕРЕСЧЁТ ПОСЛЕ ПРАВКИ ВИДА ─────────────────────────
+    -- Правка вида в редакторе меняет максимумы у всех уже стоящих особей,
+    -- и молча этого делать нельзя: до рассылки группа видела старые числа
+    -- до самого /reload.
+    do
+        _G.SpellbreakerNPCDB = { npcs = {} }
+        N.Save({ npcID = 1553, name = "Кобольд", level = 5, maxHealth = 10,
+                 resourceName = "Мана", maxResource = 4 })
+        N.ResetState()
+        TargetGuid(guidA)
+        N.GetState("target")
+        N.AdjustHealth("target", -4)          -- 6/10, потеряно 4
+
+        -- Ровно то, что делает Ведущий в редакторе: правит здоровье вида
+        -- и жмёт «сохранить». Пересчёт живых особей висит на Save.
+        sent.SendNpcState = nil
+        N.Save({ npcID = 1553, name = "Кобольд", level = 5, maxHealth = 20,
+                 resourceName = "Мана", maxResource = 4 })
+        check("максимум пересчитан",     N.GetState("target").maxHp, 20)
+        check("потерянное сохранено",    N.GetState("target").hp,    16)
+        checkTrue("и группа об этом узнала", sent.SendNpcState)
+    end
+
+    N.ResetState()
+    stub.world.units["target"] = saved
+    stub.world.inGroup, stub.world.isLeader = wasGroupN, wasLeaderN
+    _G.SpellbreakerNPCDB = { npcs = {} }
+
+    -- ── РАЗМЕН С СУЩЕСТВОМ ─────────────────────────────────
+    -- Правила те же, что в ПвП, и это проверяется числами: бросок
+    -- защиты у существа считается из ЕГО записи по тем же источникам,
+    -- что у игрока, а не по второй, отдельно написанной шкале.
+    do
+        local wasG, wasL = stub.world.inGroup, stub.world.isLeader
+        stub.world.inGroup, stub.world.isLeader = false, true
+        N.ResetState()
+        _G.SpellbreakerNPCDB = { npcs = {} }
+
+        -- Защита существа: уровень по общей лестнице + Акробатика тем же
+        -- шагом, что у игрока.
+        local step = SB.Data.Config.SkillRollStep or 3
+        local stats = { level = 1, skills = {} }
+        check("без навыков и уровня защиты нет", (N.DefenseModifier(stats)), 0)
+
+        stats.skills["Акробатика"] = 4      -- три очка сверх минимума
+        check("акробатика идёт тем же шагом", (N.DefenseModifier(stats)), 3 * step)
+
+        stats.level = 25
+        local withLvl = N.DefenseModifier(stats)
+        check("уровень берётся из общей лестницы", withLvl,
+              3 * step + SB.PlayerModel.LevelModifierFor(
+                  SB.Data.ToReferenceLevel(25)))
+
+        -- «Воля» существа поднимает порог дебаффа тем же шагом.
+        check("воля существа без вложений — ноль", N.WillBonus({ skills = {} }), 0)
+        check("и растёт тем же шагом",
+              N.WillBonus({ skills = { ["Воля"] = 3 } }), 2 * step)
+
+        -- Броня: десять единиц на единицу урона, как у игрока.
+        check("без навыка брони нет", N.DamageReduction({ skills = {} }), 0)
+        local perPoint = SB.Data.Config.ScalingPerPoint.armor or 5
+        local perDR    = SB.Data.ArmorPerDR or 10
+        check("броня считается по общей цене",
+              N.DamageReduction({ skills = { ["Ношение брони"] = 5 } }),
+              math.floor(4 * perPoint / perDR))
+
+        -- ── Урон и лечение доходят до полоски ──────────────
+        N.Save({ npcID = 1553, name = "Кобольд", classification = "humanoid",
+                 level = 5, maxHealth = 10, resourceName = "Ярость", maxResource = 4 })
+        TargetGuid(guidA)
+
+        check("существо начинает целым", N.GetState("target").hp, 10)
+        N.AdjustHealth("target", -6)
+        check("урон дошёл", N.GetState("target").hp, 4)
+        N.AdjustHealth("target", 3)
+        check("исцеление дошло", N.GetState("target").hp, 7)
+        check("выше максимума не лечит",
+              N.AdjustHealth("target", 99), 10)
+
+        -- Ресурс существа правится тем же способом и теми же границами.
+        check("ресурс начинается полным", N.GetState("target").res, 4)
+        check("трата снимает ресурс", N.AdjustResource("target", -3), 1)
+        check("ниже нуля не уходит",  N.AdjustResource("target", -99), 0)
+        check("выше максимума не растёт", N.AdjustResource("target", 99), 4)
+
+        -- ── Правка настроек доходит до уже увиденной особи ──
+        -- Тот самый баг «видно только после релоуда»: состояние особи
+        -- заводится один раз и не пересматривалось.
+        N.AdjustHealth("target", -4)                -- 6 из 10, потеряно 4
+        N.Save({ npcID = 1553, name = "Кобольд", classification = "humanoid",
+                 level = 5, maxHealth = 20, resourceName = "Ярость", maxResource = 4 })
+        local after = N.GetState("target")
+        check("новый максимум дошёл до особи", after.maxHp, 20)
+        check("а потерянное здоровье сохранилось", after.hp, 16)
+
+        -- Нетронутое существо остаётся полным при новом максимуме.
+        TargetGuid(guidB, "Второй кобольд")
+        N.GetState("target")                        -- завели полным: 20/20
+        N.Save({ npcID = 1553, name = "Кобольд", classification = "humanoid",
+                 level = 5, maxHealth = 30, resourceName = "Ярость", maxResource = 4 })
+        local fresh = N.GetState("target")
+        check("нетронутое остаётся полным", fresh.hp, fresh.maxHp)
+        check("и максимум новый", fresh.maxHp, 30)
+
+        N.ResetState()
+        stub.world.units["target"] = saved
+        stub.world.inGroup, stub.world.isLeader = wasG, wasL
+        _G.SpellbreakerNPCDB = { npcs = {} }
+    end
+
+    -- ============================================================
+    -- ЭФФЕКТЫ НА СУЩЕСТВЕ
+    --
+    -- Условие тут ровно одно и проверяется числами: эффект обязан
+    -- работать на существе ТАК ЖЕ, как на игроке. Развилка «а если это
+    -- НПС» означала бы вторую систему, которая разойдётся с первой на
+    -- первой же правке баланса, и «Ослепление» на волке стало бы
+    -- отличаться от «Ослепления» на игроке.
+    -- ============================================================
+    do
+        local savedU = stub.world.units["target"]
+        local wasG, wasL = stub.world.inGroup, stub.world.isLeader
+        stub.world.inGroup, stub.world.isLeader = true, true
+
+        local guidW = "Creature-0-970-0-11-2222-000AAA1111"
+        local function TargetWolf(g)
+            stub.world.units["target"] = { name = "Волк", level = 5,
+                npc = true, creatureType = "Животное", guid = g or guidW }
+        end
+
+        _G.SpellbreakerNPCDB = { npcs = {} }
+        N.ResetState()
+        N.Save({ npcID = 2222, name = "Волк", classification = "beast",
+                 level = 5, maxHealth = 20, resourceName = "Ярость",
+                 maxResource = 4, skills = { ["Акробатика"] = 3 } })
+
+        -- Проверочные эффекты. Каналы берём ровно те, что объявлены для
+        -- игрока (см. врезку о mods в Core/ActiveEffects.lua).
+        SB.Data.Spells["t_npc_slow"] = { id = "t_npc_slow", name = "Оковы",
+            class = "Эффект", level = 0,
+            effect = { kind = "debuff", school = "magic", mods = { defense = -5 } } }
+        SB.Data.Spells["t_npc_hide"] = { id = "t_npc_hide", name = "Шкура",
+            class = "Эффект", level = 0,
+            effect = { kind = "buff", mods = { armor = 20, maxHealth = 10 } } }
+        SB.Data.Spells["t_npc_clumsy"] = { id = "t_npc_clumsy", name = "Неуклюжесть",
+            class = "Эффект", level = 0,
+            effect = { kind = "debuff", stats = { ["Акробатика"] = -2 } } }
+        SB.Data.Spells["t_npc_poison"] = { id = "t_npc_poison", name = "Яд",
+            class = "Эффект", level = 0,
+            effect = { kind = "debuff", school = "poison",
+                       tick = { damage = 2 }, onRemove = { damage = 3 } } }
+        SB.Data.Spells["t_npc_bleed"] = { id = "t_npc_bleed", name = "Кровь",
+            class = "Эффект", level = 0,
+            effect = { kind = "debuff", school = "bleed", tick = { damage = 1 } } }
+
+        TargetWolf()
+        local stats = N.StatsForUnit("target")
+        local step  = SB.Data.Config.SkillRollStep or 3
+
+        -- ── НАЛОЖЕНИЕ ──────────────────────────────────────
+        local clean = N.DefenseModifier(stats, "target")
+        checkTrue("эффект лёг на существо", N.AddEffect("target", "t_npc_slow", 3))
+        checkTrue("и виден в списке",       N.HasEffect("target", "t_npc_slow"))
+        check("список той же формы, что у игрока",
+              N.GetEffects("target")[1].spellID, "t_npc_slow")
+
+        -- ── КАНАЛ defense ──────────────────────────────────
+        -- Тот же канал, что двигает бросок защиты у игрока.
+        check("дебафф садит бросок защиты",
+              N.DefenseModifier(stats, "target"), clean - 5)
+        check("а без юнита считается чистое существо",
+              (N.DefenseModifier(stats)), clean)
+
+        -- ── КАНАЛ stats ────────────────────────────────────
+        -- Двигается САМО ЗНАЧЕНИЕ навыка, а не результат броска: иначе
+        -- одно и то же ослабление считалось бы по двум разным шкалам у
+        -- игрока и у существа.
+        N.RemoveEffect("target", "t_npc_slow")
+        N.AddEffect("target", "t_npc_clumsy", 3)
+        check("минус к навыку идёт шагом навыка",
+              N.DefenseModifier(stats, "target"), clean - 2 * step)
+
+        -- ── КАНАЛ armor ────────────────────────────────────
+        N.RemoveEffect("target", "t_npc_clumsy")
+        local bareDR = N.DamageReduction(stats, "target")
+        N.AddEffect("target", "t_npc_hide", 3)
+        check("броня эффекта гасит урон по той же цене",
+              N.DamageReduction(stats, "target"),
+              bareDR + math.floor(20 / (SB.Data.ArmorPerDR or 10)))
+
+        -- ── КАНАЛ maxHealth ────────────────────────────────
+        -- То же правило, что у просадки максимума у игрока: потерянное
+        -- сохраняется, максимум пересчитывается.
+        check("бафф поднял максимум", N.GetState("target").maxHp, 30)
+        check("нетронутое осталось полным", N.GetState("target").hp, 30)
+        N.AdjustHealth("target", -12)                  -- 18 из 30
+        N.RemoveEffect("target", "t_npc_hide")
+        check("снятие вернуло максимум",  N.GetState("target").maxHp, 20)
+        check("а рана осталась раной",    N.GetState("target").hp, 8)
+
+        -- Снять бафф дважды подряд не должно снимать прибавку дважды —
+        -- ради этого максимум и хранится отдельно от базы.
+        N.RemoveEffect("target", "t_npc_hide")
+        check("повторное снятие ничего не делает", N.GetState("target").maxHp, 20)
+
+        -- ── СЕМЕЙСТВО ──────────────────────────────────────
+        -- Облики, печати и стойки взаимоисключающи у существа так же,
+        -- как у игрока, и читается это из тех же данных.
+        SB.Data.Spells["t_npc_formA"] = { id = "t_npc_formA", name = "Облик А",
+            class = "Эффект", level = 0, family = "t_forms",
+            effect = { kind = "buff", mods = { defense = 1 } } }
+        SB.Data.Spells["t_npc_formB"] = { id = "t_npc_formB", name = "Облик Б",
+            class = "Эффект", level = 0, family = "t_forms",
+            effect = { kind = "buff", mods = { defense = 2 } } }
+        N.AddEffect("target", "t_npc_formA", 5)
+        N.AddEffect("target", "t_npc_formB", 5)
+        checkTrue("новый облик снял прежний", not N.HasEffect("target", "t_npc_formA"))
+        checkTrue("а сам остался",            N.HasEffect("target", "t_npc_formB"))
+        N.RemoveEffect("target", "t_npc_formB")
+
+        -- ── ТИК ────────────────────────────────────────────
+        -- Тикает ВЛАДЕЛЕЦ и сразу по всей сцене: у существа нет своего
+        -- действия, и повесь мы тик на действие бьющего — яд капал бы
+        -- впятеро быстрее в группе из пяти человек.
+        N.ResetState()
+        TargetWolf()
+        N.GetState("target")
+        N.AddEffect("target", "t_npc_poison", 2)
+        local hp0 = N.GetState("target").hp
+
+        N.TickEffects()
+        check("тик снял здоровье",     N.GetState("target").hp, hp0 - 2)
+        check("и списал один ход",     N.GetEffects("target")[1].uses, 1)
+
+        -- Последний ход эффект ещё отрабатывает, и только потом спадает,
+        -- отдав прощальный расчёт — как onRemove у игрока.
+        N.TickEffects()
+        checkTrue("истёкший эффект снят", not N.HasEffect("target", "t_npc_poison"))
+        check("тик и прощальный расчёт оба прошли",
+              N.GetState("target").hp, hp0 - 2 - 2 - 3)
+
+        -- БЕССРОЧНЫЙ НЕ РАСХОДУЕТСЯ, НО ТИКАЕТ — «кровотечение до конца
+        -- сцены» обязано капать.
+        N.AddEffect("target", "t_npc_bleed", N.EFFECT_INFINITE)
+        local hp1 = N.GetState("target").hp
+        N.TickEffects(); N.TickEffects()
+        check("бессрочный тикает",        N.GetState("target").hp, hp1 - 2)
+        checkTrue("и не расходуется",     N.HasEffect("target", "t_npc_bleed"))
+
+        -- ТИКАЕТ ТОЛЬКО ВЛАДЕЛЕЦ. Иначе каждый в группе прогонял бы свой
+        -- тик по своей копии, и яд капал бы столько раз, сколько людей
+        -- в сцене.
+        stub.world.isLeader = false
+        local hp2 = N.GetState("target").hp
+        check("рядовой участник не тикает", N.TickEffects(), 0)
+        check("и здоровье не тронуто",      N.GetState("target").hp, hp2)
+        stub.world.isLeader = true
+
+        -- ── РАССЕИВАНИЕ ────────────────────────────────────
+        -- Правило то же: другу снимают вред, чужому — пользу; эффект без
+        -- школы не трогают, потому что он не чары.
+        N.ClearEffects("target")
+        N.AddEffect("target", "t_npc_poison", 3)
+        N.AddEffect("target", "t_npc_slow", 3)
+        N.AddEffect("target", "t_npc_hide", 3)      -- бафф, и школы нет
+        check("сняли только названную школу",
+              N.DispelEffects("target", { poison = true }, 5, true), 1)
+        checkTrue("яд ушёл",        not N.HasEffect("target", "t_npc_poison"))
+        checkTrue("чары остались",  N.HasEffect("target", "t_npc_slow"))
+        checkTrue("бафф не тронут", N.HasEffect("target", "t_npc_hide"))
+        check("другу баффы не снимают",
+              N.DispelEffects("target", { magic = true }, 5, false), 0)
+
+        -- У СЛУЧАЙНОГО ВСТРЕЧНОГО ЗАПИСИ НЕТ, и выдумывать ему отношение
+        -- не из чего — тогда спрашиваем сервер: для проходного волка его
+        -- ответ и верен.
+        do
+            local savedDB = _G.SpellbreakerNPCDB
+            _G.SpellbreakerNPCDB = { npcs = {} }
+            stub.world.units["target"].hostile = nil
+            checkTrue("без записи верим клиенту: друг", N.IsFriendlyTo("target"))
+            stub.world.units["target"].hostile = true
+            checkTrue("и ему же: враг", not N.IsFriendlyTo("target"))
+            stub.world.units["target"].hostile = nil
+            _G.SpellbreakerNPCDB = savedDB
+        end
+
+        -- ── УПАКОВКА ДЛЯ СЕТИ ──────────────────────────────
+        -- Список едет строкой: сериализатор разворачивает вложенную
+        -- таблицу в разы длиннее, а состояние уезжает на каждый удар.
+        local packed = N.PackEffects({ { spellID = "t_npc_slow", uses = 3 },
+                                       { spellID = "t_npc_bleed", uses = -1 } })
+        local back   = N.UnpackEffects(packed)
+        check("упаковка сохраняет состав",     #back, 2)
+        check("и идентификатор",               back[1].spellID, "t_npc_slow")
+        check("и остаток, включая бессрочный", back[2].uses, -1)
+        checkTrue("строка короче полусотни байт", #packed < 50)
+
+        -- НЕИЗВЕСТНЫЙ ЭФФЕКТ ОТБРАСЫВАЕТСЯ: у приславшего может стоять
+        -- версия новее или своя кастомка, которой у нас нет, — держать
+        -- её в списке значило бы показывать пустую рамку.
+        check("чужой эффект не попадает в список",
+              #N.UnpackEffects("t_npc_slow:2;t_nonexistent:9"), 1)
+        check("пустая строка даёт пустой список", #N.UnpackEffects(""), 0)
+        check("и nil тоже",                       #N.UnpackEffects(nil), 0)
+
+        -- ── КТО РАССЫЛАЕТ ──────────────────────────────────
+        -- То же правило, что у здоровья: вешают все, сводит владелец.
+        N.ClearEffects("target")
+        sent.SendNpcState, sent.SendNpcEffects = nil, nil
+        N.AddEffect("target", "t_npc_slow", 3)
+        checkTrue("владелец разослал состояние", sent.SendNpcState)
+
+        stub.world.isLeader = false
+        sent.SendNpcState, sent.SendNpcEffects = nil, nil
+        N.AddEffect("target", "t_npc_bleed", 3)
+        checkTrue("рядовой применил у себя", N.HasEffect("target", "t_npc_bleed"))
+        checkTrue("и сообщил владельцу",     sent.SendNpcEffects)
+        checkTrue("а состояние не рассылал", not sent.SendNpcState)
+
+        -- Присланный список применяется ТОЛЬКО у владельца: у остальных
+        -- он уже применён своим же наложением.
+        local keyW = N.SpawnKey("target")
+        N.ApplyRemoteEffects(keyW, "t_npc_slow:9")
+        check("рядовой чужой список не принимает", #N.GetEffects("target"), 2)
+        stub.world.isLeader = true
+        N.ApplyRemoteEffects(keyW, "t_npc_slow:9")
+        check("владелец принимает", #N.GetEffects("target"), 1)
+
+        -- ── ЭФФЕКТЫ ЕДУТ ВМЕСТЕ С ЦИФРАМИ ──────────────────
+        -- Отдельным пакетом их слать нельзя: список и максимумы связаны
+        -- («+10 здоровья» поднимает maxHp), и разъехавшись на доли
+        -- секунды они дали бы полоску длиннее собственного максимума.
+        N.ApplyRemoteState(keyW, 7, 30, 2, 4, "t_npc_hide:5")
+        check("присланное здоровье принято",  N.GetState("target").hp, 7)
+        checkTrue("и присланный эффект тоже", N.HasEffect("target", "t_npc_hide"))
+        check("а максимум взят как есть, не пересчитан",
+              N.GetState("target").maxHp, 30)
+
+        -- ── НАВЫКИ ДОХОДЯТ ДО БОЯ, А НЕ ТОЛЬКО ДО ФУНКЦИИ ──
+        --
+        -- Прямой вызов DefenseModifier уже проверен выше, но он ничего
+        -- не говорит о том, дошло ли число до самого размена: путь боя
+        -- мог звать функцию без юнита и молча считать «чистое» существо.
+        -- Живая жалоба была именно такой — «деф от баффа Акробатики не
+        -- меняется», — поэтому ловим строку боя целиком.
+        local caught
+        local capture = function(text) caught = text end
+        SB.Events.On(SB.E.BROADCAST_LOG, capture)
+
+        N.ResetState()
+        N.Save({ npcID = 2222, name = "Волк", classification = "beast",
+                 level = 1, maxHealth = 20, resourceName = "Ярость",
+                 maxResource = 4 })
+        SB.Data.Spells["t_npc_nimble"] = { id = "t_npc_nimble", name = "Проворство",
+            class = "Эффект", level = 0,
+            effect = { kind = "buff", stats = { ["Акробатика"] = 4 } } }
+        SB.Data.Spells["t_npc_jab"] = { id = "t_npc_jab", name = "Тычок",
+            class = "Проверка", level = 1, distance = 30, canCrit = true }
+
+        TargetWolf()
+        N.GetState("target")
+        local realRoll2 = SB.Logic.Roll
+        SB.Logic.Roll = function() return 50, 1, 100 end
+
+        caught = nil
+        SB.Logic.ResolveNpcAttack("t_npc_jab", 1)
+        local defBare = tonumber(caught and caught:match("vs Защита:.-%(итог (%d+)%)"))
+
+        N.AddEffect("target", "t_npc_nimble", 5)
+        caught = nil
+        SB.Logic.ResolveNpcAttack("t_npc_jab", 1)
+        local defNimble = tonumber(caught and caught:match("vs Защита:.-%(итог (%d+)%)"))
+        SB.Logic.Roll = realRoll2
+
+        checkTrue("строка боя называет защиту существа", defBare ~= nil)
+        -- Кубик подменён на постоянные 50, значит вся разница между
+        -- двумя итогами — это ровно вклад навыка.
+        check("проворство подняло защиту в самом бою тем же шагом",
+              (defNimble or 0) - (defBare or 0), 4 * step)
+
+        -- ── ЖИВУЧЕСТЬ ДВИГАЕТ МАКСИМУМ ─────────────────────
+        -- Второй канал того же баг-репорта: «хп не меняется от баффа
+        -- живучести». Здоровье вида Ведущий проставил числом, но бафф
+        -- Живучести обязан прибавить сверх — ровно столько же, сколько
+        -- прибавил бы игроку (SB.Skills.GetVitalityBonus: очко = единица).
+        SB.Data.Spells["t_npc_hardy"] = { id = "t_npc_hardy", name = "Закалка",
+            class = "Эффект", level = 0,
+            effect = { kind = "buff", stats = { ["Живучесть"] = 6 } } }
+        N.ClearEffects("target")
+        local maxBare = N.GetState("target").maxHp
+        N.AddEffect("target", "t_npc_hardy", 5)
+        check("живучесть подняла максимум очко в очко",
+              N.GetState("target").maxHp - maxBare, 6)
+        N.RemoveEffect("target", "t_npc_hardy")
+        check("а снятие вернуло его назад", N.GetState("target").maxHp, maxBare)
+
+        SB.Events.Off(SB.E.BROADCAST_LOG, capture)
+
+        -- ── ПУЛ ВЫВОДИТСЯ ИЗ ИМЕНИ РЕСУРСА ─────────────────
+        -- От пула зависит и цвет полоски в оверлее, и то, в какой из
+        -- трёх каналов эффекта попадёт прибавка (mana / resource /
+        -- castResource). Ошибись он — «Фокус» существа считался бы по
+        -- правилам маны, а полоска красилась бы синим независимо от
+        -- выставленного ресурса.
+        N.ResetState()
+        N.Save({ npcID = 2222, name = "Волк", classification = "beast",
+                 level = 1, maxHealth = 20, resourceName = "Фокус",
+                 maxResource = 6 })
+        TargetWolf()
+        check("«Фокус» — не мана", N.EffectPoolOf(N.GetState("target")), "resource")
+
+        N.ResetState()
+        N.Save({ npcID = 2222, name = "Волк", classification = "beast",
+                 level = 1, maxHealth = 20, resourceName = "Мана",
+                 maxResource = 6 })
+        TargetWolf()
+        check("а «Мана» — мана", N.EffectPoolOf(N.GetState("target")), "mana")
+
+        -- Незнакомое имя выправляется в «Ману» ещё при сохранении: ресурс,
+        -- по которому не работает ни одно правило, хуже подменённого.
+        N.Save({ npcID = 2222, name = "Волк", classification = "beast",
+                 level = 1, maxHealth = 20, resourceName = "Пыльца",
+                 maxResource = 6 })
+        check("выдуманный ресурс стал маной", N.Get(2222).resourceName, "Мана")
+
+        -- ── ПОТОЛОК ХАРАКТЕРИСТИК ──────────────────────────
+        -- У существа он не тот, что у игрока: игрок вкладывает очки в
+        -- пределах раздачи, а цифры существа Ведущий назначает от руки —
+        -- и назначает ими не только кобольда, но и рейдового босса.
+        -- Модель обязана донести их без обрезки: обрежь она до пятёрки,
+        -- поле в редакторе принимало бы 40, а в бою считалось бы 5.
+        N.ResetState()
+        N.Save({ npcID = 2222, name = "Босс", classification = "beast",
+                 level = 60, maxHealth = 400, resourceName = "Мана",
+                 maxResource = 50,
+                 skills = { ["Акробатика"] = 40, ["Ношение брони"] = 99 },
+                 attributes = { ["Ловкость"] = 30 } })
+        check("навык 40 дошёл до записи",  N.Get(2222).skills["Акробатика"], 40)
+        check("и 99 тоже",                 N.Get(2222).skills["Ношение брони"], 99)
+        check("и атрибут не обрезан",      N.Get(2222).attributes["Ловкость"], 30)
+
+        TargetWolf()
+        local bossStats = N.StatsForUnit("target")
+        checkTrue("большой навык двигает и бросок защиты",
+                  N.DefenseModifier(bossStats, "target") > 39 * step)
+
+        -- ── ФРАКЦИЯ ────────────────────────────────────────
+        -- Отношение назначает Ведущий, а не сервер: он сажает стражника
+        -- Штормграда в трактир и отыгрывает им друга ордынцам.
+        stub.world.units["target"].hostile = true   -- сервер считает врагом
+        N.Save({ npcID = 2222, name = "Волк", classification = "beast",
+                 level = 1, maxHealth = 20, resourceName = "Ярость",
+                 maxResource = 4, faction = "ally" })
+        checkTrue("союзник дружелюбен вопреки серверу", N.IsFriendlyTo("target"))
+
+        N.Save({ npcID = 2222, name = "Волк", classification = "beast",
+                 level = 1, maxHealth = 20, resourceName = "Ярость",
+                 maxResource = 4, faction = "enemy" })
+        stub.world.units["target"].hostile = nil    -- сервер считает другом
+        checkTrue("противник враждебен вопреки серверу",
+                  not N.IsFriendlyTo("target"))
+
+        -- ДВЕ СТОРОНЫ ЗАВИСЯТ ОТ СМОТРЯЩЕГО: одна и та же тушка своя
+        -- одному и чужая другому, в этом весь смысл этих вариантов.
+        N.Save({ npcID = 2222, name = "Волк", classification = "beast",
+                 level = 1, maxHealth = 20, resourceName = "Ярость",
+                 maxResource = 4, faction = "alliance" })
+        stub.world.faction = "Alliance"
+        checkTrue("альянсовый НПС свой альянсовцу", N.IsFriendlyTo("target"))
+        stub.world.faction = "Horde"
+        checkTrue("и чужой ордынцу", not N.IsFriendlyTo("target"))
+        stub.world.faction = "Alliance"
+
+        -- Неизвестная фракция выправляется в «Противник», а не роняет
+        -- запись: непомеченный считается чужим — так же, как у игроков.
+        N.Save({ npcID = 2222, name = "Волк", classification = "beast",
+                 level = 1, maxHealth = 20, resourceName = "Ярость",
+                 maxResource = 4, faction = "выдумка" })
+        check("мусорная фракция стала противником", N.Get(2222).faction, "enemy")
+
+        -- ── КАНАЛ healTaken ────────────────────────────────
+        -- «На нём лечение работает лучше/хуже» — канал РАНЕНОГО, а не
+        -- лекаря, и у игрока он читается в PM.Heal, то есть у
+        -- получателя. У существа получателя-клиента нет, поэтому его
+        -- обязан сложить тот, кто лечит. Не сложи он — дебафф «раны
+        -- почти не закрываются» обходился бы простым «полечи его».
+        N.ResetState()
+        N.Save({ npcID = 2222, name = "Волк", classification = "beast",
+                 level = 1, maxHealth = 40, resourceName = "Ярость",
+                 maxResource = 4 })
+        SB.Data.Spells["t_npc_mend"] = { id = "t_npc_mend", name = "Заживление",
+            class = "Проверка", level = 1, distance = 30,
+            isHeal = true, heal = 6, resistable = false }
+        SB.Data.Spells["t_npc_balm"] = { id = "t_npc_balm", name = "Бальзам",
+            class = "Эффект", level = 0,
+            effect = { kind = "buff", mods = { healTaken = 5 } } }
+        SB.Data.Spells["t_npc_rot"] = { id = "t_npc_rot", name = "Гниение",
+            class = "Эффект", level = 0,
+            effect = { kind = "debuff", mods = { healTaken = -9 } } }
+
+        --- Полечить раненое существо и вернуть, СКОЛЬКО ДОШЛО.
+        local function HealWolf()
+            N.ResetState()
+            TargetWolf()
+            N.GetState("target")
+            N.AdjustHealth("target", -30)              -- 10 из 40, места вдоволь
+            return N.GetState("target").hp, "target"
+        end
+
+        local base = select(1, HealWolf())
+        SB.Logic.ResolveNpcHeal("t_npc_mend", 1)
+        local plain = N.GetState("target").hp - base
+
+        -- ПЛЮСОМ, А НЕ МИНУСОМ, и это не придирка к знаку. База лечения
+        -- в аддоне равна единице (Config.BaseHeal), и любой минус тут же
+        -- упёрся бы в пол «меньше нуля не лечим» — проверка показывала бы
+        -- срез в единицу вместо настоящей величины канала.
+        local b2 = select(1, HealWolf())
+        N.AddEffect("target", "t_npc_balm", 5)
+        SB.Logic.ResolveNpcHeal("t_npc_mend", 1)
+        local balmed = N.GetState("target").hp - b2
+
+        checkTrue("раненое существо лечится", plain > 0)
+        check("бальзам добавил ровно свою величину", balmed - plain, 5)
+
+        -- А ГЛУБОКИЙ МИНУС ЗАКРЫВАЕТ ЛЕЧЕНИЕ ВОВСЕ — ровно то, ради чего
+        -- «раны почти не закрываются» и существует. Без чтения канала
+        -- дебафф обходился бы простым «полечи его ещё раз».
+        local b3 = select(1, HealWolf())
+        N.AddEffect("target", "t_npc_rot", 5)
+        SB.Logic.ResolveNpcHeal("t_npc_mend", 1)
+        check("гниение закрыло лечение", N.GetState("target").hp - b3, 0)
+        N.ClearEffects("target")
+
+        -- ── КТО ЗАПУСКАЕТ ТИК ──────────────────────────────
+        -- Тик существ висит на двух рычагах — начало круга в пошаговом
+        -- режиме и шестисекундный таймер в свободном ходу, — и оба
+        -- находятся вне этого файла. Проверяем, что рычаг вообще
+        -- дёргает: молча отвалившийся вызов означал бы, что яд на волке
+        -- не капает вовсе, а по коду всё на месте.
+        checkTrue("тик существ вызывается из начала круга",
+                  ReadFile("Core/TurnOrder.lua"):find("SB.NPC.TickEffects", 1, true) ~= nil)
+        checkTrue("и из шестисекундного таймера",
+                  ReadFile("UI/GMPanel.lua"):find("SB.NPC.TickEffects", 1, true) ~= nil)
+
+        -- ── КУДА УХОДИТ ЗАКЛИНАНИЕ ─────────────────────────
+        -- Развилка выбора пути ошибается тихо: заклинание просто уходит
+        -- не туда, а в логе строка выглядит правдоподобно. Поэтому
+        -- проверяем сам выбор, а не только исход.
+        N.ClearEffects("target")
+
+        SB.Data.Spells["t_npc_curse"] = { id = "t_npc_curse", name = "Порча",
+            class = "Проверка", level = 1, distance = 30,
+            debuff = "t_npc_slow" }
+        SB.Data.Spells["t_npc_stance"] = { id = "t_npc_stance", name = "Стойка",
+            class = "Проверка", level = 1, distance = 0,
+            buff = "t_npc_hide" }
+        SB.Data.Spells["t_npc_purge"] = { id = "t_npc_purge", name = "Очищение",
+            class = "Проверка", level = 1, distance = 30,
+            isHeal = true, dispel = { "poison" } }
+
+        checkTrue("порча идёт по пути существа",
+                  SB.Logic.CanAffectNpc(SB.Data.Spells["t_npc_curse"]))
+
+        -- ЗАКЛИНАНИЕ ПРО СЕБЯ ЦЕЛЬ ИГНОРИРУЕТ. Без этого правила боевая
+        -- стойка, скастованная с волком в таргете, легла бы на волка: у
+        -- существа нет ни поля container, ни здравого смысла отказаться.
+        checkTrue("стойка на себя мимо существа не уходит",
+                  not SB.Logic.CanAffectNpc(SB.Data.Spells["t_npc_stance"]))
+
+        -- РАССЕИВАНИЕ ИДЁТ РАНЬШЕ ЛЕЧЕНИЯ. Снятие яда сплошь и рядом
+        -- помечено ещё и isHeal, и окажись его ветка ниже — «Очищение»
+        -- на отравленном волке лечило бы его вместо того, чтобы снять яд.
+        checkTrue("очищение опознаётся как рассеивание",
+                  SB.Logic.CanDispelNpc(SB.Data.Spells["t_npc_purge"]))
+
+        -- ДРУГ ИЛИ НЕТ РЕШАЕТ, ЧТО СНИМЕТ КАСТ, и у существ это
+        -- спрашивается у самой игры: галочку «свой» ставить существу
+        -- негде, и по игроцкому правилу «непомеченный = чужой» союзного
+        -- волка нельзя было бы очистить никогда.
+        -- ОТНОШЕНИЕ ЗАДАЁТ ЗАПИСЬ, а не сервер: у настроенного НПС его
+        -- назначил Ведущий, и оно и есть правда сцены.
+        N.Save({ npcID = 2222, name = "Волк", classification = "beast",
+                 level = 5, maxHealth = 20, resourceName = "Ярость",
+                 maxResource = 4, faction = "ally" })
+        N.AddEffect("target", "t_npc_poison", 3)
+        N.AddEffect("target", "t_npc_hide", 3)
+        SB.Logic.ResolveNpcDispel("t_npc_purge", 1)
+        checkTrue("с союзного существа сняли вред",
+                  not N.HasEffect("target", "t_npc_poison"))
+        checkTrue("а пользу не тронули", N.HasEffect("target", "t_npc_hide"))
+
+        -- С враждебного тот же каст СРЫВАЕТ ЧАРЫ, а не лечит его.
+        N.ClearEffects("target")
+        N.Save({ npcID = 2222, name = "Волк", classification = "beast",
+                 level = 5, maxHealth = 20, resourceName = "Ярость",
+                 maxResource = 4, faction = "enemy" })
+        SB.Data.Spells["t_npc_purge"].dispel = { "magic" }
+        N.AddEffect("target", "t_npc_slow", 3)         -- бафф? нет, дебафф
+        SB.Data.Spells["t_npc_blessing"] = { id = "t_npc_blessing",
+            name = "Благословение", class = "Эффект", level = 0,
+            effect = { kind = "buff", school = "magic", mods = { defense = 4 } } }
+        N.AddEffect("target", "t_npc_blessing", 3)
+        SB.Logic.ResolveNpcDispel("t_npc_purge", 1)
+        checkTrue("с врага сорвали пользу",
+                  not N.HasEffect("target", "t_npc_blessing"))
+        checkTrue("а вред ему оставили", N.HasEffect("target", "t_npc_slow"))
+        SB.Data.Spells["t_npc_purge"].dispel = { "poison" }
+
+        -- ── ДЕБАФФ ОТ ПОПАДАНИЯ ────────────────────────────
+        -- Ровно как в ПвП: удар проходит и урон снимается, но зацепиться
+        -- за стойкого чары могут не всегда. «Воля» здесь берётся из
+        -- записи существа, а не из сетевого статуса.
+        N.ClearEffects("target")
+        SB.Data.Spells["t_npc_bolt"] = { id = "t_npc_bolt", name = "Разряд",
+            class = "Проверка", level = 1, distance = 30, canCrit = true,
+            damage = 3, debuff = "t_npc_slow" }
+
+        local realRoll = SB.Logic.Roll
+        SB.Logic.Roll = function() return 100, 1, 100 end   -- всегда максимум
+        SB.Logic.ResolveNpcAttack("t_npc_bolt", 1)
+        SB.Logic.Roll = realRoll
+        checkTrue("попадание навесило дебафф", N.HasEffect("target", "t_npc_slow"))
+
+        -- Стойкое существо тот же удар принимает, а чары отводит.
+        N.ResetState()
+        N.Save({ npcID = 2222, name = "Волк", classification = "beast",
+                 level = 5, maxHealth = 20, resourceName = "Ярость",
+                 maxResource = 4, skills = { ["Воля"] = 40 } })
+        TargetWolf()
+        local hpBefore = N.GetState("target").hp
+        SB.Logic.Roll = function() return 100, 1, 100 end
+        SB.Logic.ResolveNpcAttack("t_npc_bolt", 1)
+        SB.Logic.Roll = realRoll
+        checkTrue("стойкое существо отвело чары",
+                  not N.HasEffect("target", "t_npc_slow"))
+        checkTrue("но урон всё равно получило",
+                  N.GetState("target").hp < hpBefore)
+
+        N.ResetState()
+        stub.world.units["target"] = savedU
+        stub.world.inGroup, stub.world.isLeader = wasG, wasL
+        _G.SpellbreakerNPCDB = { npcs = {} }
+    end
+
+    -- ── ЧТО ПОКАЗЫВАЮТ ЗАКЛАДКИ ────────────────────────────
+    -- Сами закладки живут в UI/, который прогон не грузит. Но список
+    -- разделов под ними — обычные данные, и он обязан быть непустым и
+    -- без повторов: повтор означал бы две одинаковые строки в меню
+    -- выбора, из которых вторая недостижима.
+    local seen, dupes = {}, {}
+    for _, c in ipairs(N.Classifications) do
+        if seen[c.name] then dupes[#dupes + 1] = c.name end
+        seen[c.name] = true
+        checkTrue("у «" .. c.id .. "» есть имя и иконка",
+                  type(c.name) == "string" and type(c.icon) == "string")
+    end
+    check("имена классификаций не повторяются", #dupes, 0)
+    checkTrue("разделов больше одного", #N.Classifications > 1)
+
+    -- «Прочее» обязано быть ПОСЛЕДНИМ: это и запасной шаблон, и свалка
+    -- для неопознанного, а такому место в конце списка, а не в середине.
+    check("«прочее» замыкает список",
+          N.Classifications[#N.Classifications].id, "other")
+
+    _G.SpellbreakerNPCDB = { npcs = {} }
+end
+
+-- ============================================================
+-- ВКЛАДКИ ЗАНИМАЮТ ВСЮ ШИРИНУ ОКНА
+--
+-- Ширина была прибита числом (118 на трёх вкладках при окне в 380), и
+-- это давало сразу две беды: зазор справа, потому что 8 + 118×3 + 4×2
+-- не сходилось с шириной окна, и пустое место в треть панели у того,
+-- кому вкладку «Настройки» не показывают.
+-- ============================================================
+do
+    local PAD, GAP = 8, 4
+    local frame = CreateFrame("Frame")
+    frame:SetSize(380, 440)
+    frame.contentY = -30
+
+    local tabs = {}
+    for i = 1, 3 do
+        tabs[i] = SB.Theme.Tab(frame, "Т" .. i, 118, 24, i == 1)
+        tabs[i]:Show()
+    end
+
+    --- Сходится ли ряд с шириной окна: сумма вкладок плюс просветы плюс
+    --- отступы обязана дать ровно ширину, без остатка в пиксель.
+    local function RowWidth(list)
+        local shown, sum = 0, 0
+        for _, t in ipairs(list) do
+            if t:IsShown() then shown = shown + 1; sum = sum + t:GetWidth() end
+        end
+        return sum + GAP * math.max(0, shown - 1) + PAD * 2, shown
+    end
+
+    SB.Theme.LayoutTabs(frame, tabs, PAD, GAP)
+    local total, shown = RowWidth(tabs)
+    check("три вкладки заполняют окно без зазора", total, frame:GetWidth())
+    check("и их по-прежнему три", shown, 3)
+
+    -- Прячем «Настройки» — ряд обязан переразложиться на две.
+    tabs[3]:Hide()
+    SB.Theme.LayoutTabs(frame, tabs, PAD, GAP)
+    total, shown = RowWidth(tabs)
+    check("две вкладки тоже заполняют окно", total, frame:GetWidth())
+    check("считаются только видимые", shown, 2)
+    checkTrue("и каждая стала шире", tabs[1]:GetWidth() > 118)
+
+    -- Возврат вкладки сжимает остальные обратно.
+    tabs[3]:Show()
+    SB.Theme.LayoutTabs(frame, tabs, PAD, GAP)
+    total = RowWidth(tabs)
+    check("возврат вкладки снова сходится", total, frame:GetWidth())
+
+    -- Ширина едет и в _fullW: до неё дорастает подчёркивание при
+    -- переключении, и рассинхрон оставил бы его прежней длины.
+    check("_fullW идёт за шириной", tabs[1]._fullW, tabs[1]:GetWidth())
+
+    -- Окно другой ширины — ряд считается от него, а не от прежнего.
+    frame:SetWidth(500)
+    SB.Theme.LayoutTabs(frame, tabs, PAD, GAP)
+    total = RowWidth(tabs)
+    check("другая ширина окна — другой ряд", total, 500)
+
+    -- Все вкладки скрыты — просто ничего не делаем, без деления на ноль.
+    for _, t in ipairs(tabs) do t:Hide() end
+    smoke("ряд без единой видимой вкладки", function()
+        SB.Theme.LayoutTabs(frame, tabs, PAD, GAP)
+    end)
+end
+
+-- ============================================================
+-- ПОВЕРХНОСТИ ОКОН
+--
+-- У каждого рода окон свой материал и своя подкраска под него.
+-- Проверяется не «красиво ли» — этого прогон не знает, — а то, из-за
+-- чего окно чернеет или остаётся без фона: файл на месте, подкраска
+-- полная, неизвестный род не роняет вызов.
+-- ============================================================
+do
+    local T = SB.Theme
+    checkTrue("поверхности объявлены", T.Surfaces ~= nil)
+
+    local KINDS = { "frame", "library", "column", "detail", "gm" }
+    for _, kind in ipairs(KINDS) do
+        local s = T.Surface(kind)
+        checkTrue("у «" .. kind .. "» есть файл",
+                  type(s.tex) == "string" and s.tex ~= "")
+        checkTrue("файл «" .. kind .. "» лежит в Assets",
+                  s.tex:find("Assets", 1, true) ~= nil)
+        check("подкраска «" .. kind .. "» из четырёх чисел", #s.tint, 4)
+        -- Нулевая подкраска — чёрное окно; единичная у тёмной текстуры
+        -- допустима, а вот выход за единицу клиент просто зажмёт.
+        local okRange = true
+        for _, v in ipairs(s.tint) do
+            if type(v) ~= "number" or v <= 0 or v > 1 then okRange = false end
+        end
+        checkTrue("подкраска «" .. kind .. "» в пределах 0..1", okRange)
+    end
+
+    -- Неизвестный род — обычный фрейм, а не отсутствие фона: окно,
+    -- которому забыли назначить материал, должно выглядеть как раньше.
+    check("незнакомый род откатывается на обычный",
+          T.Surface("такого-нет").tex, T.Surface("frame").tex)
+    check("и nil тоже", T.Surface(nil).tex, T.Surface("frame").tex)
+
+    -- ОДНО ПОЛОТНО НА ПАНЕЛЯХ. Колонки и панель Ведущего делят ФАЙЛ —
+    -- различать их фактурой не нужно. Цвет при этом свой у каждой: это
+    -- ручка баланса палитры, и тест не должен требовать от неё того, для
+    -- чего она не предназначена.
+    local canvas = T.Surface("column")
+    check("«gm» на общем полотне", T.Surface("gm").tex, canvas.tex)
+
+    -- А БИБЛИОТЕКА ВЫШЛА ИЗ ЭТОГО РЯДА, и намеренно. Она делила полотно
+    -- с колонками, отличаясь одной подкраской, — и читалась как ещё одна
+    -- панель того же окна. Она не панель: это книга заклинаний, которую
+    -- открывают, и переплёт у неё свой.
+    checkTrue("библиотека отличается от полотна панелей",
+              T.Surface("library").tex ~= canvas.tex)
+
+    -- Карточка заклинания всплывает поверх полотна, и общий с ним
+    -- материал слил бы её с окном под ней.
+    checkTrue("карточка отличается от полотна",
+              T.Surface("detail").tex ~= canvas.tex)
+
+    -- А ВОТ С БИБЛИОТЕКОЙ ОНА ДЕЛИТ МАТЕРИАЛ, и это намеренно:
+    -- карточка — лист из той же книги, из которой её достали.
+    check("карточка на переплёте библиотеки",
+          T.Surface("detail").tex, T.Surface("library").tex)
+
+    -- ── ФАЙЛЫ, КОТОРЫЕ КЛИЕНТ ВООБЩЕ ЗАГРУЗИТ ──────────────
+    --
+    -- Сторона текстуры обязана быть степенью двойки. Нарушение не
+    -- роняет ничего и не пишет в лог: текстура просто не появляется, и
+    -- окно выходит без фона. Кожа пришла 1254x1254 и ровно так бы себя и
+    -- повела; ловим это здесь, а не глазами в игре.
+    local bad = {}
+    for _, name in ipairs({ "Wood.tga", "Leather.tga", "Bar.tga" }) do
+        local f = io.open("Assets/" .. name, "rb")
+        if not f then
+            bad[#bad + 1] = name .. ": файла нет"
+        else
+            local hdr = f:read(18); f:close()
+            if not hdr or #hdr < 18 then
+                bad[#bad + 1] = name .. ": обрезанная шапка"
+            else
+                local w = hdr:byte(13) + hdr:byte(14) * 256
+                local h = hdr:byte(15) + hdr:byte(16) * 256
+                local function Pow2(n)
+                    if n < 1 then return false end
+                    while n > 1 do
+                        if n % 2 ~= 0 then return false end
+                        n = n / 2
+                    end
+                    return true
+                end
+                if not (Pow2(w) and Pow2(h)) then
+                    bad[#bad + 1] = ("%s: %dx%d — не степень двойки"):format(name, w, h)
+                end
+            end
+        end
+    end
+    check("текстур, которые клиент не загрузит", #bad, 0)
+    if #bad > 0 then print("          " .. table.concat(bad, "; ")) end
+end
+
+-- ============================================================
+-- ШРИФТ АДДОНА
+--
+-- Заглушка прогона не знает CreateFont, поэтому объекты шрифта здесь не
+-- создаются вовсе — и это ровно тот случай, который модуль обязан
+-- пережить молча. Проверяем то, что от игры не зависит: выбор, откат на
+-- запасной вариант и подмену имён.
+-- ============================================================
+do
+    local F = SB.Fonts
+    checkTrue("модуль шрифтов загружен", F ~= nil)
+
+    -- Без CreateFont объектов нет — и ни одна функция не должна падать.
+    check("в прогоне подменять нечего", F.IsAvailable(), false)
+    check("и подмена честно отвечает «нет»", F.SetFace("что-угодно.ttf"), false)
+
+    -- Имя игрового объекта без подмены возвращается как есть: интерфейс
+    -- в этом случае просто остаётся с игровым шрифтом.
+    check("без объектов имя не подменяется",
+          F.Resolve("GameFontNormal"), "GameFontNormal")
+    check("незнакомое имя не трогается вовсе",
+          F.Resolve("КакойТоЧужойШрифт"), "КакойТоЧужойШрифт")
+
+    -- Карта подмены обязана покрывать ровно те объекты, что стоят в
+    -- интерфейсе: лишний — шрифт, которого никто не увидит, недостающий —
+    -- строка, оставшаяся игровой.
+    local mapped = {}
+    for _, pair in ipairs(F.Map) do mapped[pair.own] = pair.game end
+    check("своё имя у каждого игрового", #F.Map, 8)
+    checkTrue("основной размечен", mapped["SBFontNormal"] == "GameFontNormal")
+    checkTrue("чат размечен",      mapped["SBFontChat"]   == "ChatFontNormal")
+
+    -- Встроенные начертания на месте и лежат в Assets. Число не
+    -- проверяем: их состав — вопрос вкуса и будет меняться. Проверяем
+    -- то, что сломается молча: путь, расширение и то, что шрифт по
+    -- умолчанию действительно есть среди встроенных.
+    checkTrue("встроенные начертания есть", #F.Bundled > 0)
+    local haveDefault = false
+    for _, f in ipairs(F.Bundled) do
+        checkTrue("путь ведёт в Assets: " .. f.name,
+                  f.path:find("Assets", 1, true) ~= nil)
+        checkTrue("это ttf: " .. f.name, f.path:sub(-4) == ".ttf")
+        if f.name == F.DEFAULT then haveDefault = true end
+    end
+    -- ШРИФТ ПО УМОЛЧАНИЮ ОБЯЗАН БЫТЬ СРЕДИ ВСТРОЕННЫХ. Иначе на первом
+    -- же запуске PathOf вернёт nil, аддон молча останется на игровом
+    -- шрифте — и это тот самый случай, который однажды уже искали
+    -- вслепую: в настройках стоит одно, на экране другое.
+    checkTrue("шрифт по умолчанию встроен: " .. tostring(F.DEFAULT), haveDefault)
+    checkTrue("и путь к нему находится", F.PathOf(F.DEFAULT) ~= nil)
+
+    -- ── Выбор игрока ───────────────────────────────────────
+    _G.SpellbreakerAccountDB = _G.SpellbreakerAccountDB or {}
+    local savedFont = _G.SpellbreakerAccountDB.font
+
+    -- ОТСУТСТВИЕ ВЫБОРА — ЭТО НЕ «ИГРОВОЙ». Иначе свой шрифт не включился
+    -- бы ни у кого, кто ни разу не заходил в настройки.
+    _G.SpellbreakerAccountDB.font = nil
+    check("без выбора — свой шрифт", F.GetChoice(), F.DEFAULT)
+    -- КАКОЙ ИМЕННО — не проверяем: это вопрос вкуса, и прибивать его
+    -- числом значило бы ронять прогон на каждой смене оформления.
+    -- Проверено выше то, что действительно важно: он встроен и находится.
+    check("прежний PT Serif остался доступен", F.PathOf("PT Serif") ~= nil, true)
+
+    _G.SpellbreakerAccountDB.font = F.GAME
+    check("игровой выбирается явно", F.GetChoice(), F.GAME)
+    check("и своего пути у него нет", F.PathOf(F.GAME), nil)
+
+    _G.SpellbreakerAccountDB.font = "PT Serif"
+    checkTrue("у встроенного путь находится", F.PathOf("PT Serif") ~= nil)
+    check("у выдуманного — нет", F.PathOf("Шрифт-которого-нет"), nil)
+
+    -- Список: первым всегда игровой, дальше встроенные (LibSharedMedia в
+    -- прогоне нет, и это тоже проверяемый случай).
+    local list = F.List()
+    checkTrue("в списке есть из чего выбрать", #list >= 3)
+    check("первым идёт игровой", list[1].path, F.GAME)
+    check("без LibSharedMedia список из встроенных", #list, 1 + #F.Bundled)
+
+    -- ── LSM ЕСТЬ, НО НАШИ ШРИФТЫ ОНА НЕ ВЗЯЛА ──────────────
+    -- Ровно тот случай, который сломался в игре: на русском клиенте LSM
+    -- молча отвергает шрифты без языковой маски (return false внутри
+    -- Register), и аддон переставал видеть СОБСТВЕННЫЕ файлы, потому что
+    -- спрашивал о них её, а не себя. Подменяем библиотеку заглушкой,
+    -- которая не знает ни одного нашего начертания.
+    local realLSM = F.LSM
+    F.LSM = function()
+        return {
+            MediaType = { FONT = "font" },
+            List  = function() return { "Чужой шрифт" } end,
+            Fetch = function(_, _, key) return "Чужой\\" .. key .. ".ttf" end,
+            Register = function() return false end,
+        }
+    end
+
+    local withLSM = F.List()
+    local names = {}
+    for _, f in ipairs(withLSM) do names[f.name] = true end
+    checkTrue("свой шрифт в списке есть и при LibSharedMedia", names["PT Serif"])
+    checkTrue("чужие при этом тоже подтянулись",               names["Чужой шрифт"])
+    checkTrue("и путь к своему находится", F.PathOf("PT Serif") ~= nil)
+    checkTrue("именно наш путь, из Assets",
+              F.PathOf("PT Serif"):find("Assets", 1, true) ~= nil)
+
+    F.LSM = realLSM
+    _G.SpellbreakerAccountDB.font = savedFont
+end
+
+-- ============================================================
+-- СБЕЖАВШЕМУ ПРЕДЕЛ ПЕРЕДВИЖЕНИЯ НЕ ПИСАН
+--
+-- Очередь его уже не ждёт — держать беглеца на поводке в двенадцать
+-- метров бессмысленно. С включённой усталостью выходило и вовсе
+-- наоборот: убегающий умирал от бега, то есть побег был опаснее, чем
+-- остаться и драться.
+-- ============================================================
+do
+    local PM = SB.PlayerModel
+    PM.SetFled(false)
+    SB.TurnOrder.Stop()
+    stub.world.isLeader = true
+    SB.TurnOrder.SetMoveFree(false)
+    SB.TurnOrder.Start()
+    SB.Movement.ResetDistance()
+    _G.SpellbreakerCharDB.health = 10
+
+    -- Пока в строю — правила обычные: упор в предел запрещает действия и
+    -- стоит здоровья.
+    _G.SpellbreakerCharDB.moveDistance = SB.Movement.GetCap() + 5
+    check("в строю предел действует",   SB.Movement.IsUnlimited(), false)
+    checkTrue("и упор в него запирает", SB.Movement.IsExhausted())
+    checkTrue("и усталость включена",   SB.Movement.IsFatigueOn())
+
+    local hp = PM.GetHealth()
+    SB.Movement.AddOverrun(6)
+    checkTrue("бег сверх предела стоит здоровья", PM.GetHealth() < hp)
+
+    -- Сбежал — предел снят целиком.
+    PM.SetFled(true)
+    checkTrue("сбежавшему предел не писан", SB.Movement.IsUnlimited())
+    check("упор больше не запирает",        SB.Movement.IsExhausted(), false)
+    check("и усталости нет",                SB.Movement.IsFatigueOn(), false)
+
+    hp = PM.GetHealth()
+    SB.Movement.AddOverrun(50)
+    check("сколько бы ни бежал — здоровье цело", PM.GetHealth(), hp)
+
+    PM.SetFled(false)
+    SB.Movement.ResetDistance()
+    SB.TurnOrder.Stop()
+    _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
+end
+
+-- ============================================================
+-- ЗДОРОВЬЕ СВЕРХ МАКСИМУМА НЕ ИСПАРЯЕТСЯ ОТ ЧУЖОГО ДЕБАФФА
+--
+-- Ведущий вправе выдать здоровья больше максимума — это отдельная ветка
+-- в выдаче ресурсов, и сделана она намеренно. Но пережить эту выдачу
+-- можно было только до первого эффекта, который шевельнёт максимум хоть
+-- на единицу: прижим забирал ВСЁ сверх нового потолка. В логе это
+-- выглядело как «100/4» в одной строке и «1/4» в следующей.
+-- ============================================================
+do
+    local PM = SB.PlayerModel
+    SB.TurnOrder.Stop()
+    ResetEffects()
+
+    -- Дебафф, роняющий максимум здоровья на единицу.
+    SB.Data.Spells["t_maxdrop"] = { id = "t_maxdrop", name = "Проверочное истощение",
+        class = "Эффект", level = 0, duration = 5, isContainer = true,
+        effect = { kind = "debuff", mods = { maxHealth = -1 } } }
+
+    local maxHP = PM.GetMaxHealth()
+    _G.SpellbreakerCharDB.health = maxHP + 96      -- Ведущий выдал сверх меры
+    PM.SyncToMaximums()
+
+    SB.ActiveEffects.Add("t_maxdrop", 5, false)
+    PM.SyncToMaximums()
+    check("просадка максимума на 1 забирает ровно 1",
+          PM.GetHealth(), maxHP + 95)
+    checkTrue("выданное сверх максимума на месте", PM.GetHealth() > PM.GetMaxHealth())
+
+    -- Обычный случай не изменился: у здорового персонажа просадка
+    -- потолка забирает ровно столько же, на сколько он просел.
+    ResetEffects()
+    PM.SyncToMaximums()
+    _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
+    local full = PM.GetHealth()
+    SB.ActiveEffects.Add("t_maxdrop", 5, false)
+    PM.SyncToMaximums()
+    check("у здорового просадка забирает столько же", PM.GetHealth(), full - 1)
+    check("и он остаётся при полном здоровье", PM.GetHealth(), PM.GetMaxHealth())
+
+    ResetEffects()
+    PM.SyncToMaximums()
+    _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
+end
+
+-- ============================================================
+-- ОСЛЕПЛЕНИЕ НЕ ОБНУЛЯЕТ ЗАЩИТУ
+--
+-- У «Ослепления» стояло attack = -15 при defense = -50 — единственная
+-- пара в семье, где защита просажена сильнее атаки, и единственная, что
+-- выходит за потолок таблицы калибровки (±40 у пятого круга). Итог в
+-- бою: у цели ИТОГОВАЯ защита уходила в минус, и по ней попадал кто
+-- угодно чем угодно.
+-- ============================================================
+do
+    local worst = {}
+    for id, sp in pairs(SB.Data.Spells) do
+        if id:find("^eff_blinded") then
+            local m = (sp.effect or {}).mods or {}
+            local atk = tonumber(m.attack)  or 0
+            local def = tonumber(m.defense) or 0
+            -- Слепота бьёт по СВОЕЙ атаке: чужие удары от неё проходят
+            -- легче, но не автоматически.
+            if def < atk then worst[#worst + 1] = tostring(sp.name) .. " (" .. id .. ")" end
+            if def < -40 then worst[#worst + 1] = tostring(sp.name) .. ": защита " .. def end
+        end
+    end
+    check("ослепление не сажает защиту сильнее атаки", #worst, 0)
+    if #worst > 0 then print("          " .. table.concat(worst, "; ")) end
+end
+
+-- ============================================================
+-- ХОДЫ НА ЭКРАНЕ — ЭТО ВРЕМЯ
+--
+-- Перевод чисто отображательный: в расчётах ход остаётся ходом. Здесь
+-- проверяется только подпись — и в первую очередь ровно те три примера,
+-- по которым формат задавался.
+-- ============================================================
+do
+    local T = SB.UI.TurnsAsTime
+
+    check("10 ходов",  T(10),  "1 мин.")
+    check("11 ходов",  T(11),  "1 мин. 6 сек.")
+    check("657 ходов", T(657), "1 час. 5 мин. 42 сек.")
+
+    -- Пустые разряды не печатаются вовсе.
+    check("один ход",        T(1),   "6 сек.")
+    check("девять ходов",    T(9),   "54 сек.")
+    check("ровно час",       T(600), "1 час.")
+    check("час и секунды",   T(601), "1 час. 6 сек.")
+    check("два часа",        T(1200), "2 час.")
+
+    -- Мусор на входе не должен ронять подпись.
+    check("ноль",     T(0),    "0 сек.")
+    check("минус",    T(-5),   "0 сек.")
+    check("не число", T(nil),  "0 сек.")
+    check("дробь округляется вниз", T(10.9), "1 мин.")
+
+    -- Короткая форма — для углов иконок: не длиннее пяти знаков и
+    -- никогда не больше двух разрядов.
+
+-- ============================================================
+-- ШАГОМЕР СЧИТАЕТ И ТОГО, КОГО ВЕЗУТ
+--
+-- GetUnitSpeed("player") у везомого персонажа ровно ноль: сам он не
+-- бежит. Пока шагомер смотрел только туда, верхом на существе можно было
+-- пересечь всю сцену бесплатно — предел передвижения просто не работал.
+-- ============================================================
+do
+    local M  = SB.Movement
+    local TO = SB.TurnOrder
+
+    -- Шагомер считает ТОЛЬКО в пошаговом режиме (см. ShouldCount), иначе
+    -- проверка мерила бы поведение при выключенном счётчике.
+    local wasActive = TO.IsActive()
+    if not wasActive then
+        stub.world.inGroup, stub.world.isLeader = true, true
+        TO.Start()
+    end
+
+    local savedSpeed, savedVeh = stub.world.playerSpeed, stub.world.playerInVehicle
+    local function Player(speed, inVehicle)
+        stub.world.playerSpeed     = speed
+        stub.world.playerInVehicle = inVehicle
+    end
+
+    -- Кадры гоним вручную: в стенде некому дёргать OnUpdate, а сам шаг
+    -- вынесен наружу именно затем, чтобы его можно было позвать отсюда.
+    local function Walk(seconds)
+        local step = 0.25
+        for _ = 1, math.floor(seconds / step) do
+            stub.world.time = stub.world.time + step
+            SB.Movement.Step(step)
+        end
+    end
+
+    -- ── СВОИМ ХОДОМ ────────────────────────────────────────
+    M.ResetDistance()
+    Player(7, false)
+    Walk(1)
+    local own = M.GetDistance()
+    checkTrue("свой бег считается", own > 0)
+
+    -- ── ВЕРХОМ НА СУЩЕСТВЕ ─────────────────────────────────
+    -- Собственная скорость ноль, но персонаж едет: скорость надо брать у
+    -- того, кто везёт.
+    M.ResetDistance()
+    Player(0, true)
+    stub.world.units["vehicle"] = { name = "Лошадь", speed = 7 }
+    Walk(1)
+    local carried = M.GetDistance()
+    checkTrue("везомый персонаж тоже проходит путь", carried > 0)
+    -- Скорость та же — и пройдено должно быть примерно то же.
+    checkTrue("и примерно столько же, сколько своим ходом",
+              math.abs(carried - own) < 0.5)
+
+    -- ── СТОИТ — ЗНАЧИТ СТОИТ ───────────────────────────────
+    -- Транспорт, который никуда не едет, метров не прибавляет: иначе
+    -- сидящий верхом выбирал бы предел, просто сидя.
+    M.ResetDistance()
+    stub.world.units["vehicle"] = { name = "Лошадь", speed = 0 }
+    Walk(1)
+    check("стоящий транспорт метров не даёт", M.GetDistance(), 0)
+
+    -- ── ЗАПАСНОЙ ПУТЬ: ПО КООРДИНАТАМ ─────────────────────
+    --
+    -- Сервер может усадить персонажа так, что игровой API транспорта об
+    -- этом не знает: UnitInVehicle отвечает «нет», своя скорость ноль, а
+    -- по миру человек едет. У эмуляторов это обычное дело, и без сверки
+    -- координат предел передвижения там не работал бы вовсе.
+    do
+        local savedPos = stub.world.playerPos
+        stub.world.units["vehicle"] = nil
+        Player(0, false)
+
+        -- Встать в точку и обнулить счётчик: первый замер только задаёт
+        -- точку отсчёта, и мерить надо СО ВТОРОГО. Без этого каждая
+        -- проверка ниже начиналась бы с хвоста от предыдущей.
+        local function Settle(pos)
+            stub.world.playerPos = pos
+            Walk(0.25)
+            M.ResetDistance()
+        end
+
+        Settle({ 0, 0, 1 })
+        check("после установки точки счётчик чист", M.GetDistance(), 0)
+
+        stub.world.playerPos = { 0, 6, 1 } -- шесть ярдов в сторону
+        Walk(0.25)
+        checkTrue("сдвиг по координатам засчитан", M.GetDistance() > 0)
+
+        -- ── ТЕЛЕПОРТ НЕ ПРОБЕЖКА ──────────────────────────
+        -- Портал, воскрешение у духа и загрузочный экран сдвигают
+        -- персонажа на сотни ярдов мгновенно. Засчитай мы это — предел
+        -- выбирался бы за один кадр, и человек оказывался бы заперт
+        -- сразу после перехода.
+        Settle({ 0, 0, 1 })
+        stub.world.playerPos = { 0, 5000, 1 }
+        Walk(0.25)
+        check("телепорт метров не прибавил", M.GetDistance(), 0)
+
+        -- СМЕНА ИНСТАНСА — тоже не пробежка: координаты там в другой
+        -- системе отсчёта, и разница между ними не значит ничего.
+        Settle({ 0, 0, 1 })
+        stub.world.playerPos = { 0, 3, 2 }   -- тот же угол, другой инстанс
+        Walk(0.25)
+        check("смена инстанса метров не прибавила", M.GetDistance(), 0)
+
+        -- ПОКА СКОРОСТЬ ОТВЕЧАЕТ, КООРДИНАТЫ МОЛЧАТ: иначе один и тот же
+        -- бег засчитался бы дважды — и скоростью, и сдвигом.
+        Settle({ 0, 0, 1 })
+        Player(7, false)
+        Walk(0.25)
+        local bySpeed = M.GetDistance()
+        Settle({ 0, 0, 1 })
+        stub.world.playerPos = { 0, 20, 1 }   -- координаты «уехали» разом
+        Walk(0.25)
+        checkTrue("бегущему координаты ничего не добавляют",
+                  math.abs(M.GetDistance() - bySpeed) < 0.01)
+
+        stub.world.playerPos = savedPos
+    end
+
+    stub.world.units["vehicle"] = nil
+    stub.world.playerSpeed, stub.world.playerInVehicle = savedSpeed, savedVeh
+    M.ResetDistance()
+    if not wasActive then TO.Stop() end
+end
+
+-- ============================================================
+-- КОМАНДЫ УПРАВЛЕНИЯ СУЩЕСТВОМ
+--
+-- Перенесено из отдельного аддона N'PeeSix. Сами команды исполняет
+-- сервер, и проверить их прогоном нельзя — зато можно проверить данные,
+-- из которых строится меню: опечатка в идентификаторе облика или
+-- эмоции даёт не ошибку, а МОЛЧА НЕ ТУ ТУШКУ, и заметить это можно
+-- только в игре, задним числом.
+-- ============================================================
+do
+    local NC = SB.NPCCommands
+    checkTrue("модуль команд загрузился", NC ~= nil)
+
+    -- ── ЭМОЦИИ ─────────────────────────────────────────────
+    local emoteCount, ids = 0, {}
+    local dupes = {}
+    for _, group in ipairs(NC.Emotes) do
+        checkTrue("у группы есть имя: " .. tostring(group.name),
+                  type(group.name) == "string" and group.name ~= "")
+        checkTrue("и непустой список", #group.items > 0)
+        for _, e in ipairs(group.items) do
+            emoteCount = emoteCount + 1
+            checkTrue("подпись эмоции — строка", type(e[1]) == "string" and e[1] ~= "")
+            checkTrue("а её номер — целое число",
+                      type(e[2]) == "number" and e[2] == math.floor(e[2]) and e[2] >= 0)
+            if ids[e[2]] then dupes[#dupes + 1] = e[2] end
+            ids[e[2]] = true
+        end
+    end
+    checkTrue("эмоций перенесено достаточно", emoteCount >= 30)
+    -- ПОВТОР НОМЕРА — почти наверняка опечатка: две подписи, делающие
+    -- одно и то же, в меню выглядят как две разные эмоции.
+    check("номера эмоций не повторяются", #dupes, 0)
+
+    -- ── ОСТАЛЬНЫЕ СПИСКИ ───────────────────────────────────
+    for _, name in ipairs({ "Mounts", "Weapons" }) do
+        checkTrue("список «" .. name .. "» непуст", #NC[name] > 0)
+        for _, row in ipairs(NC[name]) do
+            checkTrue(name .. ": подпись строкой", type(row[1]) == "string")
+            checkTrue(name .. ": номер числом",    type(row[2]) == "number")
+        end
+    end
+    for _, v in ipairs(NC.Scales) do
+        checkTrue("размер — положительное число", type(v) == "number" and v > 0)
+    end
+    for _, f in ipairs(NC.Factions) do
+        checkTrue("у отношения есть подпись", type(f[1]) == "string")
+        checkTrue("и номер фракции",          type(f[2]) == "number")
+        -- Цвет — часть подписи, и без закрывающего |r он потёк бы на
+        -- соседние пункты меню.
+        checkTrue("и цветовой код", type(f[3]) == "string" and f[3]:find("|c") == 1)
+    end
+
+    -- ── КОМАНДА БЕЗ ЦЕЛИ НЕ УХОДИТ ─────────────────────────
+    -- Сервер применяет команду к тому, кто выделен в момент получения.
+    -- Без цели она уходит в пустоту молча, и Ведущий узнаёт об этом,
+    -- только не увидев результата.
+    do
+        local savedU = stub.world.units["target"]
+        stub.world.units["target"] = nil
+        checkTrue("без цели команда не отправлена", not NC.SendToTarget(".npc evade"))
+
+        stub.world.units["target"] = { name = "Ирина", level = 20, class = "Жрец" }
+        checkTrue("по игроку — тоже нет", not NC.SendToTarget(".npc evade"))
+
+        stub.world.units["target"] = { name = "Волк", level = 3, npc = true,
+            creatureType = "Животное", guid = "Creature-0-970-0-11-2222-00AA01" }
+        checkTrue("по существу — уходит", NC.SendToTarget(".npc evade"))
+        stub.world.units["target"] = savedU
+    end
+end
+
+-- ============================================================
+-- РЕПЛИКА СУЩЕСТВА РЕЖЕТСЯ ПО СЛОВАМ И ПО БАЙТАМ
+--
+-- Сервер принимает строку до 255 байт вместе с командой. Кириллица в
+-- UTF-8 занимает два байта на букву, поэтому «255 символов» означало бы
+-- вдвое больший пакет — сервер обрезал бы его сам, ровно посреди буквы.
+-- ============================================================
+do
+    local Split = SB.NPCCommands and SB.NPCCommands.SplitByWords
+    checkTrue("делитель реплик доступен", Split ~= nil)
+
+    if Split then
+        -- Короткая реплика не делится вовсе.
+        local one = Split("Стой, кто идёт?", 200)
+        check("короткая реплика уходит целиком", #one, 1)
+
+        -- Длинная делится, и КАЖДЫЙ кусок влезает в предел.
+        local long = string.rep("слово ", 200)
+        local many = Split(long, 60)
+        checkTrue("длинная реплика поделена", #many > 1)
+        local tooBig = 0
+        for _, c in ipairs(many) do
+            if #c > 60 then tooBig = tooBig + 1 end
+        end
+        check("ни один кусок не длиннее предела", tooBig, 0)
+
+        -- И НИЧЕГО НЕ ПОТЕРЯНО. Делитель, теряющий слова, — худший из
+        -- возможных: реплика уходит, выглядит целой и врёт.
+        local joined = table.concat(many, "")
+        check("текст сохранён целиком",
+              (joined:gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")),
+              (long:gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")))
+
+        -- ОДНО СЛОВО ДЛИННЕЕ КУСКА не должно вешать цикл: без явной
+        -- обрезки такое слово никогда не влезает, и «начать новый кусок»
+        -- повторялось бы вечно.
+        local huge = Split(string.rep("Ы", 300), 40)
+        checkTrue("сверхдлинное слово порезано", #huge > 1)
+        for _, c in ipairs(huge) do
+            checkTrue("и куски в пределах", #c <= 40)
+        end
+    end
+end
+
+-- ============================================================
+-- ДОКИДКА ОЧКОВ ПОВЕРХ ЗАКРЕПЛЁННОГО БИЛДА
+--
+-- Замок после каста (PM.SetLocked) заведён против одного: пересобрать
+-- персонажа посреди сцены, увидев, какой навык понадобился. Но он
+-- запрещал и то, что перераспределением не является, — трату НОВОГО
+-- очка, полученного за уровень. Добраться до своего же очка можно было
+-- только сбросив весь билд, то есть ровно тем действием, ради запрета
+-- которого замок и существует.
+-- ============================================================
+do
+    local d = _G.SpellbreakerCharDB
+    local savedAttr, savedSkills = d.attributes, d.skills
+    local savedLock = SB.PlayerModel.IsLocked()
+    d.attributes, d.skills = {}, {}
+    SB.Attributes.ClearPending()
+    SB.Skills.ClearPending()
+
+    -- ПОТОЛОК НАВЫКА — ЕГО РОДИТЕЛЬСКИЙ АТРИБУТ (SB.Skills.GetCap), и
+    -- при единице в атрибуте вложить в навык нельзя вовсе. Поднимаем
+    -- родителей напрямую: проверяем здесь замок, а не расход очков.
+    SB.Attributes.Set("Ловкость", 5)
+    SB.Attributes.Set("Сила", 1)
+
+    -- Закрепляем что-то, как это делает игрок на старте.
+    checkTrue("есть что распределять", SB.Skills.GetUnspentPoints() > 0)
+    checkTrue("очко потрачено",        (SB.Skills.Spend("Акробатика")))
+    checkTrue("и подтверждено",        (SB.Skills.Commit()))
+    local committed = SB.Skills.Get("Акробатика")
+    check("закреплённое значение", committed, 2)
+
+    -- ── ПОСЛЕ КАСТА ────────────────────────────────────────
+    SB.PlayerModel.SetLocked(true)
+
+    -- ДОКИДКА РАЗРЕШЕНА: свободное очко тратится и закрепляется, даже
+    -- когда замок стоит. Отнять этим ни у кого ничего нельзя.
+    local before = SB.Skills.GetUnspentPoints()
+    checkTrue("под замком очко всё равно тратится", (SB.Skills.Spend("Точность")))
+    checkTrue("и закрепляется тоже",                (SB.Skills.Commit()))
+    check("закреплено именно оно",   SB.Skills.Get("Точность"), 2)
+    check("а свободных стало меньше", SB.Skills.GetUnspentPoints(), before - 1)
+
+    -- А ВОТ ЗАКРЕПЛЁННОЕ НЕ ОТДАЁТСЯ, и держит это не замок, а правило
+    -- «ниже подтверждённого не опускаемся» — оно работает всегда, а не
+    -- до первого каста.
+    local ok, why = SB.Skills.Refund("Акробатика")
+    checkTrue("закреплённое очко назад не отдаётся", not ok)
+    check("и причина именно эта", why, "committed")
+    check("значение не тронуто", SB.Skills.Get("Акробатика"), committed)
+
+    -- Черновик при этом откатывается свободно: докинул не туда — верни.
+    SB.Skills.Spend("Скрытность")
+    checkTrue("черновик откатывается", (SB.Skills.Refund("Скрытность")))
+    check("и возвращается к закреплённому", SB.Skills.GetPending("Скрытность"), 1)
+
+    -- ── ТО ЖЕ У АТРИБУТОВ ──────────────────────────────────
+    local beforeA = SB.Attributes.GetUnspentPoints()
+    if beforeA > 0 then
+        checkTrue("атрибут под замком тратится", (SB.Attributes.Spend("Сила")))
+        checkTrue("и закрепляется",              (SB.Attributes.Commit()))
+        check("свободных атрибутных убыло",
+              SB.Attributes.GetUnspentPoints(), beforeA - 1)
+        local aOk, aWhy = SB.Attributes.Refund("Сила")
+        checkTrue("а закреплённый не отдаётся", not aOk)
+        check("по той же причине", aWhy, "committed")
+    end
+
+    -- ── СБРОС ОСТАЁТСЯ ПОД ЗАМКОМ ──────────────────────────
+    --
+    -- Вот он и есть настоящий респек: он снимает подтверждённое. Замок
+    -- убран из пяти мест и оставлен ровно в одном — здесь, — и именно
+    -- поэтому проверяется: снявший его заодно с остальными не увидит
+    -- ничего красного, а игроки получат бесплатный респек посреди боя.
+    --
+    -- Проверка ПО ИСХОДНИКУ, а не по поведению: сама функция живёт в
+    -- UI/Attributes.lua, которую прогон не грузит.
+    local resetSrc = ReadFile("UI/Attributes.lua")
+    local resetAt  = resetSrc:find("function SB.UI.ResetAttributesAndSkills", 1, true)
+    checkTrue("сброс на месте", resetAt ~= nil)
+    checkTrue("и по-прежнему смотрит на замок",
+              resetSrc:find("IsLocked", resetAt or 1, true) ~= nil)
+
+    -- А в модели замка не осталось нигде: докидка не должна о нём знать.
+    checkTrue("навыки о замке не спрашивают",
+              ReadFile("Core/Skills.lua"):find("IsLocked", 1, true) == nil)
+    checkTrue("атрибуты тоже",
+              ReadFile("Core/Attributes.lua"):find("IsLocked", 1, true) == nil)
+
+    SB.PlayerModel.SetLocked(false)
+    SB.Attributes.ClearPending()
+    SB.Skills.ClearPending()
+    d.attributes, d.skills = savedAttr, savedSkills
+    SB.PlayerModel.SetLocked(savedLock and true or false)
+end
+
+-- ============================================================
+-- ФОНОВОЕ ЗНАКОМСТВО И КОПИЛКА СТАТУСОВ
+--
+-- Спрашиваем статус у каждого, чью реплику видим в чате, чтобы к моменту
+-- наведения его числа уже лежали у нас. Затея безобидная ровно до тех
+-- пор, пока работают ограничители: без них людный трактир превращается
+-- в поток опросов, половина которых уходит тем, у кого аддона нет.
+-- ============================================================
+do
+    local savedStatus = SB.Data.PlayersStatus
+    SB.Data.PlayersStatus = {}
+    _G.SpellbreakerAccountDB = _G.SpellbreakerAccountDB or {}
+    _G.SpellbreakerAccountDB.peerCache = nil
+
+    -- ── КОГО НЕ СПРАШИВАЕМ ─────────────────────────────────
+    -- ЗДЕСЬ ПРОВЕРЯЕТСЯ ИСХОД, А НЕ КОНКРЕТНАЯ ЗАЩЁЛКА. Себя и уже
+    -- известного отсеивают ДВА независимых фильтра: один не пускает имя
+    -- в очередь (NotePeerSeen), второй выбрасывает его при разборе
+    -- (DrainPeerQueue). Сломай любой по отдельности — исход не
+    -- изменится, и проверка не покраснеет. Так и задумано: очередь
+    -- чистят на входе, а разбор страхует случай «пока стоял в очереди,
+    -- про него всё узналось».
+    sent.ProbePlayerStatus = nil
+    SB.Net.NotePeerSeen(stub.world.playerName)
+    stub.RunTimers(); stub.RunTimers()
+    checkTrue("себя не спрашиваем", not sent.ProbePlayerStatus)
+
+    SB.Data.PlayersStatus["Знакомый"] = { maxHealth = 10, health = 10 }
+    SB.Net.NotePeerSeen("Знакомый")
+    stub.RunTimers(); stub.RunTimers()
+    checkTrue("того, кто уже известен, тоже", not sent.ProbePlayerStatus)
+
+    -- ── КОГО СПРАШИВАЕМ ────────────────────────────────────
+    sent.ProbePlayerStatus = nil
+    SB.Net.NotePeerSeen("Незнакомец")
+    checkTrue("в очередь кладём молча", not sent.ProbePlayerStatus)
+    stub.RunTimers()
+    checkTrue("а спрашиваем с задержкой", sent.ProbePlayerStatus)
+
+    -- ── ОТРИЦАТЕЛЬНЫЙ КЕШ ──────────────────────────────────
+    -- У половины говорящих аддона нет, и они не ответят никогда.
+    -- Спрашивать их каждые двадцать секунд — трата канала до конца сцены.
+    -- ВРЕМЯ СДВИГАЕМ НАРОЧНО. У опроса есть свой давний кулдаун на имя
+    -- в двадцать секунд, и без сдвига проверялся бы он, а не
+    -- отрицательный кеш: тот отличается от него только сроком — десять
+    -- минут против двадцати секунд.
+    stub.world.time = stub.world.time + 60
+    sent.ProbePlayerStatus = nil
+    SB.Net.NotePeerSeen("Незнакомец")
+    stub.RunTimers(); stub.RunTimers()
+    checkTrue("промолчавшего не переспрашиваем и минуту спустя",
+              not sent.ProbePlayerStatus)
+
+    -- А ОТВЕТИВШИЙ ПЕРЕСТАЁТ БЫТЬ НЕЗНАКОМЦЕМ. Проверяем через ту же
+    -- дверь, в которую входит настоящий ответ.
+    SB.Data.PlayersStatus["Незнакомец"] = { maxHealth = 14, health = 9,
+        class = "Жрец", mastery = "Адепт", seenAt = 1000 }
+    stub.world.time = stub.world.time + 1200   -- дольше отрицательного кеша
+    sent.ProbePlayerStatus = nil
+    SB.Net.NotePeerSeen("Незнакомец")
+    stub.RunTimers(); stub.RunTimers()
+    checkTrue("ответившего не переспрашиваем вовсе",
+              not sent.ProbePlayerStatus)
+
+    -- ── КОПИЛКА: ЧТО ПЕРЕЖИВАЕТ ВЫХОД ──────────────────────
+    SB.Data.PlayersStatus = {
+        ["Свежий"] = { maxHealth = 20, health = 7, class = "Маг",
+                       mastery = "Эксперт", will = 3, seenAt = time(),
+                       activeEffects = { { spellID = "t_pain", uses = 2 } },
+                       preparedSpells = { "t_strike" } },
+    }
+    SB.Net.SavePeerCache()
+    local cache = _G.SpellbreakerAccountDB.peerCache
+    checkTrue("копилка записалась", type(cache) == "table")
+    check("здоровье сохранено", cache["Свежий"].health, 7)
+    check("и класс тоже",       cache["Свежий"].class, "Маг")
+
+    -- СПИСКИ НЕ СОХРАНЯЕМ. Они устаревают за минуты, и после перезахода
+    -- соврали бы точнее, чем промолчали: игрок увидел бы на чужой рамке
+    -- эффекты, которые давно спали.
+    checkTrue("список эффектов не сохранён",  cache["Свежий"].activeEffects == nil)
+    checkTrue("и подготовленных — тоже",      cache["Свежий"].preparedSpells == nil)
+
+    -- ── ВОЗРАСТ ────────────────────────────────────────────
+    -- Запись недельной давности хуже пустой рамки: человек с тех пор
+    -- вырос в ранге, сменил класс, отыграл десяток сцен.
+    SB.Data.PlayersStatus = {
+        ["Древний"] = { maxHealth = 20, health = 3, seenAt = 1 },
+    }
+    SB.Net.SavePeerCache()
+    checkTrue("протухшее не сохраняется",
+              _G.SpellbreakerAccountDB.peerCache["Древний"] == nil)
+
+    -- ── ПОТОЛОК ────────────────────────────────────────────
+    -- При переполнении жертвуем теми, кого дольше всего не слышали.
+    SB.Data.PlayersStatus = {}
+    local base = time()
+    for i = 1, 400 do
+        SB.Data.PlayersStatus["Игрок" .. i] =
+            { maxHealth = 20, health = 20, seenAt = base - i }
+    end
+    SB.Net.SavePeerCache()
+    local n = 0
+    for _ in pairs(_G.SpellbreakerAccountDB.peerCache) do n = n + 1 end
+    checkTrue("копилка не растёт без края", n > 0 and n <= 200)
+    checkTrue("самого свежего сохранили",
+              _G.SpellbreakerAccountDB.peerCache["Игрок1"] ~= nil)
+    checkTrue("а самым давним пожертвовали",
+              _G.SpellbreakerAccountDB.peerCache["Игрок400"] == nil)
+
+    -- ── ЗАГРУЗКА ───────────────────────────────────────────
+    SB.Data.PlayersStatus = {}
+    SB.Net.LoadPeerCache()
+    checkTrue("сохранённое поднялось обратно",
+              SB.Data.PlayersStatus["Игрок1"] ~= nil)
+    check("и числа те же", SB.Data.PlayersStatus["Игрок1"].maxHealth, 20)
+    -- Списки заводятся ПУСТЫМИ, а не восстановленными.
+    check("списки пусты", #SB.Data.PlayersStatus["Игрок1"].activeEffects, 0)
+
+    -- ЖИВОЕ СТАРШЕ СОХРАНЁННОГО: если про игрока уже что-то пришло по
+    -- сети в этом сеансе, копилка не должна это затирать.
+    SB.Data.PlayersStatus = { ["Игрок1"] = { maxHealth = 99, health = 50 } }
+    SB.Net.LoadPeerCache()
+    check("живые числа копилка не трогает",
+          SB.Data.PlayersStatus["Игрок1"].maxHealth, 99)
+
+    _G.SpellbreakerAccountDB.peerCache = nil
+    SB.Data.PlayersStatus = savedStatus
+end
+
+-- ============================================================
+-- КЛАССОВОЕ ВОСПОЛНЕНИЕ РЕСУРСА
+--
+-- Механика тихая по устройству: она не роняет ничего и не пишет в лог —
+-- просто прибавляет или не прибавляет число. Заметить, что разбойник
+-- кормится чужими заговорами или что охотник копит вдвое быстрее
+-- задуманного, можно только сверив цифры руками. Потому и проверяется.
+-- ============================================================
+do
+    local PM = SB.PlayerModel
+
+    local savedToken = stub.world.classToken
+    local savedLevel = stub.world.level
+    local savedItems = stub.world.items
+
+    -- Заговоры двух школ: свой и чужой. Разница между ними и есть всё,
+    -- что здесь проверяется.
+    SB.Data.Spells["t_rg_own"] = { id = "t_rg_own", name = "Подсечка",
+        class = "Разбойник", level = 0, canCrit = true, distance = 1.5 }
+    SB.Data.Spells["t_rg_alien"] = { id = "t_rg_alien", name = "Искра",
+        class = "Маг", level = 0, canCrit = true, distance = 30 }
+    SB.Data.Spells["t_rg_noclass"] = { id = "t_rg_noclass", name = "Безымянное",
+        level = 0, canCrit = true, distance = 30 }
+
+    local function Setup(token, level)
+        stub.world.classToken = token
+        stub.world.level      = level or 25
+        stub.world.items      = {}
+        PM.RefreshMastery()
+        PM.SetClassResource(0)
+    end
+
+    -- ── РАЗБОЙНИК: ТОЛЬКО СВОИ ПРИЁМЫ ──────────────────────
+    Setup("ROGUE")
+    checkTrue("разбойник не кастер", not PM.IsCaster())
+    check("начали с нуля", PM.GetClassResource(), 0)
+
+    SB.Events.Fire(SB.E.CAST_CONFIRMED, "t_rg_own", 0)
+    checkTrue("свой приём даёт Энергию", PM.GetClassResource() > 0)
+
+    -- ЭТО И ЕСТЬ ПРАВКА: чужой заговор больше не кормит механику.
+    -- Мультикласс иначе превращал её в общую — чем больше школ открыто,
+    -- тем шире выбор дешёвых заговоров под неё.
+    local after = PM.GetClassResource()
+    SB.Events.Fire(SB.E.CAST_CONFIRMED, "t_rg_alien", 0)
+    check("чужой заговор Энергии не даёт", PM.GetClassResource(), after)
+
+    -- Заклинание без школы своим не считается: иначе дыра возвращалась
+    -- бы через кастомные заклинания Ведущего.
+    SB.Events.Fire(SB.E.CAST_CONFIRMED, "t_rg_noclass", 0)
+    check("заговор без школы тоже не даёт", PM.GetClassResource(), after)
+
+    -- И круг выше нулевого не даёт даже своей школой: механика про
+    -- приёмы, а не про заклинания вообще.
+    SB.Data.Spells["t_rg_big"] = { id = "t_rg_big", name = "Удар в спину",
+        class = "Разбойник", level = 1, canCrit = true, distance = 1.5 }
+    SB.Events.Fire(SB.E.CAST_CONFIRMED, "t_rg_big", 1)
+    check("свой первый круг Энергии не даёт", PM.GetClassResource(), after)
+
+    -- ── ОХОТНИК: ПО ЕДИНИЦЕ, НО ВСЁ ЧАЩЕ ───────────────────
+    --
+    -- У остальных некастеров с рангом растёт ВЕЛИЧИНА прибавки, у
+    -- Охотника — ЧАСТОТА: раз в 3/2/1 хода у Неофита/Адепта/Эксперта.
+    -- Мастер и Герой не быстрее Эксперта: «чаще каждого хода» не бывает.
+    Setup("HUNTER")
+    check("фокус начинается с нуля", PM.GetClassResource(), 0)
+
+    -- Действия не при чём: когда-то любое давало +1.
+    SB.Events.Fire(SB.E.CAST_CONFIRMED, "t_rg_big", 1)
+    check("применение способности фокус не даёт", PM.GetClassResource(), 0)
+
+    local wasMastery = SpellbreakerCharDB.mastery
+    local LADDER = { ["Неофит"] = 3, ["Адепт"] = 2, ["Эксперт"] = 1,
+                     ["Мастер"] = 1, ["Герой"] = 1 }
+
+    for rank, period in pairs(LADDER) do
+        SpellbreakerCharDB.mastery = rank
+        -- Ранг сверх потолка реалма зажимается (SB.Data.ClampMastery), и
+        -- на Origins «Герой» становится «Экспертом». Спрашиваем лестницу
+        -- по ТОМУ рангу, который получился, а не по тому, что записали.
+        local eff = PM.GetMastery()
+        check("период у ранга «" .. eff .. "» взят из лестницы",
+              SB.ClassMechanics.TurnPeriod(
+                  SB.ClassMechanics.Definitions["Охотник"]),
+              LADDER[eff])
+    end
+
+    -- ── И ЭТО РАБОТАЕТ НА ХОДАХ, А НЕ ТОЛЬКО В ТАБЛИЦЕ ─────
+    for _, rank in ipairs({ "Неофит", "Адепт", "Эксперт" }) do
+        SpellbreakerCharDB.mastery = rank
+        local period = LADDER[PM.GetMastery()]
+
+        -- МЕРЯЕМ ПРОМЕЖУТОК МЕЖДУ ПРИБАВКАМИ, а не ходы от начала.
+        --
+        -- Счётчик ходов общий на всю сцену и обнуляется только на входе
+        -- в пошаговый режим (переход «выключен → включён»). Внутри
+        -- прогона он уже накручен предыдущими проверками, и отсчёт «с
+        -- этого места» поймал бы чужую фазу: у Адепта прибавка
+        -- приходила бы на первом же ходу вместо второго. Промежуток от
+        -- фазы не зависит.
+        local function ticksUntilGain()
+            PM.SetClassResource(0)
+            local n = 0
+            repeat
+                SB.Events.Fire(SB.E.TURN_TICK)
+                n = n + 1
+            until PM.GetClassResource() > 0 or n > 12
+            return n
+        end
+
+        ticksUntilGain()                       -- поймали фазу
+        local gap = ticksUntilGain()           -- и померили промежуток
+        check("«" .. rank .. "»: прибавка раз в N ходов", gap, period)
+        -- ЕДИНИЦА, А НЕ «ПО РАНГУ». Пятёрка разом раз в три хода — это
+        -- полный запас из ничего; ровный ручеёк заставляет решать
+        -- каждый ход.
+        check("«" .. rank .. "»: и приходит ровно единица",
+              PM.GetClassResource(), 1)
+    end
+
+    -- ── ПОДСКАЗКА ГОВОРИТ ТО ЖЕ, ЧТО ЛЕСТНИЦА ──────────────
+    --
+    -- Подсказка ресурса — единственное место, откуда игрок узнаёт
+    -- правило. Число, вписанное в неё руками, расходится с механикой на
+    -- первой же правке баланса и врёт тем убедительнее, чем дольше её
+    -- никто не перечитывал.
+    do
+        local tip = SB.Data.Tooltips["resource_Охотник"]
+        local text = ""
+        for _, line in ipairs(tip.lines) do
+            text = text .. " " .. (type(line) == "function" and line() or line)
+        end
+        for _, rank in ipairs({ "Неофит", "Адепт", "Эксперт" }) do
+            local n = SB.Data.Config.FocusEveryTurns[rank]
+            checkTrue("подсказка называет период «" .. rank .. "»",
+                      text:find(tostring(n) .. "/", 1, true) ~= nil
+                      or text:find("/" .. tostring(n), 1, true) ~= nil)
+        end
+        -- И ВЕЛИЧИНУ: «по 1 Фокусу» — это то, что изменилось, и то, чего
+        -- игрок не угадает из старой формулировки «по рангу».
+        checkTrue("подсказка называет величину",
+                  text:find("по 1 Фокусу", 1, true) ~= nil)
+        -- Секунды — производные от ходов, а не отдельное число.
+        checkTrue("и пересчёт в секунды свободного хода",
+                  text:find("18/12/6", 1, true) ~= nil)
+    end
+
+    -- ── ПЕРИОД НЕ БЫВАЕТ МЕНЬШЕ ХОДА ───────────────────────
+    --
+    -- Счётчик делит на период с остатком: ноль уронил бы Lua прямо в
+    -- бою, а «чаще каждого хода» всё равно не бывает. Проверяем сам
+    -- предохранитель, а не данные: в лестнице нулей нет — но она
+    -- правится руками, и это ровно тот случай, когда молчащая ошибка
+    -- дороже всего.
+    local TP = SB.ClassMechanics.TurnPeriod
+    check("нулевой период выправляется в единицу", TP({ everyTurns = 0 }), 1)
+    check("отрицательный — тоже",                  TP({ everyTurns = -5 }), 1)
+    check("дробный округляется вниз",              TP({ everyTurns = 2.9 }), 2)
+    check("отсутствующий — единица",               TP({}), 1)
+
+    SpellbreakerCharDB.mastery = wasMastery
+    SB.Events.Fire(SB.E.TURN_ORDER_CHANGED)
+    PM.SetClassResource(0)
+
+    -- ── ТИК ЭФФЕКТОВ И ЕСТЬ «ПРОШЁЛ ХОД» ───────────────────
+    -- Счётчик висит на TickAll, а не на очереди ходов, — потому что
+    -- именно туда сходятся оба режима. Проверяем, что событие оттуда
+    -- действительно летит: без этого весь механизм молчал бы в игре,
+    -- оставаясь зелёным здесь.
+    local ticked = false
+    -- Отписываемся ПО ССЫЛКЕ: SB.Events.On ручки не возвращает,
+    -- и Off(событие, nil) молча не снимает ничего — подписка
+    -- оставалась бы висеть до конца прогона.
+    local function noteTick() ticked = true end
+    SB.Events.On(SB.E.TURN_TICK, noteTick)
+    SB.ActiveEffects.TickAll()
+    checkTrue("тик эффектов объявляет прошедший ход", ticked)
+    SB.Events.Off(SB.E.TURN_TICK, noteTick)
+
+    -- ── ЧУЖИЕ КЛАССЫ ЭТИМ НЕ ЗАДЕТЫ ────────────────────────
+    -- Триггер у каждого свой, и повременный не должен подтекать всем
+    -- подряд: FireTrigger сверяется с классом, а не только с событием.
+    Setup("WARRIOR")
+    -- Базу берём замером, а не нулём: модель держит собственный
+    -- пол ресурса, и сравнение с нулём проверяло бы его, а не механику.
+    local warBase = PM.GetClassResource()
+    SB.Events.Fire(SB.E.TURN_TICK)
+    SB.Events.Fire(SB.E.TURN_TICK)
+    SB.Events.Fire(SB.E.TURN_TICK)
+    check("воину время ресурса не даёт", PM.GetClassResource(), warBase)
+
+    stub.world.classToken = savedToken
+    stub.world.level      = savedLevel
+    stub.world.items      = savedItems
+    PM.RefreshMastery()
+end
+
+-- ============================================================
+-- ОДИН id — ОДНО ОБЪЯВЛЕНИЕ
+--
+-- SB.Data.Spells ключуется по id, и повторное объявление ничего не
+-- ломает — оно молча перезаписывает первое. Именно поэтому такое и
+-- живёт годами: игра работает, а в файле лежит блок, которого в игре
+-- нет. На релизе 3.0 так нашёлся «Верный глаз»: бафф на атаку и
+-- точность, затёртый дебафом «Метка охотника» с тем же id.
+--
+-- ПО ИСХОДНИКУ, а не по загруженной таблице: в таблице повтор как раз
+-- НЕ ВИДЕН — там остался только победитель. Смысл проверки в том, чтобы
+-- увидеть проигравшего.
+-- ============================================================
+do
+    local seen, dup = {}, {}
+    for _, path in ipairs({ "Spells/Effects.lua", "Spells/Alchemy.lua",
+                            "Spells/Conjured.lua", "Spells/Warrior.lua",
+                            "Spells/Hunter.lua", "Spells/Mage.lua",
+                            "Spells/Rogue.lua", "Spells/Priest.lua",
+                            "Spells/Warlock.lua", "Spells/Paladin.lua",
+                            "Spells/Druid.lua", "Spells/Shaman.lua",
+                            "Spells/Monk.lua", "Spells/DemonHunter.lua",
+                            "Spells/DeathKnight.lua" }) do
+        for id in ReadFile(path):gmatch('id%s*=%s*"([^"]+)"') do
+            if seen[id] then
+                dup[#dup + 1] = id .. " (" .. seen[id] .. " и " .. path .. ")"
+            end
+            seen[id] = path
+        end
+    end
+    check("id объявлены дважды", table.concat(dup, "; "), "")
+end
+
+-- ============================================================
+-- КОНЦЕНТРАЦИЯ СБИВАЕТСЯ УРОНОМ ПО УМОЛЧАНИЮ
+--
+-- Это и есть смысл слова: поддерживаемое заклинание требует внимания, а
+-- удар внимание отнимает. Раньше правило приходилось выписывать каждому
+-- эффекту руками, и половина концентраций его просто не имела —
+-- невидимость держалась под обстрелом.
+--
+-- Правило, которое надо повторять в данных, рано или поздно окажется
+-- повторённым не везде: проверка держит умолчание, а не список.
+-- ============================================================
+do
+    ResetEffects()
+    SB.Data.Spells["t_cc_plain"] = { id = "t_cc_plain", name = "Проба без слова",
+        class = "Эффект", level = 0, isContainer = true,
+        isConcentration = true,
+        effect = { kind = "buff", mods = { crit = 5 } } }
+    SB.Data.Spells["t_cc_tough"] = { id = "t_cc_tough", name = "Проба стойкой",
+        class = "Эффект", level = 0, isContainer = true,
+        isConcentration = true,
+        effect = { kind = "buff", mods = { crit = 5 },
+                   breakOn = { damaged = false } } }
+    SB.Data.Spells["t_cc_ord"] = { id = "t_cc_ord", name = "Проба обычного",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff", mods = { crit = 5 } } }
+
+    -- БЕЗ ЕДИНОГО СЛОВА В ДАННЫХ — сбивается.
+    SB.ActiveEffects.Add("t_cc_plain", 5, true)
+    checkTrue("концентрация висит", UsesOf("t_cc_plain") ~= nil)
+    SB.ActiveEffects.BreakOn("damaged")
+    checkTrue("и сбилась от удара", UsesOf("t_cc_plain") == nil)
+
+    -- ЯВНЫЙ ОТКАЗ ПЕРЕОПРЕДЕЛЯЕТ УМОЛЧАНИЕ. Без него «эту концентрацию
+    -- ударом не сбить» стало бы невыразимым, а такие в библиотеке есть
+    -- (воинские стойки живут ровно на том, чтобы ловить удары).
+    ResetEffects()
+    SB.ActiveEffects.Add("t_cc_tough", 5, true)
+    SB.ActiveEffects.BreakOn("damaged")
+    checkTrue("а объявившая damaged = false — устояла",
+              UsesOf("t_cc_tough") ~= nil)
+
+    -- И ОБЫЧНЫЙ ЭФФЕКТ УДАРОМ НЕ СБИВАЕТСЯ: умолчание про концентрацию,
+    -- а не про всё подряд.
+    ResetEffects()
+    SB.ActiveEffects.Add("t_cc_ord", 5, false)
+    SB.ActiveEffects.BreakOn("damaged")
+    checkTrue("обычный эффект удар не снял", UsesOf("t_cc_ord") ~= nil)
+
+    -- ── И ЭТО РАБОТАЕТ НА ЖИВЫХ ДАННЫХ ──────────────────────
+    --
+    -- Пять концентраций в библиотеке не объявляли breakOn вовсе. Раньше
+    -- они держались под обстрелом; проверка на заготовке этого не
+    -- заметила бы.
+    ResetEffects()
+    local bare
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] and sp.isConcentration
+           and not (type(sp.effect) == "table" and sp.effect.breakOn) then
+            bare = id
+        end
+    end
+    if bare then
+        SB.ActiveEffects.Add(bare, 5, true)
+        SB.ActiveEffects.BreakOn("damaged")
+        checkTrue("«" .. (SB.Data.Spells[bare].name or bare) ..
+                  "» сбивается без объявления", UsesOf(bare) == nil)
+    end
+    ResetEffects()
+end
+
+-- ============================================================
+-- ПИКЕР ПОРЯДКА СЧИТАЕТ ТЕМ ЖЕ, ЧЕМ И БРОСОК
+--
+-- Окно выбора порядка обещает, сколько выйдет урона на каждом круге.
+-- Прибавки от висящих эффектов в нём не было вовсе: жрец под
+-- «Внутренним огнём» видел одну цифру, а бил другой — и расхождение
+-- читалось как поломка тем вернее, чем больше усилений на персонаже.
+--
+-- ПО ИСХОДНИКУ: пикер живёт в UI, который прогон не грузит. Проверяем
+-- то единственное, что здесь проверяемо, — что обе половины развилки на
+-- месте. У лечения свой канал (mods.heal), у урона — школьный
+-- GetDamageMod, и подставить один вместо другого значит пообещать
+-- «+2 огню» на ледяной стреле.
+-- ============================================================
+do
+    local src = ReadFile("UI/MainFrame.lua")
+    local tag = src:match("local function GainTag%(level%)(.-)" ..
+                          string.char(10) .. "    end")
+    checkTrue("GainTag нашлась", tag ~= nil and #tag > 0)
+    if tag then
+        -- ИЩЕМ ВЫЗОВ, А НЕ ИМЯ. Рядом стоит комментарий, где та же
+        -- функция названа словами, — и проверка по голому имени
+        -- находила его, оставаясь зелёной на коде, из которого вызов
+        -- вырезан начисто.
+        checkTrue("урон учитывает школьную прибавку эффектов",
+                  tag:find("GetDamageMod(spell)", 1, true) ~= nil)
+        checkTrue("лечение учитывает свой канал",
+                  tag:find('GetMod("heal")', 1, true) ~= nil)
+    end
+
+    -- И ТА ЖЕ РАЗВИЛКА В КАРТОЧКЕ — она в Core и проверяется живьём.
+    -- Если карточка и пикер разойдутся, игрок увидит два разных ответа
+    -- на один вопрос в двух окнах одного аддона.
+    ResetEffects()
+    SB.Data.Spells["t_pick_fire"] = { id = "t_pick_fire", name = "Проба огня",
+        class = "Маг", level = 1, canCrit = true, distance = 19,
+        damageType = "fire" }
+    SB.Data.Spells["t_pick_ice"] = { id = "t_pick_ice", name = "Проба льда",
+        class = "Маг", level = 1, canCrit = true, distance = 19,
+        damageType = "frost" }
+    SB.Data.Spells["t_pick_buff"] = { id = "t_pick_buff", name = "Проба клейма",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff", mods = { damageFire = 3 } } }
+
+    local before = SB.ActiveEffects.GetDamageMod(SB.Data.Spells["t_pick_fire"])
+    SB.ActiveEffects.Add("t_pick_buff", 5, false)
+    check("прибавка школе видна расчёту",
+          SB.ActiveEffects.GetDamageMod(SB.Data.Spells["t_pick_fire"]), before + 3)
+    check("а чужой школе — нет",
+          SB.ActiveEffects.GetDamageMod(SB.Data.Spells["t_pick_ice"]), 0)
+    ResetEffects()
+end
+
+-- ============================================================
+-- ВЕРСИЯ НАПИСАНА В ДВУХ МЕСТАХ — И ОНИ ОБЯЗАНЫ СОВПАДАТЬ
+--
+-- Аддон берёт версию из ## Version в .toc (см. Core/Init.lua), но в
+-- заголовке главного окна она стоит второй раз строкой: заголовок
+-- собирается раньше, чем метаданные наверняка доступны, и «v0» на
+-- старте выглядело бы поломкой.
+--
+-- Второе место для одного числа расходится на первом же релизе, и
+-- расходится тихо: игрок видит в шапке старую версию и уверен, что не
+-- обновился. Проверка стоит ровно потому, что дублирование сознательное.
+-- ============================================================
+do
+    local toc = ReadFile("Spellbreaker.toc"):match("##%s*Version:%s*([%d%.]+)")
+    checkTrue("версия объявлена в .toc", toc ~= nil and toc ~= "")
+
+    local title = ReadFile("UI/MainFrame.lua"):match(
+        '"Aviana Spellbreaker v([%d%.]+)"')
+    checkTrue("версия стоит в заголовке окна", title ~= nil)
+    check("заголовок и .toc называют одну версию", title, toc)
+
+    -- И ЭТО ИМЕННО ТРЁШКА: релиз объявлен, и молча уехать с него
+    -- обратно на 2.x проверка не даст.
+    check("выпущенная версия", toc, "3.0")
+end
+
+-- ============================================================
+-- ДВА РАЗНЫХ «НЕДОСТУПНО»
+--
+-- Закрытое РАНГОМ остаётся в книге серым: за этим в книгу и лезут —
+-- посмотреть, что будет дальше. Прячется только то, что не появится
+-- НИКОГДА: предметы (своя вкладка) и круги, которых на реалме нет.
+-- ============================================================
+do
+    local PM = SB.PlayerModel
+    local Hidden = SB.Data.IsSpellHiddenFromLibrary
+    local Locked = SB.Data.IsSpellLockedForPlayer
+
+    local savedToken, savedLevel = stub.world.classToken, stub.world.level
+    local savedItems = stub.world.items
+    stub.world.classToken = "MAGE"
+    stub.world.level      = 1
+    stub.world.items      = {}
+    PM.RefreshMastery()
+
+    local function Spell(cls, lvl) return { class = cls, level = lvl } end
+
+    -- ── ЗАКРЫТОЕ РАНГОМ: НЕ ПРЯЧЕМ, НО ЗАПИРАЕМ ────────────
+    local far = Spell("Маг", 2)          -- магу-неофиту ещё рано
+    checkTrue("второй круг мага не спрятан", not Hidden(far))
+    checkTrue("но заперт", Locked(far))
+    -- И «недоступно вообще» по-прежнему говорит «да»: показывать —
+    -- не значит разрешать.
+    checkTrue("и недоступен", SB.Data.IsSpellBeyondPlayer(far))
+
+    local near = Spell("Маг", 1)
+    checkTrue("первый круг не спрятан", not Hidden(near))
+    checkTrue("и не заперт",            not Locked(near))
+
+    -- ВТОРЫМ ЗНАЧЕНИЕМ — ДО КАКОГО КРУГА ОТКРЫТО. Оно нужно карточке,
+    -- чтобы сказать игроку не «нельзя», а «пока нельзя».
+    local _, maxOrder = Locked(far)
+    check("сколько кругов открыто", maxOrder, PM.GetMaxPrepareOrder("Маг"))
+
+    -- ── СПРЯТАННОЕ НАВСЕГДА ────────────────────────────────
+    --
+    -- Круга нет на реалме — он не откроется никаким ростом, и место в
+    -- списке ему ни к чему. Такое НЕ помечается запертым: заперто то,
+    -- что однажды отопрут.
+    local ghost = Spell("Маг", 5)
+    if SB.Data.IsOrderBeyondRealm(5) then
+        checkTrue("круга нет на реалме — спрятан", Hidden(ghost))
+        checkTrue("и запертым не считается",   not Locked(ghost))
+    end
+
+    -- Предмет в книге заклинаний не показывается вовсе: у него своя
+    -- вкладка и свои ячейки.
+    local potion = SB.Data.Spells["custom_abcdef34567123456789a23de9abcdef"]
+    checkTrue("предмет спрятан из книги заклинаний", Hidden(potion))
+    checkTrue("и запертым не считается",         not Locked(potion))
+
+    stub.world.classToken = savedToken
+    stub.world.level      = savedLevel
+    stub.world.items      = savedItems
+    PM.RefreshMastery()
+end
+
+-- ============================================================
+-- БИБЛИОТЕКА ПОКАЗЫВАЕТ ТО, ЧТО ОТКРЫТО ЭТОМУ ПЕРСОНАЖУ
+--
+-- Прежде круги прятались ПО РЕАЛМУ: на Origins не было четвёртого и
+-- пятого, а всё до третьего показывалось любому. Воин-неофит листал
+-- третий круг воина, изучить который не сможет ещё десяток уровней.
+-- Теперь потолок берётся из ранга В ЭТОЙ ШКОЛЕ.
+-- ============================================================
+do
+    local PM   = SB.PlayerModel
+    -- «Недоступно вообще» — сумма обеих причин. Проверки ниже написаны
+    -- про неё, и они по-прежнему верны: закрытое рангом недоступно,
+    -- сколько его ни показывай. РАЗНИЦУ между «спрятать» и «серым»
+    -- разбирает отдельный блок ниже.
+    local Vis  = SB.Data.IsSpellBeyondPlayer
+    local M    = SB.Data.Config.MasteryItems
+
+    local savedItems = stub.world.items
+    local savedToken = stub.world.classToken
+    local savedLevel = stub.world.level
+
+    local function ItemOf(cls, rank)
+        for itemID, def in pairs(M) do
+            if def.class == cls and def.rank == rank then return itemID end
+        end
+    end
+    local function Spell(cls, lvl) return { class = cls, level = lvl } end
+
+    stub.world.classToken = "MAGE"
+    stub.world.level      = 1
+    stub.world.items      = {}
+    PM.RefreshMastery()
+
+    -- ── МАГ-НЕОФИТ: ВИДИТ ЗАГОВОРЫ И ПЕРВЫЙ ────────────────
+    check("ранг мага", PM.GetClassRank("Маг"), "Неофит")
+    checkTrue("заговор мага виден",     not Vis(Spell("Маг", 0)))
+    checkTrue("первый круг мага виден", not Vis(Spell("Маг", 1)))
+    checkTrue("второй круг мага скрыт",     Vis(Spell("Маг", 2)))
+    checkTrue("третий круг мага скрыт",     Vis(Spell("Маг", 3)))
+
+    -- ── ВОИН-АДЕПТ: ВИДИТ ДО ВТОРОГО ───────────────────────
+    -- Некастерская школа чужая магу, ранг в ней растёт от уровня.
+    -- Семнадцатый, а не потолок: чужая некастерская школа даёт
+    -- адепта на 15-м и эксперта на 21-м, а нам нужна середина лестницы.
+    stub.world.level = 18
+    PM.RefreshMastery()
+    check("ранг воина у мага 18 уровня", PM.GetClassRank("Воин"), "Адепт")
+    checkTrue("второй круг воина виден", not Vis(Spell("Воин", 2)))
+    checkTrue("третий круг воина скрыт",     Vis(Spell("Воин", 3)))
+    -- И ЭТО РАЗНЫЕ ОТВЕТЫ В ОДИН И ТОТ ЖЕ МОМЕНТ: весь смысл правила в
+    -- том, что потолок теперь у каждой школы свой.
+    checkTrue("а второй круг мага у него всё ещё скрыт", Vis(Spell("Маг", 2)))
+
+    -- ── ЭКСПЕРТ ВИДИТ ВСЁ, ЧТО ЕСТЬ НА РЕАЛМЕ ──────────────
+    stub.world.items = { [ItemOf("Паладин", "Эксперт")] = 1 }
+    PM.RefreshMastery()
+    check("ранг паладина по вещи", PM.GetClassRank("Паладин"), "Эксперт")
+    checkTrue("третий круг паладина виден", not Vis(Spell("Паладин", 3)))
+    -- Четвёртого на Origins нет ни у кого и ни при каком ранге.
+    checkTrue("четвёртый скрыт даже у эксперта", Vis(Spell("Паладин", 4)))
+
+    -- ── ЗАКРЫТАЯ ШКОЛА СКРЫТА ЦЕЛИКОМ ──────────────────────
+    checkTrue("шаман закрыт", PM.GetClassRank("Шаман") == nil)
+    checkTrue("даже заговор шамана скрыт", Vis(Spell("Шаман", 0)))
+
+    stub.world.items      = savedItems
+    stub.world.classToken = savedToken
+    stub.world.level      = savedLevel
+    PM.RefreshMastery()
+end
+
+-- ============================================================
+-- СНЯЛ ПРЕДМЕТ — ПОТЕРЯЛ ПОДГОТОВЛЕННОЕ
+--
+-- Без этого правило «нужен предмет» превращается в «нужен предмет на
+-- момент подготовки»: одолжил вещь, подготовился, вернул — и третий
+-- круг твой до конца сцены.
+-- ============================================================
+do
+    local PM = SB.PlayerModel
+    local M  = SB.Data.Config.MasteryItems
+
+    local savedItems = stub.world.items
+    local savedToken = stub.world.classToken
+    local savedPrep  = _G.SpellbreakerCharDB.preparedSpells
+
+    local function ItemOf(cls, rank)
+        for itemID, def in pairs(M) do
+            if def.class == cls and def.rank == rank then return itemID end
+        end
+    end
+
+    SB.Data.Spells["t_pal3x"] = { id = "t_pal3x", name = "Кара",
+        class = "Паладин", level = 3, canCrit = true, distance = 30 }
+    SB.Data.Spells["t_pal1x"] = { id = "t_pal1x", name = "Слово",
+        class = "Паладин", level = 1, canCrit = true, distance = 30 }
+
+    stub.world.classToken = "PRIEST"
+    stub.world.items = { [ItemOf("Паладин", "Эксперт")] = 1 }
+    PM.RefreshMastery()
+    check("паладин-эксперт по вещи", PM.GetClassRank("Паладин"), "Эксперт")
+
+    _G.SpellbreakerCharDB.preparedSpells = { "t_pal3x", "t_pal1x" }
+    check("пока вещь при нём, ничего не вытесняется",
+          PM.EvictUnjustifiedSpells(), 0)
+
+    -- ── ВЕЩЬ УБРАНА ────────────────────────────────────────
+    stub.world.items = {}
+    PM.RefreshMastery()
+    checkTrue("школа закрылась", PM.GetClassRank("Паладин") == nil)
+    checkTrue("и заклинания ушли из пула",
+              not PM.IsPrepared("t_pal3x") and not PM.IsPrepared("t_pal1x"))
+
+    -- ── ПОНИЖЕНИЕ РАНГА, А НЕ ЗАКРЫТИЕ ШКОЛЫ ───────────────
+    -- Вещь эксперта поменяли на вещь неофита: школа осталась, третий
+    -- круг — нет. Своё в пределах нового потолка остаётся на месте:
+    -- вытеснение снимает недоступное, а не всё подряд.
+    stub.world.items = { [ItemOf("Паладин", "Эксперт")] = 1 }
+    PM.RefreshMastery()
+    _G.SpellbreakerCharDB.preparedSpells = { "t_pal3x", "t_pal1x" }
+
+    stub.world.items = { [ItemOf("Паладин", "Неофит")] = 1 }
+    PM.RefreshMastery()
+    check("ранг понизился", PM.GetClassRank("Паладин"), "Неофит")
+    checkTrue("третий круг вытеснен",    not PM.IsPrepared("t_pal3x"))
+    checkTrue("а первый круг остался на месте", PM.IsPrepared("t_pal1x"))
+
+    -- ── ЗАМОК ПОСЛЕ КАСТА ВЫТЕСНЕНИЮ НЕ ПОМЕХА ─────────────
+    -- Иначе обход был бы механическим: кастануть что угодно, снять
+    -- предмет — и до отдыха пул неприкосновенен.
+    stub.world.items = { [ItemOf("Паладин", "Эксперт")] = 1 }
+    PM.RefreshMastery()
+    _G.SpellbreakerCharDB.preparedSpells = { "t_pal3x" }
+    local wasLocked = _G.SpellbreakerCharDB.configLocked
+    _G.SpellbreakerCharDB.configLocked = true
+    checkTrue("замок стоит", PM.IsLocked())
+
+    stub.world.items = {}
+    PM.RefreshMastery()
+    checkTrue("под замком вытеснение всё равно сработало",
+              not PM.IsPrepared("t_pal3x"))
+    _G.SpellbreakerCharDB.configLocked = wasLocked
+
+    -- ── НЕЗНАКОМОЕ ЗАКЛИНАНИЕ НЕ ТРОГАЕМ ───────────────────
+    -- Кастомное могли ещё не прислать по сети; судить о том, чего не
+    -- видим, нельзя — иначе чужая подготовка исчезала бы при каждом
+    -- пересчёте.
+    _G.SpellbreakerCharDB.preparedSpells = { "t_unknown_id" }
+    check("незнакомый ID остался", PM.EvictUnjustifiedSpells(), 0)
+
+    _G.SpellbreakerCharDB.preparedSpells = savedPrep
+    stub.world.items      = savedItems
+    stub.world.classToken = savedToken
+    PM.RefreshMastery()
+end
+
+-- ============================================================
+-- ПРОВЕРКА ЧУЖОГО КАСТА НЕ ОБВИНЯЕТ ЧЕСТНЫХ
+--
+-- Несходящиеся числа печатаются ПУБЛИЧНО, в общую строку боя. Значит
+-- цена ложного срабатывания — обвинение живого человека в мухлеже при
+-- всей группе, и проверка обязана молчать всюду, где не уверена.
+-- ============================================================
+do
+    local V  = SB.Logic.VerifyIncomingCast
+    local PM = SB.PlayerModel
+    local savedStatus = SB.Data.PlayersStatus
+    SB.Data.PlayersStatus = {}
+
+    SB.Data.Spells["t_pal3"] = { id = "t_pal3", name = "Кара света",
+        class = "Паладин", level = 3, canCrit = true, distance = 30 }
+
+    -- ── МУЛЬТИКЛАСС НЕ МУХЛЁЖ ──────────────────────────────
+    -- Жрец-неофит с паладинской вещью эксперта законно кастует
+    -- паладинский третий круг. По старому правилу («своя школа по рангу
+    -- героя, чужая на круг ниже») это объявлялось мухлежом при всех.
+    SB.Data.PlayersStatus["Ирина"] = {
+        class = "Жрец", mastery = "Неофит", maxZeal = 10,
+        preparedSpells = { "t_pal3" },
+        classRanks = { ["Жрец"] = 1, ["Паладин"] = 3 },
+    }
+    local _, note = V("Ирина", "t_pal3", 50, 10, 60, 3)
+    checkTrue("паладинский третий круг по вещи — не претензия", note == nil)
+
+    -- ── А ВОТ БЕЗ ВЕЩИ — ПРЕТЕНЗИЯ ─────────────────────────
+    -- Ранги он прислал, паладина среди них нет: школа ему не открыта.
+    SB.Data.PlayersStatus["Ирина"].classRanks = { ["Жрец"] = 1 }
+    local _, note2 = V("Ирина", "t_pal3", 50, 10, 60, 3)
+    checkTrue("закрытая школа — претензия", note2 ~= nil)
+
+    -- ── СТАРЫЙ КЛИЕНТ РАНГОВ НЕ ШЛЁТ ───────────────────────
+    -- Тогда проверяем только по потолку реалма: явную нелепицу поймаем,
+    -- а честного за чужую сборку не обвиним.
+    SB.Data.PlayersStatus["Ирина"].classRanks = nil
+    local _, note3 = V("Ирина", "t_pal3", 50, 10, 60, 3)
+    checkTrue("без рангов третий круг претензии не вызывает", note3 == nil)
+
+    -- ── СПИСОК ПОДГОТОВЛЕННЫХ: ПУСТО ≠ НЕИЗВЕСТНО ──────────
+    -- Копилка статусов между заходами не хранит список подготовленных
+    -- (он устаревает за минуты). Заводи она его ПУСТЫМ — каждый удар
+    -- такого игрока объявлялся бы мухлежом до первого свежего статуса.
+    SB.Data.PlayersStatus["Ирина"].preparedSpells = nil
+    local _, note4 = V("Ирина", "t_pal3", 50, 10, 60, 3)
+    checkTrue("неизвестный список подготовленных — не претензия", note4 == nil)
+
+    SB.Data.PlayersStatus["Ирина"].preparedSpells = {}
+    local _, note5 = V("Ирина", "t_pal3", 50, 10, 60, 3)
+    checkTrue("а пустой — претензия", note5 ~= nil)
+
+    -- ── ЧТО ПРОВЕРКА ЛОВИТ ВСЕГДА ──────────────────────────
+    -- Эти три не зависят ни от какого статуса: они про саму арифметику.
+    local _, bad1 = V("Ирина", "t_pal3", 500, 0, 500, 0)
+    checkTrue("бросок вне кубика пойман", bad1 ~= nil)
+    local _, bad2 = V("Ирина", "t_pal3", 50, 10, 999, 0)
+    checkTrue("несходящийся итог пойман", bad2 ~= nil)
+
+    -- И упаковка рангов переживает дорогу туда-обратно.
+    local packed = PM.PackClassRanks()
+    local back   = PM.UnpackClassRanks(packed)
+    local mine   = PM.GetClass()
+    checkTrue("своя школа в упаковке есть", back[mine] ~= nil)
+    check("и ранг тот же",
+          SB.Data.Masteries[back[mine]], PM.GetClassRank(mine))
+    check("мусор разбирается в пустоту", next(PM.UnpackClassRanks("ерунда")), nil)
+
+    -- ── РАНГИ ШКОЛ ДОЕЗЖАЮТ ДО ПОЛУЧАТЕЛЯ ──────────────────
+    -- Всё выше проверяло разбор уже полученного статуса. Здесь пакет
+    -- проходит весь путь: собрали, отправили, приняли чужой стороной.
+    -- Без этого «мультикласс не мухлёж» держался бы на таблице, которую
+    -- проверка сама себе и положила.
+    do
+        local sent
+        local realSerialize   = SB.Net.Serialize
+        local realDeserialize = SB.Net.Deserialize
+        local realSend        = SB.Net.SendCommMessage
+        local realInGroup     = _G.IsInGroup
+
+        -- Заглушка Ace не умеет ни того, ни другого; на время проверки
+        -- подменяем парой, которая просто возит таблицу как есть.
+        SB.Net.Serialize      = function(_, t) return t end
+        SB.Net.Deserialize    = function(_, m) return true, m end
+        SB.Net.SendCommMessage = function(_, _, payload) sent = payload end
+        _G.IsInGroup = function() return true end
+
+        SB.Net.BroadcastStatus(true)
+        checkTrue("статус ушёл", sent ~= nil)
+        checkTrue("и несёт ранги школ", type(sent.ranks) == "string" and sent.ranks ~= "")
+
+        -- Принимаем его как чужой: обработчик отсеивает пакеты от себя
+        -- самого по имени отправителя.
+        SB.Data.PlayersStatus["Ирина"] = nil
+        SB.Net.__commHandler(SB.Net.__commPrefix, sent, "PARTY", "Ирина")
+        stub.RunTimers()
+
+        local got = SB.Data.PlayersStatus["Ирина"]
+        checkTrue("статус принят", got ~= nil)
+        checkTrue("ранги школ разобраны", got and type(got.classRanks) == "table")
+        local mine = SB.PlayerModel.GetClass()
+        check("своя школа доехала с тем же рангом",
+              got and SB.Data.Masteries[got.classRanks[mine] or 0],
+              SB.PlayerModel.GetClassRank(mine))
+
+        -- И удар этого игрока по его же школе претензии не вызывает —
+        -- ровно то, ради чего ранги и едут.
+        SB.Data.Spells["t_mine"] = { id = "t_mine", name = "Своё",
+            class = mine, level = 1, canCrit = true, distance = 30 }
+        got.preparedSpells = { "t_mine" }
+        local _, n = V("Ирина", "t_mine", 50, 10, 60, 1)
+        checkTrue("удар по доехавшим рангам чист", n == nil)
+
+        -- ── УДАРОМ НЕЛЬЗЯ ПРИКРЫТЬСЯ ЧУЖИМ ИМЕНЕМ ──────────
+        -- В боевых пакетах имя бьющего дублировало отправителя, и
+        -- подменённый клиент мог поставить туда чужое: удар печатался
+        -- бы от лица непричастного человека, а сверка чисел смотрела бы
+        -- в ЕГО статус и сходилась. Имя отправителя ставит сервер —
+        -- берём его.
+        local seenAttacker
+        local realHandle = SB.Logic.HandlePvpAttackReceived
+        SB.Logic.HandlePvpAttackReceived = function(who) seenAttacker = who end
+
+        SB.Net.__commHandler(SB.Net.__commPrefix, {
+            action = "PVPATK", attacker = "Невиновный",
+            target = UnitName("player"), spellID = "t_mine",
+            roll = 50, mod = 10, total = 60, slot = 1,
+        }, "PARTY", "Мухлёвщик")
+        stub.RunTimers()
+        check("бьёт тот, кто прислал пакет", seenAttacker, "Мухлёвщик")
+
+        SB.Logic.HandlePvpAttackReceived = realHandle
+
+        SB.Net.Serialize       = realSerialize
+        SB.Net.Deserialize     = realDeserialize
+        SB.Net.SendCommMessage = realSend
+        _G.IsInGroup           = realInGroup
+    end
+
+    SB.Data.PlayersStatus = savedStatus
+end
+
+-- ============================================================
+-- ХАРАКТЕРИСТИКА НИЖЕ ЕДИНИЦЫ РАБОТАЕТ В МИНУС
+--
+-- Раньше стоял пол в ноль: сильный дебафф упирался в него и дальше не
+-- действовал вовсе — «−5 к Точности» и «−15 к Точности» на новичке
+-- значили ровно одно и то же. Теперь значение уходит в минус, и минус
+-- этот работает штрафом той же величины, какой была бы прибавка.
+-- ============================================================
+do
+    ResetEffects()
+    local wasLocked = _G.SpellbreakerCharDB.configLocked
+    _G.SpellbreakerCharDB.configLocked = false
+
+    SB.Data.Spells["t_crush"] = { id = "t_crush", name = "Подавление",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "debuff", stats = {
+            ["Точность"]  = -6,
+            ["Живучесть"] = -6,
+            ["Атлетика"]  = -6,
+        } } }
+
+    -- ── ЗНАЧЕНИЕ ПРОВАЛИВАЕТСЯ НИЖЕ НУЛЯ ───────────────────
+    _G.SpellbreakerCharDB.skills = { ["Точность"] = 1, ["Живучесть"] = 1,
+                                     ["Атлетика"] = 1 }
+    check("без эффекта навык равен вложенному",
+          SB.Skills.GetEffective("Точность"), 1)
+
+    SB.ActiveEffects.Add("t_crush", 5, false)
+    check("дебафф уводит навык в минус",
+          SB.Skills.GetEffective("Точность"), -5)
+    -- ИМЕННО ЭТОГО И НЕ БЫЛО: пол в нуле съедал всё, что глубже.
+    checkTrue("и это не ноль", SB.Skills.GetEffective("Точность") ~= 0)
+
+    -- ── ШТРАФ К СКЕЙЛИНГУ ЗАКЛИНАНИЙ ───────────────────────
+    SB.Data.Spells["t_aimed"] = { id = "t_aimed", name = "Прицельный",
+        class = "Проверка", level = 1, canCrit = true, distance = 30,
+        scaling = { damage = { ["Точность"] = 1 } } }
+
+    local hurt = SB.Logic.GetSpellScaling(SB.Data.Spells["t_aimed"], "damage", 0)
+    checkTrue("скейлинг ушёл в минус", hurt < 0)
+
+    SB.ActiveEffects.Remove("t_crush", true)
+    local fine = SB.Logic.GetSpellScaling(SB.Data.Spells["t_aimed"], "damage", 0)
+    check("без дебаффа скейлинга нет вовсе", fine, 0)
+    -- ШТРАФ РОВНО ТОЙ ЖЕ ВЕЛИЧИНЫ, какой была бы прибавка. Считается всё
+    -- от единицы: при вложенной единице и «−6» очков выходит −6, при
+    -- вложенных семи без эффекта — ровно +6. Значит и скейлинг должен
+    -- совпасть по модулю.
+    _G.SpellbreakerCharDB.skills["Точность"] = 7
+    local up = SB.Logic.GetSpellScaling(SB.Data.Spells["t_aimed"], "damage", 0)
+    _G.SpellbreakerCharDB.skills["Точность"] = 1
+    SB.ActiveEffects.Add("t_crush", 5, false)
+    checkTrue("прибавка при семи очках есть", up > 0)
+    check("минус симметричен плюсу", -hurt, up)
+
+    -- ── ШТРАФ К ПАССИВКЕ НАВЫКА ────────────────────────────
+    -- «Живучесть» прибавляет здоровье по очку; подавленная — отнимает.
+    checkTrue("подавленная живучесть отнимает здоровье",
+              SB.Skills.GetVitalityBonus() < 0)
+
+    -- ── АТЛЕТИКА — ИСКЛЮЧЕНИЕ ──────────────────────────────
+    -- Предел передвижения и так невелик, и подавленная «Атлетика»
+    -- срезала бы его до нуля. Персонаж, который не может сдвинуться,
+    -- не ослаблен — он выключен из сцены, а это уже не штраф.
+    check("подавленная атлетика не отнимает передвижение",
+          SB.Skills.GetAthleticsMoveBonus(), 0)
+    checkTrue("хотя само значение у неё в минусе",
+              SB.Skills.GetEffective("Атлетика") < 0)
+
+    -- И предел передвижения при этом остаётся положительным.
+    checkTrue("предел передвижения не обнулился", SB.Movement.GetCap() > 0)
+
+    -- ── ПОЛЫ ТАМ, ГДЕ МИНУС БЕССМЫСЛЕН ─────────────────────
+    -- Здоровье и ресурс просаживаются, но не в ноль и не в минус: с
+    -- нулевым максимумом персонаж не ослаблен, а мёртв.
+    checkTrue("максимум здоровья не проваливается",
+              SB.PlayerModel.GetMaxHealth() >= 3)
+    checkTrue("максимум ресурса тоже",
+              SB.PlayerModel.GetMaxZeal() >= 2)
+    checkTrue("броня не уходит в минус",
+              SB.Skills.GetArmorPoints() >= 0)
+
+    SB.ActiveEffects.Remove("t_crush", true)
+    _G.SpellbreakerCharDB.skills = {}
+    _G.SpellbreakerCharDB.configLocked = wasLocked
+    ResetEffects()
+end
+
+-- ============================================================
+-- ОСТАТОК ЭФФЕКТА УБЫВАЕТ ПОСЕКУНДНО
+--
+-- Счётчик внутри считает ХОДЫ, а на иконке стоит ВРЕМЯ. Пока подпись
+-- строилась прямо из ходов, она стояла шесть секунд неподвижно и
+-- прыгала сразу на шесть: «54с» шесть секунд подряд, потом резко «48с».
+-- Таймер выглядел сломанным, хотя счёт шёл верно.
+-- ============================================================
+do
+    local AE  = SB.ActiveEffects
+    local per = SB.Data.SecondsPerTurn
+
+    local wasRT = SpellbreakerAccountDB and SpellbreakerAccountDB.realtimeEffects
+    SpellbreakerAccountDB = SpellbreakerAccountDB or {}
+
+    -- ── ПОШАГОВЫЙ РЕЖИМ: ОТСЧЁТА НЕТ И БЫТЬ НЕ ДОЛЖНО ──────
+    -- Ход там длится столько, сколько его отыгрывают, — минуту, десять.
+    -- Секундная стрелка показывала бы выдуманное время и добежала бы до
+    -- нуля, пока эффект ещё висит.
+    SpellbreakerAccountDB.realtimeEffects = false
+    check("вне реалтайма секунд не считаем вовсе", AE.SecondsLeft(9), nil)
+
+    -- А ПОДПИСЬ ТАМ — В ХОДАХ. Секунды в пошаговом режиме не значат
+    -- ничего: ход длится столько, сколько его отыгрывают.
+    local wasActive2 = SB.TurnOrder.IsActive()
+    if not wasActive2 then
+        stub.world.inGroup, stub.world.isLeader = true, true
+        SB.TurnOrder.Start()
+    end
+    check("в пошаговом подпись в ходах",      SB.UI.TurnsAsTime(3), "3 хода")
+    check("и склонение верное на единице",    SB.UI.TurnsAsTime(1), "1 ход")
+    check("и на пяти",                        SB.UI.TurnsAsTime(5), "5 ходов")
+    -- Одиннадцать — не «11 ход»: у чисел на -надцать своя форма.
+    check("и на одиннадцати",                 SB.UI.TurnsAsTime(11), "11 ходов")
+    check("короткая форма — число и «х»",     SB.UI.TurnsAsTimeShort(3), "3х")
+    -- А там, где речь именно о времени, форма остаётся временнóй даже в
+    -- пошаговом: «сколько идёт сцена» ходами уже названо числом рядом.
+    check("временная форма не поддаётся режиму",
+          SB.UI.TurnsAsTimeFull(10), "1 мин.")
+    if not wasActive2 then SB.TurnOrder.Stop() end
+    check("в свободном ходу снова время", SB.UI.TurnsAsTime(10), "1 мин.")
+
+    -- ── СВОБОДНЫЙ ХОД: СТРЕЛКА ИДЁТ ────────────────────────
+    SpellbreakerAccountDB.realtimeEffects = true
+    ResetEffects()
+    SB.Data.Spells["t_tick_probe"] = { id = "t_tick_probe", name = "Проба",
+        class = "Эффект", level = 0, effect = { kind = "buff" } }
+    AE.Add("t_tick_probe", 10, false)
+
+    stub.world.time = 1000
+    AE.TickAll()                       -- 10 → 9 ходов, фаза обнулилась
+    check("сразу после тика — целое число ходов", AE.SecondsLeft(9), 9 * per)
+
+    -- Секунда прошла — подпись обязана сдвинуться НА СЕКУНДУ, а не ждать
+    -- конца хода. Ровно этого и не хватало.
+    stub.world.time = 1001
+    check("через секунду остаток на секунду меньше",
+          AE.SecondsLeft(9), 9 * per - 1)
+    stub.world.time = 1004
+    check("и дальше идёт секунда в секунду",
+          AE.SecondsLeft(9), 9 * per - 4)
+
+    -- К концу хода остаток ровно на границе следующего: подпись не
+    -- перескакивает и не задваивает значение при смене счётчика.
+    stub.world.time = 1000 + per
+    check("к концу хода сходится с целым", AE.SecondsLeft(9), 8 * per)
+
+    -- ЗАДЕРЖАВШИЙСЯ ТИК НЕ УВОДИТ В МИНУС. Ведущий выпал из группы,
+    -- лаг, пауза — стрелка замирает на границе хода, а не отнимает
+    -- лишний ход и не показывает отрицательное время.
+    stub.world.time = 1000 + per * 5
+    check("задержавшийся тик замирает на границе", AE.SecondsLeft(9), 8 * per)
+
+    -- Бессрочному отсчитывать нечего: у него отрицательный счётчик, и
+    -- подписи он не получает вовсе.
+    check("бессрочный остатка не имеет", AE.SecondsLeft(AE.INFINITE), nil)
+    check("истёкший показывает ноль", AE.SecondsLeft(0), 0)
+
+    -- ── ФОРМАТ ─────────────────────────────────────────────
+    -- Та же короткая форма, что у ходов, но принимает секунды: иначе
+    -- дробный остаток пришлось бы округлять до хода и мы вернулись бы
+    -- к скачкам.
+    local SS = SB.UI.SecondsAsTimeShort
+    check("секунды",            SS(42),   "42с")
+    check("минуты с секундами", SS(66),   "1м06с")
+    check("часы с минутами",    SS(3942), "1ч05м")
+    check("ноль",               SS(0),    "0с")
+    -- Старая форма обязана остаться прежней: она построена на новой, и
+    -- разойтись они не должны.
+    check("форма из ходов не изменилась",
+          SB.UI.TurnsAsTimeShort(11), SS(11 * per))
+
+    ResetEffects()
+    SpellbreakerAccountDB.realtimeEffects = wasRT
+end
+
+    local S = SB.UI.TurnsAsTimeShort
+    check("коротко: секунды", S(7),   "42с")
+    check("коротко: минуты",  S(10),  "1м")
+    check("коротко: м и с",   S(11),  "1м06с")
+    check("коротко: часы",    S(657), "1ч05м")
+    check("коротко: ровный час", S(600), "1ч")
+    local longest = 0
+    for n = 0, 2000 do
+        local len = SB.Data.UTF8 and SB.Data.UTF8.len and SB.Data.UTF8.len(S(n))
+            or #S(n):gsub("[\128-\191]", "")
+        if len > longest then longest = len end
+    end
+    checkTrue("короткая форма не длиннее пяти знаков", longest <= 5)
+
+    -- Цена хода читается из одного места, а не зашита в формулу.
+    check("ход стоит шесть секунд", SB.Data.SecondsPerTurn, 6)
 end
 
 -- ============================================================

@@ -223,7 +223,29 @@ AddEffect({
     name = "Внутренний огонь",
     icon = "Interface\\Icons\\Spell_priest_pontifex",
     description = "Внутри разгорается чужой свет, и следующая молитва срывается с губ сильнее задуманного.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 50 }, stats = { ["Религия"] = 4 }, breakOn = { damaged = true } },
+    -- «СЛЕДУЮЩАЯ МОЛИТВА СРЫВАЕТСЯ С ГУБ СИЛЬНЕЕ ЗАДУМАННОГО» — до сих
+    -- пор это была только надпись: эффект поднимал броню и Религию, но
+    -- саму молитву не усиливал ничем.
+    --
+    -- Свет, а не весь урон: «Внутренний огонь» — молитва Жреца о Свете,
+    -- и разгонять ею же теневые заклинания было бы странно. Двойка —
+    -- тариф узкой прибавки, и эффект вдобавок одноразовый: применил
+    -- молитву — «Внутренний огонь» погас.
+    effect = {
+        kind   = "buff",
+        school = "magic",
+        mods   = { armor = 50, damageHoly = 2 },
+        stats  = { ["Религия"] = 4 },
+        -- «ПОСЛЕ ПРИМЕНЕНИЯ МОЛИТВЫ ЭФФЕКТ ВНУТРЕННЕГО ОГНЯ ЗАВЕРШАЕТСЯ».
+        --
+        -- Раньше здесь стоял breakOn = { damaged = true }, и это была
+        -- не та одноразовость: комментарий обещал «применил молитву —
+        -- погас», а гасил огонь ПОЛУЧЕННЫЙ УДАР. Жрец, которого никто не
+        -- трогает, жёг прибавку сколько угодно раз; жрец под обстрелом
+        -- терял её, не успев помолиться. Ни того, ни другого в описании
+        -- нет.
+        onAction = { when = "cast", consume = true },
+    },
 })
 
 AddEffect({
@@ -251,18 +273,6 @@ AddEffect({
 })
 
 AddEffect({
-    id   = "eff_hunters_mark",
-    name = "Верный глаз",
-    icon = "Interface\\Icons\\Ability_hunter_snipershot",
-    description = "Цель разобрана на слабые места: остаётся только выбрать, куда именно.",
-    effect = {
-        kind  = "buff",
-        mods  = { attack = 8, crit = 8 },
-        stats = { ["Точность"] = 1 },
-    },
-})
-
-AddEffect({
     id   = "eff_bloodlust",
     name = "Кровавая жажда",
     icon = "Interface\\Icons\\Spell_nature_bloodlust",
@@ -282,8 +292,7 @@ AddEffect({
 	isConcentration = true,
     effect = {
         kind  = "buff",
-        mods  = { crit = 6, defense = 10 },
-        stats = { ["Скрытность"] = 6 },
+        stats = { ["Скрытность"] = 3, ["Акробатика"] = 3, ["Точность"] = 3 },
 		breakOn = { damaged = true, dealt = true },
     },
 })
@@ -326,7 +335,7 @@ AddEffect({
     icon = "Interface\\Icons\\Ability_rogue_preparation",
     description = "Шум, боль и суета вокруг перестают существовать. Есть только замысел и его исполнение.",
     isConcentration = true,
-    effect = { kind = "buff", mods = { crit = 25, damage = 1 }, stats = { ["Ловкость"] = 3, ["Концентрация"] = 4 }, breakOn = { damaged = true } },
+    effect = { kind = "buff", mods = { crit = 10, damage = 1 }, stats = { ["Ловкость"] = 3, ["Концентрация"] = 4 }, breakOn = { damaged = true } },
 })
 
 -- ── ДЕБАФФЫ ──────────────────────────────────────────────────
@@ -357,7 +366,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_nature_slow",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { kind = "debuff", mods = { defense = -8, attack = -3, movePct = -50 } },
+    effect = { family = "Замедление", kind = "debuff", mods = { defense = -8, attack = -3, movePct = -50 } },
 })
 
 AddEffect({
@@ -367,7 +376,7 @@ AddEffect({
     description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
     effect = {
         kind  = "debuff",
-        mods  = { attack = -15, defense = -50, range = -18 },
+        mods  = { attack = -33, defense = -33, range = -18 },
         stats = { ["Точность"] = -4 },
 		breakOn = { damaged = true },
     },
@@ -384,6 +393,7 @@ AddEffect({
 AddEffect({
     id   = "eff_bleeding",
     name = "Кровотечение",
+    damageType = "physical",
     icon = "Interface\\Icons\\Ability_rogue_bloodyeye",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
@@ -400,6 +410,7 @@ AddEffect({
     -- Так же помечены и все отщеплённые копии «eff_mana_burn_*» ниже.
     id   = "eff_mana_burn",
     name = "Выжженный источник",
+    damageType = "shadow",
     icon = "Interface\\Icons\\Spell_shadow_manaburn",
     description = "Внутренний источник обожжён. Черпать из него больно и почти нечего.",
     effect = { kind = "debuff", school = "magic", tick = { mana = -1, damage = 1 } },
@@ -416,11 +427,12 @@ AddEffect({
 AddEffect({
     id   = "eff_pain",
     name = "Боль",
+    damageType = "shadow",
     icon = "Interface\\Icons\\Spell_shadow_shadowwordpain",
     description = "Мучительная мигрень мешает и сотворять заклинания, и просто держать строй.",
     effect = {
         kind = "debuff", school = "magic",
-        mods = { attack = -8, crit = -3 },
+        mods = { attack = -8, crit = -1 },
         tick = { damage = 1 },
     },
 })
@@ -583,7 +595,11 @@ AddEffect({
     name = "Длань защиты",
     icon = "Interface\\Icons\\Spell_holy_sealofprotection",
     description = "Свет отводит от цели всякое железо. Ни клинок, ни стрела её не находят — но и она не может поднять руку ни на кого.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 150, attack = -120 } },
+    effect = {
+        -- «Полностью ограждая от физических атак». Урон уже отсечён
+        -- бронёй в 150; оставалось кровотечение, которое течёт мимо
+        -- брони, потому что бьёт тиком.
+        suppress = { "bleed" }, kind = "buff", school = "magic", mods = { armor = 150, attack = -120 } },
 })
 
 AddEffect({
@@ -591,7 +607,15 @@ AddEffect({
     name = "Аура защиты от тьмы",
     icon = "Interface\\Icons\\Spell_shadow_sealofkings",
     description = "Свет держит вокруг тонкую преграду. Тёмное касание слабеет, не дойдя до тела.",
-    effect = { kind = "buff", family = "Аура паладина", school = "magic", mods = { defense = 10 }, stats = { ["Воля"] = 4 } },
+    -- resistShadow ПРИБАВЛЕН к тому, что было, а не поставлен вместо.
+    -- Прежние defense и «Воля» были приближением сопротивления теми
+    -- каналами, что существовали: канала резиста в аддоне не было вовсе.
+    -- Теперь он есть, и аура наконец делает то, что написано у неё в
+    -- описании («30 единиц сопротивления Тьме»), — но выкидывать ради
+    -- этого её прежний расчёт значило бы переписать баланс способности
+    -- заодно с механикой.
+    effect = { kind = "buff", family = "Аура паладина", school = "magic",
+               mods = { defense = 10, resistShadow = 1 }, stats = { ["Воля"] = 4 } },
 })
 
 AddEffect({
@@ -607,7 +631,14 @@ AddEffect({
     name = "Печать Света",
     icon = "Interface\\Icons\\Spell_holy_healingaura",
     description = "Оружие налито светом и жжёт при каждом касании.",
-    effect = { kind = "buff", family = "Печать паладина", school = "magic", mods = { damage = 1 }, stats = { ["Рвение"] = 1 } },
+    -- «Оружие налито светом и жжёт при каждом касании» — прибавка едет
+    -- на ударе, как у клейм выше.
+
+    -- «Каждая атака в ближнем бою имеет шанс сотворить лёгкое исцеление
+    -- на паладина (бросок 1d100, должно выпасть меньше 30)» — тридцатка
+    -- у автора, единица лечения по общей лестнице.
+    effect = { kind = "buff", family = "Печать паладина", school = "magic", mods = { damagePhysical = 2 }, stats = { ["Рвение"] = 1 },
+               onAction = { when = "hit", melee = true, chance = 30, payload = { heal = 1 } } },
 })
 
 AddEffect({
@@ -623,7 +654,10 @@ AddEffect({
     name = "Длань свободы",
     icon = "Interface\\Icons\\Spell_holy_sealofvalor",
     description = "Ничто больше не держит: ни оковы, ни вязкая земля, ни чужая воля над телом.",
-    effect = { kind = "buff", school = "magic", mods = { movePct  = 20 }, stats = { ["Атлетика"] = 2, ["Ловкость"] = 2 } },
+    effect = {
+        -- «Никакие оковы не способны удержать»: сказано об оковах —
+        -- значит, о том, что держит и тормозит, а не обо всём подряд.
+        suppress = { "Оглушение", "Замедление" }, kind = "buff", school = "magic", mods = { movePct  = 20 }, stats = { ["Атлетика"] = 2, ["Ловкость"] = 2 } },
 })
 
 AddEffect({
@@ -639,7 +673,30 @@ AddEffect({
     name = "Печать Мудрости",
     icon = "Interface\\Icons\\Spell_holy_retributionaura",
     description = "Каждый удар возвращает паладину часть силы, потраченной на молитву.",
-    effect = { kind = "buff", family = "Печать паладина", school = "magic", stats = { ["Религия"] = 1 }, tick = { castResource = 1 } },
+
+    -- «Шанс восстановить 1 ячейку заклинаний (меньше 20)». Ячейка в этой
+    -- системе — единица ресурса каста; castResource, а не mana, потому
+    -- что печать носит и некастер, у которого маны нет вовсе.
+    -- ТИКА ЗДЕСЬ БОЛЬШЕ НЕТ, и это исправление, а не ослабление.
+    --
+    -- tick = { castResource = 1 } был ГРУБЫМ ПРИБЛИЖЕНИЕМ ровно той же
+    -- механики: механизма «шанс при ударе» в аддоне не существовало, и
+    -- «иногда возвращает ячейку» выразили единственным, что было под
+    -- рукой, — гарантированной прибавкой каждый ход.
+    --
+    -- Когда появился onAction, приближение осталось на месте, и печать
+    -- стала делать работу ДВАЖДЫ: +1 гарантированно каждый ход (включая
+    -- ход, в котором паладин ничего не бил, и даже тот, в котором он
+    -- пропустил ход) плюс ещё 20% при ударе. В логе обе прибавки
+    -- печатаются одной и той же строкой, так что со стороны это
+    -- выглядело как «печать срабатывает всегда».
+    --
+    -- Осталось то, что написано у автора: «каждая атака в ближнем бою
+    -- имеет шанс восстановить 1 ячейку заклинаний (бросок 1d100, должно
+    -- выпасть меньше 20)».
+    effect = { kind = "buff", family = "Печать паладина", school = "magic",
+               stats = { ["Религия"] = 1 },
+               onAction = { when = "hit", melee = true, chance = 20, payload = { castResource = 1 } } },
 })
 
 AddEffect({
@@ -659,7 +716,8 @@ AddEffect({
     -- столько ранит, сколько держит. Отсюда подвижность и Воля, а не
     -- броня: от сковывающего холода доспех не спасает.
     effect = { kind = "buff", family = "Аура паладина", school = "magic",
-               mods = { movePct = 30 }, stats = { ["Воля"] = 2, ["Акробатика"] = 1 } },
+               mods = { movePct = 30, resistFrost = 1 },
+               stats = { ["Воля"] = 2, ["Акробатика"] = 1 } },
 })
 
 AddEffect({
@@ -671,7 +729,8 @@ AddEffect({
     -- сковывает. Была точной копией ледяной ауры (armor 20, defense 3), и
     -- выбор между ними ничего не значил.
     effect = { kind = "buff", family = "Аура паладина", school = "magic",
-               mods = { armor = 20 }, stats = { ["Ношение брони"] = 1 }, tick = { armor = 5 } },
+               mods = { armor = 20, resistFire = 1 },
+               stats = { ["Ношение брони"] = 1 }, tick = { armor = 5 } },
 })
 
 AddEffect({
@@ -687,7 +746,15 @@ AddEffect({
     name = "Божественный щит",
     icon = "Interface\\Icons\\Spell_holy_divineshield",
     description = "Кокон Света не пропускает ничего — ни железа, ни чар, ни проклятия. Изнутри тоже не пробиться.",
-    effect = { kind = "buff", mods = { armor = 60, attack = -12, defense = 10 } },
+    -- ЕДИНСТВЕННОЕ ИСКЛЮЧЕНИЕ ИЗ ЛЕСТНИЦЫ, и намеренное. Описание обещает
+    -- полную невосприимчивость ко всему урону; тройка вместе с бронёй в
+    -- 60 держит любой удар до трёх целиком, а всё, что сильнее, доходит
+    -- ослабленным. Два хода и две минуты отката платят за это с запасом.
+    effect = {
+        -- «Невосприимчивым ко всему урону и любым заклинаниям» — здесь
+        -- список полный, и это не щедрость, а буквальное чтение. Цена
+        -- уже заплачена длительностью: щит держится ДВА хода.
+        suppress = { "Оглушение", "Замедление", "Страх", "poison", "disease", "bleed", "curse", "Проклятие" }, kind = "buff", mods = { resistAll = 3, armor = 60, attack = -12, defense = 10 } },
 })
 
 -- ==========================================================
@@ -699,7 +766,8 @@ AddEffect({
     name = "Оберег от тьмы",
     icon = "Interface\\Icons\\Spell_holy_harmundeadaura",
     description = "Свет очертил вокруг цели границу, через которую нечистое проходит с трудом.",
-    effect = { kind = "buff", school = "magic", stats = { ["Воля"] = 15 } },
+    -- То же заклинание у Жреца, и держится оно вдвое короче — два хода.
+    effect = { kind = "buff", mods = { resistShadow = 2 }, school = "magic", stats = { ["Воля"] = 15 } },
 })
 
 AddEffect({
@@ -731,7 +799,8 @@ AddEffect({
     name = "Благословлённое оружие",
     icon = "Interface\\Icons\\Inv_ability_lightsmithpaladin_sacredweapon",
     description = "Клинок отзывается теплом и находит нечистую плоть охотнее живой.",
-    effect = { kind = "buff", school = "magic", mods = { attack = 15, damage = 1 } },
+    -- «Атаки, совершаемые ОСВЯЩЁННЫМ ОРУЖИЕМ» — сказано прямо.
+    effect = { kind = "buff", school = "magic", mods = { attack = 15, damagePhysical = 2 } },
 })
 
 AddEffect({
@@ -739,7 +808,15 @@ AddEffect({
     name = "Ответная реакция",
     icon = "Interface\\Icons\\Ability_priest_reflectiveshield",
     description = "Вокруг жреца стоит анти-магический слой: чужие чары рассыпаются, задев его, но и свои идут тяжелее.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 50, defense = 20 } },
+    -- «Анти-магический слой: чужие чары рассыпаются, задев его».
+    -- ОТВЕЧАЕТ ТОЛЬКО ЧАРАМ. «Причиняющая жуткие страдания чародеям,
+    -- когда они пытаются сотворить заклинание, выбрав целью жреца» —
+    -- то есть меч, стрела и кулак ауру не будят вовсе, и уточнение
+    -- magic здесь не украшение, а половина смысла способности.
+    effect = { kind = "buff", school = "magic",
+               mods = { resistMagic = 1, armor = 50, defense = 20 },
+               onAction = { when = "damaged", magic = true,
+                            toAttacker = "eff_feedback_burn" } },
 })
 
 AddEffect({
@@ -755,7 +832,7 @@ AddEffect({
     name = "Пытка разума",
     icon = "Interface\\Icons\\Spell_shadow_siphonmana",
     description = "В голове чужие пальцы. Мысль рвётся, не дойдя до конца.",
-    effect = { kind = "debuff", school = "magic", mods = { crit = -8, movePct = -50 } },
+    effect = { kind = "debuff", school = "magic", mods = { crit = -3, movePct = -50 } },
 })
 
 AddEffect({
@@ -763,7 +840,13 @@ AddEffect({
     name = "Защита от тёмной магии",
     icon = "Interface\\Icons\\Spell_shadow_antishadow",
     description = "Тень скользит по цели, не находя, за что зацепиться.",
-    effect = { kind = "buff", school = "magic", stats = { ["Воля"] = 10 } },
+    -- «Тёмные силы ограждают жреца», а оберег «разрушается, если поглотит
+    -- определённое количество заклинаний». Двойка — тариф личного оберега
+    -- на одного (см. лестницу в Core/DamageTypes.lua); групповая «Молитва
+    -- от тёмных сил» ниже даёт единицу, как и положено тому, что
+    -- накрывает всю паству.
+    effect = { kind = "buff", school = "magic", mods = { resistShadow = 2 },
+               stats = { ["Воля"] = 10 } },
 })
 
 AddEffect({
@@ -779,7 +862,7 @@ AddEffect({
     name = "Молитва о сострадании",
     icon = "Interface\\Icons\\Spell_holy_blindingheal",
     description = "Вокруг жреца всем тяжело поднять руку — и врагу, и другу. Он сам держится на одной вере.",
-    effect = { kind = "debuff", school = "magic", mods = { damage = -2, attack = -40, crit = -15 }, breakOn = { damaged = true } },
+    effect = { kind = "debuff", school = "magic", mods = { damage = -2, attack = -40, crit = -6 }, breakOn = { damaged = true } },
 })
 
 AddEffect({
@@ -798,12 +881,16 @@ AddEffect({
     name = "Молитва от тёмных сил",
     icon = "Interface\\Icons\\Spell_holy_prayerofshadowprotection",
     description = "Тёмный голод отступил и обходит цель стороной.",
-    effect = { kind = "buff", school = "magic", stats = { ["Воля"] = 15 } },
+    -- «Ограждая жреца И ЕГО ПАСТВУ» — то же, что «Защита от тёмной
+    -- магии», но на группу, поэтому единица, а не двойка.
+    effect = { kind = "buff", school = "magic", mods = { resistShadow = 1 },
+               stats = { ["Воля"] = 15 } },
 })
 
 AddEffect({
     id   = "eff_word_of_death",
     name = "Слово Силы: Смерть",
+    damageType = "shadow",
     icon = "Interface\\Icons\\Spell_shadow_demonicfortitude",
     description = "Слово сказано и уже не отменяется. Тело слабеет, понимая, что приговорено.",
     effect = { kind = "debuff", school = "magic", mods = { attack = -6, defense = -4 }, tick = { damage = 3 } },
@@ -836,9 +923,10 @@ AddEffect({
 AddEffect({
     id   = "eff_nightmare_duplicate",
     name = "Кошмарный образ",
+    damageType = "shadow",
     icon = "Interface\\Icons\\Sha_spell_shadow_shadesofdarkness_nightborne",
     description = "Иллюзия бьёт по-настоящему, потому что жертва верит в неё сильнее, чем в собственные глаза.",
-    effect = { kind = "debuff", school = "magic", mods = { attack = -25, crit = -30 }, tick = { damage = 2 } },
+    effect = { kind = "debuff", school = "magic", mods = { attack = -25, crit = -12 }, tick = { damage = 2 } },
 })
 
 AddEffect({
@@ -862,7 +950,7 @@ AddEffect({
     name = "Облик Бездны",
     icon = "Interface\\Icons\\Spell_priest_voidform",
     description = "В теле жреца живёт демон Бездны и говорит его голосом. Сила чудовищная, но она не бесплатна: тело не выдерживает того, что через него проходит.",
-    effect = { kind = "buff", family = "Облик", mods = { attack = 40, crit = 15, damage = 2, defense = -8, maxHealth = -2 } },
+    effect = { kind = "buff", family = "Облик", mods = { attack = 40, crit = 6, damage = 2, defense = -8, maxHealth = -2 } },
 })
 
 -- ==========================================================
@@ -874,7 +962,15 @@ AddEffect({
     name = "Сопротивление аркане",
     icon = "Interface\\Icons\\Sha_ability_rogue_sturdyrecuperate_nightborne",
     description = "Внутренние резервы цели укреплены. Чужие чары находят её труднее.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 10 } },
+    -- То же, что у аур паладина: броня была подпоркой вместо резиста,
+    -- которого не существовало. Заклинание называется «Сопротивление
+    -- аркане» — теперь оно им и является.
+    --
+    -- ДВОЙКА, а не единица, как у аур: те накрывают всю группу и висят
+    -- сотни ходов, а это — один союзник на десять ходов. Ширина и срок
+    -- платят за величину (см. лестницу в Core/DamageTypes.lua).
+    effect = { kind = "buff", school = "magic",
+               mods = { armor = 10, resistArcane = 2 } },
 })
 
 AddEffect({
@@ -896,7 +992,6 @@ AddEffect({
     name = "Свободная рука",
     icon = "Interface\\Icons\\Ability_mage_incantersabsorbtion",
     description = "Рука ведёт линию идеально ровно и держит угол без инструмента.",
-    duration = 3,
     effect = { kind = "buff", school = "magic", stats = { ["Ремесло"] = 1 } },
 })
 
@@ -922,14 +1017,6 @@ AddEffect({
 	effect = { kind = "buff", school = "magic", stats = { ["Точность"] = 1 } },
 })
 
-AddEffect({
-    id   = "eff_mana_gem",
-    name = "Самоцвет маны",
-    icon = "Interface\\Icons\\Inv_misc_gem_sapphire_02",
-    description = "В кристалле заперта часть силы мага. Её можно забрать обратно, когда понадобится.",
-    -- Самоцвет держит МАНУ — ярость в него не запереть.
-    effect = { kind = "buff", school = "magic", mods = { maxMana = 1 } },
-})
 
 AddEffect({
     id   = "eff_mage_seal",
@@ -943,7 +1030,10 @@ AddEffect({
     name = "Оберег от стихий",
     icon = "Interface\\Icons\\Spell_frostfire orb",
     description = "Тонкая пелена гасит и жар, и холод, не дожидаясь, пока они дойдут до кожи.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 10 } },
+    -- Обещает защиту от ДВУХ стихий, но по описанию — от одной выбранной
+    -- заранее. Спросить игрока аддону негде, поэтому даём обе, но по
+    -- единице: в сумме та же двойка, что у оберега на одну школу.
+    effect = { kind = "buff", school = "magic", mods = { resistFire = 1, resistFrost = 1, armor = 10 } },
 })
 
 AddEffect({
@@ -951,7 +1041,8 @@ AddEffect({
     name = "Защита от тёмных сил",
     icon = "Interface\\Icons\\Ui_sigil_nightfae",
     description = "Порождения смерти и скверны подходят к цели неохотно и бьют вполсилы.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 10, defense = 12 } },
+    -- «Охраняет от атак существ доменов смерти, тьмы, скверны».
+    effect = { kind = "buff", school = "magic", mods = { resistShadow = 2, armor = 10, defense = 12 } },
 })
 
 AddEffect({
@@ -998,7 +1089,7 @@ AddEffect({
     name = "Полиморф",
     icon = "Interface\\Icons\\spell_nature_polymorph",
     description = "Тело стало телом безобидного зверька. Ни оружия, ни чар, ни слов — только испуг. Любая рана возвращает прежний облик.",
-    effect = { kind = "debuff", school = "magic", mods = { attack = -60, damage = -4, movePct = -55 }, tick = { heal = 10 } },
+    effect = { kind = "debuff", school = "magic", mods = { attack = -60, damage = -4, movePct = -55 }, tick = { heal = 3 }, breakOn = { damaged = true } },
 })
 
 AddEffect({
@@ -1055,27 +1146,7 @@ AddEffect({
     effect = { kind = "buff", school = "magic", stats = { ["Интуиция"] = 1, ["Скрытность"] = 1 } },
 })
 
-AddEffect({
-    id   = "eff_mana_water",
-    name = "Вода маны",
-    icon = "Interface\\Icons\\Inv_12_profession_enchanting_manaoil_blue",
-    description = "Во флаконе прозрачная вода, в которой растворена сила. Выпитая, она возвращает часть запаса.",
-    -- Выпита — вернула ресурс (см. onRemove у «Камня здоровья»).
-    -- Именно МАНА, а не «ресурс каста»: вода с растворённой силой
-    -- Воину ярости не прибавит (см. врезку о пулах в Core/PlayerModel.lua).
-    effect = { kind = "buff", school = "magic", mods = { maxMana = 2 },
-               onRemove = { mana = 3 } },
-})
 
-AddEffect({
-    id   = "eff_mana_food",
-    name = "Целебная пища",
-    icon = "Interface\\Icons\\Inv_misc_food_73cinnamonroll",
-    description = "Четыре буханки кислого хлеба, от которых силы возвращаются быстрее обычной еды.",
-    -- Съедена — вернула здоровье (см. onRemove у «Камня здоровья»).
-    effect = { kind = "buff", school = "magic", mods = { maxHealth = 1 },
-               onRemove = { heal = 2 } },
-})
 
 AddEffect({
     id   = "eff_mage_fun",
@@ -1153,7 +1224,12 @@ AddEffect({
     name = "Огненный плащ",
     icon = "Interface\\Icons\\Inv_fabric_spellfire",
     description = "Огонь по плечам не защищает, но всякий, кто подойдёт вплотную, обожжётся.",
-    effect = { kind = "buff", school = "magic", mods = { attack = 25, damage = 1 } },
+
+    -- «Поджигающий любого, кто осмелится напасть на волшебника». Сам плащ
+    -- «не защищает от какого-либо урона» — и не защищает: числа его
+    -- остались прежними, добавился ровно ответ.
+    effect = { kind = "buff", school = "magic", mods = { attack = 25, damage = 1 },
+               onAction = { when = "damaged", toAttacker = "eff_burn" } },
 })
 
 AddEffect({
@@ -1405,7 +1481,7 @@ AddEffect({
     name = "Гнев Повелителя Ветров",
     icon = "Interface\\Icons\\Inv12_apextalent_shaman_stormunleashed",
     description = "Над головой висят чернильные тучи и бьют молниями туда, куда смотрит шаман.",
-    effect = { kind = "buff", school = "magic", mods = { attack = 25, crit = 15, damage = 1 } },
+    effect = { kind = "buff", school = "magic", mods = { attack = 25, crit = 6, damage = 1 } },
 })
 
 AddEffect({
@@ -1425,7 +1501,7 @@ AddEffect({
     name = "Облик кошки",
     icon = "Interface\\Icons\\Ability_druid_catform",
     description = "Мягкая лапа, ночное зрение, шаг без звука. Ни оружия, ни заклинаний в этой форме не удержать.",
-    effect = { kind = "buff", family = "Облик", mods = { crit = 8, defense = 6 },
+    effect = { kind = "buff", family = "Облик", mods = { crit = 3, defense = 6 },
                stats = { ["Скрытность"] = 2, ["Акробатика"] = 1, ["Ремесло"] = -2 } },
 })
 
@@ -1503,7 +1579,16 @@ AddEffect({
     name = "Шипы",
     icon = "Interface\\Icons\\Spell_nature_thorns",
     description = "Кожу и одежду укрыли живые колючки. Всякий, кто ударит, порежется сам.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 10, damage = 1 } },
+    effect = {
+        kind   = "buff",
+        school = "magic",
+        mods   = { armor = 10, damage = 1 },
+        -- «НЕЗАМЕДЛИТЕЛЬНЫМ ОТВЕТОМ, КОГДА КТО-ТО ПОПЫТАЕТСЯ ПОРАЗИТЬ
+        -- ДРУИДА КЛИНКОМ». Клинком — поэтому melee: сад шипов на коже
+        -- не достаёт до лучника за двадцать метров.
+        onAction = { when = "damaged", melee = true,
+                     toAttacker = "eff_thorn_prick" },
+    },
 })
 
 AddEffect({
@@ -1601,6 +1686,7 @@ AddEffect({
 AddEffect({
     id   = "eff_immolation",
     name = "Жертвенный огонь",
+    damageType = "fire",
     icon = "Interface\\Icons\\Spell_fire_immolation",
     description = "Демоническое пламя въелось в плоть и не гаснет само.",
     effect = { kind = "debuff", school = "magic", mods = { defense = -12 }, tick = { damage = 1 } },
@@ -1622,18 +1708,6 @@ AddEffect({
                stats = { ["Исток"] = 2, ["Ремесло"] = 1 } },
 })
 
-AddEffect({
-    id   = "eff_healthstone",
-    name = "Камень здоровья",
-    icon = "Interface\\Icons\\Warlock_ healthstone",
-    description = "В камне заперта чужая жизненная сила. Раздавив его, можно забрать её себе.",
-    -- onRemove — прощальный расчёт: пока камень при себе, он лишь
-    -- поднимает запас, а раздавленный (эффект ушёл — истёк, снят или
-    -- израсходован) отдаёт запертую в нём жизнь. См.
-    -- SB.ActiveEffects.ApplyPayload в Core/ActiveEffects.lua.
-    effect = { kind = "buff", school = "magic", mods = { heal = 1 },
-               onRemove = { heal = 3 } },
-})
 
 AddEffect({
     id   = "eff_summon_voidwalker",
@@ -1671,11 +1745,11 @@ AddEffect({
 AddEffect({
     id   = "eff_rain_of_fire",
     name = "Огненный ливень",
+    damageType = "fire",
     icon = "Interface\\Icons\\Spell_shadow_rainoffire",
     description = "С неба льётся огонь на выбранное место и не гаснет, пока чернокнижник платит кровью.",
     -- Длительность у ДЕБАФФА своя, а не у заклинания (см. ApplyEffect):
     -- ливень идёт два хода на каждом, кого накрыло.
-    duration = 2,
     effect = { kind = "debuff", tick = { damage = 2 } },
 })
 
@@ -1687,13 +1761,6 @@ AddEffect({
     effect = { kind = "debuff", school = "magic", mods = { attack = -100, defense = 100, movePct = -75 } },
 })
 
-AddEffect({
-    id   = "eff_create_magic_stone",
-    name = "Чарокамень",
-    icon = "Interface\\Icons\\Inv_jewelcrafting_90_gem_purple",
-    description = "В самоцвете спит заряд стихии, готовый выйти по слову хозяина.",
-    effect = { kind = "buff", school = "magic", stats = { ["Интеллект"] = 1 }, onRemove = { mana = 1 } },
-})
 
 AddEffect({
     id   = "eff_enslave_demon",
@@ -1747,13 +1814,6 @@ AddEffect({
     effect = { family = "Демон", kind = "buff", mods = { defense = 32 }, stats = { ["Атлетика"] = 2 } },
 })
 
-AddEffect({
-    id   = "eff_create_soulstone",
-    name = "Камень душ",
-    icon = "Interface\\Icons\\Inv_misc_orb_04",
-    description = "В камне заперта душа целиком. Пока он у чернокнижника, смерть для него — вопрос неудобства, а не конца.",
-    effect = { kind = "buff", school = "magic", mods = { maxHealth = 3, maxCastResource = 2 } },
-})
 
 -- ==========================================================
 -- МОНАХ: каналы
@@ -1770,6 +1830,7 @@ AddEffect({
 AddEffect({
     id   = "eff_crackling_jade_lightning",
     name = "Нефритовая молния",
+    damageType = "nature",
     icon = "Interface\\Icons\\Ability_monk_cracklingjadelightning",
     description = "Изумрудный разряд идёт по телу непрерывно и не даёт свести руки для удара.",
     effect = { kind = "debuff", school = "magic", mods = { attack = -12 }, tick = { damage = 1 } },
@@ -1806,6 +1867,7 @@ AddEffect({
 AddEffect({
     id   = "eff_mind_blast",
     name = "Оглушён взрывом разума",
+    damageType = "shadow",
     icon = "Interface\\Icons\\Spell_shadow_unholyfrenzy",
     description = "В голове разорвалось что-то чужое. Мысли не собираются, руки не слушаются.",
     effect = { kind = "debuff", family = "Оглушение", school = "magic", mods = { attack = -80, movePct = -35 }, tick = { damage = 4 } },
@@ -1814,6 +1876,7 @@ AddEffect({
 AddEffect({
     id   = "eff_garrote",
     name = "Гаррота",
+    damageType = "physical",
     icon = "Interface\\Icons\\Ability_rogue_garrote",
     description = "В голове разорвалось что-то чужое. Мысли не собираются, руки не слушаются.",
     effect = { kind = "debuff", school = "bleed", stats = { ["Концентрация"] = -2 }, tick = { damage = 1 } },
@@ -1822,6 +1885,7 @@ AddEffect({
 AddEffect({
     id   = "eff_shiv",
     name = "Отравляющий укол",
+    damageType = "nature",
     icon = "Interface\\Icons\\INV_Potion_19",
     description = "В голове разорвалось что-то чужое. Мысли не собираются, руки не слушаются.",
     effect = { kind = "debuff", school = "poison", stats = { ["Мощь"] = -2 }, tick = { damage = 1 }, mods = { maxCastResource = -1 } },
@@ -1848,7 +1912,7 @@ AddEffect({
     name = "Исчезновение",
     icon = "Interface\\Icons\\Ability_vanish",
     description = "Растворен на ближайшие секунды в дымке густого тумана. Врагам тяжело увидеть цель и, следовательно, попасть по ней.",
-    effect = { kind = "buff", mods = { defense = 65, crit = 15 } },
+    effect = { kind = "buff", mods = { defense = 65, crit = 6 } },
 })
 
 AddEffect({
@@ -1872,6 +1936,7 @@ AddEffect({
 AddEffect({
     id   = "eff_poisoned_blade",
     name = "Отравленный клинок",
+    damageType = "nature",
     icon = "Interface\\Icons\\Ability_rogue_dualweild",
     description = "Небольшая порция жгучего яда, что мучает и приближает кончину цели изнутри.",
     effect = { kind = "debuff", school = "poison", stats = { ["Живучесть"] = -2 }, tick = { damage = 2 } },
@@ -1922,12 +1987,13 @@ AddEffect({
     name = "Броня напоказ",
     icon = "Interface\\Icons\\Ability_warrior_riposte",
     description = "В результате атаки разбойника броня цели остается вскрыта для последующих атак.",
-    effect = { kind = "debuff", mods = { armor = -20, defense = -5 } },
+    effect = { kind = "debuff", mods = { armor = -35 } },
 })
 
 AddEffect({
     id   = "eff_envenom",
     name = "Отрава",
+    damageType = "nature",
     icon = "Interface\\Icons\\Ability_rogue_disembowel",
     description = "Тело цели сворачивается в режущих судорогах под действием этого яда.",
     effect = { kind = "debuff", school = "poison", mods = { damage = -2 }, tick = { damage = 2 } },
@@ -1938,7 +2004,28 @@ AddEffect({
     name = "Плащ теней",
     icon = "Interface\\Icons\\Spell_shadow_nethercloak",
     description = "Укрывшись пеленой ночи, разбойник становится недосягаем для вражеской магии.",
-    effect = { kind = "buff", mods = { armor = 10, defense = 10 }, stats = { ["Воля"] = 25 } },
+    -- «Летящие чары скользят по этой плотности и уходят в сторону, не
+    -- находя, за что зацепиться. ПРОТИВ СТАЛИ И СТРЕЛ ПЛАЩ НЕ ДАЁТ
+    -- НИЧЕГО — только против магии». Отсюда resistMagic, а не resistAll:
+    -- физическое здесь честно остаётся на броне, как ей и положено.
+    --
+    -- Двойка: три хода на самого разбойника — самый узкий и короткий
+    -- оберег в библиотеке.
+    effect = {
+        kind  = "buff",
+        mods  = { armor = 10, defense = 10, resistMagic = 2 },
+        stats = { ["Воля"] = 25 },
+        -- «ЛЕТЯЩИЕ ЧАРЫ СКОЛЬЗЯТ ПО ЭТОЙ ПЛОТНОСТИ И УХОДЯТ В СТОРОНУ,
+        -- НЕ НАХОДЯ, ЗА ЧТО ЗАЦЕПИТЬСЯ». Не сопротивление, а именно
+        -- «не за что зацепиться»: чары не ослабевают, они не пристают.
+        --
+        -- Названа ШКОЛА, а не семейство: «вражеская магия» — это и есть
+        -- школа magic целиком, и сузить её до списка семейств значило бы
+        -- оставить дыры там, где описание их не оставляет. Подавляются
+        -- при этом только дебаффы (см. MatchesSuppress), поэтому
+        -- собственные чары разбойника плащ не сдувает.
+        suppress = { "magic" },
+    },
 })
 
 AddEffect({
@@ -1960,6 +2047,7 @@ AddEffect({
 AddEffect({
     id   = "eff_devouring_plague",
     name = "Всепожирающая чума",
+    damageType = "shadow",
     icon = "Interface\\Icons\\Spell_shadow_devouringplague",
     description = "Потусторонняя, неестественная болезнь пожирает плоть и разум цели.",
     effect = { kind = "debuff", school = "disease", stats = { ["Живучесть"] = -2 }, tick = { damage = 2 } },
@@ -1986,7 +2074,11 @@ AddEffect({
     name = "Успокоение разума",
     icon = "Interface\\Icons\\Spell_holy_mindsooth",
     description = "Тело хочет бежать, а не драться. Разум занят чужими кошмарами.",
-    effect = { kind = "debuff", school = "magic", mods = { defense = -50, range = -12 }, stats = { ["Воля"] = -3, }, breakOn = { damaged = true } },
+    effect = {
+        -- «На неё не действуют заклинания, вызывающие страх». Это
+        -- дебаф, и подавление здесь — не подарок цели, а причина, по
+        -- которой умиротворённого не запугать: он уже спокоен.
+        suppress = { "Страх" }, kind = "debuff", school = "magic", mods = { defense = -50, range = -12 }, stats = { ["Воля"] = -3, }, breakOn = { damaged = true } },
 })
 
 AddEffect({
@@ -1994,7 +2086,10 @@ AddEffect({
     name = "Божественная защита",
     icon = "Interface\\Icons\\Spell_holy_divineprotection",
     description = "Мерцающая преграда отводит слабые удары и сбивает прицел стрелкам.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 60 } },
+    -- «Весь получаемый урон уменьшается наполовину» — то есть защита не от
+    -- школы, а от всего сразу. Двойка и есть половина обычного удара
+    -- в 4 единицы. Два хода.
+    effect = { kind = "buff", school = "magic", mods = { resistAll = 2, armor = 60 } },
 })
 
 AddEffect({
@@ -2051,7 +2146,13 @@ AddEffect({
     name = "Аура воздаяния",
     icon = "Interface\\Icons\\Spell_holy_auraoflight",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
-    effect = { kind = "buff", family = "Аура паладина", mods = { defense = 8, attack = 5 }, stats = { ["Мощь"] = 1 } },
+
+    -- «Любая атака против члена отряда провоцирует мгновенное возмездие:
+    -- ответная вспышка священной энергии наносит нападающему урон
+    -- Светом». Аура висит на каждом союзнике — отвечает тот, по кому
+    -- ударили, и это ровно то, что описано.
+    effect = { kind = "buff", family = "Аура паладина", mods = { defense = 8, attack = 5 }, stats = { ["Мощь"] = 1 },
+               onAction = { when = "damaged", toAttacker = "eff_retribution_flare" } },
 })
 
 AddEffect({
@@ -2059,7 +2160,22 @@ AddEffect({
     name = "Демонический доспех",
     icon = "Interface\\Icons\\Spell_shadow_ragingscream",
     description = "Тело временно укрыто слоем демонической кожи : удары теряют часть силы по чернокнижнику.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 15 }, stats = { ["Живучесть"] = 1 } },
+    effect = {
+        kind   = "buff",
+        school = "magic",
+        mods   = { armor = 15 },
+        stats  = { ["Живучесть"] = 1 },
+        -- «ШКУРА ДЕМОНА ИСЦЕЛЯЕТ ЧЕРНОКНИЖНИКА... ЗАКРЫВАЯ ТОНКИЕ
+        -- ПОРЕЗЫ» — затягивает порезы по мере их появления, поэтому
+        -- повод «получил удар», а не тик: тик лечил бы и в пустой
+        -- комнате, а доспех держится десять минут.
+        --
+        -- ПОЛОВИНА СЛУЧАЕВ И ЕДИНИЦА: «незначительные ранения» на шкале,
+        -- где обычный удар — двойка-четвёрка. Без шанса это была бы
+        -- вечная прибавка примерно в треть входящего урона, и её никто
+        -- бы не снимал.
+        onAction = { when = "damaged", chance = 50, payload = { heal = 1 } },
+    },
 })
 
 -- ==========================================================
@@ -2105,7 +2221,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_nature_slow",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { kind = "debuff", school = "magic", mods = { defense = -8, attack = -3, movePct = -50 } },
+    effect = { family = "Замедление", kind = "debuff", school = "magic", mods = { defense = -8, attack = -3, movePct = -50 } },
 })
 
 AddEffect({
@@ -2121,6 +2237,7 @@ AddEffect({
     -- Кровавая чума (Рыцарь смерти, круг 1). Отщеплён от «eff_bleeding».
     id   = "eff_bleeding_blood_plague",
     name = "Кровавая чума",
+    damageType = "shadow",
     icon = "Interface\\Icons\\Ability_rogue_bloodyeye",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
@@ -2134,6 +2251,7 @@ AddEffect({
     -- Удар чумы (Рыцарь смерти, круг 1). Отщеплён от «eff_bleeding».
     id   = "eff_bleeding_plague_strike",
     name = "Удар чумы",
+    damageType = "shadow",
     icon = "Interface\\Icons\\Ability_rogue_bloodyeye",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
@@ -2147,11 +2265,12 @@ AddEffect({
     -- Заморозка разума (Рыцарь смерти, круг 1). Отщеплён от «eff_pain».
     id   = "eff_pain_mind_freeze",
     name = "Заморозка разума",
+    damageType = "frost",
     icon = "Interface\\Icons\\Spell_shadow_shadowwordpain",
     description = "Мучительная мигрень мешает и сотворять заклинания, и просто держать строй.",
     effect = {
         kind = "debuff", school = "magic",
-        mods = { attack = -12, crit = -4 },
+        mods = { attack = -12, crit = -2 },
         tick = { damage = 1 },
     },
 })
@@ -2162,7 +2281,16 @@ AddEffect({
     name = "Костяной щит",
     icon = "Interface\\Icons\\Spell_holy_powerwordshield",
     description = "Мерцающая преграда отводит слабые удары и сбивает прицел стрелкам.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 10, defense = 12 } },
+    effect = {
+        kind   = "buff",
+        school = "magic",
+        mods   = { armor = 10, defense = 12 },
+        -- «КАЖДЫЙ ПРИНИМАЕТ НА СЕБЯ ОДИН УДАР И РАССЫПАЕТСЯ В ПЫЛЬ.
+        -- КОГДА КОСТИ КОНЧАЮТСЯ, ЩИТА БОЛЬШЕ НЕТ» — щит считает удары,
+        -- а не ходы. Заряды — это его же uses (см. врезку про consume),
+        -- поэтому длительность в 4 хода стала четырьмя костями.
+        onAction = { when = "damaged", consume = true },
+    },
 })
 
 AddEffect({
@@ -2172,7 +2300,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_nature_slow",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { kind = "debuff", school = "magic", mods = { defense = -12, attack = -4, movePct = -50 } },
+    effect = { family = "Замедление", kind = "debuff", school = "magic", mods = { defense = -12, attack = -4, movePct = -50 } },
 })
 
 AddEffect({
@@ -2181,9 +2309,11 @@ AddEffect({
     name = "Ледяная лихорадка",
     icon = "Interface\\Icons\\Spell_shadow_curseofmannoroth",
     description = "Доспех тяжелеет, оружие держится без уверенности. Удары выходят вялыми.",
+    -- «Неспособной ни к точному удару, ни к тяжёлому усилию»: холод
+    -- бьёт по телу, а не по чарам.
     effect = {
         kind  = "debuff", school = "disease",
-        mods = { attack = -16, damage = -1 },
+        mods = { attack = -16, damagePhysical = -1 },
         stats = { ["Мощь"] = -2, ["Атлетика"] = -1 },
     },
 })
@@ -2194,7 +2324,11 @@ AddEffect({
     name = "Удушение",
     icon = "Interface\\Icons\\Spell_shadow_manaburn",
     description = "Внутренний источник обожжён. Черпать из него больно и почти нечего.",
-    effect = { kind = "debuff", school = "magic", mods = { maxMana = -2 } },
+    effect = {
+        -- «СОРВАТЬ ЗАКЛИНАНИЕ ВРАЖЕСКОГО МАГА»: нити на глотке мешают
+        -- именно говорить — значит, платит тот, кто пытается.
+        onAction = { when = "cast", magic = true, payload = { mana = -1 } },
+        kind = "debuff", school = "magic", mods = { maxMana = -2 } },
 })
 
 AddEffect({
@@ -2204,7 +2338,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_nature_slow",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { kind = "debuff", school = "magic", mods = { defense = -18, attack = -5, movePct = -50 } },
+    effect = { family = "Замедление", kind = "debuff", school = "magic", mods = { defense = -18, attack = -5, movePct = -50 } },
 })
 
 AddEffect({
@@ -2213,7 +2347,13 @@ AddEffect({
     name = "Панцирь антимагии",
     icon = "Interface\\Icons\\Spell_frost_frostarmor02",
     description = "Тело укрыто слоем затвердевшей магии: удары теряют часть силы, но чары стесняют движения.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 20, attack = -9 } },
+    -- «Барьер, поглощающий вредоносные заклинания» — вся магия разом, и
+    -- всего на четыре хода.
+    effect = {
+        -- «Выдерживать проклятия колдунов». Проклятия в библиотеке
+        -- помечены двояко — школой curse и семейством «Проклятие», —
+        -- поэтому названы оба: список читает и то, и другое.
+        suppress = { "curse", "Проклятие" }, kind = "buff", school = "magic", mods = { resistMagic = 2, armor = 20, attack = -9 } },
 })
 
 AddEffect({
@@ -2235,7 +2375,10 @@ AddEffect({
     name = "Вампирская кровь",
     icon = "Interface\\Icons\\Spell_holy_wordfortitude",
     description = "Тело помнит, что умеет терпеть больше, чем кажется.",
-    effect = { kind = "buff", mods = { maxHealth = 2 } },
+    effect = {
+        -- «Невосприимчивым к мелким ранам»: кровь, которая не
+        -- вытекает, — единственное буквальное прочтение.
+        suppress = { "bleed" }, kind = "buff", mods = { maxHealth = 2 } },
 })
 
 AddEffect({
@@ -2263,13 +2406,14 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_nature_slow",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { kind = "debuff", school = "magic", mods = { defense = -40, attack = -10, movePct = -50 } },
+    effect = { family = "Замедление", kind = "debuff", school = "magic", mods = { defense = -40, attack = -10, movePct = -50 } },
 })
 
 AddEffect({
     -- Удар хаоса (Охотник на демонов, круг 0). Отщеплён от «eff_bleeding».
     id   = "eff_bleeding_chaos_strike",
     name = "Удар хаоса",
+    damageType = "physical",
     icon = "Interface\\Icons\\Ability_rogue_bloodyeye",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
@@ -2305,7 +2449,7 @@ AddEffect({
     description = "Цель разобрана на слабые места: остаётся только выбрать, куда именно.",
     effect = {
         kind  = "buff",
-        mods = { attack = 12, crit = 10 },
+        mods = { attack = 12, crit = 4 },
         stats = { ["Точность"] = 1 },
     },
 })
@@ -2323,11 +2467,12 @@ AddEffect({
     -- Печать пламени (Охотник на демонов, круг 1). Отщеплён от «eff_pain».
     id   = "eff_pain_sigil_of_flame",
     name = "Печать пламени",
+    damageType = "fire",
     icon = "Interface\\Icons\\Spell_shadow_shadowwordpain",
     description = "Мучительная мигрень мешает и сотворять заклинания, и просто держать строй.",
     effect = {
         kind = "debuff", school = "magic",
-        mods = { attack = -12, crit = -4 },
+        mods = { attack = -12, crit = -2 },
         tick = { damage = 1 },
     },
 })
@@ -2369,13 +2514,26 @@ AddEffect({
     name = "Печать безмолвия",
     icon = "Interface\\Icons\\Spell_shadow_manaburn",
     description = "Внутренний источник обожжён. Черпать из него больно и почти нечего.",
-    effect = { kind = "debuff", school = "magic", mods = { maxMana = -2 } },
+    effect = {
+        kind   = "debuff",
+        school = "magic",
+        mods   = { maxMana = -2 },
+        -- «ЧАРЫ ВНУТРИ ПЕЧАТИ РАССЫПАЮТСЯ НЕДОСКАЗАННЫМИ. НА ТЕХ, КТО
+        -- БЬЁТ РУКАМИ, ЗНАК НЕ ДЕЙСТВУЕТ» — обе половины описания:
+        -- убыль приходит на каст и только на магический.
+        --
+        -- Двойка при потолке пула в десять: колдовать в безмолвии можно,
+        -- но недолго. Урезанный maxMana остаётся — это «гасит вокруг
+        -- себя», то есть источник и так неполон.
+        onAction = { when = "cast", magic = true, payload = { mana = -2 } },
+    },
 })
 
 AddEffect({
     -- Чтение души (Охотник на демонов, круг 3). Отщеплён от «eff_bleeding».
     id   = "eff_bleeding_soul_carving",
     name = "Чтение души",
+    damageType = "physical",
     icon = "Interface\\Icons\\Ability_rogue_bloodyeye",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
@@ -2406,7 +2564,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_nature_slow",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { kind = "debuff", school = "magic", mods = { defense = -25, attack = -7, movePct = -50 } },
+    effect = { family = "Замедление", kind = "debuff", school = "magic", mods = { defense = -25, attack = -7, movePct = -50 } },
 })
 
 AddEffect({
@@ -2416,7 +2574,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_nature_slow",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { kind = "debuff", mods = { defense = -25, attack = -7, movePct = -50 } },
+    effect = { family = "Замедление", kind = "debuff", mods = { defense = -25, attack = -7, movePct = -50 } },
 })
 
 AddEffect({
@@ -2467,6 +2625,7 @@ AddEffect({
     -- Охота (Охотник на демонов, круг 5). Отщеплён от «eff_bleeding».
     id   = "eff_bleeding_the_hunt",
     name = "Охота",
+    damageType = "physical",
     icon = "Interface\\Icons\\Ability_rogue_bloodyeye",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
@@ -2514,7 +2673,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_nature_slow",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { kind = "debuff", school = "magic", mods = { defense = -12, attack = -4, movePct = -50 } },
+    effect = { family = "Замедление", kind = "debuff", school = "magic", mods = { defense = -12, attack = -4, movePct = -50 } },
 })
 
 AddEffect({
@@ -2574,7 +2733,19 @@ AddEffect({
     name = "Дубовая кожа",
     icon = "Interface\\Icons\\Spell_nature_stoneskintotem",
     description = "Плоть покрыта камнем. Держит удар заметно лучше живой, но двигаться в такой шкуре тяжело.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 20, attack = -18, defense = -9 } },
+    -- «Устойчив к урону холодом и ядом... но если друид будет подожжен, то
+    -- дубовая кора УМНОЖИТ В ДВА РАЗА получаемый урон от пламени».
+    -- Минус здесь не выдуман — он записан у автора заклинания.
+    effect = {
+        -- «МОЖНО ВОЗЗВАТЬ ДАЖЕ БУДУЧИ ОГЛУШЕННЫМ, ЗАМОРОЖЕННЫМ, В
+        -- СОСТОЯНИИ ПАРАЛИЧА, ИЛИ ИСПУГА» — то же место, что у Ярости
+        -- шамана, и читается так же.
+        --
+        -- Но НЕ СНИМАЕТ: сказано «воззвать можно», а не «оковы спадут».
+        -- Кора нарастает поверх того, что уже держит друида.
+        suppress = { "Оглушение", "Замедление", "Страх" },
+        suppressClears = false,
+        kind = "buff", school = "magic", mods = { resistFire = -2, resistFrost = 1, resistNature = 1, armor = 20, attack = -18, defense = -9 } },
 })
 
 AddEffect({
@@ -2618,7 +2789,7 @@ AddEffect({
     -- Отскок (Охотник, круг 1). Отщеплён от «eff_evasion».
     id   = "eff_evasion_disengage",
     name = "Отскок",
-    icon = "Interface\\Icons\\Spell_shadow_shadowward",
+    icon = "Interface\\Icons\\Ability_rogue_feint",
     description = "Тело движется раньше, чем разум успевает испугаться: удары проходят мимо.",
     effect = { kind = "buff", mods = { defense = 12 }, stats = { ["Атлетика"] = 2 } },
 })
@@ -2626,7 +2797,7 @@ AddEffect({
 AddEffect({
     id   = "eff_aspect_of_the_hawk",
     name = "Дух ястреба",
-    icon = "Interface\\Icons\\Ability_hunter_snipershot",
+    icon = "Interface\\Icons\\Spell_nature_ravenform",
     description = "Цель разобрана на слабые места: остаётся только выбрать, куда именно.",
     effect = {
         kind  = "buff",
@@ -2647,11 +2818,12 @@ AddEffect({
     -- Укус змеи (Охотник, круг 2). Отщеплён от «eff_bleeding».
     id   = "eff_bleeding_serpent_sting",
     name = "Укус змеи",
-    icon = "Interface\\Icons\\Ability_rogue_bloodyeye",
+    damageType = "nature",
+    icon = "Interface\\Icons\\Ability_hunter_quickshot",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
         kind = "debuff", school = "poison",
-        tick = { damage = 2 },
+        tick = { damage = 1 },
 		stats = { ["Мощь"] = -2 },
     },
 })
@@ -2666,21 +2838,32 @@ AddEffect({
 })
 
 AddEffect({
-    -- Отпугивание зверя (Охотник, круг 2). Отщеплён от «eff_fear».
     id   = "eff_fear_scare_beast",
-    name = "Отпугивание зверя",
+    name = "Отпугивание жертвы",
     icon = "Interface\\Icons\\Spell_shadow_possession",
     description = "Тело хочет бежать, а не драться. Разум занят чужими кошмарами.",
-    effect = { kind = "debuff", mods = { attack = -40, defense = -14 } },
+    effect = { kind = "debuff", stats = { ["Лидерство"] = -3, ["Запугивание"] = -3 }, mods = { attack = -30 }, breakOn = { damaged = true } },
 })
 
 AddEffect({
     -- Укус гадюки (Охотник, круг 2). Отщеплён от «eff_mana_burn».
     id   = "eff_viper_sting",
     name = "Укус гадюки",
-    icon = "Interface\\Icons\\Spell_shadow_manaburn",
+    icon = "Interface\\Icons\\Ability_hunter_aimedshot",
     description = "Внутренний источник обожжён. Черпать из него больно и почти нечего.",
-    effect = { kind = "debuff", school = "poison", tick = { mana = -2 } },
+    effect = {
+        kind   = "debuff",
+        school = "poison",
+        -- «ТЕРЯЕТ НИТЬ СОТВОРЯЕМОГО ЗАКЛИНАНИЯ» — потеря приходит НА
+        -- КАСТ, а не каждый ход. Тик тут был грубым приближением: он
+        -- одинаково жёг и мага, и лучника, хотя описание прямо говорит,
+        -- что «на тех, кто не колдует, яд действует лишь как жгучая
+        -- боль».
+        --
+        -- Тик убран, а не оставлен рядом: два источника одной и той же
+        -- убыли маны — это двойной счёт (см. проверку о каналах).
+        onAction = { when = "cast", magic = true, payload = { mana = -1 } },
+    },
 })
 
 AddEffect({
@@ -2690,7 +2873,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_nature_slow",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { kind = "debuff", mods = { defense = -18, attack = -5, movePct = -50 } },
+    effect = { family = "Замедление", kind = "debuff", mods = { defense = -18, attack = -5, movePct = -50 } },
 })
 
 AddEffect({
@@ -2724,7 +2907,7 @@ AddEffect({
 	isConcentration = true,
     effect = {
         kind  = "buff",
-        mods = { crit = 15, defense = 15 },
+        mods = { crit = 6, defense = 15 },
         stats = { ["Скрытность"] = 7 },
 		breakOn = { dealt = true },
     },
@@ -2734,6 +2917,7 @@ AddEffect({
     -- Чёрная стрела (Охотник, круг 4). Отщеплён от «eff_bleeding».
     id   = "eff_bleeding_black_arrow",
     name = "Черная стрела",
+    damageType = "shadow",
     icon = "Interface\\Icons\\Ability_rogue_bloodyeye",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
@@ -2764,7 +2948,7 @@ AddEffect({
     description = "Цель разобрана на слабые места: остаётся только выбрать, куда именно.",
     effect = {
         kind  = "buff",
-        mods = { attack = 32, crit = 22 },
+        mods = { attack = 32, crit = 9 },
         stats = { ["Точность"] = 2 },
     },
 })
@@ -2788,7 +2972,18 @@ AddEffect({
     name = "Ледяной доспех",
     icon = "Interface\\Icons\\Spell_frost_frostarmor02",
     description = "Тело укрыто слоем затвердевшей магии: удары теряют часть силы, но чары стесняют движения.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 10, attack = -5 } },
+    -- «Укрывает от физического И ОГНЕННОГО урона». Физическое здесь уже
+    -- выражено бронёй — ей это и положено (см. врезку о резистах).
+    effect = {
+        kind   = "buff",
+        school = "magic",
+        mods   = { resistFire = 2, armor = 10, attack = -5 },
+        -- «УДАРЯЕТ ЦЕЛЬ СВОИМ ТЕЛОМ ИЛИ РУКОПАШНЫМ ОРУЖИЕМ...
+        -- ПОДВЕРГАЕТСЯ ОХЛАЖДЕНИЮ». Оговорку про копья описание делает
+        -- само — melee и есть эта оговорка.
+        onAction = { when = "damaged", melee = true,
+                     toAttacker = "eff_frost_armor_chill" },
+    },
 })
 
 AddEffect({
@@ -2824,10 +3019,12 @@ AddEffect({
     name = "Ослабление магии",
     icon = "Interface\\Icons\\Spell_shadow_curseofmannoroth",
     description = "Доспех тяжелеет, оружие держится без уверенности. Удары выходят вялыми.",
+    -- «Ослабляет часть эффектов ВСЕХ исцеляющих и наносящих урон
+    -- ЗАКЛИНАНИЙ» — то есть магию, а не сталь в руках цели.
     effect = {
         kind  = "debuff",
         school = "magic",
-        mods = { attack = -16, damage = -1 },
+        mods = { attack = -16, damageMagic = -1 },
         stats = { ["Мощь"] = -2, ["Атлетика"] = -1 },
     },
 })
@@ -2864,7 +3061,7 @@ AddEffect({
     effect = {
         kind  = "buff",
         school = "magic",
-        mods = { crit = 18, defense = 18 },
+        mods = { crit = 7, defense = 18 },
         stats = { ["Скрытность"] = 3 },
     },
 })
@@ -2898,14 +3095,14 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_nature_slow",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { kind = "debuff", school = "magic", mods = { defense = -25, attack = -7, movePct = -50 } },
+    effect = { family = "Замедление", kind = "debuff", school = "magic", mods = { defense = -25, attack = -7, movePct = -50 } },
 })
 
 AddEffect({
     -- Провокация (Монах, круг 0). Отщеплён от «eff_demoralized».
     id   = "eff_demoralized_provoke",
     name = "Провокация",
-    icon = "Interface\\Icons\\Ability_warrior_warcry",
+    icon = "Interface\\Icons\\Ability_monk_provoke",
     description = "Решимость сменилась сомнением. Рука делает то, что велено, но без веры в исход.",
     effect = { kind = "debuff", mods = { attack = -8 } },
 })
@@ -2914,7 +3111,7 @@ AddEffect({
     -- Перекат (Монах, круг 0). Отщеплён от «eff_evasion».
     id   = "eff_evasion_monk_roll",
     name = "Перекат",
-    icon = "Interface\\Icons\\Spell_shadow_shadowward",
+    icon = "Interface\\Icons\\Ability_monk_roll",
     description = "Тело движется раньше, чем разум успевает испугаться: удары проходят мимо.",
     effect = { kind = "buff", stats = { ["Атлетика"] = 2, ["Акробатика"] = 2 } },
 })
@@ -2923,7 +3120,7 @@ AddEffect({
     -- Паралич (Монах, круг 1). Отщеплён от «eff_blinded».
     id   = "eff_blinded_monk_paralysis",
     name = "Паралич",
-    icon = "Interface\\Icons\\Spell_shadow_mindsteal",
+    icon = "Interface\\Icons\\Ability_monk_paralysis",
     description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
     effect = {
         kind  = "debuff",
@@ -2936,7 +3133,7 @@ AddEffect({
     -- Жажда тигра (Монах, круг 1). Отщеплён от «eff_cat_grace».
     id   = "eff_cat_grace_tigers_lust",
     name = "Жажда тигра",
-    icon = "Interface\\Icons\\Ability_druid_catform",
+    icon = "Interface\\Icons\\Ability_monk_tigerslust",
     description = "Тело становится легче и точнее. Там, где раньше приходилось перелезать, теперь перепрыгиваешь.",
     effect = { kind = "buff", stats = { ["Ловкость"] = 1, ["Акробатика"] = 2 } },
 })
@@ -2945,26 +3142,29 @@ AddEffect({
     -- Удар бочонком (Монах, круг 1). Отщеплён от «eff_slowed».
     id   = "eff_slowed_keg_smash",
     name = "Удар бочонком",
-    icon = "Interface\\Icons\\Spell_nature_slow",
+    icon = "Interface\\Icons\\Achievement_brewery_2",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { kind = "debuff", mods = { defense = -12, attack = -4, movePct = -50 } },
+    effect = { family = "Замедление", kind = "debuff", mods = { defense = -12, attack = -4, movePct = -50 } },
 })
 
 AddEffect({
     -- Очищающий отвар (Монах, круг 2). Отщеплён от «eff_fortitude».
     id   = "eff_fortitude_purifying_brew",
     name = "Очищающий отвар",
-    icon = "Interface\\Icons\\Spell_holy_wordfortitude",
+    icon = "Interface\\Icons\\Inv_misc_beer_06",
     description = "Тело помнит, что умеет терпеть больше, чем кажется.",
-    effect = { kind = "buff", mods = { maxHealth = 2 } },
+    effect = {
+        -- «Нейтрализует любые физические негативные состояния (яды,
+        -- болезни, токсины)» — авторский список, перенесённый как есть.
+        suppress = { "poison", "disease" }, kind = "buff", mods = { maxHealth = 2 } },
 })
 
 AddEffect({
     -- Укрепляющий отвар (Монах, круг 2). Отщеплён от «eff_stone_skin».
     id   = "eff_stone_skin_fortifying_brew",
     name = "Укрепляющий отвар",
-    icon = "Interface\\Icons\\Spell_nature_stoneskintotem",
+    icon = "Interface\\Icons\\Ability_monk_fortifyingale_new",
     description = "Плоть покрыта камнем. Держит удар заметно лучше живой, но двигаться в такой шкуре тяжело.",
     effect = { kind = "buff", mods = { armor = 20, attack = -14, defense = -7 } },
 })
@@ -2973,9 +3173,12 @@ AddEffect({
     -- Благословение Сюэня (Монах, круг 3). Отщеплён от «eff_bloodlust».
     id   = "eff_bloodlust_invoke_xuen",
     name = "Благословение Сюэня",
-    icon = "Interface\\Icons\\Spell_nature_bloodlust",
+    icon = "Interface\\Icons\\Monk_stance_whitetiger",
     description = "Ярость предков вытесняет осторожность: бьёшь чаще и злее, но забываешь защищаться.",
     effect = {
+        -- «Замедления, сковывания и ментального удержания» — три пункта
+        -- описания, три семейства.
+        suppress = { "Оглушение", "Замедление", "Страх" },
         kind  = "buff",
         mods = { attack = 25, damage = 1, defense = -25 },
         stats = { ["Запугивание"] = 2 },
@@ -2986,17 +3189,26 @@ AddEffect({
     -- Медитация дзен (Монах, круг 3). Отщеплён от «eff_concentration».
     id   = "eff_concentration_zen_meditation",
     name = "Медитация дзен",
-    icon = "Interface\\Icons\\Spell_holy_devotion",
+    icon = "Interface\\Icons\\Ability_monk_zenmeditation",
     description = "Шум, боль и суета вокруг перестают существовать. Есть только замысел и его исполнение.",
     isConcentration = true,
-    effect = { kind = "buff", mods = { crit = 25, damage = 1 }, stats = { ["Ловкость"] = 3, ["Концентрация"] = 4 }, },
+    effect = {
+        kind  = "buff",
+        mods  = { crit = 10, damage = 1 },
+        stats = { ["Ловкость"] = 3, ["Концентрация"] = 4 },
+        -- «ЛЮБОЕ ПРИКОСНОВЕНИЕ ВЫБИВАЕТ ИЗ МЕДИТАЦИИ СРАЗУ И ПОЛНОСТЬЮ».
+        -- Прибавки здесь крупные (крит +25, две характеристики),
+        -- и держатся они ровно до первого удара — без этой строки
+        -- медитация была лучшим боевым баффом монаха просто так.
+        breakOn = { damaged = true },
+    },
 })
 
 AddEffect({
     -- Обновляющий туман (Монах, круг 3). Отщеплён от «eff_mercy_blessing».
     id   = "eff_mercy_blessing_renewing_mist",
     name = "Обновляющий туман",
-    icon = "Interface\\Icons\\Spell_holy_prayerofhealing",
+    icon = "Interface\\Icons\\Ability_monk_renewingmists",
     description = "Раны затягиваются охотнее, чем должны: чужая забота ложится на них ровнее.",
     effect = {
         kind  = "buff",
@@ -3011,16 +3223,24 @@ AddEffect({
     -- Купель жизни (Монах, круг 3). Отщеплён от «eff_shield».
     id   = "eff_shield_life_cocoon",
     name = "Купель жизни",
-    icon = "Interface\\Icons\\Spell_holy_powerwordshield",
+    icon = "Interface\\Icons\\Ability_monk_essencefont",
     description = "Мерцающая преграда отводит слабые удары и сбивает прицел стрелкам.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 20, defense = 25 } },
+    effect = {
+        kind   = "buff",
+        school = "magic",
+        mods   = { armor = 20, defense = 25 },
+        -- «ВНЕШНИЕ ПРОКЛЯТИЯ И МЕНТАЛЬНЫЕ ВОЗДЕЙСТВИЯ НЕ МОГУТ ПРОБИТЬСЯ
+        -- СКВОЗЬ БАРЬЕР» — два пункта описания, два вида подавления.
+        -- Проклятия помечены и школой, и семейством, поэтому названы оба.
+        suppress = { "curse", "Проклятие", "Страх" },
+    },
 })
 
 AddEffect({
     -- Ослабление вреда (Монах, круг 4). Отщеплён от «eff_armor_magic».
     id   = "eff_armor_magic_dampen_harm",
     name = "Ослабление вреда",
-    icon = "Interface\\Icons\\Spell_frost_frostarmor02",
+    icon = "Interface\\Icons\\Ability_monk_dampenharm",
     description = "Тело укрыто слоем затвердевшей магии: удары теряют часть силы, но чары стесняют движения.",
     effect = { kind = "buff", school = "magic", mods = { armor = 30, attack = -11 } },
 })
@@ -3029,7 +3249,7 @@ AddEffect({
     -- Благословение Нюцзао (Монах, круг 5). Отщеплён от «eff_stone_skin».
     id   = "eff_stone_skin_invoke_niuzao",
     name = "Благословение Нюцзао",
-    icon = "Interface\\Icons\\Spell_nature_stoneskintotem",
+    icon = "Interface\\Icons\\Monk_stance_drunkenox",
     description = "Плоть покрыта камнем. Держит удар заметно лучше живой, но двигаться в такой шкуре тяжело.",
     effect = { kind = "buff", mods = { armor = 30, attack = -26, defense = -13 } },
 })
@@ -3038,7 +3258,7 @@ AddEffect({
     -- Аура рыцаря (Паладин, круг 1). Отщеплён от «eff_evasion».
     id   = "eff_evasion_crusaderaura",
     name = "Аура рыцаря",
-    icon = "Interface\\Icons\\Spell_shadow_shadowward",
+    icon = "Interface\\Icons\\Spell_holy_crusaderaura",
     description = "Тело движется раньше, чем разум успевает испугаться: удары проходят мимо.",
     effect = { kind = "buff", family = "Аура паладина", stats = { ["Атлетика"] = 1, ["Лидерство"] = 2 } },
 })
@@ -3046,7 +3266,7 @@ AddEffect({
 AddEffect({
     id   = "eff_seal_of_righteousness",
     name = "Печать праведности",
-    icon = "Interface\\Icons\\Spell_holy_righteousnessaura",
+    icon = "Interface\\Icons\\Ability_thunderbolt",
     description = "Свет держит доспех целым: вмятины расходятся сами, пока печать горит на нагруднике.",
     effect = { kind = "buff", family = "Печать паладина", school = "magic", stats = { ["Ношение брони"] = 1 }, tick = { armor = 5 } },
 })
@@ -3055,7 +3275,7 @@ AddEffect({
     -- Избранность (Паладин, круг 2). Отщеплён от «eff_fortitude».
     id   = "eff_fortitude_seal_of_kings",
     name = "Избранность",
-    icon = "Interface\\Icons\\Spell_holy_wordfortitude",
+    icon = "Interface\\Icons\\Spell_magic_magearmor",
     description = "Тело помнит, что умеет терпеть больше, чем кажется.",
     effect = { kind = "buff", school = "magic", stats = { ["Сила"] = 1, ["Ловкость"] = 1, ["Дух"] = 1 } },
 })
@@ -3066,14 +3286,14 @@ AddEffect({
     name = "Печать справедливости",
     icon = "Interface\\Icons\\Spell_holy_sealofwrath",
     description = "Печать ищет щель в чужой защите: удар приходит туда, где её нет.",
-    effect = { kind = "buff", family = "Печать паладина", school = "magic", mods = { crit = 6 }, stats = { ["Запугивание"] = 1 } },
+    effect = { kind = "buff", family = "Печать паладина", school = "magic", mods = { crit = 2 }, stats = { ["Запугивание"] = 1 } },
 })
 
 AddEffect({
     -- Суд справедливости (Паладин, круг 3). Отщеплён от «eff_weakness».
     id   = "eff_weakness_justice_of_justice",
     name = "Суд справедливости",
-    icon = "Interface\\Icons\\Spell_shadow_curseofmannoroth",
+    icon = "Interface\\Icons\\Ability_paladin_judgementred",
     description = "Доспех тяжелеет, оружие держится без уверенности. Удары выходят вялыми.",
     effect = {
         kind  = "debuff",
@@ -3096,11 +3316,12 @@ AddEffect({
     -- Боль (Жрец, круг 0). Отщеплён от «eff_pain».
     id   = "eff_pain_word_pain",
     name = "Боль",
+    damageType = "shadow",
     icon = "Interface\\Icons\\Spell_shadow_shadowwordpain",
     description = "Мучительная мигрень мешает и сотворять заклинания, и просто держать строй.",
     effect = {
         kind = "debuff", school = "magic",
-        mods = { attack = -8, crit = -3 },
+        mods = { attack = -8, crit = -1 },
         tick = { damage = 1 },
     },
 })
@@ -3125,7 +3346,8 @@ AddEffect({
 AddEffect({
     id   = "eff_bleeding_garrote",
     name = "Гаррота",
-    icon = "Interface\\Icons\\Ability_rogue_bloodyeye",
+    damageType = "physical",
+    icon = "Interface\\Icons\\Ability_rogue_garrote",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
         kind = "debuff", school = "bleed",
@@ -3141,7 +3363,7 @@ AddEffect({
     description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
     effect = {
         kind  = "debuff",
-        mods = { attack = -15, defense = -50, range = -18 },
+        mods = { attack = -33, defense = -33, range = -18 },
     },
 })
 
@@ -3153,24 +3375,24 @@ AddEffect({
 	isConcentration = true,
     effect = {
         kind  = "buff",
-        mods = { crit = 12, defense = 12 },
-        stats = { ["Скрытность"] = 3 },
+        stats = { ["Скрытность"] = 3, ["Акробатика"] = 3, ["Точность"] = 3 },
     },
 })
 
 AddEffect({
     id   = "eff_concentration_preparation",
     name = "Подготовка",
-    icon = "Interface\\Icons\\Spell_holy_devotion",
+    icon = "Interface\\Icons\\Ability_rogue_preparation",
     description = "Шум, боль и суета вокруг перестают существовать. Есть только замысел и его исполнение.",
     isConcentration = true,
-    effect = { kind = "buff", mods = { crit = 25, damage = 1 }, stats = { ["Ловкость"] = 3, ["Концентрация"] = 4 }, },
+    effect = { kind = "buff", stats = { ["Ловкость"] = 4, ["Концентрация"] = 4, ["Точность"] = 4 }, },
 })
 
 AddEffect({
     id   = "eff_bleeding_assassinate",
     name = "Устранение",
-    icon = "Interface\\Icons\\Ability_rogue_bloodyeye",
+    damageType = "physical",
+    icon = "Interface\\Icons\\Ability_rogue_deadlybrew",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
         kind = "debuff", school = "bleed",
@@ -3183,7 +3405,7 @@ AddEffect({
     -- Дымовая завеса (Разбойник, круг 4). Отщеплён от «eff_blinded».
     id   = "eff_blinded_smoke_bomb",
     name = "Дымовая завеса",
-    icon = "Interface\\Icons\\Spell_shadow_mindsteal",
+    icon = "Interface\\Icons\\Ability_rogue_smoke",
     description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
     effect = {
         kind  = "debuff",
@@ -3196,11 +3418,11 @@ AddEffect({
     -- Вендетта (Разбойник, круг 5). Отщеплён от «eff_hunters_mark».
     id   = "eff_hunters_mark_vendetta",
     name = "Вендетта",
-    icon = "Interface\\Icons\\Ability_hunter_snipershot",
+    icon = "Interface\\Icons\\Ability_rogue_deadliness",
     description = "Цель разобрана на слабые места: остаётся только выбрать, куда именно.",
     effect = {
         kind  = "buff",
-        mods = { attack = 40, crit = 25 },
+        mods = { attack = 40, crit = 10 },
         stats = { ["Точность"] = 2 },
     },
 })
@@ -3209,12 +3431,12 @@ AddEffect({
     -- Танец теней (Разбойник, круг 5). Отщеплён от «eff_stealth».
     id   = "eff_stealth_shadow_dance",
     name = "Танец теней",
-    icon = "Interface\\Icons\\Ability_stealth",
+    icon = "Interface\\Icons\\Ability_rogue_shadowdance",
     description = "Пока тебя не видят, первый удар приходит оттуда, откуда его не ждут.",
 	isConcentration = true,
     effect = {
         kind  = "buff",
-        mods = { crit = 25, defense = 38 },
+        mods = { crit = 10, defense = 38 },
         stats = { ["Скрытность"] = 4 },
 		breakOn = { damaged = true },
     },
@@ -3224,7 +3446,8 @@ AddEffect({
     -- Воспламенение (Шаман, круг 1). Отщеплён от «eff_bleeding».
     id   = "eff_bleeding_ignition",
     name = "Воспламенение",
-    icon = "Interface\\Icons\\Ability_rogue_bloodyeye",
+    damageType = "fire",
+    icon = "Interface\\Icons\\Inv_everburningignition_yellow",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
         kind = "debuff", school = "magic",
@@ -3237,34 +3460,50 @@ AddEffect({
     -- Опаляющий щит (Шаман, круг 1). Отщеплён от «eff_shield».
     id   = "eff_shield_flame_shield",
     name = "Опаляющий",
-    icon = "Interface\\Icons\\Spell_holy_powerwordshield",
+    icon = "Interface\\Icons\\Ability_mage_moltenarmor",
     description = "Мерцающая преграда отводит слабые удары и сбивает прицел стрелкам.",
-    effect = { family = "Щит стихии", kind = "buff", school = "magic", mods = { armor = 10, defense = 12 } },
+
+    -- «До тех пор, пока кто-либо не попытается навредить цели; В ОТВЕТ
+    -- огненный щит вспыхнет снопом искр, рискуя поджечь всё вокруг,
+    -- вплоть до одежды врага и волос». Поджиг — уже готовый «eff_burn».
+    effect = { family = "Щит стихии", kind = "buff", school = "magic", mods = { armor = 10, defense = 12 },
+               onAction = { when = "damaged", toAttacker = "eff_burn" } },
 })
 
 AddEffect({
     -- Молниеносные Стражи (Шаман, круг 1). Отщеплён от «eff_shield».
     id   = "eff_shield_lightningshield",
     name = "Молниеносные Стражи",
-    icon = "Interface\\Icons\\Spell_holy_powerwordshield",
+    icon = "Interface\\Icons\\Spell_nature_lightningshield",
     description = "Мерцающая преграда отводит слабые удары и сбивает прицел стрелкам.",
-    effect = { family = "Щит стихии", kind = "buff", school = "magic", mods = { armor = 10, defense = 12 } },
+
+    -- Молниеносные Стрелы бьют разрядом в того, кто дотянулся: тот же
+    -- размен, что у огненного щита, только природой.
+    effect = { family = "Щит стихии", kind = "buff", school = "magic", mods = { armor = 10, defense = 12 },
+               onAction = { when = "damaged", toAttacker = "eff_lightning_lash" } },
 })
 
 AddEffect({
     -- Водяной щит (Шаман, круг 1). Отщеплён от «eff_shield».
     id   = "eff_shield_water_shield",
     name = "Водяной щит",
-    icon = "Interface\\Icons\\Spell_holy_powerwordshield",
+    icon = "Interface\\Icons\\Ability_shaman_watershield",
     description = "Мерцающая преграда отводит слабые удары и сбивает прицел стрелкам.",
-    effect = { family = "Щит стихии", kind = "buff", school = "magic", mods = { armor = 10, defense = 12 } },
+    -- «Покрывается водой, ПРИОБРЕТАЕТ УСТОЙЧИВОСТЬ К ОГНЮ».
+
+    -- «Три сферы, которые затрачиваются по одной при получении
+    -- повреждений; когда пузырь расходуется, цель покрывается водой,
+    -- приобретает устойчивость к огню и медленно регенерирует в
+    -- течение 2 раундов». Два раунда — срок у автора.
+    effect = { family = "Щит стихии", kind = "buff", school = "magic", mods = { resistFire = 2, armor = 10, defense = 12 },
+               onAction = { when = "damaged", effect = "eff_water_shield_burst", turns = 2 } },
 })
 
 AddEffect({
     -- Барьер ветра (Шаман, круг 1). Отщеплён от «eff_shield».
     id   = "eff_shield_wind_barrier",
     name = "Барьер ветра",
-    icon = "Interface\\Icons\\Spell_holy_powerwordshield",
+    icon = "Interface\\Icons\\Inv_ability_farseershaman_ancestralswiftness",
     description = "Мерцающая преграда отводит слабые удары и сбивает прицел стрелкам.",
     effect = { family = "Щит стихии", kind = "buff", school = "magic", mods = { armor = 10, defense = 12 } },
 })
@@ -3273,7 +3512,7 @@ AddEffect({
     -- Каменная кожа (Шаман, круг 1). Отщеплён от «eff_stone_skin».
     id   = "eff_stone_skin_stone_skin",
     name = "Каменная кожа",
-    icon = "Interface\\Icons\\Spell_nature_stoneskintotem",
+    icon = "Interface\\Icons\\Spell_nature_skinofearth",
     description = "Плоть покрыта камнем. Держит удар заметно лучше живой, но двигаться в такой шкуре тяжело.",
     effect = { kind = "buff", school = "magic", mods = { armor = 20, attack = -10, defense = -5 } },
 })
@@ -3282,7 +3521,7 @@ AddEffect({
     -- Лёгкость ветра (Шаман, круг 2). Отщеплён от «eff_evasion».
     id   = "eff_evasion_lightness_of_the_wind",
     name = "Легкость ветра",
-    icon = "Interface\\Icons\\Spell_shadow_shadowward",
+    icon = "Interface\\Icons\\Ability_shaman_windwalktotem",
     description = "Тело движется раньше, чем разум успевает испугаться: удары проходят мимо.",
     effect = { kind = "buff", school = "magic", mods = { defense = 18 } },
 })
@@ -3291,10 +3530,9 @@ AddEffect({
     -- Ледяные оковы (Шаман, круг 2). Отщеплён от «eff_slowed».
     id   = "eff_slowed_ice_shackles",
     name = "Ледяные оковы",
-    icon = "Interface\\Icons\\Spell_nature_slow",
+    icon = "Interface\\Icons\\Spell_frost_chainsofice",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
-    -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { kind = "debuff", school = "magic", mods = { defense = -18, attack = -5, movePct = -50 } },
+    effect = { family = "Замедление", kind = "debuff", school = "magic", mods = { defense = -18, attack = -5, movePct = -50 } },
 })
 
 AddEffect({
@@ -3303,32 +3541,73 @@ AddEffect({
     name = "Пламенное клеймо",
     icon = "Interface\\Icons\\Spell_fire_flametounge",
     description = "Орудие обёрнуто стихией: к каждому удару добавляется то, от чего доспех не спасает.",
-    effect = { family = "Чары оружия", kind = "buff", school = "magic", mods = { damage = 1 } },
+    -- КЛЕЙМО ГОРИТ НА ОРУЖИИ, А НЕ В РУКАХ МАГА, и потому усиливает
+    -- УДАР, а не огненные заклинания носителя: «к каждому удару
+    -- добавляется то, от чего доспех не спасает». Поставь мы сюда
+    -- damageFire — клеймо на топоре молчало бы при каждом взмахе
+    -- этим топором и разгоняло бы чужой по школе огненный шар.
+
+    -- ЧАРЫ КОРМЯТ УДАР БУРИ. «При наличии у шамана чар на оружии Удар
+    -- Бури также восстанавливает 1 ед. маны» — условие записано ЗДЕСЬ,
+    -- на самих чарах, а не в Ударе Бури: спрашивать «а висит ли на мне
+    -- что-нибудь из семейства» заклинание не умеет, а эффект про себя
+    -- знает всё. Висят двое чар разом — не бывает: семейство одно
+    -- (см. family), и новое вытесняет старое.
+    effect = { family = "Чары оружия", kind = "buff", school = "magic", mods = { damagePhysical = 2 },
+               onAction = {
+                   { when = "cast", spell = "stormstrike", payload = { mana = 1 } },
+                   -- ВСКИПАНИЕ ЛАВЫ БЬЁТ ЗЛЕЕ, ПОКА ГОРИТ КЛЕЙМО.
+                   --
+                   -- «Удваивается» в аддоне выразить нечем: вся арифметика
+                   -- плоская, множителей нет нигде. Зато повод "cast"
+                   -- приходит ДО резолва (см. ConfirmCast), поэтому
+                   -- повешенный им прилив успевает попасть в расчёт урона
+                   -- ТОГО ЖЕ каста — а держится один ход и на следующий
+                   -- взмах уже не влияет.
+                   { when = "cast", spell = "lava_seethe",
+                     effect = "eff_lava_surge", turns = 1 },
+               } },
 })
 
 AddEffect({
     -- Ледяная кайма (Шаман, круг 2). Отщеплён от «eff_weapon_enchant».
     id   = "eff_weapon_enchant_ice_fringe",
     name = "Ледяная кайма",
-    icon = "Interface\\Icons\\Spell_fire_flametounge",
+    icon = "Interface\\Icons\\Inv_weapon_shortblade_37",
     description = "Орудие обёрнуто стихией: к каждому удару добавляется то, от чего доспех не спасает.",
-    effect = { family = "Чары оружия", kind = "buff", school = "magic", mods = { damage = 1 } },
+
+    -- ЧАРЫ КОРМЯТ УДАР БУРИ. «При наличии у шамана чар на оружии Удар
+    -- Бури также восстанавливает 1 ед. маны» — условие записано ЗДЕСЬ,
+    -- на самих чарах, а не в Ударе Бури: спрашивать «а висит ли на мне
+    -- что-нибудь из семейства» заклинание не умеет, а эффект про себя
+    -- знает всё. Висят двое чар разом — не бывает: семейство одно
+    -- (см. family), и новое вытесняет старое.
+    effect = { family = "Чары оружия", kind = "buff", school = "magic", mods = { damagePhysical = 2 },
+               onAction = { when = "cast", spell = "stormstrike", payload = { mana = 1 } } },
 })
 
 AddEffect({
     -- Клеймо молний (Шаман, круг 2). Отщеплён от «eff_weapon_enchant».
     id   = "eff_weapon_enchant_lightning_brand",
     name = "Клеймо молний",
-    icon = "Interface\\Icons\\Spell_fire_flametounge",
+    icon = "Interface\\Icons\\Ability_shaman_stormstrike",
     description = "Орудие обёрнуто стихией: к каждому удару добавляется то, от чего доспех не спасает.",
-    effect = { family = "Чары оружия", kind = "buff", school = "magic", mods = { damage = 1 } },
+
+    -- ЧАРЫ КОРМЯТ УДАР БУРИ. «При наличии у шамана чар на оружии Удар
+    -- Бури также восстанавливает 1 ед. маны» — условие записано ЗДЕСЬ,
+    -- на самих чарах, а не в Ударе Бури: спрашивать «а висит ли на мне
+    -- что-нибудь из семейства» заклинание не умеет, а эффект про себя
+    -- знает всё. Висят двое чар разом — не бывает: семейство одно
+    -- (см. family), и новое вытесняет старое.
+    effect = { family = "Чары оружия", kind = "buff", school = "magic", mods = { damagePhysical = 2 },
+               onAction = { when = "cast", spell = "stormstrike", payload = { mana = 1 } } },
 })
 
 AddEffect({
     -- Каменная корка (Шаман, круг 2). Отщеплён от «eff_weapon_enchant».
     id   = "eff_weapon_enchant_stone_crust",
     name = "Каменная корка",
-    icon = "Interface\\Icons\\Spell_fire_flametounge",
+    icon = "Interface\\Icons\\Spell_nature_rockbiter",
     description = "Орудие обёрнуто стихией: к каждому удару добавляется то, от чего доспех не спасает.",
     effect = { family = "Чары оружия", kind = "buff", school = "magic", mods = { damage = 1 } },
 })
@@ -3337,7 +3616,7 @@ AddEffect({
     -- Пылевой Морок (Шаман, круг 3). Отщеплён от «eff_blinded».
     id   = "eff_blinded_dust_darkness",
     name = "Пылевой морок",
-    icon = "Interface\\Icons\\Spell_shadow_mindsteal",
+    icon = "Interface\\Icons\\Inv_misc_dust",
     description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
     effect = {
         kind  = "debuff", school = "magic",
@@ -3363,7 +3642,8 @@ AddEffect({
     -- Порча (Чернокнижник, круг 1). Отщеплён от «eff_bleeding».
     id   = "eff_corruption",
     name = "Порча",
-    icon = "Interface\\Icons\\Ability_rogue_bloodyeye",
+    damageType = "shadow",
+    icon = "Interface\\Icons\\spell_shadow_abominationexplosion",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
         kind = "debuff", school = "magic",
@@ -3376,18 +3656,22 @@ AddEffect({
     -- Темный оберег (Чернокнижник, круг 1). Отщеплён от «eff_shield».
     id   = "eff_shield_dark_amulet",
     name = "Темный оберег",
-    icon = "Interface\\Icons\\Spell_holy_powerwordshield",
+    icon = "Interface\\Icons\\Inv_jewelry_necklace_04",
     description = "Мерцающая преграда отводит слабые удары и сбивает прицел стрелкам.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 10, defense = 12 } },
+    -- «Ограждая от энергии Тьмы и предотвращая осквернение».
+    effect = { kind = "buff", school = "magic", mods = { resistShadow = 2, armor = 10, defense = 12 } },
 })
 
 AddEffect({
     -- Проклятие стихий (Чернокнижник, круг 1). Отщеплён от «eff_vulnerable».
     id   = "eff_vulnerable_curse_of_elements",
     name = "Проклятие стихий",
-    icon = "Interface\\Icons\\Spell_shadow_curseofachimonde",
+    icon = "Interface\\Icons\\Spell_shadow_chilltouch",
     description = "Защита разобрана изнутри: то, что раньше скользило по доспеху, теперь доходит до тела.",
-    effect = { family = "Проклятие", kind = "debuff", school = "curse", mods = { armor = -20 } },
+    -- «Любые заклинания холода или огня оказывают на цель ДВОЙНОЙ урон».
+    -- Первый дебафф в библиотеке, который бьёт по сопротивлению, — и
+    -- ровно тот случай, ради которого канал принимает минус.
+    effect = { family = "Проклятие", kind = "debuff", school = "curse", mods = { resistFire = -2, resistFrost = -2, armor = -20 } },
 })
 
 AddEffect({
@@ -3396,9 +3680,10 @@ AddEffect({
     name = "Проклятие слабости",
     icon = "Interface\\Icons\\Spell_shadow_curseofmannoroth",
     description = "Доспех тяжелеет, оружие держится без уверенности. Удары выходят вялыми.",
+    -- «АТАКИ ОРУЖИЕМ наносят меньше урона» — записано у автора.
     effect = { family = "Проклятие",
         kind  = "debuff", school = "curse",
-        mods = { attack = -16, damage = -1, movePct = -50 },
+        mods = { attack = -16, damagePhysical = -1, movePct = -50 },
         stats = { ["Мощь"] = -2, ["Атлетика"] = -1 },
     },
 })
@@ -3407,7 +3692,8 @@ AddEffect({
     -- Проклятие агонии (Чернокнижник, круг 2). Отщеплён от «eff_bleeding».
     id   = "eff_bleeding_curse_of_agony",
     name = "Проклятие агонии",
-    icon = "Interface\\Icons\\Ability_rogue_bloodyeye",
+    damageType = "shadow",
+    icon = "Interface\\Icons\\Spell_shadow_curseofsargeras",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = { family = "Проклятие",
         kind = "debuff", school = "curse",
@@ -3438,7 +3724,7 @@ AddEffect({
     -- Вой ужаса (Чернокнижник, круг 4). Отщеплён от «eff_fear».
     id   = "eff_fear_warlock_terror_howl",
     name = "Вой ужаса",
-    icon = "Interface\\Icons\\Spell_shadow_possession",
+    icon = "Interface\\Icons\\Ability_warlock_howlofterror",
     description = "Тело хочет бежать, а не драться. Разум занят чужими кошмарами.",
     effect = { kind = "debuff", school = "magic", mods = { attack = -80 } },
 })
@@ -3447,7 +3733,8 @@ AddEffect({
     -- Кровопускание (Воин, круг 0). Отщеплён от «eff_bleeding».
     id   = "eff_bleeding_rend",
     name = "Кровопускание",
-    icon = "Interface\\Icons\\Ability_rogue_bloodyeye",
+    damageType = "physical",
+    icon = "Interface\\Icons\\Ability_gouge",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
         kind = "debuff", school = "bleed",
@@ -3501,7 +3788,7 @@ AddEffect({
 AddEffect({
     id   = "eff_bloodrage",
     name = "Кровавая ярость",
-    icon = "Interface\\Icons\\Spell_nature_bloodlust",
+    icon = "Interface\\Icons\\Ability_racial_bloodrage",
     description = "Ярость предков вытесняет осторожность: бьёшь чаще и злее, но забываешь защищаться.",
     effect = {
         kind  = "buff",
@@ -3534,7 +3821,21 @@ AddEffect({
     name = "Отражение чар",
     icon = "Interface\\Icons\\Ability_warrior_shieldreflection",
     description = "Тело укрыто слоем затвердевшей магии: удары теряют часть силы, но чары стесняют движения.",
-    effect = { kind = "buff", mods = { armor = 10 }, stats = { ["Воля"] = 15 } },
+    effect = {
+        kind  = "buff",
+        mods  = { armor = 10 },
+        stats = { ["Воля"] = 15 },
+        -- «НЕ ЧТОБЫ ПОГЛОТИТЬ ЕГО, А ЧТОБЫ СБРОСИТЬ ОБРАТНО» — поэтому
+        -- возмездие, а не подавление: заклинание доходит до воина
+        -- полностью и уходит назад тем же весом.
+        --
+        -- ШАНС 50 — это «требует видеть каст: против мгновенных и
+        -- площадных чар угол выставить попросту некогда». Отличить
+        -- мгновенные чары от долгих аддону нечем, а половина случаев —
+        -- честный перевод оговорки в число.
+        onAction = { when = "damaged", magic = true, chance = 50,
+                     toAttacker = "eff_spell_rebound" },
+    },
 })
 
 AddEffect({
@@ -3548,7 +3849,7 @@ AddEffect({
 AddEffect({
     id   = "eff_stone_skin_shield_wall",
     name = "Стена щитов",
-    icon = "Interface\\Icons\\Spell_nature_stoneskintotem",
+    icon = "Interface\\Icons\\Ability_warrior_shieldwall",
     description = "Плоть покрыта камнем. Держит удар заметно лучше живой, но двигаться в такой шкуре тяжело.",
     effect = { kind = "buff", mods = { armor = 50, movePct = -15 } },
 })
@@ -3557,7 +3858,7 @@ AddEffect({
     -- Ярость берсерка (Воин, круг 4). Отщеплён от «eff_bloodlust».
     id   = "eff_bloodlust_berserker_rage",
     name = "Ярость берсерка",
-    icon = "Interface\\Icons\\Spell_nature_bloodlust",
+    icon = "Interface\\Icons\\Spell_nature_ancestralguardian",
     description = "Ярость предков вытесняет осторожность: бьёшь чаще и злее, но забываешь защищаться.",
     effect = {
         kind  = "buff",
@@ -3570,7 +3871,7 @@ AddEffect({
     -- Безудержное восстановление (Воин, круг 4). Отщеплён от «eff_fortitude».
     id   = "eff_fortitude_enraged_regeneration",
     name = "Безудержное восстановление",
-    icon = "Interface\\Icons\\Spell_holy_wordfortitude",
+    icon = "Interface\\Icons\\Ability_warrior_focusedrage",
     description = "Тело помнит, что умеет терпеть больше, чем кажется.",
     effect = { kind = "buff", mods = { maxHealth = 2 } },
 })
@@ -3579,17 +3880,17 @@ AddEffect({
     -- Безрассудство (Воин, круг 5). Отщеплён от «eff_concentration».
     id   = "eff_concentration_recklessness",
     name = "Безрассудство",
-    icon = "Interface\\Icons\\Spell_holy_devotion",
+    icon = "Interface\\Icons\\Ability_criticalstrike",
     description = "Шум, боль и суета вокруг перестают существовать. Есть только замысел и его исполнение.",
     isConcentration = true,
-    effect = { kind = "buff", mods = { crit = 25, damage = 1 }, stats = { ["Ловкость"] = 4, ["Концентрация"] = 5 }, },
+    effect = { kind = "buff", mods = { crit = 10, damage = 1 }, stats = { ["Ловкость"] = 4, ["Концентрация"] = 5 }, },
 })
 
 AddEffect({
     -- Аватара (Воин, круг 5). Отщеплён от «eff_giant_strength».
     id   = "eff_giant_strength_avatar",
     name = "Аватара",
-    icon = "Interface\\Icons\\Spell_nature_strength",
+    icon = "Interface\\Icons\\Warrior_talent_icon_avatar",
     description = "Мышцы наливаются чужой, слишком большой для этого тела мощью. Поднять получается то, что поднимать не следовало.",
     effect = { kind = "buff", stats = { ["Сила"] = 2, ["Мощь"] = 3 } },
 })
@@ -3605,6 +3906,7 @@ AddEffect({
 AddEffect({
     id   = "eff_burning_pain",
     name = "Жгучая боль",
+    damageType = "fire",
     icon = "Interface\\Icons\\Spell_shadow_painandsuffering",
     description = "Пораженная цель ощущает, как ее кровь закипает и заставляет владельца полыхать.",
     effect = { kind = "debuff", school = "magic", tick = { damage = 2 } },
@@ -3623,10 +3925,6 @@ AddEffect({
     name = "Смертельный удар",
     icon = "Interface\\Icons\\Ability_warrior_savageblow",
     description = "Оставлена глубокая рана, которую практически невозможно излечить.",
-    -- healTaken, а не heal: рана мешает ЗАКРЫТЬ ЕЁ, а не мешает раненому
-    -- лечить других. До появления канала «получаемое исцеление» стояло
-    -- второе, и «Смертельный удар» по лекарю ослаблял его лечение
-    -- союзникам, а сам он лечился как ни в чём не бывало.
     effect = { kind = "debuff", school = "magic", mods = { healTaken = -2 } },
 })
 
@@ -3659,7 +3957,7 @@ AddEffect({
     name = "Оборонительная стойка",
     icon = "Interface\\Icons\\Ability_warrior_defensivestance",
     description = "Воин полагается на крепкий щит и броню, с которой сливается воедино для пущей крепости.",
-    effect = { kind = "buff", family = "Стойка", mods = { defense = 10, damage = -1 }, tick = { resource = 1 } },
+    effect = { kind = "buff", family = "Стойка", tick = { armor    = 15 }, mods = { damage = -1 }, },
 })
 
 AddEffect({
@@ -3689,6 +3987,7 @@ AddEffect({
 AddEffect({
     id   = "eff_explosive_trap",
     name = "Взрывная ловушка",
+    damageType = "fire",
     icon = "Interface\\Icons\\Spell_fire_selfdestruct",
     description = "Цель наступит на ловушку, оставленную охотником, оказавшись подожженой в последствии.",
     effect = { kind = "debuff", tick = { damage = 2 } },
@@ -3697,7 +3996,253 @@ AddEffect({
 AddEffect({
     id   = "eff_burn",
     name = "Поджег",
+    damageType = "fire",
     icon = "Interface\\Icons\\Spell_fire_flamebolt",
     description = "Сгорает в магическом пламени!",
     effect = { kind = "debuff", school = "magic", tick = { damage = 1 } },
+})
+-- ============================================================
+-- ШАМАН: ОРУЖЕЙНАЯ ВЕТКА
+--
+-- Здесь впервые используется onAction — эффект, срабатывающий НА
+-- ДЕЙСТВИЕ носителя (см. врезку в Core/ActiveEffects.lua). До него
+-- «восстанавливает ману успешными ударами» выражалось только куском
+-- кода в пути резолва.
+-- ============================================================
+
+AddEffect({
+    id   = "eff_ritual_practices",
+    name = "Ритуальные практики",
+    icon = "Interface\\Icons\\Spell_shaman_totemrecall",
+    description = "Духи четырёх стихий слушают вполуха, но малую просьбу исполняют без спора.",
+    effect = { kind = "buff", stats = { ["Ремесло"] = 1 } },
+})
+
+AddEffect({
+    id   = "eff_stormstrike",
+    name = "Удар Бури",
+    damageType = "nature",
+    icon = "Interface\\Icons\\Ability_shaman_stormstrike",
+    description = "По телу гуляет разряд, и следующий удар по этой цели ищет открытое место сам.",
+    effect = { kind = "debuff", school = "magic",
+               mods = { defense = -12, resistNature = -1 } },
+})
+
+AddEffect({
+    id   = "eff_shaman_fury",
+    name = "Ярость шамана",
+    icon = "Interface\\Icons\\Spell_nature_shamanrage",
+    description = "Боль отходит на второй план, а каждый удар возвращает силу.",
+    -- РЕЗИСТ, А НЕ ПРОЦЕНТ. Тридцати процентов снижения в аддоне выразить
+    -- нечем: вся арифметика тут плоская, множителей нет нигде. Единица
+    -- общего сопротивления — это и есть примерно треть обычного удара
+    -- (2-4), только считается тем же способом, что и всё остальное.
+    --
+    -- onAction: удар в ближнем бою возвращает ману. «15% от силы атаки»
+    -- переведено в ту же плоскую шкалу — единица за удар; долей от
+    -- модификатора атаки это дало бы 3-6 маны за удар при максимуме пула
+    -- в десять, то есть полный источник за два взмаха.
+    effect = {
+        -- «Заклинание можно применить, будучи оглушённым»: раз ярость
+        -- пробивает оглушение при накладывании, глупо было бы дать
+        -- следующему удару оглушить заново.
+        suppress = { "Оглушение" },
+        kind     = "buff",
+        family   = "Стойка шамана",
+        mods     = { resistAll = 1, defense = 6 },
+        onAction = { when = "hit", melee = true, payload = { mana = 1 } },
+    },
+})
+
+AddEffect({
+    id   = "eff_elemental_spirit_edge",
+    name = "Ярость четырёх",
+    icon = "Interface\\Icons\\Shaman_talent_elementalblast",
+    description = "Стихии откликнулись и не спешат уходить: рука сама находит слабое место.",
+    effect = { kind = "buff", mods = { crit = 4 } },
+})
+
+AddEffect({
+    id   = "eff_lava_seethe",
+    name = "Вскипание лавы",
+    damageType = "fire",
+    icon = "Interface\\Icons\\Spell_shaman_lavasurge",
+    description = "Ожог не затягивается и не даёт держать оружие уверенно.",
+    effect = { kind = "debuff", school = "magic",
+               mods = { attack = -12, damagePhysical = -1 },
+               stats = { ["Мощь"] = -1 },
+               tick = { damage = 1 } },
+})
+
+AddEffect({
+    id   = "eff_ring_of_fire",
+    name = "Кольцо огня",
+    damageType = "fire",
+    icon = "Interface\\Icons\\Spell_shaman_improvedfirenova",
+    description = "Доспех оплавлен, металл прикипел к телу и мешает двигаться.",
+    effect = { kind = "debuff", school = "magic",
+               mods = { armor = -10, movePct = -25 },
+               tick = { damage = 1 } },
+})
+
+AddEffect({
+    id   = "eff_totem_of_wrath",
+    name = "Тотем гнева",
+    icon = "Interface\\Icons\\Spell_fire_totemofwrath",
+    description = "Рядом гудит тотем, и чужие чары идут злее обычного.",
+    effect = { kind = "buff", family = "Тотем",
+               mods = { damageMagic = 1, crit = 1 } },
+})
+
+AddEffect({
+    id   = "eff_mana_tide_totem",
+    name = "Тотем прилива маны",
+    icon = "Interface\\Icons\\Spell_frost_summonwaterelemental",
+    description = "Рядом плещет тотем, и источник наполняется сам собой.",
+    -- Шесть процентов пула перевести не во что: пул у всех разный и
+    -- считается целыми числами. Единица за ход при максимуме в десять —
+    -- те же примерно десять процентов, но в шкале, которая тут есть.
+    effect = { kind = "buff", family = "Тотем", tick = { mana = 1 } },
+})
+
+AddEffect({
+    id   = "eff_spirit_sight",
+    name = "Духовный взор",
+    icon = "Interface\\Icons\\Spell_shaman_spiritwalkersgrace",
+    description = "Завеса приоткрыта: невидимое видно как есть, а бестелесное — полупрозрачными образами.",
+    effect = { kind = "buff", stats = { ["Интуиция"] = 2, ["Анализ"] = 1 } },
+})
+
+AddEffect({
+    id   = "eff_weapon_enchant_life_of_earth",
+    name = "Жизнь Земли",
+    icon = "Interface\\Icons\\Spell_nature_natureguardian",
+    description = "Орудие обвито живым корнем: каждый удар отдаёт часть силы обратно тому, кто его держит.",
+
+    -- ЧАРЫ КОРМЯТ УДАР БУРИ. «При наличии у шамана чар на оружии Удар
+    -- Бури также восстанавливает 1 ед. маны» — условие записано ЗДЕСЬ,
+    -- на самих чарах, а не в Ударе Бури: спрашивать «а висит ли на мне
+    -- что-нибудь из семейства» заклинание не умеет, а эффект про себя
+    -- знает всё. Висят двое чар разом — не бывает: семейство одно
+    -- (см. family), и новое вытесняет старое.
+    effect = { family = "Чары оружия", kind = "buff", school = "magic",
+               mods = { damagePhysical = 1, heal = 1 },
+               onAction = { when = "cast", spell = "stormstrike", payload = { mana = 1 } } },
+})
+
+AddEffect({
+    id   = "eff_water_shield_burst",
+    name = "Всплеск сферы",
+    icon = "Interface\\Icons\\Spell_frost_summonwaterelemental_2",
+    description = "Лопнувшая сфера окатила водой: огонь берёт хуже, а раны затягиваются сами.",
+    effect = { kind = "buff", school = "magic",
+               mods = { resistFire = 1 }, tick = { heal = 1 } },
+})
+
+AddEffect({
+    id   = "eff_retribution_flare",
+    name = "Вспышка воздаяния",
+    damageType = "holy",
+    icon = "Interface\\Icons\\Spell_holy_auraoflight",
+    description = "Свет ответил на удар: ожог от него не гаснет сам собой.",
+    effect = { kind = "debuff", school = "magic", tick = { damage = 1 } },
+})
+
+AddEffect({
+    id   = "eff_lightning_lash",
+    name = "Разряд щита",
+    damageType = "nature",
+    icon = "Interface\\Icons\\Spell_nature_lightningshield",
+    description = "Молния ударила в того, кто дотянулся, и разряд ещё гуляет по телу.",
+    effect = { kind = "debuff", school = "magic", tick = { damage = 1 } },
+})
+
+AddEffect({
+    id   = "eff_feedback_burn",
+    name = "Отдача чар",
+    damageType = "arcane",
+    icon = "Interface\\Icons\\Spell_arcane_arcanetorrent",
+    description = "Собственное заклинание вернулось в руки: чары жгут изнутри, и следующее даётся тяжелее.",
+    effect = { kind = "debuff", school = "magic",
+               mods = { attack = -10 }, tick = { damage = 1 } },
+})
+
+AddEffect({
+    id   = "eff_stone_claw_stun",
+    name = "Ударная волна",
+    damageType = "physical",
+    icon = "Interface\\Icons\\Spell_nature_stoneclawtotem",
+    description = "Земля ударила в ответ: в голове звенит, ноги не слушаются.",
+    effect = { kind = "debuff", family = "Оглушение",
+               mods = { attack = -35, defense = -20, movePct = -50 } },
+})
+
+AddEffect({
+    id   = "eff_stone_claw",
+    name = "Каменный Коготь",
+    icon = "Interface\\Icons\\Spell_nature_stoneclawtotem",
+    description = "Тело укрыто камнем, и камень отвечает сам: удар по шаману отдаётся ударной волной в того, кто его нанёс.",
+    -- ПОЛОВИНА, КАК У АВТОРА: «удары по служителю Стихий могут с
+    -- вероятностью 50% оглушить неприятеля ответной ударной волной».
+    effect = { kind = "buff", family = "Стойка шамана", school = "magic",
+               mods = { armor = 15, defense = 8 },
+               onAction = { when = "damaged", chance = 50,
+                            toAttacker = "eff_stone_claw_stun" } },
+})
+
+AddEffect({
+    id   = "eff_lava_surge",
+    name = "Прилив лавы",
+    icon = "Interface\\Icons\\Spell_shaman_lavasurge",
+    description = "Клеймо на оружии вскипело: пламя идёт гуще обычного.",
+    effect = { kind = "buff", school = "magic", mods = { damageFire = 2 } },
+})
+
+-- ── ОТВЕТЫ ТЕХ, КОГО УДАРИЛИ ────────────────────────────
+--
+-- Возмездие живёт один ход: срока у контейнера нет, а значит вешается
+-- на ход (см. SB.Logic.GetEffectDuration). Ровно то, что нужно —
+-- шип уколол, холод обжёг, искры погасли.
+
+AddEffect({
+    id   = "eff_thorn_prick",
+    name = "Укол шипов",
+    icon = "Interface\\Icons\\Spell_nature_thorns",
+    description = "Колючка вошла глубоко и обломилась. Кровь идёт не переставая.",
+    -- «Претерпевают колющие ранения и могут начать обильно истекать
+    -- кровью» — школа bleed, а урон физический: шип есть шип.
+    effect = { kind = "debuff", school = "bleed", tick = { damage = 1 } },
+    damageType = "physical",
+})
+
+AddEffect({
+    id   = "eff_frost_armor_chill",
+    name = "Охлаждение",
+    icon = "Interface\\Icons\\Spell_frost_frostarmor02",
+    description = "Руки коченеют от чужого доспеха. Движения стали короче.",
+    -- «Наносит обычный урон, но одновременно подвергается охлаждению»:
+    -- урона в ответ описание не обещает — только замедление.
+    effect = { kind = "debuff", school = "magic", family = "Замедление",
+               mods = { movePct = -25 } },
+    damageType = "frost",
+})
+
+AddEffect({
+    id   = "eff_fire_cape_burn",
+    name = "Занялся пламенем",
+    icon = "Interface\\Icons\\Spell_fire_sealoffire",
+    description = "Одежда занялась от чужого плаща. Сбить это с себя нечем.",
+    effect = { kind = "debuff", school = "magic", tick = { damage = 1 } },
+    damageType = "fire",
+})
+
+AddEffect({
+    id   = "eff_spell_rebound",
+    name = "Отражённые чары",
+    icon = "Interface\\Icons\\Ability_warrior_shieldreflection",
+    description = "Собственное заклинание вернулось с чужого щита.",
+    -- Двойка, а не единица: чары вернулись целиком, а не задели краем.
+    -- Платой за это стоит шанс — угол успевает выставить не каждый.
+    effect = { kind = "debuff", school = "magic", tick = { damage = 2 } },
+    damageType = "arcane",
 })

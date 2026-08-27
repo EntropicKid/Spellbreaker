@@ -187,7 +187,7 @@ local function MakeText(bar)
         -- Цвет и тень НЕ трогаем: они пришли с объектом шрифта, и
         -- перебивать их своими значило бы снова разойтись с клиентом.
     else
-        fs:SetFontObject(_G.TextStatusBarText or "GameFontHighlightSmall")
+        fs:SetFontObject(_G.TextStatusBarText or "SBFontHighlightSmall")
         fs:SetPoint("CENTER", bar, "CENTER", 0, 0)
         fs:SetJustifyH("CENTER")
         fs:SetTextColor(1, 1, 1)
@@ -254,7 +254,18 @@ end
 --- присланных по сети. nil, если про этого игрока данных нет (нет
 --- аддона, не поделился, ещё не ответил) — такую рамку не трогаем.
 local function AddonValues(unit)
-    if not UnitExists(unit) or not UnitIsPlayer(unit) then return nil end
+    if not UnitExists(unit) then return nil end
+
+    -- СУЩЕСТВА ИДУТ СВОИМ ПУТЁМ. У игрока источник правды — он сам, и
+    -- его цифры приезжают в STATUS. У НПС своего клиента нет вовсе:
+    -- настройки вида лежат локально, текущее состояние держит владелец
+    -- сцены и рассылает остальным (см. врезки в Core/NPC.lua).
+    if not UnitIsPlayer(unit) then
+        if not SB.NPC or not SB.NPC.GetState then return nil end
+        local st = SB.NPC.GetState(unit)
+        if not st then return nil end
+        return st.hp, st.maxHp, st.res, st.maxRes
+    end
 
     if UnitIsUnit(unit, "player") then
         if not SpellbreakerCharDB or not SB.PlayerModel then return nil end
@@ -284,6 +295,25 @@ local function ProbeUnit(unit)
     if name then SB.Net.ProbePlayerStatus(name) end
 end
 
+--- Существо в цели — поделиться его состоянием с группой.
+---
+--- ЗЕРКАЛО ProbeUnit, ВЫВЕРНУТОЕ НАИЗНАНКУ. У игрока состояние
+--- спрашивают: он сам себе источник правды. У НПС спрашивать некого —
+--- правду держит владелец сцены, и это он обязан ею поделиться, когда
+--- существо попало кому-то на глаза. Без этого у остальных записи о
+--- тушке нет вовсе, и полоска показала бы им шаблонные цифры вместо
+--- настоящих — то есть полное здоровье у уже раненого.
+local function ShareNpcState(unit)
+    if not SB.NPC then return end
+    if not UnitExists(unit) or UnitIsPlayer(unit) then return end
+    if not IsInGroup() then return end
+    -- Владелец делится своей правдой, остальные — спрашивают чужую.
+    -- Обе функции сами проверяют, их ли это дело, поэтому развилки здесь
+    -- нет: у владельца тихо выйдет вторая, у прочих — первая.
+    if SB.NPC.ShareState   then SB.NPC.ShareState(unit)   end
+    if SB.NPC.RequestState then SB.NPC.RequestState(unit) end
+end
+
 local function ProbeTarget()
     -- Спрашиваем, если работает хоть одна половина оверлея: аурам цели
     -- нужен ровно тот же чужой статус, что и её числам.
@@ -291,6 +321,9 @@ local function ProbeTarget()
     if not SB.Net or not SB.Net.ProbePlayerStatus then return end
     ProbeUnit("target")
     ProbeUnit("targettarget")
+    -- Существа — не спрашиваем, а сообщаем (см. ShareNpcState).
+    ShareNpcState("target")
+    ShareNpcState("targettarget")
 end
 
 --- Догоняем сокомандников, про которых мы вообще ничего не знаем.
@@ -334,25 +367,73 @@ function SB.Overlay.SetEnabled(v)
 end
 
 --- Подмена ванильных БАФФОВ/ДЕБАФФОВ эффектами аддона — настройка
---- ОТДЕЛЬНАЯ от подмены чисел и выключена по умолчанию. Убрать с экрана
---- всю панель баффов — вмешательство заметнее, чем поправить подпись на
---- полоске, и включать его игрок должен сам.
-function SB.Overlay.AreAurasEnabled()
+-- ============================================================
+-- ДВЕ ПОДМЕНЫ АУР, А НЕ ОДНА
+--
+-- Раньше это была одна галочка на оба случая — «свои и цели», — и
+-- выключена по умолчанию. Оказалось, что случаи разные настолько, что
+-- их и умолчания должны быть разными.
+--
+-- СВОЯ ПАНЕЛЬ — ВМЕШАТЕЛЬСТВО. Панель баффов игрока показывает НАСТОЯЩИЕ
+-- ауры: еду, свитки, ауру паладина. Спрятать её целиком — значит отнять
+-- у человека то, чем он пользуется вне отыгрыша, поэтому включать это он
+-- должен сам.
+--
+-- АУРЫ ЦЕЛИ — НАОБОРОТ. Про чужого персонажа настоящие ауры не говорят
+-- ничего из того, что нужно в сцене, а эффекты аддона говорят всё: чем
+-- он закрыт, что на нём висит, сколько осталось. Ради этого их и
+-- рассылают. Поэтому здесь умолчание — ВКЛЮЧЕНО, и оно же
+-- распространяется на тех, кто ничего не настраивал.
+--
+-- СТАРАЯ ГАЛОЧКА (blizzAuras) ОСТАЛАСЬ ЗНАЧИМОЙ: тот, кто включил её
+-- раньше, включал подмену для обоих случаев, и молча забрать у него
+-- половину было бы неверно — см. чтение ниже.
+-- ============================================================
+
+--- Подменять СВОЮ панель баффов. Выключено по умолчанию.
+function SB.Overlay.AreOwnAurasEnabled()
     local db = SpellbreakerAccountDB
-    return db ~= nil and db.blizzAuras == true
+    if not db then return false end
+    if db.ownAuras ~= nil then return db.ownAuras == true end
+    -- Явного выбора нет — смотрим на прежнюю общую галочку.
+    return db.blizzAuras == true
 end
 
-function SB.Overlay.SetAurasEnabled(v)
+--- Подменять ауры ЦЕЛИ. Включено по умолчанию.
+function SB.Overlay.AreTargetAurasEnabled()
+    local db = SpellbreakerAccountDB
+    if not db then return true end
+    if db.targetAuras ~= nil then return db.targetAuras == true end
+    -- Отсутствие значения — это «не выбирал», и здесь оно означает
+    -- «включено»: см. врезку выше.
+    return true
+end
+
+--- Включена ли подмена аур ХОТЬ ГДЕ-ТО. Нужна условиям, которые решают,
+--- трогать ли чужой интерфейс вообще.
+function SB.Overlay.AreAurasEnabled()
+    return SB.Overlay.AreOwnAurasEnabled() or SB.Overlay.AreTargetAurasEnabled()
+end
+
+function SB.Overlay.SetOwnAurasEnabled(v)
     v = v and true or false
-    if SpellbreakerAccountDB then
-        SpellbreakerAccountDB.blizzAuras = v
-    end
-    if SBOverlayAuraChk then SBOverlayAuraChk:SetChecked(v) end
+    if SpellbreakerAccountDB then SpellbreakerAccountDB.ownAuras = v end
+    if SBOverlayOwnAuraChk then SBOverlayOwnAuraChk:SetChecked(v) end
 end
 
+function SB.Overlay.SetTargetAurasEnabled(v)
+    v = v and true or false
+    if SpellbreakerAccountDB then SpellbreakerAccountDB.targetAuras = v end
+    if SBOverlayTgtAuraChk then SBOverlayTgtAuraChk:SetChecked(v) end
+end
+
+--- «/sb overlay auras» — переключает ОБЕ разом: команда одна, и
+--- разводить её на две ради настройки, которая живёт в панели, незачем.
 function SB.Overlay.ToggleAuras()
-    SB.Overlay.SetAurasEnabled(not SB.Overlay.AreAurasEnabled())
-    return SB.Overlay.AreAurasEnabled()
+    local on = not SB.Overlay.AreAurasEnabled()
+    SB.Overlay.SetOwnAurasEnabled(on)
+    SB.Overlay.SetTargetAurasEnabled(on)
+    return on
 end
 
 function SB.Overlay.Toggle()
@@ -404,13 +485,239 @@ local writing = false
 --- Пересчёт в долю чинит весь этот класс разом: у клиента остаются его
 --- настоящие числа, и любая чужая арифметика поверх полоски — хоть
 --- близзардовская, хоть из другого аддона — считает по ним верно.
-local function SetBar(bar, cur, maxVal)
+-- ============================================================
+-- ЧТО ОВЕРЛЕЙ ДОРИСОВЫВАЕТ СУЩЕСТВАМ
+--
+-- У игрока клиент рисует всё сам, и аддону остаётся переписать числа. У
+-- существа клиент рисует ЧУЖУЮ правду: уровень мира вместо назначенного
+-- Ведущим, зелёную рамку у того, кого сцена объявила врагом, и пустоту
+-- вместо полоски ресурса, которой у волка в мире нет. Всё это
+-- приходится дорисовывать здесь.
+--
+-- ВОЗВРАЩАЕМ ЛИ МЫ ЭТО НАЗАД. Да, и тем же приёмом, что подписи:
+-- запоминаем исходное состояние при захвате рамки и восстанавливаем при
+-- отпускании (см. RestoreEntry). Чужой интерфейс мы одалживаем, а не
+-- присваиваем.
+-- ============================================================
+
+--- Существо ли это (а не игрок), и знает ли о нём аддон.
+local function IsNpcUnit(unit)
+    if not unit or not UnitExists(unit) or UnitIsPlayer(unit) then return false end
+    return (SB.NPC and SB.NPC.HasState and SB.NPC.HasState(unit)) or false
+end
+
+-- ЦВЕТА БЕРЁМ У КЛИЕНТА, А НЕ ПОДБИРАЕМ СВОИ.
+--
+-- Свои были приглушённее клиентских, и рядом с рамкой игрока это сразу
+-- бросалось в глаза: у одного полоска сочная, у другого тусклая, хотя
+-- обе «зелёные». Ошибка была не в оттенке, а в самой затее подбирать
+-- оттенок отдельно — совпасть на глаз с чужой палитрой нельзя, а
+-- разойтись легко.
+--
+-- Клиент держит их в двух местах: реакцию (свой/чужой) в
+-- FACTION_BAR_COLORS, ресурсы — в PowerBarColor по токену вида "MANA",
+-- "RAGE". Запасные значения ниже нужны только на случай, если глобали
+-- переехали: они полной насыщенности, как у клиента, а не приглушённые.
+local FALLBACK_HP_FRIEND = { 0.10, 0.90, 0.10 }
+local FALLBACK_HP_ENEMY  = { 0.90, 0.10, 0.10 }
+
+--- Цвет реакции: зелёный своим, красный чужим — ровно тот, которым
+--- клиент красит рамки сам.
+local function ReactionColor(friendly)
+    -- ИНДЕКСЫ — СТУПЕНИ ОТНОШЕНИЯ, И СЧИТАТЬ ИХ НАДО ОТ ЕДИНИЦЫ:
+    -- 1 ненавидит, 2 враждебен, 3 недружелюбен, 4 НЕЙТРАЛЕН, 5 дружелюбен.
+    -- Пятёрка — зелёный, четвёрка — ЖЁЛТЫЙ; на четвёрке я и ошибся, и
+    -- дружественное существо получало болотно-жёлтую полоску вместо
+    -- зелёной. Ровно то «странное» на скриншоте с медведем.
+    local fbc = _G.FACTION_BAR_COLORS
+    local c = fbc and fbc[friendly and 5 or 2]
+    if c and c.r then return { c.r, c.g, c.b } end
+    return friendly and FALLBACK_HP_FRIEND or FALLBACK_HP_ENEMY
+end
+
+-- ИМЯ РЕСУРСА → ТОКЕН КЛИЕНТА. Список ресурсов у существа выводится из
+-- игроцкого (SB.NPC.ResourceList), а он — из SB.Data.ClassResourceNames,
+-- то есть имена здесь те же самые, что видит игрок на своей полоске.
+-- Здесь ровно те имена, что существуют в аддоне, и ни одним больше:
+-- пять из SB.Data.ClassResourceNames плюс «Мана». Заведёшь про запас
+-- «Чи» или «Боль» — и первый же читатель решит, что такой ресурс у
+-- существа бывает, хотя выбрать его в редакторе нельзя.
+local POWER_TOKEN = {
+    ["Мана"]            = "MANA",
+    ["Ярость"]          = "RAGE",
+    ["Энергия"]         = "ENERGY",
+    ["Фокус"]           = "FOCUS",
+    ["Руническая сила"] = "RUNIC_POWER",
+}
+
+--- Цвет ресурса существа. По ИМЕНИ, а не по пулу: пул различает всего
+--- два случая, а клиентская палитра — все, и ярость у существа обязана
+--- быть той же красной, что у воина рядом.
+local function ResourceColor(resourceName)
+    local token = POWER_TOKEN[resourceName]
+    local c     = token and _G.PowerBarColor and _G.PowerBarColor[token]
+    if c and c.r then return { c.r, c.g, c.b } end
+    -- Незнакомое имя — мана: тот же запасной путь, что у SB.NPC.PoolFor.
+    local m = _G.PowerBarColor and _G.PowerBarColor.MANA
+    if m and m.r then return { m.r, m.g, m.b } end
+    return { 0.00, 0.35, 1.00 }
+end
+
+--- Покрасить полоску существа. У игроков не трогаем ничего: там цвет
+--- клиента верен, и лезть в него незачем.
+local function PaintBar(slot, unit)
+    local bar = slot.bar
+    if not bar or not bar.SetStatusBarColor then return end
+
+    if not IsNpcUnit(unit) then
+        -- Отпускаем: вернуть цвет можем только тому, у кого его забирали.
+        if slot.sbColor then
+            local c = slot.sbColor
+            bar:SetStatusBarColor(c[1], c[2], c[3], c[4] or 1)
+            slot.sbColor = nil
+        end
+        return
+    end
+
+    if not slot.sbColor and bar.GetStatusBarColor then
+        slot.sbColor = { bar:GetStatusBarColor() }
+    end
+
+    local want
+    if slot.kind == "health" then
+        want = ReactionColor(SB.NPC.IsFriendlyTo and SB.NPC.IsFriendlyTo(unit))
+    else
+        local stats = SB.NPC.StatsForUnit and SB.NPC.StatsForUnit(unit)
+        want = ResourceColor(stats and stats.resourceName)
+    end
+
+    -- СРАВНИВАЕМ С ТЕМ, ЧТО РЕАЛЬНО НА ПОЛОСКЕ, а не со своим прошлым
+    -- намерением. Клиент перекрашивает полоски сам — на смену цели, на
+    -- смену типа ресурса, на пересборку рамки, — и «я уже красил в
+    -- оранжевый» ничего не значит: поверх давно лежит его синий. Пока
+    -- сравнение шло с собственным кешем, ресурс существа оставался
+    -- синим независимо от выставленного: первый раз мы красили верно, а
+    -- дальше молчали, потому что «уже покрашено».
+    local r, g, b = bar:GetStatusBarColor()
+    if math.abs((r or 0) - want[1]) > 0.01
+       or math.abs((g or 0) - want[2]) > 0.01
+       or math.abs((b or 0) - want[3]) > 0.01 then
+        bar:SetStatusBarColor(want[1], want[2], want[3], 1)
+    end
+end
+
+-- Подписи уровня у ванильных рамок. Только те две, где уровень вообще
+-- показывают: у рамок группы и у цели цели его нет.
+local LEVEL_TEXTS = {
+    player = function() return _G.PlayerLevelText end,
+    target = function()
+        return _G.TargetFrameTextureFrameLevelText
+            or (_G.TargetFrame and _G.TargetFrame.TextFrame
+                and _G.TargetFrame.TextFrame.LevelText)
+    end,
+}
+
+--- Показать УРОВЕНЬ ИЗ РЕДАКТОРА, а не уровень тушки в мире.
+---
+--- Ведущий выставил «Ополченцу» четырнадцатый уровень, а сервер держит
+--- его двадцать вторым — и все броски аддона считаются по
+--- четырнадцатому (SB.NPC.DefenseModifier), пока рамка показывает
+--- двадцать второй. Из двух чисел на экране верно ровно одно, и это не
+--- то, что рисует клиент.
+---
+--- СРАВНИВАЕМ С ЖИВОЙ ПОДПИСЬЮ, А НЕ СО СВОИМ КЕШЕМ. Клиент переписывает
+--- уровень при каждой пересборке рамки цели, то есть на каждое взятие в
+--- таргет; собственный кеш заставлял промолчать ровно тогда, когда
+--- писать и надо было. Отсюда и «уровень верный, пока не возьмёшь
+--- существо в цель повторно».
+---
+--- ОТПУСКАЯ РАМКУ, ПИШЕМ УРОВЕНЬ ИЗ МИРА, а не запомненную строку.
+--- Запомненная — это уровень ПРОШЛОЙ цели: перевёл взгляд с существа на
+--- игрока — и на его рамке осталось бы чужое число. Клиент бы его
+--- поправил своим обновлением, но полагаться на то, что обновление
+--- придёт, нельзя: своё принудительное число мы уже написали.
+local function PaintLevel(e)
+    local get = LEVEL_TEXTS[e.unit]
+    local fs  = get and get()
+    if not fs then return end
+
+    local npc = IsNpcUnit(e.unit)
+    if not npc and not e.levelTaken then return end
+
+    local want
+    if npc then
+        local stats = SB.NPC.StatsForUnit and SB.NPC.StatsForUnit(e.unit)
+        local lvl   = stats and tonumber(stats.level)
+        if not lvl then return end
+        want = tostring(math.floor(lvl))
+    else
+        -- Ровно то, что написал бы сам клиент. «??» — его же способ
+        -- сказать «уровень выше, чем ты можешь разглядеть».
+        local lvl = UnitExists(e.unit) and UnitLevel(e.unit) or nil
+        want = (lvl and lvl > 0) and tostring(lvl) or "??"
+    end
+
+    if npc and not e.levelTaken then
+        e.levelTaken = true
+        if fs.GetTextColor then e.levelColor = { fs:GetTextColor() } end
+    end
+
+    if fs:GetText() ~= want then fs:SetText(want) end
+
+    if npc then
+        -- Цвет ванильного уровня означает «насколько он тебе опасен», и
+        -- к уровню сцены это отношения не имеет. Красим ровным золотом,
+        -- тем же, что и остальные подписи аддона.
+        fs:SetTextColor(1, 0.82, 0)
+    else
+        e.levelTaken = false
+        if e.levelColor then
+            fs:SetTextColor(unpack(e.levelColor))
+            e.levelColor = nil
+        end
+    end
+end
+
+--- @param ownScale boolean|nil  завести шкалу самим, если у полоски её
+---        нет. Нужно ресурсу существа: у волка в мире нет ни маны, ни
+---        ярости, и клиент такую полоску не заводит вовсе.
+local function SetBar(bar, cur, maxVal, ownScale)
     if not bar then return end
     if maxVal <= 0 then maxVal = 1 end
     cur = math.max(0, math.min(cur, maxVal))
 
     local lo, hi = bar:GetMinMaxValues()
     lo, hi = tonumber(lo) or 0, tonumber(hi) or 0
+
+    -- ШКАЛЫ У ПОЛОСКИ МОЖЕТ НЕ БЫТЬ ВОВСЕ, и это обычное дело у существ:
+    -- у волка в мире нет ни маны, ни ярости, поэтому клиент оставляет
+    -- полоску ресурса пустой — 0..0. Раньше мы на этом молча выходили, и
+    -- получалось то, на что и пожаловались: цифры «8/8» написаны, а под
+    -- ними прозрачная пустота.
+    --
+    -- Заводим шкалу сами. Здоровья это не касается: у живого юнита
+    -- шкала здоровья есть всегда, а её отсутствие означало бы, что
+    -- клиент про него ещё ничего не знает, — там выходить правильно.
+    if ownScale and maxVal > 0 then
+        -- ЗАПОМИНАЕМ, ЧТО БЫЛО, и только потом занимаем: полоску мы
+        -- одалживаем, а не присваиваем, и вернуть её надо ровно в том
+        -- виде, в каком взяли (см. ReleaseScale).
+        if not bar.__sbScale then
+            bar.__sbScale = { lo = lo, hi = hi, shown = bar:IsShown() }
+        end
+        if hi <= lo or hi ~= maxVal then
+            local prevW = writing
+            writing = true
+            bar:SetMinMaxValues(0, maxVal)
+            writing = prevW
+            lo, hi = 0, maxVal
+        end
+        -- Show каждый раз, а не однажды: клиент прячет полоску ресурса
+        -- обратно на каждой пересборке рамки цели, и одного показа при
+        -- захвате не хватает.
+        if not bar:IsShown() then bar:Show() end
+    end
+
     -- Клиент ещё не проставил шкалу (или у юнита её нет вовсе) — тогда
     -- накладывать нечего: подпись с числами аддона и так на месте.
     if hi <= lo then return end
@@ -430,6 +737,18 @@ local function SetBar(bar, cur, maxVal)
     writing = prev
 end
 
+--- Вернуть полоске её собственную шкалу и видимость.
+local function ReleaseScale(bar)
+    if not bar or not bar.__sbScale then return end
+    local was = bar.__sbScale
+    bar.__sbScale = nil
+    local prevW = writing
+    writing = true
+    bar:SetMinMaxValues(was.lo or 0, was.hi or 0)
+    if was.shown then bar:Show() else bar:Hide() end
+    writing = prevW
+end
+
 --- Значения аддона для ОДНОЙ полоски. Отдельно от ApplyEntry, потому
 --- что перехватчику ниже нужно вернуть на место ровно одну полоску,
 --- а не перебирать всю рамку.
@@ -440,8 +759,9 @@ local function ReapplySlot(slot)
     if not hp then return end
     local cur, mx
     if slot.kind == "health" then cur, mx = hp, hpMax else cur, mx = res, resMax end
-    SetBar(slot.bar,  tonumber(cur) or 0, tonumber(mx) or 0)
-    SetBar(slot.loss, tonumber(cur) or 0, tonumber(mx) or 0)
+    local own = (slot.kind ~= "health") and IsNpcUnit(e.unit)
+    SetBar(slot.bar,  tonumber(cur) or 0, tonumber(mx) or 0, own)
+    SetBar(slot.loss, tonumber(cur) or 0, tonumber(mx) or 0, own)
 end
 
 --- Возвращает наши значения В ТОТ ЖЕ КАДР, когда клиент переписал
@@ -449,7 +769,8 @@ end
 --- мелькнуть до ближайшего тика (до 0.1с) — заметная «задержка».
 --- Тик при этом остаётся страховкой на случай, если полоску изменили
 --- не через SetValue.
-local function GuardBar(slot)
+--- @param entry table  запись рамки: нужна перекраске, чтобы знать юнита
+local function GuardBar(slot, entry)
     if slot.bar.__sbBarGuarded then return end
     slot.bar.__sbBarGuarded = true
     local function guard()
@@ -458,6 +779,28 @@ local function GuardBar(slot)
     end
     hooksecurefunc(slot.bar, "SetValue", guard)
     hooksecurefunc(slot.bar, "SetMinMaxValues", guard)
+
+    -- ЦВЕТ ВОЗВРАЩАЕМ В ТОТ ЖЕ КАДР, что и значения.
+    --
+    -- Немедленной перекладки на PLAYER_TARGET_CHANGED не хватило, и это
+    -- закономерно: клиент красит полоску не только в этом событии. За
+    -- ним идут UNIT_FACTION, UNIT_HEALTH, пересборка рамки — каждый
+    -- красит заново, и до нашего тика (до 0.1с) на экране успевал
+    -- мелькнуть ванильный цвет. Тик тут в принципе не помощник: он
+    -- приходит ПОСЛЕ кадра, в котором уже нарисовали чужое.
+    --
+    -- Тем же приёмом, что подписи (GuardBlizzText) и значения (выше):
+    -- не догонять, а перехватывать саму запись.
+    if slot.bar.SetStatusBarColor then
+        hooksecurefunc(slot.bar, "SetStatusBarColor", function()
+            if writing or not active then return end
+            if not entry or not entry.applied then return end
+            local prev = writing
+            writing = true
+            PaintBar(slot, entry.unit)
+            writing = prev
+        end)
+    end
 end
 
 --- Запоминает, как выглядела ванильная подпись ДО того, как мы заняли
@@ -471,7 +814,7 @@ local function RememberBlizzardText(e)
             slot.blizzAlpha[key] = fs:GetAlpha()
             GuardBlizzText(fs, slot)
         end)
-        GuardBar(slot)
+        GuardBar(slot, e)
     end
 end
 
@@ -482,6 +825,17 @@ end
 local function RestoreEntry(e)
     if not e.applied then return end
     e.applied = false   -- ДО показа подписей: иначе GuardBlizzText спрячет их обратно
+
+    -- ЦВЕТ И УРОВЕНЬ ВОЗВРАЩАЕМ ЗДЕСЬ ЖЕ. Обе функции сами разбирают,
+    -- существо перед ними или нет, и на игроке (или на пустой рамке)
+    -- отдают взятое обратно. Раньше отпускание шло только через
+    -- ApplyEntry, а он на рамке без данных выходит раньше — красная
+    -- полоска существа так и оставалась бы на взятом следом игроке.
+    for _, slot in ipairs(e.slots) do
+        PaintBar(slot, nil)
+        ReleaseScale(slot.bar)
+    end
+    PaintLevel(e)
 
     local unit   = e.unit
     local exists = UnitExists(unit)
@@ -561,9 +915,13 @@ local function ApplyEntry(e)
             fs:SetAlpha(0)
             fs:Hide()
         end)
-        SetBar(slot.bar,  cur, mx)
-        SetBar(slot.loss, cur, mx)
+        local own = (slot.kind ~= "health") and IsNpcUnit(e.unit)
+        SetBar(slot.bar,  cur, mx, own)
+        SetBar(slot.loss, cur, mx, own)
+        PaintBar(slot, e.unit)
     end
+
+    PaintLevel(e)
 end
 
 -- ============================================================
@@ -592,11 +950,12 @@ end
 -- ДАННЫЕ КЛИЕНТА НЕ ТРОГАЕМ: ванильные кнопки только прячутся, аур с
 -- персонажа никто не снимает. Выключение возвращает всё на место.
 --
--- Настройка ОТДЕЛЬНАЯ от подмены чисел (blizzAuras) и по умолчанию
--- выключена — см. SB.Overlay.AreAurasEnabled.
+-- Настройки ОТДЕЛЬНЫЕ от подмены чисел, и их две — на свою панель и на
+-- рамку цели, с разными умолчаниями (см. врезку «ДВЕ ПОДМЕНЫ АУР»).
 -- ============================================================
 
-local AURA_SIZE    = 28    -- сторона иконки
+local AURA_SIZE    = 30    -- сторона ОПРАВЫ (картинка внутри — меньше на врезку)
+local AURA_INSET   = 3     -- поле оправы вокруг картинки, как у сетки эффектов
 local AURA_GAP     = 4     -- зазор между иконками
 local AURA_PER_ROW = 10    -- сколько влезает в ряд, дальше перенос
 local AURA_ROW_GAP = 6     -- зазор между рядами
@@ -633,26 +992,56 @@ local function AuraTooltip(self)
 end
 
 local function MakeAuraIcon(host)
-    local b = CreateFrame("Button", nil, host)
+    -- ТА ЖЕ ОПРАВА, ЧТО У СЕТКИ ЭФФЕКТОВ (см. MakeSlot в
+    -- Core/ActiveEffects.lua): та же подложка-карточка со скруглённым
+    -- краем, тот же материал. Раньше здесь была голая цветная плашка на
+    -- пиксель больше иконки — рядом с оправленными иконками своего окна
+    -- она выглядела чужой, будто из другого аддона.
+    local b = CreateFrame("Button", nil, host, "BackdropTemplate")
     b:SetSize(AURA_SIZE, AURA_SIZE)
+    if b.SetBackdrop then
+        local C = SB.Theme.C
+        b:SetBackdrop(SB.Theme.BD.card)
+        b:SetBackdropColor(C.cardBg[1], C.cardBg[2], C.cardBg[3], C.cardBg[4])
+    end
 
-    -- Рамка цветом типа эффекта — сплошной подложкой чуть больше иконки.
-    -- Цвета берём у сетки эффектов (SB.ActiveEffects.KindColor), чтобы
-    -- «синее — концентрация, красное — дебафф» читалось одинаково и в
-    -- окне аддона, и здесь.
-    b.border = b:CreateTexture(nil, "BACKGROUND")
-    b.border:SetPoint("TOPLEFT", -1, 1)
-    b.border:SetPoint("BOTTOMRIGHT", 1, -1)
-
+    -- Цвет типа эффекта уходит В КРАЙ ОПРАВЫ, а не в подложку под ней:
+    -- «синее — концентрация, красное — дебафф» читается так же, а
+    -- скруглением занимается сама оправа.
     b.icon = b:CreateTexture(nil, "ARTWORK")
-    b.icon:SetAllPoints()
+    b.icon:SetPoint("TOPLEFT",     AURA_INSET, -AURA_INSET)
+    b.icon:SetPoint("BOTTOMRIGHT", -AURA_INSET, AURA_INSET)
     b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
-    b.count = b:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
-    b.count:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", 2, 0)
+    b.count = b:CreateFontString(nil, "OVERLAY", "SBFontNumberSmall")
+    b.count:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", 1, 1)
 
     b:SetScript("OnEnter", AuraTooltip)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    -- ПКМ СНИМАЕТ ЭФФЕКТ С СУЩЕСТВА — и только с существа, и только у
+    -- владельца сцены.
+    --
+    -- У игрока такой ручки здесь нет намеренно: свои эффекты снимаются в
+    -- сетке аддона, а чужие снимать с его рамки нельзя вовсе. У существа
+    -- же сетки нет — оно не носит интерфейса, — и без этой ручки Ведущий
+    -- не смог бы отменить ошибочно наложенное ничем, кроме перезахода.
+    b:RegisterForClicks("RightButtonUp")
+    b:SetScript("OnClick", function(self, button)
+        if button ~= "RightButton" then return end
+        if not self._npc then return end
+        if not (SB.NPC and SB.NPC.IsOwner and SB.NPC.IsOwner()) then
+            SB.UI.PrintMsg("npcNotOwner")
+            return
+        end
+        if SB.NPC.RemoveEffect(self._npc, self._spellID) then
+            local sp = SB.Data.Spells[self._spellID]
+            print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BODY ..
+                "эффект «" .. ((sp and sp.name) or self._spellID) ..
+                "» снят с цели.|r")
+            GameTooltip:Hide()
+        end
+    end)
     return b
 end
 
@@ -666,6 +1055,41 @@ local function AuraSignature(list)
             (eff.isConc and "c" or "")
     end
     return table.concat(parts, "|")
+end
+
+--- Подпись остатка на одной иконке — «сколько ещё висит», временем и в
+--- короткой форме: иконка размером с ноготь.
+---
+--- ЖИВЁТ ОТДЕЛЬНО ОТ ПЕРЕКЛАДКИ, и это главное. Перекладка идёт по
+--- СОСТАВУ списка (см. AuraSignature) и потому случается раз в ход, а
+--- подпись обязана убывать КАЖДУЮ СЕКУНДУ. Пока она строилась внутри
+--- перекладки, «54с» стояли неподвижно шесть секунд и прыгали сразу на
+--- «48с» — таймер выглядел сломанным, хотя счёт шёл верно.
+---
+--- У бессрочного эффекта uses отрицательный, и подписи он не получает
+--- вовсе: ему нечего отсчитывать.
+local function SetAuraCount(b)
+    if not b or not b._uses then return end
+    local txt = ""
+    if b._uses >= 0 then
+        local left = SB.ActiveEffects and SB.ActiveEffects.SecondsLeft
+            and SB.ActiveEffects.SecondsLeft(b._uses)
+        txt = left and SB.UI.SecondsAsTimeShort(left)
+            or SB.UI.TurnsAsTimeShort(b._uses)
+    end
+    -- Сравниваем со строкой, которая РЕАЛЬНО стоит: подпись переживает
+    -- перекладку, и свой кеш разошёлся бы с ней на первой же смене
+    -- состава (та же беда, что была у цвета полосок и уровня).
+    if b.count:GetText() ~= txt then b.count:SetText(txt) end
+end
+
+--- Обновить подписи остатка на всех иконках хоста. Зовётся с тика: сам
+--- по себе состав при этом не трогается.
+local function RefreshAuraCounts(host)
+    if not host or not host.icons then return end
+    for _, b in ipairs(host.icons) do
+        if b:IsShown() then SetAuraCount(b) end
+    end
 end
 
 --- Раскладывает список эффектов по иконкам хоста. Иконки переиспользуются:
@@ -689,13 +1113,16 @@ local function LayoutAuraHost(host, list)
             b._spellID = spellID
             b._uses    = tonumber(eff.uses)
             b._isConc  = eff.isConc == true
+            -- Юнит запоминаем только у существа: ПКМ по иконке снимает
+            -- эффект, и снимать его можно ровно с него (см. MakeAuraIcon).
+            b._npc     = host.npcUnit
 
             b.icon:SetTexture(sp.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
             local c = SB.ActiveEffects.KindColor(spellID, b._isConc)
-            b.border:SetColorTexture(c[1], c[2], c[3], c[4] or 1)
-            -- Число — это «сколько ходов ещё висит». У бессрочного
-            -- эффекта uses отрицательный, и подписи он не получает.
-            b.count:SetText((b._uses and b._uses >= 0) and tostring(b._uses) or "")
+            if b.SetBackdropBorderColor then
+                b:SetBackdropBorderColor(c[1], c[2], c[3], c[4] or 1)
+            end
+            SetAuraCount(b)
 
             local col = (n - 1) % AURA_PER_ROW
             local row = math.floor((n - 1) / AURA_PER_ROW)
@@ -741,7 +1168,11 @@ local function EnsureAuraHosts()
     t:SetSize(1, 1)
     t.icons, t.growLeft = {}, false
     if _G.TargetFrame then
-        t:SetPoint("TOPLEFT", _G.TargetFrame, "BOTTOMLEFT", 20, -2)
+        -- ПОДЖАТО К САМОЙ РАМКЕ. Прежние отступы отрывали ряд от
+        -- портрета, и иконки читались как висящие сами по себе, а не как
+        -- ауры этой цели. Портрет занимает левый край рамки, поэтому ряд
+        -- по-прежнему начинается правее его — но вплотную по высоте.
+        t:SetPoint("TOPLEFT", _G.TargetFrame, "BOTTOMLEFT", 14, 12)
     else
         t:SetPoint("TOPLEFT", UIParent, "CENTER", 0, 0)
     end
@@ -841,7 +1272,22 @@ end
 --- Эффекты аддона, висящие на цели. nil — данных нет (нет аддона, не
 --- делится, ещё не ответила): такую рамку не трогаем.
 local function TargetAddonAuras()
-    if not UnitExists("target") or not UnitIsPlayer("target") then return nil end
+    if not UnitExists("target") then return nil end
+
+    -- СУЩЕСТВО — ТЕМ ЖЕ РЯДОМ ИКОНОК, что игрок. Список эффектов у него
+    -- намеренно той же формы ({ spellID, uses }, см. Core/NPCEffects.lua):
+    -- заведи он свою — под него пришлось бы писать вторую раскладку,
+    -- второй тултип и вторую подпись остатка.
+    --
+    -- Запись есть — значит список актуален; пустой список означает
+    -- «эффектов нет», а не «данных нет». Отсутствие записи — «эту тушку
+    -- мы ещё не видели», и чужие ауры на её рамке трогать не за что.
+    if not UnitIsPlayer("target") then
+        if not (SB.NPC and SB.NPC.GetEffects and SB.NPC.HasState) then return nil end
+        if not SB.NPC.HasState("target") then return nil end
+        return SB.NPC.GetEffects("target")
+    end
+
     if UnitIsUnit("target", "player") then
         return SB.ActiveEffects and SB.ActiveEffects.GetAll() or nil
     end
@@ -859,14 +1305,21 @@ end
 local function RefreshAuras()
     -- Свой переключатель, но тот же «мирный режим»: подмена чисел может
     -- быть выключена, а подмена аур — работать, и наоборот.
-    local want = SB.Overlay.AreAurasEnabled() and IsPeaceful()
+    --
+    -- ДВА ОТДЕЛЬНЫХ УСЛОВИЯ: своя панель и рамка цели включаются
+    -- независимо (см. врезку «ДВЕ ПОДМЕНЫ АУР»).
+    local peace     = IsPeaceful()
+    local wantOwn   = SB.Overlay.AreOwnAurasEnabled()    and peace
+    local wantTgt   = SB.Overlay.AreTargetAurasEnabled() and peace
+    local want      = wantOwn or wantTgt
 
     -- Ни разу не включали — не трогаем чужой интерфейс вовсе.
     if not want and not auraHosts then return end
     local hosts = EnsureAuraHosts()
 
-    if want then
+    if wantOwn then
         LayoutAuraHost(hosts.player, SB.ActiveEffects and SB.ActiveEffects.GetAll())
+        RefreshAuraCounts(hosts.player)
         hosts.player:Show()
         SetOwnBlizzAuras(true)
     else
@@ -874,9 +1327,12 @@ local function RefreshAuras()
         SetOwnBlizzAuras(false)
     end
 
-    local list = want and TargetAddonAuras() or nil
+    local list = wantTgt and TargetAddonAuras() or nil
+    hosts.target.npcUnit = (list and UnitExists("target")
+        and not UnitIsPlayer("target")) and "target" or nil
     if list then
         LayoutAuraHost(hosts.target, list)
+        RefreshAuraCounts(hosts.target)
         hosts.target:Show()
         targetAurasHidden = true
         HideTargetBlizzAuras()
@@ -1023,8 +1479,18 @@ local function HideAllTurnIcons()
 end
 
 local function RefreshTurnMarks()
-    local want = SB.Overlay.IsEnabled()
-        and SB.TurnOrder and SB.TurnOrder.IsActive()
+    -- ОТМЕТКИ ХОДА НЕ ЗАВИСЯТ ОТ ПОДМЕНЫ ЧИСЕЛ, и это правка по жалобе
+    -- «галочек и кружков нет, а раньше были».
+    --
+    -- Здесь стояла проверка SB.Overlay.IsEnabled() — то есть галочки на
+    -- рамках пропадали вместе с настройкой «показывать числа аддона на
+    -- рамках». Настройки это разные: числа — про то, чьё здоровье
+    -- показывать, а отметка «походил» — про очередь ходов, которая идёт
+    -- независимо. Выключив числа (или не найдя, что их выключило),
+    -- Ведущий терял ЕДИНСТВЕННЫЙ способ увидеть, кто уже отыграл.
+    --
+    -- Условие теперь ровно одно и по существу: идёт пошаговый режим.
+    local want = SB.TurnOrder and SB.TurnOrder.IsActive()
         and GetTime() >= readyCheckUntil
 
     if not want then
@@ -1129,6 +1595,15 @@ driver:SetScript("OnEvent", function(_, event)
 
     elseif event == "PLAYER_TARGET_CHANGED" or event == "UNIT_TARGET" then
         ProbeTarget()
+        -- ПЕРЕКЛАДЫВАЕМ НЕМЕДЛЕННО, не дожидаясь тика. Клиент собирает
+        -- рамку новой цели прямо в этом событии, и до ближайшего тика
+        -- (до 0.1с) на ней успевали мелькнуть ванильные цифры и цвета —
+        -- то самое «полоски на мгновение мерцают, прежде чем принять
+        -- должный вид». Перехватчик (GuardBar) закрывает всё, что клиент
+        -- перепишет ПОСЛЕ, но первую отрисовку новой рамки закрыть
+        -- нечем: нашего значения на ней ещё нет — его и ставит этот
+        -- вызов.
+        Refresh()
 
     elseif event == "GROUP_ROSTER_UPDATE" then
         -- Состав изменился — рамки под ним перетасуются, и значок,
@@ -1143,7 +1618,12 @@ driver:SetScript("OnEvent", function(_, event)
     elseif event == "READY_CHECK" then
         -- Своё окно молчания с запасом: клиент даёт на ответ полминуты,
         -- а событие об окончании придёт и снимет запрет раньше.
-        readyCheckUntil = GetTime() + 60
+        -- МОЛЧИМ НЕ МИНУТУ, А ПОЛМИНУТЫ. Окно снимается событием
+        -- READY_CHECK_FINISHED, но полагаться только на него нельзя: не
+        -- придёт оно (сервер, отменённая проверка) — и отметки пропали
+        -- бы на целую минуту посреди боя без всякой видимой причины.
+        -- Само окно проверки живёт тридцать секунд, этого и довольно.
+        readyCheckUntil = GetTime() + 30
         HideAllTurnIcons()
 
     elseif event == "READY_CHECK_FINISHED" then
@@ -1188,3 +1668,10 @@ SB.Events.On(SB.E.PLAYERS_STATUS_UPDATED, Refresh)
 -- Очередь сдвинулась — отметки на рамках должны переехать сразу, а не
 -- через тик: «походил» видно по чужой рамке в тот же миг.
 SB.Events.On(SB.E.TURN_ORDER_CHANGED,     Refresh)
+-- Состояние существа изменилось — у владельца от удара, у остальных от
+-- присланного лидером. Полоска цели обязана поехать в тот же миг.
+SB.Events.On(SB.E.NPC_STATE_CHANGED,      Refresh)
+-- Настройки вида правили в библиотеке: у уже увиденных особей
+-- пересчитан максимум (см. SB.NPC.RestatState), и цифры на рамке
+-- устарели.
+SB.Events.On(SB.E.NPC_LIST_CHANGED,       Refresh)

@@ -7,10 +7,6 @@
 local addonName, SB = ...
 SB.MinimapButton = SB.MinimapButton or {}
 
--- Публичная заглушка, чтобы другие файлы не падали,
--- если библиотеки миникарты не найдены.
-function SB.MinimapButton.UpdateHoverCard() end
-
 if not LibStub then
     print("|cFFFF0000[Spellbreaker]: LibStub не найден. Кнопка миникарты отключена.|r")
     return
@@ -167,7 +163,7 @@ local function BuildHoverCard()
 
     hoverCard:HookScript("OnHide", CancelHideTimer)
 
-    local title = hoverCard:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local title = hoverCard:CreateFontString(nil, "OVERLAY", "SBFontNormal")
     title:SetPoint("TOP", hoverCard, "TOP", 0, -8)
     title:SetText("Spellbreaker")
     title:SetTextColor(C.titleText[1], C.titleText[2], C.titleText[3])
@@ -258,7 +254,7 @@ local function BuildHoverCard()
     sep:SetPoint("TOPRIGHT", logsBtn, "BOTTOMRIGHT", 0, -7)
     sep:SetColorTexture(C.divider[1], C.divider[2], C.divider[3], C.divider[4])
 
-    local hints = hoverCard:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local hints = hoverCard:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
     hints:SetPoint("TOPLEFT", sep, "BOTTOMLEFT", 0, -6)
     hints:SetPoint("RIGHT",   sep, "RIGHT",      0, 0)
     hints:SetJustifyH("LEFT")
@@ -336,11 +332,6 @@ function ShowHoverCard(anchor)
     end
     card:Show()
 
-    UpdateHoverCardState()
-end
-
--- Публичная функция для других модулей.
-function SB.MinimapButton.UpdateHoverCard()
     UpdateHoverCardState()
 end
 

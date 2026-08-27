@@ -9,7 +9,7 @@ optPanel.name = "Spellbreaker"
 InterfaceOptions_AddCategory(optPanel)
 
 -- Заголовок
-local title = optPanel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+local title = optPanel:CreateFontString(nil, "ARTWORK", "SBFontLarge")
 title:SetPoint("TOPLEFT", 16, -16)
 title:SetText("Spellbreaker")
 
@@ -26,11 +26,11 @@ sep:SetColorTexture(0.3, 0.3, 0.3, 1)
 -- то есть меняла шансы одному игроку и со стороны выглядела мухлежом.
 -- Осталась только справка о том, что реально влияет на грани.
 
-local rollHeader = optPanel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+local rollHeader = optPanel:CreateFontString(nil, "ARTWORK", "SBFontNormal")
 rollHeader:SetPoint("TOPLEFT", sep, "BOTTOMLEFT", 0, -16)
 rollHeader:SetText("Бросок кубика")
 
-local rollInfo = optPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+local rollInfo = optPanel:CreateFontString(nil, "ARTWORK", "SBFontHighlight")
 rollInfo:SetPoint("TOPLEFT", rollHeader, "BOTTOMLEFT", 0, -10)
 rollInfo:SetWidth(500)
 rollInfo:SetJustifyH("LEFT")
@@ -43,7 +43,7 @@ sep2:SetSize(500, 1)
 sep2:SetPoint("TOPLEFT", rollInfo, "BOTTOMLEFT", 0, -20)
 sep2:SetColorTexture(0.3, 0.3, 0.3, 1)
 
-local addHeader = optPanel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+local addHeader = optPanel:CreateFontString(nil, "ARTWORK", "SBFontNormal")
 addHeader:SetPoint("TOPLEFT", sep2, "BOTTOMLEFT", 0, -10)
 addHeader:SetText("Дополнительно")
 
@@ -54,7 +54,7 @@ local function MakeCheckRow(parent, anchor, anchorY, labelText, dbKey, onToggle,
     local chk = CreateFrame("CheckButton", globalName, parent, "UICheckButtonTemplate")
     chk:SetSize(20, 20)
     chk:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, anchorY)
-    local lbl = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    local lbl = parent:CreateFontString(nil, "ARTWORK", "SBFontHighlight")
     lbl:SetPoint("LEFT", chk, "RIGHT", 4, 0)
     lbl:SetText(labelText)
     -- Подпись держим на самой галочке: её нужно гасить вместе с ней,
@@ -104,7 +104,7 @@ local animOptChk = MakeCheckRow(optPanel, hideOptChk, -8,
     "Плавные переходы в интерфейсе",
     "animations")
 
-local animHint = optPanel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+local animHint = optPanel:CreateFontString(nil, "ARTWORK", "SBFontDisableSmall")
 animHint:SetPoint("TOPLEFT", animOptChk, "BOTTOMLEFT", 24, 0)
 animHint:SetWidth(480)
 animHint:SetJustifyH("LEFT")
@@ -128,29 +128,98 @@ local overlayOptChk = MakeCheckRow(optPanel, animHint, -10,
     end,
     "SBOverlayChk")   -- ищется из SB.Overlay.SetEnabled
 
-local overlayHint = optPanel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+local overlayHint = optPanel:CreateFontString(nil, "ARTWORK", "SBFontDisableSmall")
 overlayHint:SetPoint("TOPLEFT", overlayOptChk, "BOTTOMLEFT", 24, 0)
 overlayHint:SetText("Отключается сам в бою и на 5 секунд после урона вне боя " ..
     "— чтобы было видно настоящие значения.")
 
--- Подмена АУР — отдельной настройкой от подмены чисел (см. UI/Overlay.lua).
+-- Подмена АУР — двумя отдельными настройками, и это не дробление ради
+-- дробления: своя панель показывает настоящие ауры, которыми игрок
+-- пользуется вне отыгрыша, а панель цели — только то, что к отыгрышу и
+-- относится. Отсюда и разные умолчания (см. врезку «ДВЕ ПОДМЕНЫ АУР» в
+-- UI/Overlay.lua).
 local auraOptChk = MakeCheckRow(optPanel, overlayHint, -10,
-    "Показывать эффекты аддона вместо игровых баффов/дебаффов (своих и цели)",
-    "blizzAuras",
+    "Заменить отображение собственных баффов/дебаффов",
+    "ownAuras",
     function(val)
         if SB.Overlay then
-            SB.Overlay.SetAurasEnabled(val)
+            SB.Overlay.SetOwnAurasEnabled(val)
             SB.Overlay.Refresh()
         end
     end,
-    "SBOverlayAuraChk")   -- ищется из SB.Overlay.SetAurasEnabled
+    "SBOverlayOwnAuraChk")   -- ищется из SB.Overlay.SetOwnAurasEnabled
 
-local auraHint = optPanel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-auraHint:SetPoint("TOPLEFT", auraOptChk, "BOTTOMLEFT", 24, 0)
+local tgtAuraChk = MakeCheckRow(optPanel, auraOptChk, -4,
+    "Заменить отображение баффов/дебаффов цели",
+    "targetAuras",
+    function(val)
+        if SB.Overlay then
+            SB.Overlay.SetTargetAurasEnabled(val)
+            SB.Overlay.Refresh()
+        end
+    end,
+    "SBOverlayTgtAuraChk")   -- ищется из SB.Overlay.SetTargetAurasEnabled
+
+local auraHint = optPanel:CreateFontString(nil, "ARTWORK", "SBFontDisableSmall")
+auraHint:SetPoint("TOPLEFT", tgtAuraChk, "BOTTOMLEFT", 24, 0)
 auraHint:SetWidth(480)
 auraHint:SetJustifyH("LEFT")
 auraHint:SetText("Своя панель баффов прячется целиком. Ауры цели подменяются " ..
     "только если у неё есть аддон и она делится состоянием — иначе там остаются игровые.")
+
+-- ── Раздел: Шрифт ──────────────────────────────────────────
+--
+-- ВЫПАДАЮЩИЙ СПИСОК, А НЕ ГАЛОЧКА: вариантов больше двух, и сколько их
+-- будет, аддон заранее не знает — с LibSharedMedia сюда попадает всё,
+-- что зарегистрировали соседи по интерфейсу (см. SB.Fonts.List).
+--
+-- ПРИМЕНЯЕТСЯ НЕМЕДЛЕННО, без «ОК». Строки интерфейса смотрят на объект
+-- шрифта, а не на копию его настроек, поэтому подмена видна в тот же
+-- кадр — и выбирать вслепую, а потом перезаходить, не приходится.
+
+local sep3 = optPanel:CreateTexture(nil, "ARTWORK")
+sep3:SetSize(500, 1)
+sep3:SetPoint("TOPLEFT", auraHint, "BOTTOMLEFT", -24, -20)
+sep3:SetColorTexture(0.3, 0.3, 0.3, 1)
+
+local fontHeader = optPanel:CreateFontString(nil, "ARTWORK", "SBFontNormal")
+fontHeader:SetPoint("TOPLEFT", sep3, "BOTTOMLEFT", 0, -10)
+fontHeader:SetText("Шрифт интерфейса")
+
+local fontDrop = CreateFrame("Frame", "SBFontDropdown", optPanel, "UIDropDownMenuTemplate")
+fontDrop:SetPoint("TOPLEFT", fontHeader, "BOTTOMLEFT", -16, -6)
+
+local function FontDropInit(self, level)
+    if not SB.Fonts then return end
+    local current = SB.Fonts.GetChoice()
+    for _, f in ipairs(SB.Fonts.List()) do
+        local info = UIDropDownMenu_CreateInfo()
+        info.text  = f.name
+        info.value = f.name
+        info.checked = (f.name == current)
+        -- Пункт списка рисуется тем шрифтом, который предлагает: выбирать
+        -- начертание по названию — то же самое, что выбирать цвет по
+        -- имени файла. У игрового пункта своего пути нет, и он остаётся
+        -- как есть — что и правильно, он и означает «как в игре».
+        if type(f.path) == "string" and f.path ~= SB.Fonts.GAME then
+            info.fontObject = nil
+        end
+        info.func = function()
+            SB.Fonts.SetChoice(f.name)
+            UIDropDownMenu_SetText(fontDrop, f.name)
+            CloseDropDownMenus()
+        end
+        UIDropDownMenu_AddButton(info, level)
+    end
+end
+
+UIDropDownMenu_Initialize(fontDrop, FontDropInit)
+UIDropDownMenu_SetWidth(fontDrop, 260)
+
+local fontHint = optPanel:CreateFontString(nil, "ARTWORK", "SBFontDisableSmall")
+fontHint:SetPoint("TOPLEFT", fontDrop, "BOTTOMLEFT", 20, -2)
+fontHint:SetWidth(480)
+fontHint:SetJustifyH("LEFT")
 
 -- Синхронизировать все галочки и поля мин/макс с сохранённым
 -- состоянием. Вызывается ДВАЖДЫ намеренно: на SB_INIT (гарантированно
@@ -167,12 +236,12 @@ local function SyncOptionsFromDB()
         rollInfo:SetText(string.format(
             "Всегда %d-%d. Верхняя грань не настраивается.\n" ..
             "Нижняя поднята до %d вашей расой или классом: самые неудачные " ..
-            "грани срезаны, критического провала у вас не бывает.", lo, hi, lo))
+            "грани срезаны, и средний бросок у вас выше.", lo, hi, lo))
     else
         rollInfo:SetText(string.format(
             "Всегда %d-%d. Грани не настраиваются.\n" ..
-            "Поднять нижнюю грань (и убрать критический провал) могут раса " ..
-            "или класс — см. профили в Core/Database.lua.", lo, hi))
+            "Поднять нижнюю грань могут раса или класс — см. профили " ..
+            "в Core/Database.lua.", lo, hi))
     end
 
     if not db then return end
@@ -183,8 +252,27 @@ local function SyncOptionsFromDB()
     animOptChk:SetChecked(db.animations ~= false)
     -- Как и в SB.Overlay.IsEnabled: отсутствующее значение = включено.
     overlayOptChk:SetChecked(db.blizzOverlay ~= false)
-    -- А здесь наоборот: отсутствующее значение = выключено.
-    auraOptChk:SetChecked(db.blizzAuras == true)
+    -- У этих двух умолчания РАЗНЫЕ, и читаем мы их не из базы напрямую,
+    -- а у самого оверлея: там же, где решается, что делать с
+    -- отсутствующим значением и со старой общей галочкой.
+    auraOptChk:SetChecked(SB.Overlay and SB.Overlay.AreOwnAurasEnabled() or false)
+    tgtAuraChk:SetChecked(SB.Overlay and SB.Overlay.AreTargetAurasEnabled() or false)
+
+    if SB.Fonts then
+        UIDropDownMenu_SetText(fontDrop, SB.Fonts.GetChoice())
+        -- Подсказка пишется здесь, а не задаётся один раз: она зависит
+        -- от того, стоит ли у игрока LibSharedMedia, а это выясняется
+        -- только когда все аддоны уже загрузились.
+        if SB.Fonts.LSM() then
+            fontHint:SetText("В списке — встроенный PT Serif и все шрифты, " ..
+                "которые зарегистрировали другие аддоны через LibSharedMedia. " ..
+                "Свои шрифты аддон отдаёт туда же, так что их видно и в других аддонах.")
+        else
+            fontHint:SetText("LibSharedMedia не найдена — в списке только " ..
+                "встроенные начертания. Положите её в Libs, и сюда попадут " ..
+                "все шрифты, которые возят другие аддоны.")
+        end
+    end
 end
 
 local origOnShow = optPanel:GetScript("OnShow")
@@ -212,11 +300,11 @@ barPanel.name   = "Панель способностей"
 barPanel.parent = optPanel.name
 InterfaceOptions_AddCategory(barPanel)
 
-local barTitle = barPanel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+local barTitle = barPanel:CreateFontString(nil, "ARTWORK", "SBFontLarge")
 barTitle:SetPoint("TOPLEFT", 16, -16)
 barTitle:SetText("Панель способностей")
 
-local barIntro = barPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+local barIntro = barPanel:CreateFontString(nil, "ARTWORK", "SBFontHighlight")
 barIntro:SetPoint("TOPLEFT", barTitle, "BOTTOMLEFT", 0, -8)
 barIntro:SetWidth(500)
 barIntro:SetJustifyH("LEFT")
@@ -254,7 +342,7 @@ local barVertChk = MakeCheckRow(barPanel, barLockChk, -6,
         if SB.SpellBar then SB.SpellBar.Relayout() end
     end)
 
-local barVertHint = barPanel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+local barVertHint = barPanel:CreateFontString(nil, "ARTWORK", "SBFontDisableSmall")
 barVertHint:SetPoint("TOPLEFT", barVertChk, "BOTTOMLEFT", 24, 0)
 barVertHint:SetWidth(480)
 barVertHint:SetJustifyH("LEFT")
@@ -268,7 +356,7 @@ local barMoveChk = MakeCheckRow(barPanel, barVertHint, -8,
         if SB.SpellBar then SB.SpellBar.Relayout() end
     end)
 
-local barMoveHint = barPanel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+local barMoveHint = barPanel:CreateFontString(nil, "ARTWORK", "SBFontDisableSmall")
 barMoveHint:SetPoint("TOPLEFT", barMoveChk, "BOTTOMLEFT", 24, 0)
 barMoveHint:SetWidth(480)
 barMoveHint:SetJustifyH("LEFT")
@@ -337,7 +425,7 @@ local barRowsSlider = MakeSliderRow(barPanel, "SBSpellBarRowsSlider",
         SB.SpellBar.Relayout()
     end)
 
-local barRowsHint = barPanel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+local barRowsHint = barPanel:CreateFontString(nil, "ARTWORK", "SBFontDisableSmall")
 barRowsHint:SetPoint("TOPLEFT", barRowsSlider, "BOTTOMLEFT", 0, -8)
 barRowsHint:SetWidth(480)
 barRowsHint:SetJustifyH("LEFT")

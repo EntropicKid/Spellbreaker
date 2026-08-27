@@ -14,7 +14,7 @@ Add({
     resistable = true,
     duration = 100,
     isConcentration = false,
-    distance = 1.5,
+    distance = 2.5,
 	buff = "eff_blessing_might",
 	scaling = {
 		hit    = { ["Дипломатия"] = 1.5, ["Лидерство"] = 0.5 },
@@ -32,7 +32,7 @@ Add({
     description = "Вскидывая оружие или священный символ, вы высвобождаете первозданную силу своей активной Печати и обрушиваете на противника сакральный приговор. Враг оказывается скован невидимыми путами божественного суда, которые удерживают его в течение 2 ходов.\n\nПока над целью довлеет этот приговор, сама её суть оскверняется в глазах небес, превращая нечестивца в невольный источник надежды и сил для ваших союзников. Каждый раз, когда по отмеченному врагу наносится удар, нападающего касается мимолётное, но ощутимое исцеляющее прикосновение Света, залечивающее раны соразмерно жизненной силе самого атакующего, чем больше и живее враг - тем сильнее исцеление, вплоть до среднего исцеления ранений..\n\nВаша вера требует абсолютного сосредоточения. Вы можете поддерживать лишь одно заклинание категории «Правосудие» за раз. Если вы взываете к новому суду, пока действует предыдущий, старый приговор немедленно рассеивается, уступая место новой воле Света.",
     isCantrip = false,
     resistable = true,
-    distance = 9,
+    distance = 10,
 	debuff = "eff_justice_of_light",
     duration = 4,
 	scaling = {
@@ -71,7 +71,7 @@ Add({
     description = "Вы высвобождаете силу своей активной Печати и обрушиваете на противника священный приговор, который клеймит его на непродолчительное время. Скованный волей Света враг лишается малейшей возможности избежать расплаты за свои деяния.\n\nПока действует это возмездие, цель теряет способность трусливо сбежать из сражения и вынуждена оставаться перед лицом вашего праведного суда. Кроме того, её шаг становится тяжёлым, а скорость передвижения резко падает, пресекая любые попытки скрыться от правосудия Света.",
     isCantrip = false,
     resistable = true,
-    distance = 9,
+    distance = 10,
 	debuff = "eff_weakness_justice_of_justice",
     duration = 4,
 	scaling = {
@@ -92,7 +92,7 @@ Add({
     resistable = true,
     duration = 15,
     isConcentration = false,
-    distance = 1.5,
+    distance = 2.5,
 	buff = "eff_evasion_crusaderaura",
 	aoe = { radius = 36 },
 	scaling = {
@@ -113,7 +113,7 @@ Add({
     resistable = true,
     duration = 10,
     isConcentration = false,
-    distance = 1.5,
+    distance = 2.5,
     buff = "eff_greaterblessingofkings",
 	scaling = {
 		hit    = { ["Рвение"] = 1.5, ["Запугивание"] = 1 },
@@ -153,7 +153,7 @@ Add({
     resistable = true,
     duration = 2,
     isConcentration = false,
-    distance = 5,
+    distance = 6,
 	buff = "eff_divine_protection",
 	scaling = {
 		hit    = { ["Ношение брони"] = 1, ["Воля"] = 0.5 },
@@ -167,12 +167,15 @@ Add({
     icon = "Interface\\Icons\\Spell_holy_sealofmight",
     level = 2,
     class = "Паладин",
+    damageType = "holy",
     caura = 400,
     description = "Паладин взывает к Свету, и со всей силы ударяет по своей цели, оглушая её на 1 ход, а также прерывая любые сотворяемые заклинания в моменте.",
     isCantrip = false,
     resistable = true,
     canCrit = true,
-    distance = 5,
+    distance = 6,
+    -- Срок был неявным (запасная единица), теперь записан: «оглушая её на 1 ход» — сказано у автора прямо.
+    duration = 1,
     debuff = "eff_hummer_of_justice",
 	scaling = {
 		hit    = { ["Ношение брони"] = 1.5, ["Воля"] = 0.5 },
@@ -194,7 +197,7 @@ Add({
     resistable = true,
     duration = 1,
     isConcentration = false,
-    distance = 1.5,
+    distance = 2.5,
     buff = "eff_sealofprotection",
 	scaling = {
 		hit    = { ["Ношение брони"] = 1, ["Воля"] = 0.5 },
@@ -212,7 +215,7 @@ Add({
     description = "Паладин выступает вперёд, становясь живым щитом для своего союзника, сияя силой Света. По его повелению до трёх существ, атакующих дружественную цель, вынуждены обратить свой гнев на паладина и перенести свои атаки на него.\n\nПока действует этот эффект, паладин принимает на себя роль защитника, отвлекая врагов от своего соратника и принимая удар на себя.",
     isCantrip = false,
     resistable = true,
-    distance = 5,
+    distance = 6,
     -- Заклинание не делало РОВНО НИЧЕГО: ни эффекта, ни урона, ни
     -- лечения — только бросок в лог. Теперь оно про то, что написано в
     -- описании: паладин встаёт живым щитом, то есть принимает на себя и
@@ -256,7 +259,7 @@ Add({
     resistable = true,
     duration = 3,
     isConcentration = false,
-    distance = 1.5,
+    distance = 2.5,
     buff = "eff_seal_of_valor",
 	scaling = {
 		hit    = { ["Религия"] = 1.5, ["Милосердие"] = 0.5 },
@@ -276,7 +279,7 @@ Add({
     resistable = true,
     duration = 50,
     isConcentration = false,
-    distance = 5,
+    distance = 6,
 	buff = "eff_fortitude_seal_of_kings",
 	scaling = {
 		hit    = { ["Дипломатия"] = 1, ["Лидерство"] = 0.5 },
@@ -296,7 +299,7 @@ Add({
     resistable = true,
     duration = 300,
     isConcentration = false,
-    distance = 5,
+    distance = 6,
 	buff = "eff_weapon_enchant_seal_of_wrath",
 	scaling = {
 		hit    = { ["Ношение брони"] = 1.5, ["Воля"] = 0.5 },
@@ -336,7 +339,7 @@ Add({
     description = "Паладин приносит себя в жертву, взывая к высшим силам Света, чтобы спасти союзника от неминуемой гибели. Избранный член группы немедленно выводится из боя и на 3 минуты оказывается под абсолютным покровительством божественной воли.\n\nПока действует это благословение, враги полностью теряют возможность атаковать защищённую цель. Она становится невосприимчивой ко всем вредоносным воздействиям, однако сама не может совершать никаких действий, оставаясь заключённой в священном стазисе.\n\nЛишь величайшая самоотверженность позволяет паладину совершить этот подвиг, отдавая собственную судьбу в обмен на спасение соратника.",
     isCantrip = false,
     resistable = true,
-    distance = 12,
+    distance = 13,
 	scaling = {
 		hit    = { ["Ношение брони"] = 1.5, ["Воля"] = 0.5 },
 	},
@@ -412,7 +415,7 @@ Add({
     resistable = true,
     duration = 2,
     isConcentration = false,
-    distance = 1.5,
+    distance = 2.5,
     buff = "eff_sealofsacrifice",
 	scaling = {
 		hit    = { ["Ношение брони"] = 1.5, ["Воля"] = 1 },
@@ -431,7 +434,7 @@ Add({
     isCantrip = false,
     resistable = true,
     isHeal = true,
-    distance = 18,
+    distance = 19,
 	scaling = {
 		hit    = { ["Религия"] = 1, ["Милосердие"] = 0.5 },
 		crit   = { ["Рвение"] = 1 },
@@ -469,7 +472,7 @@ Add({
     description = "Вы очищаете дружелюбную цель от одного яда, или болезни. Это заклинание не дает вам иммунитет к болезни.",
     isCantrip = false,
     resistable = true,
-    distance = 1.5,
+    distance = 2.5,
     dispel = { "poison", "disease" },
 	scaling = {
 		hit    = { ["Религия"] = 1, ["Милосердие"] = 0.5 },
@@ -487,7 +490,7 @@ Add({
     description = "Паладин укладывает руку на свою цель, и возносит хвалу Свету, накладывая исцеление ранений равное своему количеству здоровья, так например, полностью здоровый паладин может сотворить среднее исцеление ранений, а тот что на грани смерти - лишь незначительное исцеление ранений.",
     isCantrip = false,
     resistable = true,
-    distance = 1.5,
+    distance = 2.5,
     isHeal = true,
 	scaling = {
 		hit    = { ["Религия"] = 1.5, ["Милосердие"] = 1 },
@@ -507,7 +510,7 @@ Add({
     description = "Если цель упала на грань жизни и смерти, позволяет предотвратить дальнейшую гибель, и вернуть цель к жизни. Оживленный персонаж находится в предсмертном состоянии, и со временем исцелится, повторные удары по нему, вновь могут его добить. Использовать Искупление можно в течении 1 минуты (10 ходов) после смерти субъекта.",
     isCantrip = false,
     resistable = true,
-    distance = 12,
+    distance = 13,
 	scaling = {
 		hit    = { ["Религия"] = 2, ["Милосердие"] = 1 },
 	},
@@ -526,7 +529,7 @@ Add({
     resistable = true,
     duration = -1,
     isConcentration = false,
-    distance = 1.5,
+    distance = 2.5,
 	buff = "eff_wisdom",
 	scaling = {
 		hit    = { ["Дипломатия"] = 1, ["Лидерство"] = 0.5 },
@@ -540,6 +543,7 @@ Add({
     icon = "Interface\\Icons\\Spell_holy_innerfire",
     level = 2,
     class = "Паладин",
+    damageType = "holy",
     caura = 400,
     description = "Паладин возносит хвалу Свету, и его окружает столп сияющей энергии, выжигающий всех существо вокруг. Нежить и демоны получают двойной урон. Освящение длится 2 раунда, оно подавляет воздействие факторов дающих преимущества которыми обладает нежить, или демоны, в тот момент времени, пока она находится в радиусе действия Освящения.",
     isCantrip = false,
@@ -547,7 +551,7 @@ Add({
     canCrit = true,
     duration = 2,
     isConcentration = false,
-    distance = 9,
+    distance = 10,
 	aoe = { radius = 6 },
     container = "eff_consecration",
 	scaling = {
@@ -564,12 +568,13 @@ Add({
     icon = "Interface\\Icons\\Spell_holy_retribution",
     level = 4,
     class = "Паладин",
+    damageType = "holy",
     caura = 400,
     description = "Паладин возносит хвалу Свету, и его окружает столп сияющей энергии, выжигающий всех существо вокруг. Нежить и демоны получают двойной урон. Освящение длится 2 раунда, оно подавляет воздействие факторов дающих преимущества которыми обладает нежить, или демоны, в тот момент времени, пока она находится в радиусе действия Освящения.",
     isCantrip = false,
     resistable = true,
     canCrit = true,
-    distance = 5,
+    distance = 6,
 	scaling = {
 		hit    = { ["Религия"] = 2, ["Милосердие"] = 1 },
 		crit   = { ["Религия"] = 1 },
@@ -609,7 +614,7 @@ Add({
     resistable = true,
     duration = 2,
     isConcentration = false,
-    distance = 1.5,
+    distance = 2.5,
 	buff = "eff_concentration_aura",
 	aoe = { radius = 36 },
 	scaling = {
@@ -628,7 +633,7 @@ Add({
     description = "Паладин указывает перстом в сторону демона, или нежити, и произносит слова молитвы. Демон, или нежить совершают спасбросок и подпадают под эффект Страха, вынужденные бежать прочь в течении 3 раундов.",
     isCantrip = false,
     resistable = true,
-    distance = 5,
+    distance = 6,
 	scaling = {
 		hit    = { ["Религия"] = 1.5, ["Милосердие"] = 0.5 },
 	},
@@ -679,6 +684,7 @@ Add({
     icon = "Interface\\Icons\\Ability_priest_flashoflight",
     level = 3,
     class = "Паладин",
+    damageType = "holy",
     caura = 400,
     description = "Паладин указывает своей фокусировкой в желаемом направлении, и произнося слова силы, взывая к милости Света, выпускает луч божественной энергии, наносящей урон всем, находящимся на линии поражения. Нежить и демоны оказываются оглушены на 1 раунд.",
     isCantrip = false,
@@ -705,7 +711,7 @@ Add({
     resistable = true,
     duration = -1,
     isConcentration = false,
-    distance = 5,
+    distance = 6,
 	debuff = "eff_wisdom",
 	aoe = { radius = 18 },
 	scaling = {
@@ -720,12 +726,13 @@ Add({
     icon = "Interface\\Icons\\Spell_holy_crusaderstrike",
     level = 0,
     class = "Паладин",
+    damageType = "physical",
     caura = 400,
     description = "Паладин наполняет своё оружие священной энергией и наносит мгновенный яростный удар в ближнем бою. Атака наносит урона оружием, подкреплённого дополнительным уроном магии Света.\n\nЭтот фокус пробивает защитную ауру противника и укрепляет веру самого паладина, подготавливая почву для применения более могущественных заклинаний и печатей.",
     isCantrip = true,
     resistable = true,
     canCrit = true,
-    distance = 1.5,
+    distance = 2.5,
 	scaling = {
 		hit    = { ["Рвение"] = 1, ["Запугивание"] = 0.5 },
 		crit   = { ["Точность"] = 1 },
@@ -740,12 +747,13 @@ Add({
     icon = "Interface\\Icons\\Ability_paladin_toweroflight",
     level = 2,
     class = "Паладин",
+    damageType = "holy",
     caura = 400,
     description = "Паладин выставляет длань вперед, обращаясь к собственной душе как к проводнику высшей воли, и незамедлительно низвергает волю небес в виде столпа Света на любого, кого способен узреть.\n\nДля врагов сияние становится испепеляющим возмездием, прожигающим плоть божественным огнем, а для союзников же тот же Свет обращается целебной милостью, смывающей раны и укрепляющей тело. Лишь воля паладина определяет, станет ли небесное пламя карой или спасением.",
     isCantrip = true,
     resistable = true,
     canCrit = true,
-    distance = 18,
+    distance = 19,
 	scaling = {
 		hit    = { ["Религия"] = 1.5, ["Милосердие"] = 0.5 },
 		crit   = { ["Религия"] = 1 },
@@ -760,12 +768,13 @@ Add({
     icon = "Interface\\Icons\\Ability_paladin_divinestorm",
     level = 3,
     class = "Паладин",
+    damageType = "holy",
     caura = 400,
     description = "Паладин обращает скопленный праведный гнев внутри своей души наружу, позволяя Свету вспыхнуть вокруг себя ослепительным ореолом. В одно мгновение божественное сияние окутывает паладина, испепеляя в своем святом шторме всех врагов вокруг паладина.",
     isCantrip = true,
     resistable = true,
     canCrit = true,
-    distance = 1.5,
+    distance = 2.5,
 	aoe = { radius = 5 },
 	scaling = {
 		hit    = { ["Рвение"] = 1.5, ["Запугивание"] = 1 },
@@ -781,12 +790,13 @@ Add({
     icon = "Interface\\Icons\\Spell_paladin_templarsverdict",
     level = 2,
     class = "Паладин",
+    damageType = "holy",
     caura = 400,
     description = "Неизбежный удар, в который воздаятель вложил всю свою священную ярость. Сам Свет теперь ведет его руку, поэтому едва ли противник способен уклониться от заготовленного возмездия. Такой удар не только неотвратим, но и наносит сокрушительный урон. Если цель не умирает от вердикта, она гарантированно оглушается.",
     isCantrip = true,
     resistable = true,
     canCrit = true,
-    distance = 1.5,
+    distance = 2.5,
 	duration = 1,
     debuff = "eff_templars_verdict",
 	scaling = {
@@ -808,7 +818,7 @@ Add({
     isCantrip = true,
     resistable = true,
     canCrit = false,
-    distance = 1.5,
+    distance = 2.5,
     -- ПОЧИНКА ДОСПЕХА — единственная в игре. Броня стала расходуемым
     -- запасом и до сих пор возвращалась только Долгим Отдыхом; «выстоять
     -- под смертельным ударом» и значит, что доспех снова цел. Объём
@@ -832,7 +842,7 @@ Add({
     resistable = true,
     isHeal = true,
     isConcentration = false,
-    distance = 1.5,
+    distance = 2.5,
 	scaling = {
 		hit    = { ["Религия"] = 1.5, ["Милосердие"] = 0.5 },
 		crit   = { ["Рвение"] = 1.5 },
@@ -851,7 +861,7 @@ Add({
     isCantrip = false,
     resistable = true,
     isConcentration = false,
-    distance = 18,
+    distance = 19,
 	duration = 10,
 	debuff = "eff_repentance",
 	scaling = {
@@ -870,7 +880,7 @@ Add({
     isCantrip = false,
     resistable = true,
     isConcentration = false,
-    distance = 9,
+    distance = 10,
 	duration = 600,
     buff = "eff_beaconoflight",
 	scaling = {
