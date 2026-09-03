@@ -2588,11 +2588,15 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
                    or (SB.Data.Config.ConjureDC or 0)
         SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel,
             slotLevel > (spell.level or 0))
-    elseif aimed and SB.Logic.CanDispelLocally(spell) then
+    elseif SB.Logic.CanDispelLocally(spell, aimed) then
         -- РАССЕИВАНИЕ — сам, минуя Ведущего: снимать эффекты умеет только
         -- тот клиент, на котором они висят. Но только когда есть КОГО
         -- чистить: без цели у заклинания с дальностью это уже вопрос к
         -- Ведущему, а не самокаст (см. SB.Logic.CanDispelLocally).
+        --
+        -- aimed уехал ВНУТРЬ проверки, а не остался условием рядом с ней:
+        -- у склянки «на себя» — не отсутствие цели, а сама цель, и
+        -- отбивать её здесь значило бы держать половину правила снаружи.
         SB.Logic.ResolveDispel(spellID, slotLevel)
     elseif aimed and SB.Logic.CanDispelNpc and SB.Logic.CanDispelNpc(spell) then
         -- РАССЕИВАНИЕ С СУЩЕСТВА — сразу за рассеиванием с игрока, и это
@@ -4048,8 +4052,20 @@ end
 --- эффекты с самого заклинателя.
 ---
 --- Дальность 0 — заклинание про себя по определению, ему цель не нужна.
-function SB.Logic.CanDispelLocally(spell)
+---
+--- СКЛЯНКА — ИСКЛЮЧЕНИЕ, И ТО ЖЕ САМОЕ, ЧТО У ЭФФЕКТА И ВЫПЛАТЫ.
+--- Дальность у зелья не «докуда добьёт», а «надо стоять рядом», и
+--- доводом против того, чтобы выпить самому, служить не может (см.
+--- врезку у ItemStaysOnCaster). Пока исключения не было, «Зелье
+--- сопротивления яду» не снимало ничего: выпитое на себя оно уходило
+--- мимо этой ветки — сначала по aimed, потом по дальности, — и
+--- проваливалось в обычный бросок, где рассеивания нет вовсе.
+--- @param aimed boolean|nil  каст НЕ помечен «на себя». nil — не
+---        спрашивали (старые вызовы), и тогда не ограничивает.
+function SB.Logic.CanDispelLocally(spell, aimed)
     if not SB.Logic.GetDispelSchools(spell) then return false end
+    if SB.Items and SB.Items.IsItem and SB.Items.IsItem(spell) then return true end
+    if aimed == false then return false end
     if (tonumber(spell.distance) or 0) <= 0 then return true end
     return UnitExists("target") and UnitIsPlayer("target")
 end
@@ -4064,9 +4080,16 @@ function SB.Logic.ResolveDispel(spellID, slotLevel)
     -- Цель — дружественная и может быть собой. Нет цели вовсе — чистим
     -- себя: это единственное осмысленное умолчание у заклинания,
     -- которое ничего не делает без носителя.
+    --
+    -- «НА СЕБЯ» У СКЛЯНКИ СИЛЬНЕЕ ВЫБРАННОЙ ЦЕЛИ. onSelf — это не
+    -- подсказка, а отмена цели (см. SB.UI.ShowItemUseMenu): кто бы ни
+    -- стоял сейчас в таргете, к этому глотку он отношения не имеет.
+    -- Правило то же, что у эффекта и выплаты склянки, и записано оно
+    -- один раз — в ItemStaysOnCaster.
     local targetName = me
-    if UnitExists("target") and UnitIsPlayer("target")
-       and not UnitIsUnit("target", "player") then
+    local hasOther = UnitExists("target") and UnitIsPlayer("target")
+                     and not UnitIsUnit("target", "player")
+    if hasOther and not ItemStaysOnCaster(spell, true) then
         targetName = UnitName("target")
     end
 

@@ -202,6 +202,36 @@ function SB.Items.EffectSummary(spell)
         end
     end
 
+    -- ── ЧТО СНИМАЕТ (dispel) ────────────────────────────────
+    --
+    -- Строки не было вовсе, и антидот выглядел на карточке пустым: поле
+    -- dispel читал только резолв. Ровно та же болезнь, от которой лечит
+    -- врезка выше — «число живёт в одном месте», — просто с другой
+    -- стороны: здесь механика была, а сказать о ней было нечем.
+    --
+    -- СКОЛЬКО СНИМАЕТ — СПРАШИВАЕМ У ПРАВИЛА, а не пишем словом.
+    -- У предмета круга нет, переплаты тоже, поэтому счёт всегда базовый;
+    -- поменяйся DispelBase — карточка поедет за ним сама.
+    local schools = SB.Logic and SB.Logic.GetDispelSchools
+        and SB.Logic.GetDispelSchools(spell)
+    if schools then
+        -- Порядок из данных, а не из pairs: иначе две одинаковые склянки
+        -- перечисляли бы школы по-разному от запуска к запуску.
+        local names = {}
+        for _, key in ipairs(SB.Data.EffectSchoolOrder or {}) do
+            if schools[key] then
+                local info = SB.Data.EffectSchools[key]
+                names[#names + 1] = (info and info.label) or key
+            end
+        end
+        if #names > 0 then
+            local count = SB.Logic.GetDispelCount(spell, spell.level or 0)
+            lines[#lines + 1] = "|cFFFFD100Снимает:|r " ..
+                table.concat(names, ", ") ..
+                ((count > 1) and (" — до " .. count) or " — один")
+        end
+    end
+
     -- ── НАКЛАДЫВАЕМЫЙ ЭФФЕКТ ────────────────────────────────
     local effID = spell.buff or spell.debuff or spell.container
     if effID and SB.Data.Spells[effID] then
