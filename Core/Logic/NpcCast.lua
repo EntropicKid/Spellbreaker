@@ -411,7 +411,10 @@ function SB.NpcCast.Confirm()
                 -- доставляет, а порог себе мы посчитали точный.
                 if ok then
                     landedOn = landedOn + 1
-                    SB.Logic.ApplyEffect(effectID, spell, spell.level)
+                    -- fromOther: держит существо, а не Ведущий за него.
+                    -- Способность существа с концентрацией иначе занимала
+                    -- бы слот того, кто ей всего лишь управляет.
+                    SB.Logic.ApplyEffect(effectID, spell, spell.level, true)
                 end
                 Say(threshold, ok)
             elseif (not guaranteed) and SB.Net and SB.Net.SendBuff then

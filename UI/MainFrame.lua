@@ -1569,7 +1569,10 @@ local function CardsSignature(prepared, width)
             tostring(SB.Logic.GetSpellRange(sp)),
             tostring(sp and sp.duration or 0),
             tostring(sp and sp.icon or ""),
-            (sp and sp.isConcentration) and "c" or "",
+            -- Через SB.Logic.IsConcentration, как и подпись карточки:
+            -- подпись поменялась бы, а слепок остался прежним — то есть
+            -- ряд не перерисовался бы вовсе.
+            (sp and SB.Logic.IsConcentration(sp)) and "c" or "",
         }, ":")
     end
     return table.concat(parts, "|")
@@ -1822,7 +1825,7 @@ function SB.UI.UpdateSpellCards()
  
             card.icon:SetTexture(card._iconTex)
             -- Концентрация — цветом самого названия (см. CONC_COLOR).
-            card.name:SetText(spell.isConcentration
+            card.name:SetText(SB.Logic.IsConcentration(spell)
                 and (CONC_COLOR .. (spell.name or "Неизвестно") .. "|r")
                 or  (spell.name or "Неизвестно"))
  

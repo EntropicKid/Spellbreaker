@@ -612,7 +612,8 @@ function SB.Logic.HandleAoeEffectReceived(casterName, spellID, effectID, radius,
     local success     = SB.Logic.IsGuaranteed(sourceSpell) or (total >= threshold)
 
     if success then
-        SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel)
+        -- fromOther: залп чужой, концентрацию держит заклинатель.
+        SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, true)
     end
 
     -- Своё сообщение в чат НЕ печатаем (в отличие от HandleBuffReceived):
@@ -782,7 +783,9 @@ function SB.Logic.HandleAoeHealReceived(casterName, spellID, effectID, radius,
         healed = PM.GetHealth() - before
         SB.Events.Fire(SB.E.STATUS_CHANGED)
         if effectID then
-            SB.Logic.ApplyEffect(effectID, SB.Data.Spells[spellID], slotLevel)
+            -- fromOther: лечит союзник, ему и держать. Ровно этим путём
+            -- приезжает «Молитва о сострадании» жреца.
+            SB.Logic.ApplyEffect(effectID, SB.Data.Spells[spellID], slotLevel, true)
         end
     end
 

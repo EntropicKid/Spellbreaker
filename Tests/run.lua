@@ -13176,6 +13176,146 @@ do
 end
 
 -- ============================================================
+-- КОНЦЕНТРАЦИЯ: ЧЬЯ ОНА И ОБЪЯВЛЕНА ЛИ
+--
+-- Два сбоя из одного места. Флаг isConcentration стоит либо у
+-- заклинания, либо у его контейнера, и спрашивали его по-разному:
+-- механика — у контейнера с заклинанием в запасе, интерфейс — только у
+-- заклинания. Отсюда пять заклинаний, работавших концентрацией молча.
+--
+-- Та же функция применяла и ЧУЖОЙ бафф — помечая его МОИМ слотом
+-- концентрации. Площадная «Аура верного выстрела» дружественного
+-- охотника снимала мой собственный «Дух ястреба»: ход потрачен впустую,
+-- причём чужими руками.
+-- ============================================================
+do
+    local L, AE = SB.Logic, SB.ActiveEffects
+
+    -- ── ОДИН ОТВЕТ НА ВОПРОС ────────────────────────────────
+    -- Флаг у КОНТЕЙНЕРА — заклинание о нём молчит. Ровно этот случай и
+    -- был не подписан в книге.
+    check("«Незаметность» — концентрация", L.IsConcentration("stealth"), true)
+    check("хотя у самого заклинания флага нет",
+          SB.Data.Spells["stealth"].isConcentration, nil)
+
+    -- Флаг у ЗАКЛИНАНИЯ — молчит контейнер. Запасной вариант нужен ровно
+    -- ради него, и убрать его нельзя.
+    check("«Дух ястреба» — концентрация",
+          L.IsConcentration("aspect_of_the_hawk"), true)
+    check("хотя у его контейнера флага нет",
+          SB.Data.Spells["eff_aspect_of_the_hawk"].isConcentration, nil)
+
+    check("контейнер отвечает и сам за себя", L.IsConcentration("eff_stealth"), true)
+    check("удар концентрацией не является", L.IsConcentration("heroic_strike"), false)
+    check("незнакомый id не роняет", L.IsConcentration("нет_такого_id"), false)
+    check("и nil тоже", L.IsConcentration(nil), false)
+
+    -- ── МОЛЧАЩИХ БОЛЬШЕ НЕТ ─────────────────────────────────
+    --
+    -- Считаем механику отдельно от подписи и требуем совпадения. Пока
+    -- этой проверки не было, расхождение находилось только за столом —
+    -- игрок узнавал про концентрацию в тот момент, когда её сбивали.
+    local silent = {}
+    for id, sp in pairs(SB.Data.Spells) do
+        if not sp.isContainer then
+            local cont = sp.container and SB.Data.Spells[sp.container]
+            local mech = cont and cont.isConcentration
+            if mech == nil then mech = sp.isConcentration end
+            if mech and not L.IsConcentration(sp) then silent[#silent + 1] = id end
+        end
+    end
+    check("заклинаний с необъявленной концентрацией нет", #silent, 0)
+
+    -- ── СВОЯ ЗАНИМАЕТ СЛОТ, ЧУЖАЯ — НЕТ ────────────────────
+    AE.Clear()
+    L.ApplyEffect("eff_aspect_of_the_hawk", SB.Data.Spells["aspect_of_the_hawk"], 1)
+    local mine = AE.GetAll()
+    check("свой «Дух ястреба» лёг", #mine, 1)
+    check("и помечен концентрацией", mine[1].isConc, true)
+
+    -- Чужая аура: fromOther = true. Держит её заклинатель, у себя.
+    L.ApplyEffect("eff_hunters_mark_trueshot_aura",
+                  SB.Data.Spells["trueshot_aura"], 1, true)
+    local both = AE.GetAll()
+    check("чужая аура легла РЯДОМ, а не вместо", #both, 2)
+    local ownStill, alienConc
+    for _, eff in ipairs(both) do
+        if eff.spellID == "eff_aspect_of_the_hawk" then ownStill = eff.isConc end
+        if eff.spellID == "eff_hunters_mark_trueshot_aura" then alienConc = eff.isConc end
+    end
+    check("свой бафф цел и всё ещё мой", ownStill, true)
+    check("а чужая аура моим слотом не считается", alienConc, false)
+
+    -- ── СВОЯ ПОВЕРХ СВОЕЙ — ПО-ПРЕЖНЕМУ СМЕНА ──────────────
+    --
+    -- Правило «концентрация одна» никуда не делось: сломать его,
+    -- починяя чужие ауры, было бы ровно тем же багом наизнанку.
+    L.ApplyEffect("eff_stealth", SB.Data.Spells["stealth"], 1)
+    local after = AE.GetAll()
+    local hawkGone = true
+    for _, eff in ipairs(after) do
+        if eff.spellID == "eff_aspect_of_the_hawk" then hawkGone = false end
+    end
+    checkTrue("своя новая концентрация сняла свою прежнюю", hawkGone)
+    AE.Clear()
+end
+
+-- ============================================================
+-- СКЛЯНКА ДОСТАЁТСЯ ТОМУ, КОГО ПОЯТ
+--
+-- У предмета половина ездила по цели, а половина нет: эффект-контейнер
+-- уходил союзнику, а выплата onCast применялась всегда на себя. Отсюда
+-- «зельями не всегда можно хилить союзников» — троллья кровь работала,
+-- лечебное зелье молча лечило поящего.
+--
+-- Проверяется здесь ФАКТ РАЗВИЛКИ И ЧЕСТНОСТЬ ПАКЕТА, а не поведение:
+-- сама развилка живёт в ConfirmCast и требует живой цели в клиенте,
+-- которой у заглушки нет (та же причина, что у проверок тика существ).
+-- ============================================================
+do
+    local src = ReadFile("Core/Logic.lua")
+    checkTrue("выплата предмета умеет уехать союзнику",
+              src:find("SendItemPayload", 1, true) ~= nil)
+    checkTrue("и кому — решает то же правило, что у эффекта склянки",
+              src:find("ItemStaysOnCaster(spell, pendingTargetIsAlly)", 1, true) ~= nil)
+
+    local net = ReadFile("Core/Network.lua")
+    checkTrue("канал доставки заведён", SB.Net.SendItemPayload ~= nil)
+    checkTrue("и разобран на приёме", net:find("ITEMPAY", 1, true) ~= nil)
+
+    -- ЧИСЛА В ПАКЕТЕ НЕ ЕДУТ. Приезжай выплата полем — любой клиент
+    -- выдавал бы себе «+99 ХП» от имени соседа. Получатель обязан взять
+    -- содержимое из своей библиотеки, то есть из spell.onCast.
+    local parse = net:match("local function ParseITEMPAY.-\nend")
+    checkTrue("разбор ITEMPAY найден", parse ~= nil)
+    if parse then
+        checkTrue("содержимое берётся из библиотеки",
+                  parse:find("spell.onCast", 1, true) ~= nil)
+        check("а из пакета — ничего, кроме id", parse:find("t.heal", 1, true), nil)
+        check("и никакой выплаты полем", parse:find("t.onCast", 1, true), nil)
+    end
+
+    -- ── КАНАЛЫ ВЫПЛАТЫ У ПРЕДМЕТОВ ИЗВЕСТНЫ ────────────────
+    --
+    -- ApplyPayload читает конечный список каналов; канал с опечаткой в
+    -- имени молча не делает ничего. Раз выплата теперь ещё и уезжает по
+    -- сети, разъехаться ей тем более нельзя.
+    local KNOWN = { heal = true, mana = true, resource = true,
+                    castResource = true, damage = true, armor = true }
+    local strange, withHeal = {}, 0
+    for id, sp in pairs(SB.Data.Spells) do
+        if sp.isItem and sp.onCast then
+            for k in pairs(sp.onCast) do
+                if not KNOWN[k] then strange[#strange + 1] = id .. "." .. k end
+            end
+            if (tonumber(sp.onCast.heal) or 0) > 0 then withHeal = withHeal + 1 end
+        end
+    end
+    check("незнакомых каналов выплаты нет", #strange, 0)
+    checkTrue("лечащие склянки на месте", withHeal >= 12)
+end
+
+-- ============================================================
 -- ИТОГ
 -- ============================================================
 print("")

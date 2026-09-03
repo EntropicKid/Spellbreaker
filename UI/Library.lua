@@ -643,7 +643,7 @@ function SB.Library.ShowDetail(spell)
     if spell.isContainer then
         local kind = SB.ActiveEffects.GetKind(spell.id)
         local kindStr
-        if spell.isConcentration then
+        if SB.Logic.IsConcentration(spell) then
             kindStr = "|cFF22BFFFПоддерживаемый|r"
         elseif kind == "debuff" then
             kindStr = "|cFFFF5555Вредный|r"
@@ -745,7 +745,13 @@ function SB.Library.ShowDetail(spell)
     end
 
     -- Концентрация (зеркально справа)
-    if spell.isConcentration then
+    --
+    -- ЧЕРЕЗ SB.Logic.IsConcentration, А НЕ ПО ПОЛЮ: флаг бывает не на
+    -- заклинании, а на его контейнере, и механика читает именно так
+    -- (см. SB.Logic.ApplyEffect). Пока карточка спрашивала одно поле,
+    -- пять заклинаний работали концентрацией, ни слова об этом не
+    -- сказав, — «Незаметность» разбойника в их числе.
+    if SB.Logic.IsConcentration(spell) then
         f.metaConcentration:SetText("|cFF22BFFFКонцентрация|r")
         f.metaConcentration:Show()
     else

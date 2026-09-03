@@ -475,6 +475,39 @@ local function ParseHEAL(sender, t)
     end
 end
 
+--- Союзник напоил вас склянкой: применить её выплату (spell.onCast).
+---
+--- Peer-to-peer, без проверки на лидера, — тот же уровень доверия, что у
+--- лечения и баффа: поднести соседу зелье имеет право кто угодно.
+---
+--- СОДЕРЖИМОЕ БЕРЁМ ИЗ СВОЕЙ БИБЛИОТЕКИ, А НЕ ИЗ ПАКЕТА. В пакете едет
+--- один id, и это принципиально: приезжай выплата полем, любой клиент
+--- одной подделанной строкой выдавал бы себе «+99 ХП» от имени соседа.
+--- То же правило, по которому эффект берётся из библиотеки, а не из
+--- пакета (см. ParseBUFF и врезку о честности каста в README).
+---
+--- ЧТО ДАЛИ — ПЕЧАТАЕТ САМА ВЫПЛАТА (SB.ActiveEffects.ApplyPayload
+--- отчитывается от имени того, на кого подействовало). Здесь остаётся
+--- сказать только КТО поднёс: без этого «+2 ХП» выглядит как сбой.
+local function ParseITEMPAY(sender, t)
+    if t.target ~= UnitName("player") then return end
+    local shown = ActorOf(sender, t)
+    if not shown then return end
+
+    local spell = t.spellID and SB.Data.Spells[t.spellID]
+    -- ПРЕДМЕТ И ТОЛЬКО ПРЕДМЕТ: заклинания свою выплату платят у себя,
+    -- и открывать этим пакетом ещё одну дорогу к чужой модели незачем.
+    if not (spell and spell.isItem and spell.onCast) then return end
+    if not (SB.ActiveEffects and SB.ActiveEffects.ApplyPayload) then return end
+
+    local what = SB.UI and SB.UI.MakeSpellLink and SB.UI.MakeSpellLink(spell)
+                 or (SB.Theme.MSG_BODY .. (spell.name or "склянку") .. "|r")
+    print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BODY ..
+        shown .. " поит вас |r" .. what)
+
+    SB.ActiveEffects.ApplyPayload(t.spellID, spell.onCast)
+end
+
 --- Бафф от союзника (spell.buff). Peer-to-peer, БЕЗ проверки на лидера:
 --- баффать союзников имеет право кто угодно — тот же уровень доверия,
 --- что у лечения (ParseHEAL), которое так работает с самого начала.
@@ -1214,6 +1247,7 @@ Dispatch = function(sender, t)
     elseif action == "PVPATK"  then ParsePVPATK(sender, t)
     elseif action == "PVPRES"  then ParsePVPRES(t)
     elseif action == "HEAL"    then ParseHEAL(sender, t)
+    elseif action == "ITEMPAY" then ParseITEMPAY(sender, t)
     elseif action == "BUFF"    then ParseBUFF(sender, t)
     elseif action == "BUFFR"   then ParseBUFFR(sender, t)
     elseif action == "AOEATK"  then ParseAOEATK(sender, t)
@@ -1785,6 +1819,25 @@ function SB.Net.SendHealResult(targetName, spellID, success, amount, armorAmount
     -- пакете, а починка — редкое заклинание.
     if (tonumber(armorAmount) or 0) > 0 then t.armor = armorAmount end
     SendToPlayer(t, targetName, "NORMAL")
+end
+
+--- Напоить союзника склянкой: её выплата применяется у него.
+---
+--- ЕДЕТ ОДИН ID, И БОЛЬШЕ НИЧЕГО. Содержимое получатель берёт из своей
+--- библиотеки (см. ParseITEMPAY): пакет говорит «тебе дали вот это», а
+--- не «тебе дали столько-то». Числа в пакете означали бы, что щедрость
+--- соседа ограничена только его фантазией.
+---
+--- Адресно: строку о том, что подействовало, напишет получатель — он
+--- один знает, сколько у него влезло (см. SB.ActiveEffects.ApplyPayload).
+function SB.Net.SendItemPayload(targetName, spellID)
+    if not IsInGroup() or not targetName or targetName == "" then return end
+    if not spellID then return end
+    SendToPlayer({
+        action  = "ITEMPAY",
+        target  = targetName,
+        spellID = spellID,
+    }, targetName, "NORMAL")
 end
 
 --- Рассылает кастомное заклинание группе.

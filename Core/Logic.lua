@@ -1184,14 +1184,70 @@ function SB.Logic.Flee()
     SB.Events.Fire(SB.E.STATUS_CHANGED)
 end
 
-function SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel)
+--- ПОДДЕРЖИВАЕТСЯ ЛИ ЗАКЛИНАНИЕ КОНЦЕНТРАЦИЕЙ — ОДИН ОТВЕТ НА ВОПРОС.
+---
+--- Флаг стоит в двух местах, и это не дублирование: `isConcentration` у
+--- ЭФФЕКТА говорит «эту штуку надо держать», у ЗАКЛИНАНИЯ — «этот каст
+--- переводит тебя в режим удержания». Обычно совпадает; расходится там,
+--- где эффект вешают разными способами.
+---
+--- ПОРЯДОК ТОТ ЖЕ, ЧТО В ApplyEffect: эффект первым, заклинание запасным.
+--- Именно из-за того, что интерфейс спрашивал ТОЛЬКО заклинание, пять
+--- заклинаний работали концентрацией молча — «Незаметность» разбойника,
+--- «Подготовка», «Безрассудство» воина, «Медитация дзен» монаха и
+--- «Притвориться мертвым» охотника. Флаг у них стоит у контейнера.
+---
+--- СМОТРИМ container, А НЕ buff/debuff: концентрация — это то, что
+--- держит ЗАКЛИНАТЕЛЬ, а buff и debuff уезжают на чужого персонажа, и
+--- их поддерживаемость к моему слоту отношения не имеет (см. врезку
+--- о fromOther в ApplyEffect).
+--- @param spell table|string  запись заклинания или его id
+--- @return boolean
+function SB.Logic.IsConcentration(spell)
+    if type(spell) == "string" then spell = SB.Data.Spells[spell] end
+    if type(spell) ~= "table" then return false end
+
+    local cont = spell.container and SB.Data.Spells[spell.container]
+    if cont and cont.isConcentration ~= nil then
+        return cont.isConcentration == true
+    end
+    return spell.isConcentration == true
+end
+
+--- @param fromOther boolean|nil  эффект пришёл от ЧУЖОГО каста: бафф
+---        союзника, залп по площади, способность существа. Тогда моим
+---        слотом концентрации он не считается — см. врезку ниже.
+function SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, fromOther)
     if not effectID or not SB.ActiveEffects or not SB.ActiveEffects.Add then return end
     local effectSpell = SB.Data.Spells[effectID]
     if not effectSpell then return end
 
-    local turns  = SB.Logic.GetEffectDuration(effectID, sourceSpell, slotLevel)
-    local isConc = effectSpell.isConcentration
-    if isConc == nil then isConc = sourceSpell and sourceSpell.isConcentration end
+    local turns = SB.Logic.GetEffectDuration(effectID, sourceSpell, slotLevel)
+
+    -- ── КОНЦЕНТРИРУЕТСЯ ТОТ, КТО КАСТОВАЛ ───────────────────
+    --
+    -- Своя аура занимает свой слот: концентрация одна, новая снимает
+    -- прежнюю (см. SB.ActiveEffects.Add). Чужая — не занимает ничего.
+    --
+    -- ПОЧЕМУ ЭТО БЫЛО СЛОМАНО. Ниже стоял запасной вариант «нет флага у
+    -- эффекта — спроси заклинание», и он верен для СВОЕГО каста: у
+    -- «Духа ястреба» флаг стоит именно на заклинании. Но ту же функцию
+    -- зовёт HandleBuffReceived для ЧУЖОГО баффа — и концентрация
+    -- союзника приезжала помеченной как моя. Дальше Add честно снимал
+    -- всё, что помечено концентрацией, и площадная «Аура верного
+    -- выстрела» дружественного охотника сносила мой собственный «Дух
+    -- ястреба»: ход потрачен впустую, причём чужими руками. Таких
+    -- заклинаний, дотягивающихся до союзника, одиннадцать.
+    --
+    -- ЧУЖАЯ АУРА — ОБЫЧНЫЙ БАФФ. Не «хрупкая концентрация на мне»: она
+    -- живёт свой срок, мой урон её не сбивает и мою концентрацию она не
+    -- трогает. Держит её тот, кто её наложил, — на его клиенте, его
+    -- слотом, и сбивается она его уроном.
+    local isConc
+    if not fromOther then
+        isConc = effectSpell.isConcentration
+        if isConc == nil then isConc = sourceSpell and sourceSpell.isConcentration end
+    end
 
     SB.ActiveEffects.Add(effectID, turns, isConc or false)
 end
@@ -1327,7 +1383,8 @@ function SB.Logic.HandleBuffReceived(casterName, spellID, effectID, slotLevel,
                  " применяет на вас |r" .. what
 
     if total == nil then
-        SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel)
+        -- fromOther: каст чужой, концентрацию держит заклинатель.
+        SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, true)
         print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. who)
         return
     end
@@ -1355,7 +1412,7 @@ function SB.Logic.HandleBuffReceived(casterName, spellID, effectID, slotLevel,
     -- сопротивления» проверяем сами, а не верим присланным числам.
     local ok = SB.Logic.IsGuaranteed(sourceSpell) or (total >= threshold)
 
-    if ok then SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel) end
+    if ok then SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, true) end
 
     local G = SB.Theme.MSG_BODY
     print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. who .. G .. ": |r" ..
@@ -2416,8 +2473,33 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
     -- Повтор потока сюда тоже приходит (ConfirmCast зовётся заново с
     -- channelStep), и это ровно то, что нужно: Жизнеотвод платит кровью
     -- за каждое применение, а не за первое.
+    --
+    -- ── КОГО ПОЯТ, ТОТ И ПОЛУЧАЕТ ────────────────────────────
+    --
+    -- У ПРЕДМЕТА выплата — это его содержимое, а не цена: выпитое зелье
+    -- достаётся тому, кому его дали. Правило «кому» здесь не своё, а то
+    -- же самое, по которому уже расходится эффект склянки, —
+    -- ItemStaysOnCaster (см. врезку у неё).
+    --
+    -- ПОЧЕМУ ЭТОГО НЕ БЫЛО. Половина склянки ездила по цели, а половина
+    -- нет: эффект-контейнер уходил союзнику веткой GetTargetedEffect, а
+    -- выплата применялась здесь и всегда на себя. Отсюда и жалоба
+    -- «зельями не всегда можно хилить союзников»: троллья кровь,
+    -- которая вешает регенерацию, работала, а лечебное зелье, которое
+    -- отдаёт здоровье сразу, — нет. Оно молча лечило поящего, а не того,
+    -- кому подносили склянку. Таких предметов двенадцать, и все
+    -- лечебные зелья в их числе.
+    --
+    -- ШЛЁМ ТОЛЬКО ID: содержимое получатель берёт из СВОЕЙ библиотеки
+    -- (см. ParseITEMPAY). Уехала бы выплата полем пакета — любой клиент
+    -- дарил бы соседям «+99 ХП» одной подделанной строкой.
     if spell.onCast and SB.ActiveEffects and SB.ActiveEffects.ApplyPayload then
-        SB.ActiveEffects.ApplyPayload(spellID, spell.onCast)
+        if isItem and not ItemStaysOnCaster(spell, pendingTargetIsAlly)
+           and SB.Net and SB.Net.SendItemPayload then
+            SB.Net.SendItemPayload(pendingTargetName, spellID)
+        else
+            SB.ActiveEffects.ApplyPayload(spellID, spell.onCast)
+        end
     end
 
     -- СКЛЯНКА РАСХОДУЕТСЯ ПРИМЕНЕНИЕМ — здесь же, в единственной точке,
