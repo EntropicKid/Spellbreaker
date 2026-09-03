@@ -13490,6 +13490,84 @@ do
 end
 
 -- ============================================================
+-- ПРОПУСК ТИКА СЧИТАЕТСЯ ПО НАЛОЖЕННОМУ, А НЕ ПО ОБЪЯВЛЕННОМУ
+--
+-- «Призвать рой» чернокнижника вёл себя наизнанку: чтобы призвать рой,
+-- надо было им НЕ бить. Две причины, и обе тут.
+--
+--   1. Удар по существу — единственный путь резолва, который не вешал
+--      собственный контейнер заклинателя. Рой не появлялся вовсе.
+--   2. TurnSkipFor пропускала тик по факту НАЛИЧИЯ поля container, а не
+--      по факту наложения. Поэтому уже висящий рой не списывался, пока
+--      им же и бьёшь, — а от чужого каста списывался.
+--
+-- Заклинание объявляет возможность, а не факт. Верить описанию против
+-- движка — ровно то, от чего лечит вся эта проверка.
+-- ============================================================
+do
+    local L = SB.Logic
+
+    local swarm = SB.Data.Spells["demonic_swarm"]
+    checkTrue("«Призвать рой» на месте", swarm ~= nil)
+    checkTrue("это уронное заклинание", swarm.canCrit == true)
+    check("со своим контейнером", swarm.container, "eff_demonic_swarm")
+
+    -- ── ОБЪЯВЛЕНО — ЕЩЁ НЕ ЗНАЧИТ НАЛОЖЕНО ─────────────────
+    local declared = L.TurnSkipFor(swarm, "demonic_swarm")
+    check("одно объявление тик не отменяет",
+          declared["eff_demonic_swarm"], nil)
+
+    local applied = L.TurnSkipFor(swarm, "demonic_swarm", swarm.container)
+    check("наложенное — отменяет", applied["eff_demonic_swarm"], true)
+
+    -- ── ОСТАЛЬНЫЕ ДВА ПРАВИЛА НЕ ТРОНУТЫ ───────────────────
+    --
+    -- Они объявительные по существу: держатель потока и сам контейнер,
+    -- применённый напрямую, списываются в SB.ActiveEffects.Use ДО хода,
+    -- и второй раз списывать их нельзя независимо от исхода.
+    SB.Data.Spells["t_chan"] = { id = "t_chan", name = "Проба потока",
+        class = "Жрец", level = 1, channelEffect = "t_chan_holder" }
+    check("держатель потока пропускается по-прежнему",
+          L.TurnSkipFor(SB.Data.Spells["t_chan"], "t_chan")["t_chan_holder"], true)
+
+    SB.Data.Spells["t_cont"] = { id = "t_cont", name = "Проба контейнера",
+        class = "Жрец", level = 1, isContainer = true }
+    check("применённый напрямую контейнер — тоже",
+          L.TurnSkipFor(SB.Data.Spells["t_cont"], "t_cont")["t_cont"], true)
+
+    SB.Data.Spells["t_chan"], SB.Data.Spells["t_cont"] = nil, nil
+
+    -- ── УДАР ПО СУЩЕСТВУ ВЕШАЕТ КОНТЕЙНЕР ──────────────────
+    --
+    -- Живой цели у заглушки нет, поэтому смотрим исходник: тот же приём,
+    -- что у проверок тика существ. Важен факт вызова — молча отвалившийся
+    -- шаг означал бы, что рой снова не призывается.
+    local src = ReadFile("Core/Logic/NPC.lua")
+    local fn  = src:match("function SB%.Logic%.ResolveNpcAttack.-\nend")
+    checkTrue("ResolveNpcAttack найден", fn ~= nil)
+    if fn then
+        checkTrue("удар по существу вешает свой контейнер",
+                  fn:find("ApplyEffect(spell.container", 1, true) ~= nil)
+        checkTrue("и говорит о нём ходу",
+                  fn:find("TurnSkipFor(spell, spellID, spell.container)", 1, true) ~= nil)
+    end
+
+    -- ── СКОЛЬКО ЗАКЛИНАНИЙ ЭТО ЛЕЧИТ ───────────────────────
+    --
+    -- Не только рой: одиночное уронное заклинание со своим контейнером
+    -- в библиотеке не одно, и все они по существу работали одинаково
+    -- плохо. Проверка держит список от молчаливого расползания.
+    local single = {}
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] and not sp.isContainer
+           and sp.canCrit and sp.container and not sp.aoe then
+            single[#single + 1] = id
+        end
+    end
+    check("одиночных уронных со своим контейнером", #single, 5)
+end
+
+-- ============================================================
 -- ИТОГ
 -- ============================================================
 print("")

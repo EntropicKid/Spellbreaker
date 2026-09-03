@@ -449,7 +449,11 @@ function SB.Logic.InitiateAoeAttack(spellID, slotLevel)
 
     -- Второй шапки здесь больше нет: всё, что она говорила, вошло в
     -- единственную шапку залпа выше (см. OpenAoeReport).
-    SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID))
+    --
+    -- Контейнер лёг безусловно (ветка выше) — о нём и говорим: пропуск
+    -- тика теперь считается по наложенному, а не по объявленному
+    -- (см. SB.Logic.TurnSkipFor).
+    SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID, spell.container))
 end
 
 --- Получатель площадной атаки. Вся разница с одиночной — проверка
