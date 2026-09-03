@@ -546,7 +546,7 @@ function SB.Logic.ResolveAoeEffectCast(spellID, slotLevel)
     -- площадь гремит в цели, а сам стоишь снаружи круга — не задевает.
     local landedOnSelf
     if SB.Logic.AoeHitsSelf(spell) and SB.Logic.CasterInOwnAoe(epi, radius) then
-        local threshold = SB.Logic.EffectThreshold("player", false, nil, true)
+        local threshold = SB.Logic.EffectThreshold("player", false, true)
         -- «Без сопротивления» — то же правило, что у одиночного эффекта
         -- (см. SB.Logic.IsGuaranteed): порог не берётся вовсе.
         local ok = SB.Logic.IsGuaranteed(spell) or (total >= threshold)
@@ -599,7 +599,14 @@ function SB.Logic.HandleAoeEffectReceived(casterName, spellID, effectID, radius,
 
     local sourceSpell = SB.Data.Spells[spellID]
     local isDebuff    = sourceSpell and sourceSpell.debuff == effectID
-    local threshold   = SB.Logic.EffectThreshold("player", isDebuff)
+    -- СТОЙКОСТЬ БЕРЁМ ЗДЕСЬ ЖЕ. Этот путь и так исполняется у задетого,
+    -- то есть у единственного, кто знает свои характеристики; не спросить
+    -- их означало бы, что площадной дебафф преодолевать нечем, тогда как
+    -- ровно тот же дебафф по одной цели — можно.
+    local resistMod = isDebuff
+        and SB.Logic.OwnResistMod(SB.Logic.DebuffResistStat(effectID, sourceSpell))
+        or 0
+    local threshold   = SB.Logic.EffectThreshold("player", isDebuff, false, resistMod)
     -- Определение заклинания у нас своё, из библиотеки, — «без
     -- сопротивления» проверяем сами, а не верим присланным числам.
     local success     = SB.Logic.IsGuaranteed(sourceSpell) or (total >= threshold)

@@ -387,7 +387,7 @@ end
 -- Имя отправителя из AceComm подделать нельзя: его ставит сервер. Его и
 -- берём. Поле в пакете остаётся ради старых сборок, но идёт вторым.
 --
--- ОТВЕТНЫЕ пакеты (PVPRES/AOEHLR/AOEEFR) так не лечатся и не должны:
+-- ОТВЕТНЫЕ пакеты (PVPRES/AOEHLR/AOEEFR/BUFFR) так не лечатся и не должны:
 -- там attacker/caster — это АДРЕСАТ ответа, а не отправитель.
 -- ============================================================
 -- ============================================================
@@ -485,7 +485,22 @@ local function ParseBUFF(sender, t)
     local shown = ActorOf(sender, t)
     if not shown then return end
     if SB.Logic and SB.Logic.HandleBuffReceived then
-        SB.Logic.HandleBuffReceived(shown, t.spellID, t.effectID, t.slot)
+        SB.Logic.HandleBuffReceived(shown, t.spellID, t.effectID, t.slot,
+            t.roll, t.mod, t.total, sender)
+    end
+end
+
+--- Ответ цели на одиночный эффект — досылает заклинателю исход.
+---
+--- КЛЮЧ ОЖИДАНИЯ БЕРЁМ ИЗ ИМЕНИ ОТПРАВИТЕЛЯ, а не из поля пакета: поле
+--- подделывается, имя от AceComm — нет. Иначе чужой клиент мог бы
+--- закрыть моё ожидание ответом «за» другого игрока и напечатать вместо
+--- него любой исход. Поле оставлено запасным ради старых сборок.
+local function ParseBUFFR(sender, t)
+    if t.caster ~= UnitName("player") then return end
+    if SB.Logic and SB.Logic.HandleBuffResultReceived then
+        SB.Logic.HandleBuffResultReceived(sender or t.target, t.spellID,
+            tonumber(t.threshold) or 0, t.ok == true)
     end
 end
 
@@ -848,10 +863,6 @@ local function ParseSTATUS(sender, t)
     -- этот же игрок оказался у кого-то в таргете.
     existing.preparedSpells = t.preparedSpells or existing.preparedSpells or {}
     existing.activeEffects  = existing.activeEffects or {}
-    -- Как и preparedSpells: отсутствующее поле не затираем. Со старого
-    -- клиента will не придёт вовсе — тогда дебафф считается по порогу без
-    -- прибавки, как и раньше.
-    existing.will           = tonumber(t.will) or existing.will
     -- Ранги школ. Как и остальное — не затираем отсутствием: короткий
     -- пакет PEER их не несёт, и обнулять по нему уже известное значило
     -- бы вернуть ложные обвинения в мухлеже (см. VerifyIncomingCast).
@@ -1157,6 +1168,7 @@ local IMMEDIATE_ACTIONS = {
     PVPRES = true,
     HEAL   = true,
     BUFF   = true,
+    BUFFR  = true,
     AOEATK = true,
     AOEEFF = true,
     AOEEFR = true,
@@ -1203,6 +1215,7 @@ Dispatch = function(sender, t)
     elseif action == "PVPRES"  then ParsePVPRES(t)
     elseif action == "HEAL"    then ParseHEAL(sender, t)
     elseif action == "BUFF"    then ParseBUFF(sender, t)
+    elseif action == "BUFFR"   then ParseBUFFR(sender, t)
     elseif action == "AOEATK"  then ParseAOEATK(sender, t)
     elseif action == "AOEEFF"  then ParseAOEEFF(t)
     elseif action == "AOEEFR"  then ParseAOEEFR(t)
@@ -1565,7 +1578,17 @@ end
 --- Наложить эффект на союзника (spell.buff, см. SB.Logic.ApplyBuffToTarget).
 --- Адресно, с приоритетом NORMAL — как и остальные боевые пакеты.
 --- @param npcName string|nil  действует ОТ ЛИЦА существа (см. ActorOf).
-function SB.Net.SendBuff(targetName, spellID, effectID, slot, npcName)
+--- @param roll number|nil  бросок заклинателя. Едет ВМЕСТЕ с эффектом,
+---        потому что решает, лёг ли он, НЕ заклинатель, а получатель:
+---        порог собран из его уровня и его же стойкости (см.
+---        SB.Logic.HandleBuffReceived). Ровно так устроен площадной
+---        путь — там иначе и не выходило, там целей много и ни одна не
+---        в прицеле. Здесь цель одна, и когда-то казалось, что
+---        заклинатель справится сам; не справился — атрибуты цели через
+---        игровое API не читаются, и их пришлось возить отдельным
+---        полем статуса. Поля больше нет: считает тот, у кого данные.
+---        nil — пакет со старой сборки, там эффект ложится безусловно.
+function SB.Net.SendBuff(targetName, spellID, effectID, slot, npcName, roll, mod, total)
     if not IsInGroup() then return end
     SendToPlayer({
         action   = "BUFF",
@@ -1575,7 +1598,24 @@ function SB.Net.SendBuff(targetName, spellID, effectID, slot, npcName)
         spellID  = spellID,
         effectID = effectID,
         slot     = tonumber(slot) or 0,
+        roll     = roll,
+        mod      = mod,
+        total    = total,
     }, targetName, "NORMAL")
+end
+
+--- Ответ цели: взял её порог бросок или нет. Заклинатель ждёт его,
+--- чтобы напечатать ОДНУ строку вместо двух (см. SB.Logic.BuffAwait).
+function SB.Net.SendBuffResult(casterName, spellID, threshold, ok)
+    if not IsInGroup() then return end
+    SendToPlayer({
+        action    = "BUFFR",
+        caster    = casterName,
+        target    = UnitName("player"),
+        spellID   = spellID,
+        threshold = threshold,
+        ok        = ok and true or false,
+    }, casterName, "NORMAL")
 end
 
 --- Защищающийся отвечает атакующему (и группе) итогом ПвП-броска.
@@ -1796,7 +1836,7 @@ local lastStatusSig, lastAEffectSig
 local function StatusSignature(p)
     return table.concat({
         p.class or "", p.mastery or "", p.zeal or 0, p.maxZeal or 0,
-        p.health or 0, p.maxHealth or 0, p.will or 0, p.agi or 0,
+        p.health or 0, p.maxHealth or 0, p.agi or 0,
         -- Без Скрытности в отпечатке смена навыка не рассылалась бы
         -- вовсе: пакет считался бы «тем же самым» и молча гасился.
         p.stealth or 0,
@@ -1824,10 +1864,12 @@ local function BuildStatusPayload()
         -- редкость, и платить за него байтом в каждом статусе незачем.
         fled           = snap.fled and true or nil,
         preparedSpells = snap.preparedSpells or {},
-        -- Навык «Воля»: поднимает порог, который надо взять, чтобы
-        -- навесить на этого игрока дебафф (см. SB.Skills.GetWillDebuffBonus).
-        -- Порог считает заклинатель, поэтому значение должно быть у него.
-        will           = snap.will,
+        -- НИ «ВОЛИ», НИ МОДИФИКАТОРОВ АТРИБУТОВ ЗДЕСЬ НЕТ, и это не
+        -- пропуск. Всё, ради чего их возили, считается на стороне
+        -- защищающегося: порог дебаффа — в SB.Logic.HandleBuffReceived,
+        -- срез длительности «Волей» — в SB.ActiveEffects.Add. Клиенту
+        -- заклинателя эти числа не нужны, а платить за них трафиком
+        -- статуса пришлось бы каждым пакетом.
         -- Модификатор Ловкости — для броска инициативы у Ведущего
         -- (см. Core/TurnOrder.lua).
         agi            = snap.agi,
@@ -1986,7 +2028,6 @@ local function BuildPeerStatusPayload()
         maxZeal   = snap.maxZeal,
         health    = snap.health or snap.maxHealth or 20,   -- см. BuildStatusPayload
         maxHealth = snap.maxHealth or 20,
-        will      = snap.will,
         -- Скрытность едет и в коротком пакете: он приходит именно тогда,
         -- когда этот игрок попал кому-то в таргет, — то есть ровно в тот
         -- момент, когда штраф дальности и понадобится.

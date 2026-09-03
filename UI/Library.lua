@@ -779,6 +779,13 @@ function SB.Library.ShowDetail(spell)
     local scalingLines
     if spell.isContainer then
         scalingLines = SB.ActiveEffects.GetEffectLines(spell.id)
+    elseif SB.Items.IsItem(spell) then
+        -- У СКЛЯНКИ СВОЙ РАЗБОР. GetSpellScalingLines считает бросок и
+        -- скейлинг от характеристик — у предмета нет ни того, ни
+        -- другого: он даёт ровно то, что в нём налито, кто бы его ни
+        -- выпил. Раньше эти числа были написаны в описании словами и
+        -- врали почти везде (см. врезку у SB.Items.EffectSummary).
+        scalingLines = SB.Items.EffectSummary(spell)
     else
         scalingLines = SB.Logic.GetSpellScalingLines(spell)
     end
@@ -812,7 +819,20 @@ function SB.Library.ShowDetail(spell)
     elseif spell.buff then
         effectID, effectVerb = spell.buff, "Накладывает:"
     elseif spell.debuff then
-        effectID, effectVerb = spell.debuff, "Накладывает на цель:"
+        -- ЧЕМ ЕГО ОТБИВАТЬ — В САМОМ ЗАГОЛОВКЕ СТРОКИ, а не строчкой
+        -- ниже и не в карточке эффекта. Это первое, что игрок хочет
+        -- знать про чужой дебафф, и единственное число, которое он
+        -- может изменить заранее, — а раньше «Накладывает на цель»
+        -- сообщало ровно то же, что и стрелка на имя эффекта.
+        --
+        -- Не назван — значит и отбиваться нечем: это метки и клейма,
+        -- они не давят, а помечают (см. SB.Logic.DebuffResistStat).
+        -- Скобок в этом случае нет: пустые сказали бы, что данные
+        -- потерялись, тогда как их и не должно быть.
+        local stat = SB.Logic and SB.Logic.DebuffResistStat
+                     and SB.Logic.DebuffResistStat(spell.debuff, spell)
+        effectID   = spell.debuff
+        effectVerb = stat and ("Дебафф (" .. stat .. "):") or "Дебафф:"
     end
     local effectSpell = effectID and SB.Data.Spells[effectID]
 

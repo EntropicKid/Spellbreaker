@@ -346,7 +346,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_shadow_curseofmannoroth",
     description = "Доспех тяжелеет, оружие держится без уверенности. Удары выходят вялыми.",
     effect = {
-        kind  = "debuff",
+        kind  = "debuff", resist = "Выносливость",
         mods  = { attack = -12, damage = -1, movePct = -30 },
         stats = { ["Мощь"] = -2, ["Атлетика"] = -1 },
     },
@@ -357,7 +357,7 @@ AddEffect({
     name = "Деморализация",
     icon = "Interface\\Icons\\Ability_warrior_warcry",
     description = "Решимость сменилась сомнением. Рука делает то, что велено, но без веры в исход.",
-    effect = { kind = "debuff", mods = { attack = -8 } },
+    effect = { kind = "debuff", resist = "Характер", mods = { attack = -8 } },
 })
 
 AddEffect({
@@ -366,7 +366,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_nature_slow",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { family = "Замедление", kind = "debuff", mods = { defense = -8, attack = -3, movePct = -50 } },
+    effect = { family = "Замедление", kind = "debuff", resist = "Сила", mods = { defense = -8, attack = -3, movePct = -50 } },
 })
 
 AddEffect({
@@ -375,7 +375,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_shadow_mindsteal",
     description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
     effect = {
-        kind  = "debuff",
+        kind  = "debuff", resist = "Выносливость",
         mods  = { attack = -33, defense = -33, range = -18 },
         stats = { ["Точность"] = -4 },
 		breakOn = { damaged = true },
@@ -397,7 +397,7 @@ AddEffect({
     icon = "Interface\\Icons\\Ability_rogue_bloodyeye",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
-        kind = "debuff", school = "bleed",
+        kind = "debuff", resist = "Выносливость", school = "bleed",
         tick = { damage = 1 },
 		stats = { ["Мощь"] = -2 },
     },
@@ -413,7 +413,7 @@ AddEffect({
     damageType = "shadow",
     icon = "Interface\\Icons\\Spell_shadow_manaburn",
     description = "Внутренний источник обожжён. Черпать из него больно и почти нечего.",
-    effect = { kind = "debuff", school = "magic", tick = { mana = -1, damage = 1 } },
+    effect = { kind = "debuff", resist = "Выносливость", school = "magic", tick = { mana = -1, damage = 1 } },
 })
 
 AddEffect({
@@ -421,7 +421,7 @@ AddEffect({
     name = "Ужас",
     icon = "Interface\\Icons\\Spell_shadow_possession",
     description = "Тело хочет бежать, а не драться. Разум занят чужими кошмарами.",
-    effect = { kind = "debuff", mods = { attack = -18, defense = -8 } },
+    effect = { kind = "debuff", resist = "Дух", mods = { attack = -18, defense = -8 } },
 })
 
 AddEffect({
@@ -431,7 +431,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_shadow_shadowwordpain",
     description = "Мучительная мигрень мешает и сотворять заклинания, и просто держать строй.",
     effect = {
-        kind = "debuff", school = "magic",
+        kind = "debuff", resist = "Выносливость", school = "magic",
         mods = { attack = -8, crit = -1 },
         tick = { damage = 1 },
     },
@@ -471,7 +471,7 @@ AddEffect({
     name = "Неуклюжесть",
     icon = "Interface\\Icons\\Spell_magic_polymorphchicken",
     description = "Тело слушается с задержкой. Пальцы промахиваются мимо застёжек, ноги — мимо ступеней.",
-    effect = { kind = "debuff", stats = { ["Ловкость"] = -1, ["Акробатика"] = -2, ["Ловкость рук"] = -2 } },
+    effect = { kind = "debuff", resist = "Выносливость", stats = { ["Ловкость"] = -1, ["Акробатика"] = -2, ["Ловкость рук"] = -2 } },
 })
 
 AddEffect({
@@ -479,7 +479,7 @@ AddEffect({
     name = "Сломленная воля",
     icon = "Interface\\Icons\\Spell_shadow_shadowworddominate",
     description = "Сопротивляться нечем. Чужие слова ложатся в голову как свои.",
-    effect = { kind = "debuff", stats = { ["Воля"] = -2, ["Концентрация"] = -2 } },
+    effect = { kind = "debuff", resist = "Дух", stats = { ["Воля"] = -2, ["Концентрация"] = -2 } },
 })
 
 -- ==========================================================
@@ -503,7 +503,7 @@ AddEffect({
     name = "Внимание отвлечено",
     icon = "Interface\\Icons\\Ability_rogue_distract",
     description = "Цель смотрит не туда, куда следовало бы. Ненадолго, но этого хватает.",
-    effect = { kind = "debuff", stats = { ["Концентрация"] = -2 }, mods = { defense = -10 } },
+    effect = { kind = "debuff", resist = "Дух", stats = { ["Концентрация"] = -2 }, mods = { defense = -10 } },
 })
 
 -- ==========================================================
@@ -832,7 +832,7 @@ AddEffect({
     name = "Пытка разума",
     icon = "Interface\\Icons\\Spell_shadow_siphonmana",
     description = "В голове чужие пальцы. Мысль рвётся, не дойдя до конца.",
-    effect = { kind = "debuff", school = "magic", mods = { crit = -3, movePct = -50 } },
+    effect = { kind = "debuff", resist = "Дух", school = "magic", mods = { crit = -3, movePct = -50 } },
 })
 
 AddEffect({
@@ -862,7 +862,7 @@ AddEffect({
     name = "Молитва о сострадании",
     icon = "Interface\\Icons\\Spell_holy_blindingheal",
     description = "Вокруг жреца всем тяжело поднять руку — и врагу, и другу. Он сам держится на одной вере.",
-    effect = { kind = "debuff", school = "magic", mods = { damage = -2, attack = -40, crit = -6 }, breakOn = { damaged = true } },
+    effect = { kind = "debuff", resist = "Дух", school = "magic", mods = { damage = -2, attack = -40, crit = -6 }, breakOn = { damaged = true } },
 })
 
 AddEffect({
@@ -893,7 +893,7 @@ AddEffect({
     damageType = "shadow",
     icon = "Interface\\Icons\\Spell_shadow_demonicfortitude",
     description = "Слово сказано и уже не отменяется. Тело слабеет, понимая, что приговорено.",
-    effect = { kind = "debuff", school = "magic", mods = { attack = -6, defense = -4 }, tick = { damage = 3 } },
+    effect = { kind = "debuff", resist = "Выносливость", school = "magic", mods = { attack = -6, defense = -4 }, tick = { damage = 3 } },
 })
 
 AddEffect({
@@ -909,7 +909,7 @@ AddEffect({
     name = "Наказание Света",
     icon = "Interface\\Icons\\Spell_holy_chastise",
     description = "Свет назвал имя виновного. Стоять под этим приговором тяжело.",
-    effect = { kind = "debuff", mods = { attack = -100, defense = -3, movePct = -80 } },
+    effect = { kind = "debuff", resist = "Выносливость", mods = { attack = -100, defense = -3, movePct = -80 } },
 })
 
 AddEffect({
@@ -917,7 +917,7 @@ AddEffect({
     name = "Скован Светом",
     icon = "Interface\\Icons\\Spell_holy_purifyingpower",
     description = "Обжигающие цепи Света держат мёртвую плоть. Каждое движение стоит куска себя.",
-    effect = { kind = "debuff", school = "magic", mods = { defense = -20, movePct = -60 } },
+    effect = { kind = "debuff", resist = "Сила", school = "magic", mods = { defense = -20, movePct = -60 } },
 })
 
 AddEffect({
@@ -926,7 +926,7 @@ AddEffect({
     damageType = "shadow",
     icon = "Interface\\Icons\\Sha_spell_shadow_shadesofdarkness_nightborne",
     description = "Иллюзия бьёт по-настоящему, потому что жертва верит в неё сильнее, чем в собственные глаза.",
-    effect = { kind = "debuff", school = "magic", mods = { attack = -25, crit = -12 }, tick = { damage = 2 } },
+    effect = { kind = "debuff", resist = "Дух", school = "magic", mods = { attack = -25, crit = -12 }, tick = { damage = 2 } },
 })
 
 AddEffect({
@@ -1089,7 +1089,7 @@ AddEffect({
     name = "Полиморф",
     icon = "Interface\\Icons\\spell_nature_polymorph",
     description = "Тело стало телом безобидного зверька. Ни оружия, ни чар, ни слов — только испуг. Любая рана возвращает прежний облик.",
-    effect = { kind = "debuff", school = "magic", mods = { attack = -60, damage = -4, movePct = -55 }, tick = { heal = 3 }, breakOn = { damaged = true } },
+    effect = { kind = "debuff", resist = "Дух", school = "magic", mods = { attack = -60, damage = -4, movePct = -55 }, tick = { heal = 3 }, breakOn = { damaged = true } },
 })
 
 AddEffect({
@@ -1097,7 +1097,7 @@ AddEffect({
     name = "Оглушён визгом",
     icon = "Interface\\Icons\\Ability_evoker_oppressingroar",
     description = "В ушах звенит так, что не слышно ни собственного голоса, ни чужой команды.",
-    effect = { kind = "debuff", family = "Оглушение", mods = { attack = -18, defense = -18, movePct = -40 } },
+    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение", mods = { attack = -18, defense = -18, movePct = -40 } },
 })
 
 AddEffect({
@@ -1317,7 +1317,7 @@ AddEffect({
     name = "Песок в глазах",
     icon = "Interface\\Icons\\Spell_sandbolt",
     description = "Крупицы забились под веки. Глаза слезятся, и цель почти ничего не видит.",
-    effect = { kind = "debuff", mods = { attack = -12, defense = -4 } },
+    effect = { kind = "debuff", resist = "Выносливость", mods = { attack = -12, defense = -4 } },
 })
 
 AddEffect({
@@ -1349,7 +1349,7 @@ AddEffect({
     name = "Сглаз",
     icon = "Interface\\Icons\\Spell_shaman_hex",
     description = "Тело стало телом жабы. Ни оружия, ни слов силы — только квакание. Любая рана снимает сглаз.",
-    effect = { kind = "debuff", school = "curse", mods = { attack = -18, damage = -1, defense = -12 } },
+    effect = { kind = "debuff", resist = "Дух", school = "curse", mods = { attack = -18, damage = -1, defense = -12 } },
 })
 
 AddEffect({
@@ -1365,7 +1365,7 @@ AddEffect({
     name = "Оглушён громом",
     icon = "Interface\\Icons\\ability_thunderking_rockfalllow",
     description = "Перепонки звенят, мир стал беззвучным и шатким.",
-    effect = { kind = "debuff", family = "Оглушение", mods = { attack = -18, defense = -8, movePct = -35 } },
+    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение", mods = { attack = -18, defense = -8, movePct = -35 } },
 })
 
 AddEffect({
@@ -1373,7 +1373,7 @@ AddEffect({
     name = "Удушающий порыв",
     icon = "Interface\\Icons\\Achievement_boss_alakir the windlord",
     description = "Ветер стоит в горле. Вдохнуть можно, произнести слово силы — нет.",
-    effect = { kind = "debuff", mods = { attack = -18, maxCastResource = -2, movePct = -35 } },
+    effect = { kind = "debuff", resist = "Сила", mods = { attack = -18, maxCastResource = -2, movePct = -35 } },
 })
 
 AddEffect({
@@ -1393,7 +1393,7 @@ AddEffect({
     -- а нулевой кап — это полное обездвиживание (см. Core/Movement.lua),
     -- то есть цель не смогла бы вообще ничего применить. Такой запрет
     -- сильнее всего, что есть в библиотеке, и вводить его походя нельзя.
-    effect = { kind = "debuff", school = "magic", mods = { attack = -25, defense = -24, movePct = -100 } },
+    effect = { kind = "debuff", resist = "Сила", school = "magic", mods = { attack = -25, defense = -24, movePct = -100 } },
 })
 
 AddEffect({
@@ -1401,7 +1401,7 @@ AddEffect({
     name = "Всемирный потоп",
     icon = "Interface\\Icons\\Inv12_apextalent_shaman_stormstreamtotem",
     description = "Ледяной поток сбивает с ног и тащит по земле, не давая встать.",
-    effect = { kind = "debuff", mods = { attack = -12, defense = -25 } },
+    effect = { kind = "debuff", resist = "Сила", mods = { attack = -12, defense = -25 } },
 })
 
 AddEffect({
@@ -1457,7 +1457,7 @@ AddEffect({
     name = "Зыбучий камень",
     icon = "Interface\\Icons\\Spell_quicksand",
     description = "Камень под ногами течёт как песок. Каждый шаг уходит вниз.",
-    effect = { kind = "debuff", school = "magic", mods = { attack = -9, defense = -25, movePct = -50 } },
+    effect = { kind = "debuff", resist = "Выносливость", school = "magic", mods = { attack = -9, defense = -25, movePct = -50 } },
 })
 
 AddEffect({
@@ -1596,7 +1596,7 @@ AddEffect({
     name = "Болотный туман",
     icon = "Interface\\Icons\\Ability_deathknight_deathsiphon",
     description = "Удушливая мгла режет глаза и горло. Дышать в ней тяжело, видеть — почти нечем.",
-    effect = { kind = "debuff", school = "magic", mods = { attack = -12, defense = -4 } },
+    effect = { kind = "debuff", resist = "Сила", school = "magic", mods = { attack = -12, defense = -4 } },
 })
 
 AddEffect({
@@ -1612,7 +1612,7 @@ AddEffect({
     name = "Спячка",
     icon = "Interface\\Icons\\spell_nature_sleep",
     description = "Тело провалилось в глубокий сон. Разбудить его можно, но не сразу.",
-    effect = { kind = "debuff", school = "magic", mods = { attack = -18, defense = -18, movePct = -90 } },
+    effect = { kind = "debuff", resist = "Дух", school = "magic", mods = { attack = -18, defense = -18, movePct = -90 } },
 })
 
 AddEffect({
@@ -1628,7 +1628,7 @@ AddEffect({
     name = "Умиротворён",
     icon = "Interface\\Icons\\Ability_seal",
     description = "Ярость ушла, и драться больше не хочется. Совсем.",
-    effect = { kind = "debuff", school = "magic", mods = { attack = -18, damage = -1 } },
+    effect = { kind = "debuff", resist = "Дух", school = "magic", mods = { attack = -18, damage = -1 } },
 })
 
 AddEffect({
@@ -1689,7 +1689,7 @@ AddEffect({
     damageType = "fire",
     icon = "Interface\\Icons\\Spell_fire_immolation",
     description = "Демоническое пламя въелось в плоть и не гаснет само.",
-    effect = { kind = "debuff", school = "magic", mods = { defense = -12 }, tick = { damage = 1 } },
+    effect = { kind = "debuff", resist = "Выносливость", school = "magic", mods = { defense = -12 }, tick = { damage = 1 } },
 })
 
 AddEffect({
@@ -1731,7 +1731,7 @@ AddEffect({
     name = "Проклятие косноязычия",
     icon = "Interface\\Icons\\Spell_shadow_curseoftounges",
     description = "Язык не слушается. Слова силы выходят искажёнными и рассыпаются, не сработав.",
-    effect = { family = "Проклятие", kind = "debuff", school = "curse", mods = { attack = -12, maxMana = -2 } },
+    effect = { family = "Проклятие", kind = "debuff", resist = "Дух", school = "curse", mods = { attack = -12, maxMana = -2 } },
 })
 
 AddEffect({
@@ -1750,7 +1750,7 @@ AddEffect({
     description = "С неба льётся огонь на выбранное место и не гаснет, пока чернокнижник платит кровью.",
     -- Длительность у ДЕБАФФА своя, а не у заклинания (см. ApplyEffect):
     -- ливень идёт два хода на каждом, кого накрыло.
-    effect = { kind = "debuff", tick = { damage = 2 } },
+    effect = { kind = "debuff", resist = "Выносливость", tick = { damage = 2 } },
 })
 
 AddEffect({
@@ -1758,7 +1758,7 @@ AddEffect({
     name = "Изгнание",
     icon = "Interface\\Icons\\Spell_shadow_cripple",
     description = "Часть существа вытолкнута в Круговерть. Оно здесь, но не целиком, и потому почти бессильно.",
-    effect = { kind = "debuff", school = "magic", mods = { attack = -100, defense = 100, movePct = -75 } },
+    effect = { kind = "debuff", resist = "Сила", school = "magic", mods = { attack = -100, defense = 100, movePct = -75 } },
 })
 
 
@@ -1767,7 +1767,7 @@ AddEffect({
     name = "Порабощён",
     icon = "Interface\\Icons\\Spell_shadow_enslavedemon",
     description = "Чужая воля сидит в голове и говорит, что делать. Сопротивляться получается плохо.",
-    effect = { kind = "debuff", school = "magic", mods = { attack = -25, defense = -12, movePct = -35 } },
+    effect = { kind = "debuff", resist = "Дух", school = "magic", mods = { attack = -25, defense = -12, movePct = -35 } },
 })
 
 AddEffect({
@@ -1785,7 +1785,7 @@ AddEffect({
     name = "Планарная цепь",
     icon = "Interface\\Icons\\Inv_misc_steelweaponchain",
     description = "Латунная цепь держит инопланарное тело крепче любой стали.",
-    effect = { kind = "debuff", school = "magic", mods = { attack = -15, defense = -25, movePct = -55 } },
+    effect = { kind = "debuff", resist = "Сила", school = "magic", mods = { attack = -15, defense = -25, movePct = -55 } },
 })
 
 AddEffect({
@@ -1833,7 +1833,7 @@ AddEffect({
     damageType = "nature",
     icon = "Interface\\Icons\\Ability_monk_cracklingjadelightning",
     description = "Изумрудный разряд идёт по телу непрерывно и не даёт свести руки для удара.",
-    effect = { kind = "debuff", school = "magic", mods = { attack = -12 }, tick = { damage = 1 } },
+    effect = { kind = "debuff", resist = "Выносливость", school = "magic", mods = { attack = -12 }, tick = { damage = 1 } },
 })
 
 -- ==========================================================
@@ -1857,7 +1857,7 @@ AddEffect({
     name = "Приговор Храмовника",
     icon = "Interface\\Icons\\Spell_paladin_templarsverdict",
     description = "Свет вынес решение, и оно уже исполняется. Держаться на ногах под этим приговором тяжело.",
-    effect = { kind = "debuff", family = "Оглушение", mods = { attack = -80, defense = -5 } },
+    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение", mods = { attack = -80, defense = -5 } },
 })
 
 -- ==========================================================
@@ -1870,7 +1870,7 @@ AddEffect({
     damageType = "shadow",
     icon = "Interface\\Icons\\Spell_shadow_unholyfrenzy",
     description = "В голове разорвалось что-то чужое. Мысли не собираются, руки не слушаются.",
-    effect = { kind = "debuff", family = "Оглушение", school = "magic", mods = { attack = -80, movePct = -35 }, tick = { damage = 4 } },
+    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение", school = "magic", mods = { attack = -80, movePct = -35 }, tick = { damage = 4 } },
 })
 
 AddEffect({
@@ -1879,7 +1879,7 @@ AddEffect({
     damageType = "physical",
     icon = "Interface\\Icons\\Ability_rogue_garrote",
     description = "В голове разорвалось что-то чужое. Мысли не собираются, руки не слушаются.",
-    effect = { kind = "debuff", school = "bleed", stats = { ["Концентрация"] = -2 }, tick = { damage = 1 } },
+    effect = { kind = "debuff", resist = "Выносливость", school = "bleed", stats = { ["Концентрация"] = -2 }, tick = { damage = 1 } },
 })
 
 AddEffect({
@@ -1888,7 +1888,7 @@ AddEffect({
     damageType = "nature",
     icon = "Interface\\Icons\\INV_Potion_19",
     description = "В голове разорвалось что-то чужое. Мысли не собираются, руки не слушаются.",
-    effect = { kind = "debuff", school = "poison", stats = { ["Мощь"] = -2 }, tick = { damage = 1 }, mods = { maxCastResource = -1 } },
+    effect = { kind = "debuff", resist = "Выносливость", school = "poison", stats = { ["Мощь"] = -2 }, tick = { damage = 1 }, mods = { maxCastResource = -1 } },
 })
 
 AddEffect({
@@ -1896,7 +1896,7 @@ AddEffect({
     name = "Ошеломлен",
     icon = "Interface\\Icons\\Ability_sap",
     description = "Цель ошеломлена и в виду своей уязвимости она едва ли способна будет дать отпор.",
-    effect = { kind = "debuff", mods = { attack = -60, movePct = -50 }, breakOn = { damaged = true } },
+    effect = { kind = "debuff", resist = "Выносливость", mods = { attack = -60, movePct = -50 }, breakOn = { damaged = true } },
 })
 
 AddEffect({
@@ -1904,7 +1904,7 @@ AddEffect({
     name = "Подлый трюк",
     icon = "Interface\\Icons\\Ability_cheapshot",
     description = "Подлый удар придется в самое неожиданное место, открывая вас для расправы.",
-    effect = { kind = "debuff", family = "Оглушение", stats = { ["Ловкость"] = -2, ["Сила"] = -2, }, mods = { defense = -30, movePct = -70 } },
+    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение", stats = { ["Ловкость"] = -2, ["Сила"] = -2, }, mods = { defense = -30, movePct = -70 } },
 })
 
 AddEffect({
@@ -1939,7 +1939,7 @@ AddEffect({
     damageType = "nature",
     icon = "Interface\\Icons\\Ability_rogue_dualweild",
     description = "Небольшая порция жгучего яда, что мучает и приближает кончину цели изнутри.",
-    effect = { kind = "debuff", school = "poison", stats = { ["Живучесть"] = -2 }, tick = { damage = 2 } },
+    effect = { kind = "debuff", resist = "Выносливость", school = "poison", stats = { ["Живучесть"] = -2 }, tick = { damage = 2 } },
 })
 
 AddEffect({
@@ -1947,7 +1947,7 @@ AddEffect({
     name = "Удар по почкам",
     icon = "Interface\\Icons\\Ability_rogue_kidneyshot",
     description = "Оглушительная боль лишает практически всякой возможности на сопротивление.",
-    effect = { kind = "debuff", family = "Оглушение", mods = { attack = -70, defense = -15, movePct = -75 } },
+    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение", mods = { attack = -70, defense = -15, movePct = -75 } },
 })
 
 AddEffect({
@@ -1955,7 +1955,7 @@ AddEffect({
     name = "Зуботычина",
     icon = "Interface\\Icons\\Inv_gauntlets_04",
     description = "Отходит от сбивающего с толку тычка в морду, лишающего всякой концентрации и пылкости.",
-    effect = { kind = "debuff", mods = { attack = -8 }, stats = { ["Концентрация"] = -2, ["Анализ"] = -2, ["Рвение"] = -2 } },
+    effect = { kind = "debuff", resist = "Сила", mods = { attack = -8 }, stats = { ["Концентрация"] = -2, ["Анализ"] = -2, ["Рвение"] = -2 } },
 })
 
 AddEffect({
@@ -1963,7 +1963,7 @@ AddEffect({
     name = "Удар щитом",
     icon = "Interface\\Icons\\Ability_warrior_shieldbash",
     description = "Цель лишена равновесия и возможности нормально защищаться после удара об щит.",
-    effect = { kind = "debuff", mods = { defense = -12 }, stats = { ["Акробатика"] = -2 } },
+    effect = { kind = "debuff", resist = "Выносливость", mods = { defense = -12 }, stats = { ["Акробатика"] = -2 } },
 })
 
 AddEffect({
@@ -1971,7 +1971,7 @@ AddEffect({
     name = "Разоружение",
     icon = "Interface\\Icons\\Ability_warrior_disarm",
     description = "В результате вражеского финта теряет возможность пользоваться своим оружием!",
-    effect = { kind = "debuff", mods = { attack = -25 }, stats = { ["Сила"] = -2 } },
+    effect = { kind = "debuff", resist = "Ловкость", mods = { attack = -25 }, stats = { ["Сила"] = -2 } },
 })
 
 AddEffect({
@@ -1979,7 +1979,7 @@ AddEffect({
     name = "Устрашающий крик",
     icon = "Interface\\Icons\\Ability_golemthunderclap",
     description = "Пронзивший душу вражеский крик вгонит цель в состояние оцепенения и ужаса.",
-    effect = { kind = "debuff", family = "Страх", mods = { attack = -75, movePct = 15 }, stats = { ["Лидерство"] = -3, ["Воля"] = -3 }, breakOn = { damaged = true } },
+    effect = { kind = "debuff", resist = "Дух", family = "Страх", mods = { attack = -75, movePct = 15 }, stats = { ["Лидерство"] = -3, ["Воля"] = -3 }, breakOn = { damaged = true } },
 })
 
 AddEffect({
@@ -1996,7 +1996,7 @@ AddEffect({
     damageType = "nature",
     icon = "Interface\\Icons\\Ability_rogue_disembowel",
     description = "Тело цели сворачивается в режущих судорогах под действием этого яда.",
-    effect = { kind = "debuff", school = "poison", mods = { damage = -2 }, tick = { damage = 2 } },
+    effect = { kind = "debuff", resist = "Выносливость", school = "poison", mods = { damage = -2 }, tick = { damage = 2 } },
 })
 
 AddEffect({
@@ -2050,7 +2050,7 @@ AddEffect({
     damageType = "shadow",
     icon = "Interface\\Icons\\Spell_shadow_devouringplague",
     description = "Потусторонняя, неестественная болезнь пожирает плоть и разум цели.",
-    effect = { kind = "debuff", school = "disease", stats = { ["Живучесть"] = -2 }, tick = { damage = 2 } },
+    effect = { kind = "debuff", resist = "Выносливость", school = "disease", stats = { ["Живучесть"] = -2 }, tick = { damage = 2 } },
 })
 
 AddEffect({
@@ -2066,7 +2066,7 @@ AddEffect({
     name = "Ментальный крик",
     icon = "Interface\\Icons\\Spell_shadow_psychicscream",
     description = "Тело хочет бежать, а не драться. Разум занят чужими кошмарами.",
-    effect = { kind = "debuff", family = "Страх", mods = { attack = -75, movePct = 15 }, stats = { ["Лидерство"] = -3, ["Воля"] = -3 }, breakOn = { damaged = true } },
+    effect = { kind = "debuff", resist = "Дух", family = "Страх", mods = { attack = -75, movePct = 15 }, stats = { ["Лидерство"] = -3, ["Воля"] = -3 }, breakOn = { damaged = true } },
 })
 
 AddEffect({
@@ -2078,7 +2078,7 @@ AddEffect({
         -- «На неё не действуют заклинания, вызывающие страх». Это
         -- дебаф, и подавление здесь — не подарок цели, а причина, по
         -- которой умиротворённого не запугать: он уже спокоен.
-        suppress = { "Страх" }, kind = "debuff", school = "magic", mods = { defense = -50, range = -12 }, stats = { ["Воля"] = -3, }, breakOn = { damaged = true } },
+        suppress = { "Страх" }, kind = "debuff", resist = "Дух", school = "magic", mods = { defense = -50, range = -12 }, stats = { ["Воля"] = -3, }, breakOn = { damaged = true } },
 })
 
 AddEffect({
@@ -2097,7 +2097,7 @@ AddEffect({
     name = "Молот правосудия",
     icon = "Interface\\Icons\\Spell_holy_sealofmight",
     description = "Мерцающая преграда отводит слабые удары и сбивает прицел стрелкам.",
-    effect = { kind = "debuff", family = "Оглушение", mods = { attack = -80, movePct = -80 } },
+    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение", mods = { attack = -80, movePct = -80 } },
 })
 
 AddEffect({
@@ -2105,7 +2105,7 @@ AddEffect({
     name = "Суд света",
     icon = "Interface\\Icons\\Ability_paladin_judgementblue",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
-    effect = { kind = "debuff", mods = { defense = -10 }, stats = { ["Ловкость"] = -3, ["Акробатика"] = -3 } },
+    effect = { kind = "debuff", resist = "Дух", mods = { defense = -10 }, stats = { ["Ловкость"] = -3, ["Акробатика"] = -3 } },
 })
 
 AddEffect({
@@ -2113,7 +2113,7 @@ AddEffect({
     name = "Покаяние",
     icon = "Interface\\Icons\\Spell_holy_prayerofhealing",
     description = "Решимость сменилась сомнением. Рука делает то, что велено, но без веры в исход.",
-    effect = { kind = "debuff", breakOn = { damaged = true }, school = "magic", mods = { attack = -30, defense = -30 }, stats = { ["Воля"] = -4 } },
+    effect = { kind = "debuff", resist = "Дух", breakOn = { damaged = true }, school = "magic", mods = { attack = -30, defense = -30 }, stats = { ["Воля"] = -4 } },
 })
 
 AddEffect({
@@ -2138,7 +2138,7 @@ AddEffect({
     name = "Суд справедливости",
     icon = "Interface\\Icons\\Ability_paladin_judgementred",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
-    effect = { kind = "debuff", school = "magic", mods = { defense = -15 }, stats = { ["Ловкость"] = -4, ["Акробатика"] = -4 } },
+    effect = { kind = "debuff", resist = "Дух", school = "magic", mods = { defense = -15 }, stats = { ["Ловкость"] = -4, ["Акробатика"] = -4 } },
 })
 
 AddEffect({
@@ -2202,7 +2202,7 @@ AddEffect({
     name = "Деморализация",
     icon = "Interface\\Icons\\Ability_warrior_warcry",
     description = "Решимость сменилась сомнением. Рука делает то, что велено, но без веры в исход.",
-    effect = { kind = "debuff", mods = { attack = -8 } },
+    effect = { kind = "debuff", resist = "Характер", mods = { attack = -8 } },
 })
 
 AddEffect({
@@ -2221,7 +2221,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_nature_slow",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { family = "Замедление", kind = "debuff", school = "magic", mods = { defense = -8, attack = -3, movePct = -50 } },
+    effect = { family = "Замедление", kind = "debuff", resist = "Сила", school = "magic", mods = { defense = -8, attack = -3, movePct = -50 } },
 })
 
 AddEffect({
@@ -2241,7 +2241,7 @@ AddEffect({
     icon = "Interface\\Icons\\Ability_rogue_bloodyeye",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
-        kind = "debuff", school = "disease",
+        kind = "debuff", resist = "Выносливость", school = "disease",
         tick = { damage = 1 },
 		stats = { ["Мощь"] = -2 },
     },
@@ -2255,7 +2255,7 @@ AddEffect({
     icon = "Interface\\Icons\\Ability_rogue_bloodyeye",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
-        kind = "debuff", school = "disease",
+        kind = "debuff", resist = "Выносливость", school = "disease",
         tick = { damage = 1 },
 		stats = { ["Мощь"] = -2 },
     },
@@ -2269,7 +2269,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_shadow_shadowwordpain",
     description = "Мучительная мигрень мешает и сотворять заклинания, и просто держать строй.",
     effect = {
-        kind = "debuff", school = "magic",
+        kind = "debuff", resist = "Выносливость", school = "magic",
         mods = { attack = -12, crit = -2 },
         tick = { damage = 1 },
     },
@@ -2300,7 +2300,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_nature_slow",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { family = "Замедление", kind = "debuff", school = "magic", mods = { defense = -12, attack = -4, movePct = -50 } },
+    effect = { family = "Замедление", kind = "debuff", resist = "Сила", school = "magic", mods = { defense = -12, attack = -4, movePct = -50 } },
 })
 
 AddEffect({
@@ -2312,7 +2312,7 @@ AddEffect({
     -- «Неспособной ни к точному удару, ни к тяжёлому усилию»: холод
     -- бьёт по телу, а не по чарам.
     effect = {
-        kind  = "debuff", school = "disease",
+        kind  = "debuff", resist = "Выносливость", school = "disease",
         mods = { attack = -16, damagePhysical = -1 },
         stats = { ["Мощь"] = -2, ["Атлетика"] = -1 },
     },
@@ -2328,7 +2328,7 @@ AddEffect({
         -- «СОРВАТЬ ЗАКЛИНАНИЕ ВРАЖЕСКОГО МАГА»: нити на глотке мешают
         -- именно говорить — значит, платит тот, кто пытается.
         onAction = { when = "cast", magic = true, payload = { mana = -1 } },
-        kind = "debuff", school = "magic", mods = { maxMana = -2 } },
+        kind = "debuff", resist = "Сила", school = "magic", mods = { maxMana = -2 } },
 })
 
 AddEffect({
@@ -2338,7 +2338,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_nature_slow",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { family = "Замедление", kind = "debuff", school = "magic", mods = { defense = -18, attack = -5, movePct = -50 } },
+    effect = { family = "Замедление", kind = "debuff", resist = "Сила", school = "magic", mods = { defense = -18, attack = -5, movePct = -50 } },
 })
 
 AddEffect({
@@ -2387,7 +2387,7 @@ AddEffect({
     name = "Апокалипсис",
     icon = "Interface\\Icons\\Spell_shadow_possession",
     description = "Тело хочет бежать, а не драться. Разум занят чужими кошмарами.",
-    effect = { kind = "debuff", mods = { attack = -32, defense = -22 } },
+    effect = { kind = "debuff", resist = "Дух", mods = { attack = -32, defense = -22 } },
 })
 
 AddEffect({
@@ -2406,7 +2406,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_nature_slow",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { family = "Замедление", kind = "debuff", school = "magic", mods = { defense = -40, attack = -10, movePct = -50 } },
+    effect = { family = "Замедление", kind = "debuff", resist = "Сила", school = "magic", mods = { defense = -40, attack = -10, movePct = -50 } },
 })
 
 AddEffect({
@@ -2417,7 +2417,7 @@ AddEffect({
     icon = "Interface\\Icons\\Ability_rogue_bloodyeye",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
-        kind = "debuff", school = "bleed",
+        kind = "debuff", resist = "Выносливость", school = "bleed",
         tick = { damage = 1 },
 		stats = { ["Мощь"] = -2 },
     },
@@ -2429,7 +2429,7 @@ AddEffect({
     name = "Деморализация",
     icon = "Interface\\Icons\\Ability_warrior_warcry",
     description = "Решимость сменилась сомнением. Рука делает то, что велено, но без веры в исход.",
-    effect = { kind = "debuff", school = "magic", mods = { attack = -8 } },
+    effect = { kind = "debuff", resist = "Характер", school = "magic", mods = { attack = -8 } },
 })
 
 AddEffect({
@@ -2460,7 +2460,7 @@ AddEffect({
     name = "Поглощение магии",
     icon = "Interface\\Icons\\Spell_shadow_manaburn",
     description = "Внутренний источник обожжён. Черпать из него больно и почти нечего.",
-    effect = { kind = "debuff", school = "magic", mods = { maxMana = -2 } },
+    effect = { kind = "debuff", resist = "Дух", school = "magic", mods = { maxMana = -2 } },
 })
 
 AddEffect({
@@ -2471,7 +2471,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_shadow_shadowwordpain",
     description = "Мучительная мигрень мешает и сотворять заклинания, и просто держать строй.",
     effect = {
-        kind = "debuff", school = "magic",
+        kind = "debuff", resist = "Выносливость", school = "magic",
         mods = { attack = -12, crit = -2 },
         tick = { damage = 1 },
     },
@@ -2484,7 +2484,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_shadow_mindsteal",
     description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
     effect = {
-        kind  = "debuff",
+        kind  = "debuff", resist = "Дух",
         mods = { attack = -26, defense = -26, movePct = -60 },
         stats = { ["Точность"] = -4 },
     },
@@ -2505,7 +2505,7 @@ AddEffect({
     name = "Печать страдания",
     icon = "Interface\\Icons\\Spell_shadow_possession",
     description = "Тело хочет бежать, а не драться. Разум занят чужими кошмарами.",
-    effect = { kind = "debuff", school = "magic", mods = { attack = -18, defense = -14 } },
+    effect = { kind = "debuff", resist = "Дух", school = "magic", mods = { attack = -18, defense = -14 } },
 })
 
 AddEffect({
@@ -2515,7 +2515,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_shadow_manaburn",
     description = "Внутренний источник обожжён. Черпать из него больно и почти нечего.",
     effect = {
-        kind   = "debuff",
+        kind   = "debuff", resist = "Дух",
         school = "magic",
         mods   = { maxMana = -2 },
         -- «ЧАРЫ ВНУТРИ ПЕЧАТИ РАССЫПАЮТСЯ НЕДОСКАЗАННЫМИ. НА ТЕХ, КТО
@@ -2537,7 +2537,7 @@ AddEffect({
     icon = "Interface\\Icons\\Ability_rogue_bloodyeye",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
-        kind = "debuff", school = "bleed",
+        kind = "debuff", resist = "Выносливость", school = "bleed",
         tick = { damage = 2 },
 		stats = { ["Мощь"] = -2 },
     },
@@ -2550,7 +2550,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_shadow_mindsteal",
     description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
     effect = {
-        kind  = "debuff",
+        kind  = "debuff", resist = "Выносливость",
         school = "magic",
         mods = { attack = -33, defense = -33 },
         stats = { ["Точность"] = -4 },
@@ -2564,7 +2564,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_nature_slow",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { family = "Замедление", kind = "debuff", school = "magic", mods = { defense = -25, attack = -7, movePct = -50 } },
+    effect = { family = "Замедление", kind = "debuff", resist = "Сила", school = "magic", mods = { defense = -25, attack = -7, movePct = -50 } },
 })
 
 AddEffect({
@@ -2574,7 +2574,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_nature_slow",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { family = "Замедление", kind = "debuff", mods = { defense = -25, attack = -7, movePct = -50 } },
+    effect = { family = "Замедление", kind = "debuff", resist = "Сила", mods = { defense = -25, attack = -7, movePct = -50 } },
 })
 
 AddEffect({
@@ -2615,7 +2615,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_shadow_curseofmannoroth",
     description = "Доспех тяжелеет, оружие держится без уверенности. Удары выходят вялыми.",
     effect = {
-        kind  = "debuff",
+        kind  = "debuff", resist = "Выносливость",
         mods = { attack = -32, damage = -1 },
         stats = { ["Мощь"] = -3, ["Атлетика"] = -2 },
     },
@@ -2629,7 +2629,7 @@ AddEffect({
     icon = "Interface\\Icons\\Ability_rogue_bloodyeye",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
-        kind = "debuff", school = "bleed",
+        kind = "debuff", resist = "Выносливость", school = "bleed",
         tick = { damage = 3 },
 		stats = { ["Мощь"] = -3 },
     },
@@ -2641,7 +2641,7 @@ AddEffect({
     name = "Элизийский декрет",
     icon = "Interface\\Icons\\Spell_shadow_possession",
     description = "Тело хочет бежать, а не драться. Разум занят чужими кошмарами.",
-    effect = { kind = "debuff", mods = { attack = -40, defense = -26 } },
+    effect = { kind = "debuff", resist = "Дух", mods = { attack = -40, defense = -26 } },
 })
 
 AddEffect({
@@ -2651,7 +2651,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_shadow_mindsteal",
     description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
     effect = {
-        kind  = "debuff",
+        kind  = "debuff", resist = "Выносливость",
         mods = { attack = -15, defense = -15 },
         stats = { ["Точность"] = -4 },
     },
@@ -2673,7 +2673,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_nature_slow",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { family = "Замедление", kind = "debuff", school = "magic", mods = { defense = -12, attack = -4, movePct = -50 } },
+    effect = { family = "Замедление", kind = "debuff", resist = "Сила", school = "magic", mods = { defense = -12, attack = -4, movePct = -50 } },
 })
 
 AddEffect({
@@ -2765,7 +2765,7 @@ AddEffect({
     name = "Подрезать крылья",
     icon = "Interface\\Icons\\Ability_rogue_trip",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
-    effect = { kind = "debuff", mods = { movePct = -50 } },
+    effect = { kind = "debuff", resist = "Ловкость", mods = { movePct = -50 } },
 })
 
 AddEffect({
@@ -2811,7 +2811,7 @@ AddEffect({
     name = "Контузящий выстрел",
     icon = "Interface\\Icons\\Spell_frost_stun",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
-    effect = { kind = "debuff", mods = { movePct = -50 } },
+    effect = { kind = "debuff", resist = "Выносливость", mods = { movePct = -50 } },
 })
 
 AddEffect({
@@ -2822,7 +2822,7 @@ AddEffect({
     icon = "Interface\\Icons\\Ability_hunter_quickshot",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
-        kind = "debuff", school = "poison",
+        kind = "debuff", resist = "Выносливость", school = "poison",
         tick = { damage = 1 },
 		stats = { ["Мощь"] = -2 },
     },
@@ -2834,7 +2834,7 @@ AddEffect({
     name = "Отвлекающий выстрел",
     icon = "Interface\\Icons\\Inv_trickshot",
     description = "Решимость сменилась сомнением. Рука делает то, что велено, но без веры в исход.",
-    effect = { kind = "debuff", stats = { ["Концентрация"] = -4 }, mods = { defense = -60 }, breakOn = { damaged = true } },
+    effect = { kind = "debuff", resist = "Дух", stats = { ["Концентрация"] = -4 }, mods = { defense = -60 }, breakOn = { damaged = true } },
 })
 
 AddEffect({
@@ -2842,7 +2842,7 @@ AddEffect({
     name = "Отпугивание жертвы",
     icon = "Interface\\Icons\\Spell_shadow_possession",
     description = "Тело хочет бежать, а не драться. Разум занят чужими кошмарами.",
-    effect = { kind = "debuff", stats = { ["Лидерство"] = -3, ["Запугивание"] = -3 }, mods = { attack = -30 }, breakOn = { damaged = true } },
+    effect = { kind = "debuff", resist = "Дух", stats = { ["Лидерство"] = -3, ["Запугивание"] = -3 }, mods = { attack = -30 }, breakOn = { damaged = true } },
 })
 
 AddEffect({
@@ -2852,7 +2852,7 @@ AddEffect({
     icon = "Interface\\Icons\\Ability_hunter_aimedshot",
     description = "Внутренний источник обожжён. Черпать из него больно и почти нечего.",
     effect = {
-        kind   = "debuff",
+        kind   = "debuff", resist = "Выносливость",
         school = "poison",
         -- «ТЕРЯЕТ НИТЬ СОТВОРЯЕМОГО ЗАКЛИНАНИЯ» — потеря приходит НА
         -- КАСТ, а не каждый ход. Тик тут был грубым приближением: он
@@ -2873,7 +2873,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_nature_slow",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { family = "Замедление", kind = "debuff", mods = { defense = -18, attack = -5, movePct = -50 } },
+    effect = { family = "Замедление", kind = "debuff", resist = "Сила", mods = { defense = -18, attack = -5, movePct = -50 } },
 })
 
 AddEffect({
@@ -2921,7 +2921,7 @@ AddEffect({
     icon = "Interface\\Icons\\Ability_rogue_bloodyeye",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
-        kind = "debuff", school = "bleed",
+        kind = "debuff", resist = "Выносливость", school = "bleed",
         tick = { damage = 3 },
 		stats = { ["Мощь"] = -3 },
     },
@@ -3010,7 +3010,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_nature_slow",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { kind = "debuff", school = "magic", mods = { movePct = -40 } },
+    effect = { kind = "debuff", resist = "Выносливость", school = "magic", mods = { movePct = -40 } },
 })
 
 AddEffect({
@@ -3072,7 +3072,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_shadow_mindsteal",
     description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
     effect = {
-        kind  = "debuff",
+        kind  = "debuff", resist = "Выносливость",
         school = "magic",
         mods = { attack = -33, defense = -33, range = -18 },
         stats = { ["Точность"] = -4 },
@@ -3095,7 +3095,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_nature_slow",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { family = "Замедление", kind = "debuff", school = "magic", mods = { defense = -25, attack = -7, movePct = -50 } },
+    effect = { family = "Замедление", kind = "debuff", resist = "Сила", school = "magic", mods = { defense = -25, attack = -7, movePct = -50 } },
 })
 
 AddEffect({
@@ -3104,7 +3104,7 @@ AddEffect({
     name = "Провокация",
     icon = "Interface\\Icons\\Ability_monk_provoke",
     description = "Решимость сменилась сомнением. Рука делает то, что велено, но без веры в исход.",
-    effect = { kind = "debuff", mods = { attack = -8 } },
+    effect = { kind = "debuff", resist = "Характер", mods = { attack = -8 } },
 })
 
 AddEffect({
@@ -3123,7 +3123,7 @@ AddEffect({
     icon = "Interface\\Icons\\Ability_monk_paralysis",
     description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
     effect = {
-        kind  = "debuff",
+        kind  = "debuff", resist = "Выносливость",
         mods = { attack = -20, defense = -20 },
         stats = { ["Точность"] = -4 },
     },
@@ -3145,7 +3145,7 @@ AddEffect({
     icon = "Interface\\Icons\\Achievement_brewery_2",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { family = "Замедление", kind = "debuff", mods = { defense = -12, attack = -4, movePct = -50 } },
+    effect = { family = "Замедление", kind = "debuff", resist = "Сила", mods = { defense = -12, attack = -4, movePct = -50 } },
 })
 
 AddEffect({
@@ -3296,7 +3296,7 @@ AddEffect({
     icon = "Interface\\Icons\\Ability_paladin_judgementred",
     description = "Доспех тяжелеет, оружие держится без уверенности. Удары выходят вялыми.",
     effect = {
-        kind  = "debuff",
+        kind  = "debuff", resist = "Дух",
         school = "magic",
         mods = { attack = -26, damage = -1 },
         stats = { ["Мощь"] = -2, ["Атлетика"] = -1 },
@@ -3320,7 +3320,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_shadow_shadowwordpain",
     description = "Мучительная мигрень мешает и сотворять заклинания, и просто держать строй.",
     effect = {
-        kind = "debuff", school = "magic",
+        kind = "debuff", resist = "Выносливость", school = "magic",
         mods = { attack = -8, crit = -1 },
         tick = { damage = 1 },
     },
@@ -3340,7 +3340,7 @@ AddEffect({
     name = "Выжженный источник",
     icon = "Interface\\Icons\\Spell_shadow_manaburn",
     description = "Внутренний источник обожжён. Черпать из него больно и почти нечего.",
-    effect = { kind = "debuff", school = "magic", mods = { maxMana = -2 } },
+    effect = { kind = "debuff", resist = "Дух", school = "magic", mods = { maxMana = -2 } },
 })
 
 AddEffect({
@@ -3350,7 +3350,7 @@ AddEffect({
     icon = "Interface\\Icons\\Ability_rogue_garrote",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
-        kind = "debuff", school = "bleed",
+        kind = "debuff", resist = "Выносливость", school = "bleed",
         tick = { damage = 1 },
 		stats = { ["Мощь"] = -2 },
     },
@@ -3362,7 +3362,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_shadow_mindsteal",
     description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
     effect = {
-        kind  = "debuff",
+        kind  = "debuff", resist = "Выносливость",
         mods = { attack = -33, defense = -33, range = -18 },
     },
 })
@@ -3395,7 +3395,7 @@ AddEffect({
     icon = "Interface\\Icons\\Ability_rogue_deadlybrew",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
-        kind = "debuff", school = "bleed",
+        kind = "debuff", resist = "Выносливость", school = "bleed",
         tick = { damage = 3 },
 		stats = { ["Мощь"] = -3 },
     },
@@ -3408,7 +3408,7 @@ AddEffect({
     icon = "Interface\\Icons\\Ability_rogue_smoke",
     description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
     effect = {
-        kind  = "debuff",
+        kind  = "debuff", resist = "Выносливость",
         mods = { attack = -40, defense = -40 },
         stats = { ["Точность"] = -5 },
     },
@@ -3450,7 +3450,7 @@ AddEffect({
     icon = "Interface\\Icons\\Inv_everburningignition_yellow",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
-        kind = "debuff", school = "magic",
+        kind = "debuff", resist = "Выносливость", school = "magic",
         tick = { damage = 1 },
 		stats = { ["Мощь"] = -2 },
     },
@@ -3532,7 +3532,7 @@ AddEffect({
     name = "Ледяные оковы",
     icon = "Interface\\Icons\\Spell_frost_chainsofice",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
-    effect = { family = "Замедление", kind = "debuff", school = "magic", mods = { defense = -18, attack = -5, movePct = -50 } },
+    effect = { family = "Замедление", kind = "debuff", resist = "Сила", school = "magic", mods = { defense = -18, attack = -5, movePct = -50 } },
 })
 
 AddEffect({
@@ -3619,7 +3619,7 @@ AddEffect({
     icon = "Interface\\Icons\\Inv_misc_dust",
     description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
     effect = {
-        kind  = "debuff", school = "magic",
+        kind  = "debuff", resist = "Выносливость", school = "magic",
         mods = { attack = -33, defense = -33 },
         stats = { ["Точность"] = -4 },
     },
@@ -3646,7 +3646,7 @@ AddEffect({
     icon = "Interface\\Icons\\spell_shadow_abominationexplosion",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
-        kind = "debuff", school = "magic",
+        kind = "debuff", resist = "Выносливость", school = "magic",
         tick = { damage = 1 },
 		stats = { ["Мощь"] = -2, ["Выносливость"] = -2 },
     },
@@ -3671,7 +3671,7 @@ AddEffect({
     -- «Любые заклинания холода или огня оказывают на цель ДВОЙНОЙ урон».
     -- Первый дебафф в библиотеке, который бьёт по сопротивлению, — и
     -- ровно тот случай, ради которого канал принимает минус.
-    effect = { family = "Проклятие", kind = "debuff", school = "curse", mods = { resistFire = -2, resistFrost = -2, armor = -20 } },
+    effect = { family = "Проклятие", kind = "debuff", resist = "Дух", school = "curse", mods = { resistFire = -2, resistFrost = -2, armor = -20 } },
 })
 
 AddEffect({
@@ -3682,7 +3682,7 @@ AddEffect({
     description = "Доспех тяжелеет, оружие держится без уверенности. Удары выходят вялыми.",
     -- «АТАКИ ОРУЖИЕМ наносят меньше урона» — записано у автора.
     effect = { family = "Проклятие",
-        kind  = "debuff", school = "curse",
+        kind  = "debuff", resist = "Дух", school = "curse",
         mods = { attack = -16, damagePhysical = -1, movePct = -50 },
         stats = { ["Мощь"] = -2, ["Атлетика"] = -1 },
     },
@@ -3696,7 +3696,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_shadow_curseofsargeras",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = { family = "Проклятие",
-        kind = "debuff", school = "curse",
+        kind = "debuff", resist = "Дух", school = "curse",
         tick = { damage = 2 },
 		stats = { ["Мощь"] = -2 },
     },
@@ -3708,7 +3708,7 @@ AddEffect({
     name = "Страх",
     icon = "Interface\\Icons\\Spell_shadow_possession",
     description = "Тело хочет бежать, а не драться. Разум занят чужими кошмарами.",
-    effect = { kind = "debuff", family = "Страх", school = "magic", mods = { attack = -35, movePct = 15 } },
+    effect = { kind = "debuff", resist = "Дух", family = "Страх", school = "magic", mods = { attack = -35, movePct = 15 } },
 })
 
 AddEffect({
@@ -3717,7 +3717,7 @@ AddEffect({
     name = "Проклятие Тьмы",
     icon = "Interface\\Icons\\Spell_shadow_curseofachimonde",
     description = "Защита разобрана изнутри: то, что раньше скользило по доспеху, теперь доходит до тела.",
-    effect = { family = "Проклятие", kind = "debuff", school = "curse", mods = { armor = -20 } },
+    effect = { family = "Проклятие", kind = "debuff", resist = "Дух", school = "curse", mods = { armor = -20 } },
 })
 
 AddEffect({
@@ -3726,7 +3726,7 @@ AddEffect({
     name = "Вой ужаса",
     icon = "Interface\\Icons\\Ability_warlock_howlofterror",
     description = "Тело хочет бежать, а не драться. Разум занят чужими кошмарами.",
-    effect = { kind = "debuff", school = "magic", mods = { attack = -80 } },
+    effect = { kind = "debuff", resist = "Дух", school = "magic", mods = { attack = -80 } },
 })
 
 AddEffect({
@@ -3737,7 +3737,7 @@ AddEffect({
     icon = "Interface\\Icons\\Ability_gouge",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
-        kind = "debuff", school = "bleed",
+        kind = "debuff", resist = "Выносливость", school = "bleed",
         tick = { damage = 1 },
 		stats = { ["Мощь"] = -2 },
     },
@@ -3748,7 +3748,7 @@ AddEffect({
     name = "Насмешка",
     icon = "Interface\\Icons\\Ability_warrior_commandingshout",
     description = "Решимость сменилась сомнением. Рука делает то, что велено, но без веры в исход.",
-    effect = { kind = "debuff", stats = { ["Концентрация"] = -3, ["Точность"] = -3 } },
+    effect = { kind = "debuff", resist = "Характер", stats = { ["Концентрация"] = -3, ["Точность"] = -3 } },
 })
 
 AddEffect({
@@ -3774,7 +3774,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_holy_ashestoashes",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { kind = "debuff", mods = { movePct = -75 }, stats = { ["Ловкость"] = -2, ["Атлетика"] = -1 } },
+    effect = { kind = "debuff", resist = "Ловкость", mods = { movePct = -75 }, stats = { ["Ловкость"] = -2, ["Атлетика"] = -1 } },
 })
 
 AddEffect({
@@ -3782,7 +3782,7 @@ AddEffect({
     name = "Грозовая поступь",
     icon = "Interface\\Icons\\Ability_thunderclap",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
-    effect = { kind = "debuff", mods = { defense = -12, attack = -4, movePct = -35 } },
+    effect = { kind = "debuff", resist = "Выносливость", mods = { defense = -12, attack = -4, movePct = -35 } },
 })
 
 AddEffect({
@@ -3803,7 +3803,7 @@ AddEffect({
     name = "Деморализующий крик",
     icon = "Interface\\Icons\\Ability_warrior_warcry",
     description = "Решимость сменилась сомнением. Рука делает то, что велено, но без веры в исход.",
-    effect = { kind = "debuff", mods = { damage = -1 }, stats = { ["Лидерство"] = -1, ["Воля"] = -1 } },
+    effect = { kind = "debuff", resist = "Характер", mods = { damage = -1 }, stats = { ["Лидерство"] = -1, ["Воля"] = -1 } },
 })
 
 AddEffect({
@@ -3813,7 +3813,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_shadow_deathscream",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { kind = "debuff", mods = { movePct = -40 } },
+    effect = { kind = "debuff", resist = "Выносливость", mods = { movePct = -40 } },
 })
 
 AddEffect({
@@ -3909,7 +3909,7 @@ AddEffect({
     damageType = "fire",
     icon = "Interface\\Icons\\Spell_shadow_painandsuffering",
     description = "Пораженная цель ощущает, как ее кровь закипает и заставляет владельца полыхать.",
-    effect = { kind = "debuff", school = "magic", tick = { damage = 2 } },
+    effect = { kind = "debuff", resist = "Выносливость", school = "magic", tick = { damage = 2 } },
 })
 
 AddEffect({
@@ -3925,7 +3925,7 @@ AddEffect({
     name = "Смертельный удар",
     icon = "Interface\\Icons\\Ability_warrior_savageblow",
     description = "Оставлена глубокая рана, которую практически невозможно излечить.",
-    effect = { kind = "debuff", school = "magic", mods = { healTaken = -2 } },
+    effect = { kind = "debuff", resist = "Выносливость", school = "magic", mods = { healTaken = -2 } },
 })
 
 AddEffect({
@@ -3933,7 +3933,7 @@ AddEffect({
     name = "Колено прострелены",
     icon = "Interface\\Icons\\Ability_rogue_pistolshot",
     description = "Свивец застрянет прямо в ноге, мешая нормальному передвижению.",
-    effect = { kind = "debuff", mods = { movePct = -25 } },
+    effect = { kind = "debuff", resist = "Ловкость", mods = { movePct = -25 } },
 })
 
 AddEffect({
@@ -3941,7 +3941,7 @@ AddEffect({
     name = "Пуля в черепе",
     icon = "Interface\\Icons\\Inv_weapon_rifle_01",
     description = "Прямо в яблочко!",
-    effect = { kind = "debuff", mods = { attack = -40, defense = -40 } },
+    effect = { kind = "debuff", resist = "Выносливость", mods = { attack = -40, defense = -40 } },
 })
 
 AddEffect({
@@ -3990,7 +3990,7 @@ AddEffect({
     damageType = "fire",
     icon = "Interface\\Icons\\Spell_fire_selfdestruct",
     description = "Цель наступит на ловушку, оставленную охотником, оказавшись подожженой в последствии.",
-    effect = { kind = "debuff", tick = { damage = 2 } },
+    effect = { kind = "debuff", resist = "Выносливость", tick = { damage = 2 } },
 })
 
 AddEffect({
@@ -3999,7 +3999,7 @@ AddEffect({
     damageType = "fire",
     icon = "Interface\\Icons\\Spell_fire_flamebolt",
     description = "Сгорает в магическом пламени!",
-    effect = { kind = "debuff", school = "magic", tick = { damage = 1 } },
+    effect = { kind = "debuff", resist = "Выносливость", school = "magic", tick = { damage = 1 } },
 })
 -- ============================================================
 -- ШАМАН: ОРУЖЕЙНАЯ ВЕТКА
@@ -4024,7 +4024,7 @@ AddEffect({
     damageType = "nature",
     icon = "Interface\\Icons\\Ability_shaman_stormstrike",
     description = "По телу гуляет разряд, и следующий удар по этой цели ищет открытое место сам.",
-    effect = { kind = "debuff", school = "magic",
+    effect = { kind = "debuff", resist = "Выносливость", school = "magic",
                mods = { defense = -12, resistNature = -1 } },
 })
 
@@ -4068,7 +4068,7 @@ AddEffect({
     damageType = "fire",
     icon = "Interface\\Icons\\Spell_shaman_lavasurge",
     description = "Ожог не затягивается и не даёт держать оружие уверенно.",
-    effect = { kind = "debuff", school = "magic",
+    effect = { kind = "debuff", resist = "Выносливость", school = "magic",
                mods = { attack = -12, damagePhysical = -1 },
                stats = { ["Мощь"] = -1 },
                tick = { damage = 1 } },
@@ -4080,7 +4080,7 @@ AddEffect({
     damageType = "fire",
     icon = "Interface\\Icons\\Spell_shaman_improvedfirenova",
     description = "Доспех оплавлен, металл прикипел к телу и мешает двигаться.",
-    effect = { kind = "debuff", school = "magic",
+    effect = { kind = "debuff", resist = "Выносливость", school = "magic",
                mods = { armor = -10, movePct = -25 },
                tick = { damage = 1 } },
 })
@@ -4145,7 +4145,7 @@ AddEffect({
     damageType = "holy",
     icon = "Interface\\Icons\\Spell_holy_auraoflight",
     description = "Свет ответил на удар: ожог от него не гаснет сам собой.",
-    effect = { kind = "debuff", school = "magic", tick = { damage = 1 } },
+    effect = { kind = "debuff", resist = "Выносливость", school = "magic", tick = { damage = 1 } },
 })
 
 AddEffect({
@@ -4154,7 +4154,7 @@ AddEffect({
     damageType = "nature",
     icon = "Interface\\Icons\\Spell_nature_lightningshield",
     description = "Молния ударила в того, кто дотянулся, и разряд ещё гуляет по телу.",
-    effect = { kind = "debuff", school = "magic", tick = { damage = 1 } },
+    effect = { kind = "debuff", resist = "Выносливость", school = "magic", tick = { damage = 1 } },
 })
 
 AddEffect({
@@ -4163,7 +4163,7 @@ AddEffect({
     damageType = "arcane",
     icon = "Interface\\Icons\\Spell_arcane_arcanetorrent",
     description = "Собственное заклинание вернулось в руки: чары жгут изнутри, и следующее даётся тяжелее.",
-    effect = { kind = "debuff", school = "magic",
+    effect = { kind = "debuff", resist = "Дух", school = "magic",
                mods = { attack = -10 }, tick = { damage = 1 } },
 })
 
@@ -4173,7 +4173,7 @@ AddEffect({
     damageType = "physical",
     icon = "Interface\\Icons\\Spell_nature_stoneclawtotem",
     description = "Земля ударила в ответ: в голове звенит, ноги не слушаются.",
-    effect = { kind = "debuff", family = "Оглушение",
+    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение",
                mods = { attack = -35, defense = -20, movePct = -50 } },
 })
 
@@ -4211,7 +4211,7 @@ AddEffect({
     description = "Колючка вошла глубоко и обломилась. Кровь идёт не переставая.",
     -- «Претерпевают колющие ранения и могут начать обильно истекать
     -- кровью» — школа bleed, а урон физический: шип есть шип.
-    effect = { kind = "debuff", school = "bleed", tick = { damage = 1 } },
+    effect = { kind = "debuff", resist = "Выносливость", school = "bleed", tick = { damage = 1 } },
     damageType = "physical",
 })
 
@@ -4222,7 +4222,7 @@ AddEffect({
     description = "Руки коченеют от чужого доспеха. Движения стали короче.",
     -- «Наносит обычный урон, но одновременно подвергается охлаждению»:
     -- урона в ответ описание не обещает — только замедление.
-    effect = { kind = "debuff", school = "magic", family = "Замедление",
+    effect = { kind = "debuff", resist = "Сила", school = "magic", family = "Замедление",
                mods = { movePct = -25 } },
     damageType = "frost",
 })
@@ -4232,7 +4232,7 @@ AddEffect({
     name = "Занялся пламенем",
     icon = "Interface\\Icons\\Spell_fire_sealoffire",
     description = "Одежда занялась от чужого плаща. Сбить это с себя нечем.",
-    effect = { kind = "debuff", school = "magic", tick = { damage = 1 } },
+    effect = { kind = "debuff", resist = "Выносливость", school = "magic", tick = { damage = 1 } },
     damageType = "fire",
 })
 
@@ -4243,6 +4243,6 @@ AddEffect({
     description = "Собственное заклинание вернулось с чужого щита.",
     -- Двойка, а не единица: чары вернулись целиком, а не задели краем.
     -- Платой за это стоит шанс — угол успевает выставить не каждый.
-    effect = { kind = "debuff", school = "magic", tick = { damage = 2 } },
+    effect = { kind = "debuff", resist = "Дух", school = "magic", tick = { damage = 2 } },
     damageType = "arcane",
 })

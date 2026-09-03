@@ -775,8 +775,14 @@ local function BuildMainFrame()
             GameTooltip:AddDoubleLine("Предел", "снят Ведущим", 0.9,0.9,0.9, 1, 0.82, 0)
         end
         GameTooltip:AddLine(" ")
-        if SB.Movement.IsExhausted() then
+        if SB.Movement.BlocksAction() then
             GameTooltip:AddLine("Предел выбран — применить способность нельзя.", 1, 0.4, 0.4, true)
+        elseif SB.Movement.IsExhausted() then
+            -- Метры кончились, но предел срезан — значит действие при
+            -- игроке. Сказать об этом надо прямо: красная цифра сама по
+            -- себе читается как запрет.
+            GameTooltip:AddLine("Метры кончились, но предел срезан — действовать можно.",
+                1, 0.82, 0, true)
         elseif SB.Movement.HasLimit() then
             GameTooltip:AddLine("Выберете предел — до конца хода останется только пропустить ход.",
                 0.6, 0.6, 0.6, true)
@@ -864,15 +870,13 @@ local function BuildMainFrame()
     local skipItem = SpecialItem("Пропустить ход", "secondary", restItem, nil, function()
         if SB.Logic and SB.Logic.SpendTurnManually then SB.Logic.SpendTurnManually() end
     end)
-    skipItem:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        SB.Theme.StyleTooltip(GameTooltip)
-        GameTooltip:SetText("Пропустить ход", 1, 0.82, 0)
-        GameTooltip:AddLine("Путь обнуляется, +1 " .. SB.PlayerModel.GetResourceName() ..
-            ", эффекты тикают.", 0.6, 0.6, 0.6, true)
-        GameTooltip:Show()
-    end)
-    skipItem:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- ПОДСКАЗКИ У ПРОПУСКА ХОДА НЕТ НАМЕРЕННО. Она обещала «+1 ресурса»
+    -- за пропущенный ход — механику, которую убрали (см. врезку в
+    -- SB.Logic.SpendTurnManually), — и звала пропускать ход ради выгоды,
+    -- которой больше нет. Остального она не объясняла: что путь
+    -- обнуляется и эффекты тикают, верно для ЛЮБОГО потраченного хода, а
+    -- не для пропуска, и в подсказке именно этой кнопки читалось как её
+    -- особенность.
 
     -- Побег — «danger»: он необратим до конца сцены, и цвет обязан об
     -- этом предупредить раньше, чем подсказка.
@@ -2116,7 +2120,9 @@ function SB.UI.ShowSlotPicker(spellID)
     -- имеет смысл, и подпись под ним объясняет, почему. Именно поэтому
     -- отказ и не пишется в чат (см. SB.Movement.CheckCanAct): игрок
     -- узнаёт причину там же, где нажал, и тут же может её устранить.
-    local exhausted = SB.Movement and SB.Movement.IsExhausted()
+    -- BlocksAction, а не IsExhausted: под замедлением метры кончились,
+    -- но действие осталось (см. врезку в Core/Movement.lua).
+    local exhausted = SB.Movement and SB.Movement.BlocksAction()
 
     if exhausted then
         table.insert(options, { label = "Пропустить ход", passTurn = true })

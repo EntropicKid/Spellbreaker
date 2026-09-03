@@ -144,6 +144,87 @@ end
 --      первой сцене кормил бы мага до конца кампании.
 -- ============================================================
 
+-- ============================================================
+-- ЧТО СКЛЯНКА ДЕЛАЕТ — СОБИРАЕТСЯ ИЗ ЕЁ ПОЛЕЙ
+--
+-- В описаниях это было написано словами и от руки: «Употребление
+-- моментально восполняет 6 единицы маны». Числа менялись, слова — нет, и
+-- к третьей ревизии баланса библиотека врала почти вся: «Зелье маны»
+-- обещало шесть, давало две; «Сильнейшее зелье маны» обещало пятнадцать,
+-- давало четыре. Хуже прямой ошибки: игрок выбирал склянку по числу,
+-- которого не существует.
+--
+-- Правило тут то же, что у карточек эффектов и у строк боя: ЧИСЛО
+-- ЖИВЁТ В ОДНОМ МЕСТЕ. Описание оставлено под настроение и рецепт, а
+-- механика печатается отсюда — и разойтись с самой собой уже не может.
+--
+-- ЭФФЕКТ ОПИСЫВАЕТ СЕБЯ САМ: для buff зовём ту же GetEffectLines, что
+-- рисует карточку эффекта. Вторая реализация «что даёт этот бафф»
+-- разошлась бы с первой на первой же правке — а она уже есть.
+-- ============================================================
+
+--- Строки о действии предмета: немедленная выплата и накладываемый эффект.
+--- @return table  массив строк (пустой, если предмет ничего не делает
+---         механически — такие есть, их отыгрывает Ведущий)
+function SB.Items.EffectSummary(spell)
+    if type(spell) == "string" then spell = SB.Data.Spells[spell] end
+    if type(spell) ~= "table" then return {} end
+
+    local lines = {}
+
+    -- ── НЕМЕДЛЕННАЯ ВЫПЛАТА (onCast) ────────────────────────
+    local pay = spell.onCast
+    if type(pay) == "table" then
+        local parts = {}
+        local heal = tonumber(pay.heal) or 0
+        local dmg  = tonumber(pay.damage) or 0
+        if heal > 0 then parts[#parts + 1] = "+" .. heal .. " ХП" end
+        -- Урон себе — тоже бывает: цена за силу (см. «Кровавая ярость»).
+        if dmg  > 0 then parts[#parts + 1] = "-" .. dmg .. " ХП" end
+
+        -- Пулы — общей функцией: подписи считаются по НАШЕМУ персонажу
+        -- (у Мага «Мана», у Воина «Ярость»), и зашивать их сюда значило
+        -- бы показывать чужие имена ресурсов.
+        if SB.ActiveEffects and SB.ActiveEffects.PayloadPoolParts then
+            for _, part in ipairs(SB.ActiveEffects.PayloadPoolParts(pay)) do
+                parts[#parts + 1] = part.text
+            end
+        end
+
+        local armor = tonumber(pay.armor) or 0
+        if armor ~= 0 then
+            parts[#parts + 1] = ((armor > 0) and "+" or "") .. armor .. " брони"
+        end
+
+        if #parts > 0 then
+            lines[#lines + 1] = "|cFFFFD100Даёт сразу:|r " ..
+                table.concat(parts, ", ")
+        end
+    end
+
+    -- ── НАКЛАДЫВАЕМЫЙ ЭФФЕКТ ────────────────────────────────
+    local effID = spell.buff or spell.debuff or spell.container
+    if effID and SB.Data.Spells[effID] then
+        local eff = SB.Data.Spells[effID]
+        local head = "|cFFFFD100Накладывает:|r " .. (eff.name or effID)
+        -- Срок берём у ЗАКЛИНАНИЯ: своей длительности у эффекта нет
+        -- вовсе (см. SB.Logic.GetEffectDuration).
+        local turns = tonumber(spell.duration)
+        if turns and turns > 0 and SB.UI and SB.UI.TurnsAsTime then
+            head = head .. " (" .. SB.UI.TurnsAsTime(turns) .. ")"
+        end
+        lines[#lines + 1] = head
+
+        if SB.ActiveEffects and SB.ActiveEffects.GetEffectLines then
+            for _, l in ipairs(SB.ActiveEffects.GetEffectLines(effID) or {}) do
+                lines[#lines + 1] = "  " .. l
+            end
+        end
+    end
+
+    return lines
+end
+
 --- Сотворённый ли это предмет (в отличие от покупного).
 function SB.Items.IsConjured(spell)
     if type(spell) == "string" then spell = SB.Data.Spells[spell] end

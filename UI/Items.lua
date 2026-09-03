@@ -190,6 +190,14 @@ local function MakeSlot(parent, i)
             if sp.key then GameTooltip:AddLine(sp.key, 0.7, 0.7, 0.7) end
             GameTooltip:AddLine("Осталось: " .. e.n .. " из " ..
                 SB.Items.StackSize(sp), 0.85, 0.85, 0.85)
+
+            -- ЧТО ИМЕННО ДЕЛАЕТ — ДО ОПИСАНИЯ, а не после: в ячейке на
+            -- склянку смотрят перед тем, как выпить, и нужен ответ, а
+            -- не рецепт. Числа собираются из полей предмета
+            -- (см. SB.Items.EffectSummary) — в описании их больше нет.
+            for _, line in ipairs(SB.Items.EffectSummary(sp)) do
+                GameTooltip:AddLine(line, 0.85, 0.85, 0.85, true)
+            end
             if sp.description then
                 GameTooltip:AddLine(" ")
                 GameTooltip:AddLine(sp.description, 0.85, 0.85, 0.85, true)

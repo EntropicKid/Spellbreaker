@@ -1117,7 +1117,7 @@ function SB.Logic.GetFleeOdds()
     -- уровня в эталонную шкалу живут там (см. SB.Logic.EffectThreshold),
     -- и вторая копия однажды разошлась бы с первой. onSelf = false —
     -- уровень в пороге нужен, вражда (isDebuff) здесь ни при чём.
-    local threshold = SB.Logic.EffectThreshold("player", false, nil, false)
+    local threshold = SB.Logic.EffectThreshold("player", false, false)
 
     local bonus = 0
     if SB.Movement and SB.Movement.GetRemaining then
@@ -1307,9 +1307,15 @@ end
 --- Принимающая сторона: на нас навесили эффект.
 --- slotLevel приходит по сети от заклинателя: длительность зависит от
 --- того, сколько ресурса влил ОН, а нам это неоткуда узнать локально.
-function SB.Logic.HandleBuffReceived(casterName, spellID, effectID, slotLevel)
+--- @param total number|nil  итог броска заклинателя. Есть он — ПОРОГ
+---        БЕРЁМ У СЕБЯ и решаем сами; нет — эффект ложится безусловно
+---        (старая сборка, приказ Ведущего, отдача щита, бафф союзнику —
+---        там броска и не было).
+--- @param sender string|nil  настоящее имя отправителя: casterName может
+---        оказаться именем существа, от чьего лица бьёт Ведущий.
+function SB.Logic.HandleBuffReceived(casterName, spellID, effectID, slotLevel,
+                                     roll, mod, total, sender)
     local sourceSpell = SB.Data.Spells[spellID]
-    SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel)
 
     -- Называем ЗАКЛИНАНИЕ, а не эффект: ссылка кликабельна, и в карточке
     -- написано, что именно она вешает. Имя эффекта в строке было
@@ -1317,8 +1323,48 @@ function SB.Logic.HandleBuffReceived(casterName, spellID, effectID, slotLevel)
     -- подробности.
     local what = sourceSpell and SB.UI.MakeSpellLink(sourceSpell)
                  or (SB.Theme.MSG_BODY .. "заклинание|r")
-    print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BODY ..
-        (casterName or "Кто-то") .. " применяет на вас |r" .. what)
+    local who  = SB.Theme.MSG_BODY .. (casterName or "Кто-то") ..
+                 " применяет на вас |r" .. what
+
+    if total == nil then
+        SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel)
+        print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. who)
+        return
+    end
+
+    -- Та же сверка, что у ПвП-удара и площадного эффекта: порог берёт
+    -- присланный итог, и завышенный итог навязал бы эффект в обход броска.
+    local tamperNote
+    total, tamperNote = SB.Logic.VerifyIncomingCast(sender or casterName,
+        spellID, roll, mod, total, slotLevel)
+    if tamperNote then
+        print(SB.Theme.MSG_BAD .. "[Spellbreaker]: " .. (sender or casterName or "?") ..
+            " — цифры не сходятся: " .. tamperNote .. ".|r")
+    end
+
+    -- ЧЕМ СОПРОТИВЛЯЕМСЯ — СПРАШИВАЕМ У СЕБЯ. Заклинатель этих чисел не
+    -- знает и знать не может: игровое API отдаёт про цель уровень, но не
+    -- характеристики. Раньше их везли отдельным полем статуса — лишняя
+    -- работа ради решения, которое всё равно принимается здесь.
+    local isDebuff  = sourceSpell and sourceSpell.debuff == effectID
+    local resistMod = isDebuff
+        and SB.Logic.OwnResistMod(SB.Logic.DebuffResistStat(effectID, sourceSpell))
+        or 0
+    local threshold = SB.Logic.EffectThreshold("player", isDebuff, false, resistMod)
+    -- Определение заклинания у нас своё, из библиотеки, — «без
+    -- сопротивления» проверяем сами, а не верим присланным числам.
+    local ok = SB.Logic.IsGuaranteed(sourceSpell) or (total >= threshold)
+
+    if ok then SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel) end
+
+    local G = SB.Theme.MSG_BODY
+    print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. who .. G .. ": |r" ..
+        SB.UI.RollLine(roll, mod, total, G) .. G .. " против " .. threshold .. ". |r" ..
+        (ok and (SB.Theme.MSG_GOOD .. "Успех.|r") or (SB.Theme.MSG_BAD .. "Провал.|r")))
+
+    if SB.Net and SB.Net.SendBuffResult then
+        SB.Net.SendBuffResult(sender or casterName, spellID, threshold, ok)
+    end
 end
 
 -- ============================================================
@@ -3077,9 +3123,31 @@ local EFFECT_BASE_THRESHOLD = 60
 --- чем он опытнее. Вдобавок надбавка ехала по эталонной шкале, то есть
 --- на Sanctuary (кап 100) она растягивалась и один и тот же баф на
 --- себя стоил разного на разных реалмах.
---- @param willValue number|nil  чужая Воля; nil — считать по своей
+--- ЧЕМ СОПРОТИВЛЯЮТСЯ — РЕШАЕТ САМ ДЕБАФФ.
+---
+--- Раньше планку поднимала одна «Воля», одинаково против всего: и
+--- против удара по почкам, и против насмешки, и против яда. Стойкость
+--- была одна на все случаи, и «крепкий телом» ничем не отличался от
+--- «твёрдого духом».
+---
+--- Теперь каждый дебафф называет своё (effect.resist), и модификатор
+--- этого атрибута идёт в порог ДВОЙНЫМ: сопротивление — единственное,
+--- ради чего его вкладывают против этого дебаффа, и половинной доли
+--- тут мало, чтобы решение было заметным.
+---
+--- Не назвал — сопротивляться нечем, порог голый. Это НЕ поблажка:
+--- дебафф без сопротивления обычно и не про стойкость (метка, клеймо,
+--- чары на оружии), а тот, что про неё, разберут поимённо.
+---
+--- ТРЕТЬЕГО ПАРАМЕТРА «Воля» ЗДЕСЬ БОЛЬШЕ НЕТ. Он какое-то время
+--- стоял пустым местом «ради старых вызовов», и это было ловушкой:
+--- имя обещало слагаемое, которого давно нет, а восемь вызовов
+--- передавали в него nil, делая вид, что оно чему-то служит.
+---
 --- @param onSelf boolean|nil    true — эффект ложится на самого себя
-function SB.Logic.EffectThreshold(unit, isDebuff, willValue, onSelf)
+--- @param resistMod number|nil  модификатор названного атрибута или
+---        НАВЫКА у того, по кому бьют (см. SB.Logic.OwnResistMod)
+function SB.Logic.EffectThreshold(unit, isDebuff, onSelf, resistMod)
     local threshold = EFFECT_BASE_THRESHOLD
     if not onSelf then
         threshold = threshold + SB.Data.ToReferenceLevel(UnitLevel(unit) or 1)
@@ -3087,10 +3155,45 @@ function SB.Logic.EffectThreshold(unit, isDebuff, willValue, onSelf)
     -- floor в конце, а не внутри: ToReferenceLevel возвращает дробное
     -- число на реалме с капом, отличным от эталонного.
     threshold = math.floor(threshold)
-    if isDebuff and SB.Skills and SB.Skills.GetWillDebuffBonus then
-        threshold = threshold + SB.Skills.GetWillDebuffBonus(willValue)
+    if isDebuff then
+        threshold = threshold + 2 * (tonumber(resistMod) or 0)
     end
     return threshold
+end
+
+--- Чем этот эффект полагается преодолевать. Имя атрибута или НАВЫКА,
+--- либо nil. Читается и из самого эффекта, и из заклинания, которое его
+--- вешает: автор волен написать поле там, где ему удобнее.
+function SB.Logic.DebuffResistStat(effectID, sourceSpell)
+    local eff = (type(effectID) == "table") and effectID
+                or SB.Data.Spells[effectID]
+    local named = (eff and type(eff.effect) == "table" and eff.effect.resist)
+                  or (eff and eff.resist)
+                  or (sourceSpell and sourceSpell.resist)
+    if type(named) ~= "string" or named == "" then return nil end
+    return named
+end
+
+--- Насколько СВОЙ персонаж стоек к названному дебаффу — в модификаторах.
+---
+--- Считается только у себя, и это не ограничение, а суть: у чужого
+--- клиента этих чисел нет и взять их неоткуда. Игровое API отдаёт про
+--- цель уровень и здоровье, но не характеристики; когда-то я вёз их
+--- отдельным полем сетевого статуса, и это было лишним — решение всё
+--- равно принимает тот, по кому бьют (см. SB.Logic.HandleBuffReceived).
+---
+--- ИМЕННО ПОЭТОМУ ЗДЕСЬ РАБОТАЮТ И НАВЫКИ, а не одни атрибуты: пока
+--- число ехало по сети, возить пришлось бы ещё и весь список навыков.
+--- У себя же спрашивается и то, и другое одинаково дёшево.
+--- ЧЕРЕЗ GetCheckModifier, А НЕ ЧЕРЕЗ ГОЛЫЙ GetModifier: у навыка к его
+--- собственному модификатору прибавляется родительский атрибут — ровно
+--- так считается любая проверка навыка в аддоне. Атрибуту родителя нет,
+--- и для него функция возвращает то же самое, что возвращала раньше:
+--- сто тридцать семь готовых дебаффов от этой замены не дрогнули.
+function SB.Logic.OwnResistMod(statName)
+    if type(statName) ~= "string" or statName == "" then return 0 end
+    if not (SB.Skills and SB.Skills.GetCheckModifier) then return 0 end
+    return tonumber((SB.Skills.GetCheckModifier(statName))) or 0
 end
 
 -- ============================================================
@@ -3279,10 +3382,10 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
     -- персонажу эффект (ADDEFF по-прежнему только от лидера).
     -- Поле spell.debuff = "<id эффекта>", см. Spells/Effects.lua.
     --
-    -- «Воля» поднимает планку ИМЕННО ДЛЯ ДЕБАФФА, а не для всей защиты:
-    -- удар всё равно проходит и урон всё равно снимается, но зацепиться
-    -- за стойкого чары уже не могут. Считается локально — свой навык нам
-    -- известен точно (см. SB.Skills.GetWillDebuffBonus).
+    -- СТОЙКОСТЬ поднимает планку ИМЕННО ДЛЯ ДЕБАФФА, а не для всей
+    -- защиты: удар всё равно проходит и урон всё равно снимается, но
+    -- зацепиться за стойкого чары уже не могут. Считается локально —
+    -- этот путь и так исполняется у цели (см. SB.Logic.OwnResistMod).
     -- ИМЯ ЭФФЕКТА НЕ ЗАПОМИНАЕМ, только факт: наложился или отведён.
     -- Что именно вешает заклинание, написано в его карточке, а ссылка на
     -- него в этой же строке кликабельна. Заодно имя перестало ездить по
@@ -3296,10 +3399,14 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
     -- ровно как урон и базу; см. SB.Skills.GetPersuasionDebuffBonus.
     local debuffLanded, debuffResisted = false, false
     if spell and spell.debuff and landed then
-        local willBonus = (SB.Skills and SB.Skills.GetWillDebuffBonus)
-            and SB.Skills.GetWillDebuffBonus() or 0
+        -- СОПРОТИВЛЕНИЕ СЧИТАЕМ ЗДЕСЬ, у себя: этот путь исполняется на
+        -- стороне цели, и свои характеристики она знает точно — везти их
+        -- по сети незачем (см. SB.Logic.EffectThreshold о том, почему
+        -- прибавка двойная).
+        local resistBonus = 2 * SB.Logic.OwnResistMod(
+            SB.Logic.DebuffResistStat(spell.debuff, spell))
         local persuade = math.max(0, tonumber(atkPersuade) or 0)
-        if guaranteed or (atkTotal + persuade > defTotal + willBonus) then
+        if guaranteed or (atkTotal + persuade > defTotal + resistBonus) then
             SB.Logic.ApplyEffect(spell.debuff, spell, atkSlot)
             debuffLanded = true
         else
@@ -4023,23 +4130,24 @@ function SB.Logic.ResolveEffectCast(spellID, slotLevel)
 
     local roll      = SB.Logic.Roll()
     local total     = roll + mod
-    -- «Воля» здесь не передаётся: она приходит сетевым статусом цели и
-    -- прибавляется ниже, вместе с пометкой для лога.
-    local threshold = SB.Logic.EffectThreshold(levelUnit, false, nil, onSelf)
 
-    -- «Воля» ЦЕЛИ поднимает порог — но только для дебаффа: сопротивляются
-    -- чужому вмешательству, а не помощи союзника. Значение приходит в
-    -- сетевом статусе цели (поле will, см. Core/Network.lua); если данных
-    -- нет — у неё нет аддона или она ещё не отвечала, — считаем без
-    -- прибавки, как раньше.
-    local willBonus = 0
-    if not onSelf and spell.debuff == effectID and SB.Skills and SB.Skills.GetWillDebuffBonus then
-        local st = SB.Data.PlayersStatus and SB.Data.PlayersStatus[targetName]
-        if st and st.will then
-            willBonus = SB.Skills.GetWillDebuffBonus(st.will)
-            threshold = threshold + willBonus
-        end
-    end
+    -- ПОРОГ ЧУЖОГО НАМ НЕ ПРИНАДЛЕЖИТ. Здесь считается ПРЕДВАРИТЕЛЬНЫЙ:
+    -- 60 плюс уровень цели — всё, что игровое API про неё отдаёт.
+    -- Стойкость цели (effect.resist) в него не входит и войти не может:
+    -- характеристик чужого персонажа клиент не видит.
+    --
+    -- Настоящий порог посчитает сама цель и пришлёт назад вместе с
+    -- исходом (см. SB.Logic.HandleBuffReceived). Ровно так с самого
+    -- начала устроен площадной путь — там целей много и ни одна не в
+    -- прицеле, так что иначе и не выходило. Одиночный каст выбивался из
+    -- общего правила только потому, что уровень цели прочитать МОЖНО, и
+    -- казалось, будто заклинатель справится сам. Как только к порогу
+    -- добавилась стойкость, не справился: я стал возить модификаторы
+    -- атрибутов отдельным полем сетевого статуса. Поля больше нет.
+    --
+    -- Предварительный порог всё же нужен: если цель не ответит (нет
+    -- аддона, потерялся пакет), напечатать исход придётся по нему.
+    local threshold = SB.Logic.EffectThreshold(levelUnit, false, onSelf)
 
     -- «БЕЗ СОПРОТИВЛЕНИЯ» — ЗНАЧИТ БЕЗ БРОСКА. Порог здесь не берётся
     -- вовсе: эффект ложится всегда. Раньше resistable = false не
@@ -4051,10 +4159,26 @@ function SB.Logic.ResolveEffectCast(spellID, slotLevel)
     local guaranteed = SB.Logic.IsGuaranteed(spell)
     local success    = guaranteed or (total >= threshold)
 
-    if success then
+    -- РЕШАЕТ НЕ НАША СТОРОНА, если цель — чужой игрок и бросок был.
+    -- Гарантированному ждать нечего: ни броска, ни порога, исход
+    -- известен заранее.
+    local waitsForTarget = (not onSelf) and (not guaranteed)
+        and IsInGroup() and SB.Net and SB.Net.SendBuff and true or false
+
+    if waitsForTarget then
+        -- ШЛЁМ И ПРИ СВОЁМ «ПРОВАЛЕ» ТОЖЕ, а не только при успехе.
+        -- Предварительный порог не обязан быть НИЖЕ настоящего: слабая
+        -- характеристика даёт отрицательный модификатор, и стойкость
+        -- цели порог не поднимет, а опустит. Отсеки мы такой каст у
+        -- себя — цель никогда не узнала бы, что могла его пропустить.
+        SB.Net.SendBuff(targetName, spellID, effectID, slotLevel, nil,
+                        roll, mod, total)
+    elseif success then
         if onSelf then
             SB.Logic.ApplyEffect(effectID, spell, slotLevel)
         else
+            -- ГАРАНТИРОВАННОМУ БРОСОК НЕ ШЛЁМ: его не с чем сверять,
+            -- и цель применит эффект безусловно — как применяла всегда.
             SB.Net.SendBuff(targetName, spellID, effectID, slotLevel)
         end
     end
@@ -4071,45 +4195,103 @@ function SB.Logic.ResolveEffectCast(spellID, slotLevel)
     local landedOnSelf = (success and onSelf) and effectID or nil
     SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID, landedOnSelf))
 
-    local G    = SB.Theme.MSG_BODY
-    local link = SB.UI.MakeSpellLink(spell)
-    -- Исход коротким словом, без названия эффекта: заклинание в этой же
-    -- строке названо ссылкой, и что оно вешает — написано в его карточке.
-    -- Та же формулировка, что у остальных путей резолва («Результат:
-    -- Успех»), так что читается одинаково везде.
-    local outcomeTxt = success
-        and (SB.Theme.MSG_GOOD .. "Успех.|r")
-        or  (SB.Theme.MSG_BAD  .. "Провал.|r")
+    -- ИСХОД ПЕЧАТАЕТСЯ ОДНОЙ СТРОКОЙ, и потому собран в функцию: при
+    -- касте на чужого настоящий порог и настоящий исход приезжают
+    -- ответом цели, и строка ждёт их, а не делится надвое.
+    local function Announce(finalThreshold, finalSuccess)
+        local G    = SB.Theme.MSG_BODY
+        local link = SB.UI.MakeSpellLink(spell)
+        -- Исход коротким словом, без названия эффекта: заклинание в этой
+        -- же строке названо ссылкой, а что оно вешает — написано в его
+        -- карточке. Та же формулировка, что у остальных путей резолва.
+        local outcomeTxt = finalSuccess
+            and (SB.Theme.MSG_GOOD .. "Успех.|r")
+            or  (SB.Theme.MSG_BAD  .. "Провал.|r")
 
-    -- У гарантированного эффекта броска не было — и в логе его нет:
-    -- строка «Итог 43 против порога 60. Успех» читалась бы как
-    -- ошибка расчёта.
-    local rollTxt = guaranteed
-        and (G .. " (без сопротивления). |r")
-        or  (G .. ": |r" .. SB.UI.RollLine(roll, mod, total, G) ..
-             G .. " против " .. threshold ..
-             (willBonus > 0 and (" (+" .. willBonus .. " от воли)") or "") ..
-             ". |r")
+        -- У гарантированного эффекта броска не было — и в логе его нет:
+        -- строка «Итог 43 против порога 60. Успех» читалась бы как
+        -- ошибка расчёта.
+        local rollTxt = guaranteed
+            and (G .. " (без сопротивления). |r")
+            or  (G .. ": |r" .. SB.UI.RollLine(roll, mod, total, G) ..
+                 G .. " против " .. finalThreshold .. ". |r")
 
-    SB.Events.Fire(SB.E.BROADCAST_LOG,
-        SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. UnitName("player") ..
-        " применяет |r" .. link .. G .. " на " .. (onSelf and "себя" or targetName) ..
-        rollTxt .. outcomeTxt, SB.LogRank.ACTION)
+        SB.Events.Fire(SB.E.BROADCAST_LOG,
+            SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. UnitName("player") ..
+            " применяет |r" .. link .. G .. " на " .. (onSelf and "себя" or targetName) ..
+            rollTxt .. outcomeTxt, SB.LogRank.ACTION)
 
-    -- РП-отпись — по тем же правилам, что у остальных заклинаний:
-    -- только на успех и только если игрок её задал.
-    local outcomeText = success and SB.SpellOutcomes.Get(spellID) or nil
-    if outcomeText and outcomeText ~= "" then
-        local rpMsg = ApplyTemplates(outcomeText)
-        if not SpellbreakerAccountDB or SpellbreakerAccountDB.sendEmotes ~= false then
-            SendChatMessage(rpMsg, "EMOTE")
+        -- РП-отпись — по тем же правилам, что у остальных заклинаний:
+        -- только на успех и только если игрок её задал.
+        local outcomeText = finalSuccess and SB.SpellOutcomes.Get(spellID) or nil
+        if outcomeText and outcomeText ~= "" then
+            local rpMsg = ApplyTemplates(outcomeText)
+            if not SpellbreakerAccountDB or SpellbreakerAccountDB.sendEmotes ~= false then
+                SendChatMessage(rpMsg, "EMOTE")
+            end
         end
+
+        SB.Events.Fire(SB.E.CAST_RESOLVED, spellID, finalSuccess,
+            finalSuccess and "|cFF00FF00Успех.|r" or "|cFFFF0000Провал.|r",
+            guaranteed and "Без сопротивления — бросок не требуется"
+                or string.format("%d + %d = %d против порога %d",
+                                 roll, mod, total, finalThreshold))
     end
 
-    SB.Events.Fire(SB.E.CAST_RESOLVED, spellID, success,
-        success and "|cFF00FF00Успех.|r" or "|cFFFF0000Провал.|r",
-        guaranteed and "Без сопротивления — бросок не требуется"
-            or string.format("%d + %d = %d против порога %d", roll, mod, total, threshold))
+    if waitsForTarget then
+        SB.Logic.BuffAwait(targetName, spellID, threshold, success, Announce)
+    else
+        Announce(threshold, success)
+    end
+end
+
+-- ============================================================
+-- ОЖИДАНИЕ ОТВЕТА ЦЕЛИ
+--
+-- Заклинатель больше не знает, лёг ли эффект: порог собран из уровня
+-- цели и её же стойкости, а характеристик чужого персонажа клиент не
+-- видит. Ответ приходит тем же тиком, поэтому печать ждёт его и
+-- остаётся ОДНОЙ СТРОКОЙ — ради этого здесь ожидание, а не две
+-- отдельные реплики «бросил» и «ответили».
+--
+-- НЕ ОТВЕТИЛИ — ПЕЧАТАЕМ ПО СВОЕМУ ПОРОГУ, тому самому, по которому
+-- этот путь считал раньше. У цели может не быть аддона, и тогда на неё
+-- всё равно ничего не ляжет, — но молчание в чате хуже неточной
+-- строки: игрок решил бы, что ход пропал впустую.
+-- ============================================================
+local buffAwaits = {}
+
+SB.Logic.BUFF_AWAIT_SEC = 2
+
+--- @param fallbackThreshold number  по чему печатать, если ответа не будет
+function SB.Logic.BuffAwait(targetName, spellID, fallbackThreshold,
+                            fallbackSuccess, announce)
+    local key = (targetName or "?") .. "::" .. tostring(spellID)
+    -- Прежнее ожидание тем же ключом закрываем сразу: два каста одного
+    -- заклинания в одну цель подряд иначе съели бы первую строку.
+    local prev = buffAwaits[key]
+    if prev then
+        buffAwaits[key] = nil
+        prev.announce(prev.threshold, prev.success)
+    end
+
+    local rec = { announce = announce, threshold = fallbackThreshold,
+                  success = fallbackSuccess }
+    buffAwaits[key] = rec
+    C_Timer.After(SB.Logic.BUFF_AWAIT_SEC, function()
+        if buffAwaits[key] ~= rec then return end
+        buffAwaits[key] = nil
+        rec.announce(rec.threshold, rec.success)
+    end)
+end
+
+--- Цель ответила: вот её настоящий порог и настоящий исход.
+function SB.Logic.HandleBuffResultReceived(targetName, spellID, threshold, ok)
+    local key = (targetName or "?") .. "::" .. tostring(spellID)
+    local rec = buffAwaits[key]
+    if not rec then return end
+    buffAwaits[key] = nil
+    rec.announce(threshold, ok)
 end
 
 --- Исцеляемая сторона: применяет результат лечения к своему здоровью.

@@ -1142,7 +1142,11 @@ function SB.NPC.AttackModifier(stats, unit, spell)
 end
 
 --- Порог, который надо взять, чтобы навесить на существо ДЕБАФФ.
---- Та же «Воля», тем же шагом, что у игрока (см. GetWillDebuffBonus).
+---
+--- ЗДЕСЬ СЧИТАЕТ ЗАКЛИНАТЕЛЬ, и это не противоречит правилу «решает та
+--- сторона, по которой бьют»: у существа стороны нет вовсе — нет
+--- клиента, который мог бы ответить. Зато есть лист характеристик, и он
+--- у заклинателя перед глазами, в отличие от чужого персонажа.
 function SB.NPC.WillBonus(stats, unit)
     if not stats then return 0 end
     local step = (SB.Data.Config and SB.Data.Config.SkillRollStep) or 3

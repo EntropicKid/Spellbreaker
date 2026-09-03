@@ -146,6 +146,9 @@ local INFO_SLOTS = {
         end,
         -- Красным, когда предел выбран: в этот момент иконки рядом
         -- гаснут, и цвет объясняет почему.
+        -- Красным — по СЧЁТЧИКУ (метры и правда кончились), а гаснут
+        -- иконки по BlocksAction: под замедлением цифра красная, а
+        -- применять по-прежнему можно.
         bad = function() return SB.Movement.IsExhausted() end,
         tooltip = function(owner)
             if SB.UI.ShowMoveTooltip then SB.UI.ShowMoveTooltip(owner) end

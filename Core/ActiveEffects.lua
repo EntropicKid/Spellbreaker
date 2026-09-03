@@ -1262,6 +1262,30 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc)
     if not containerSpellID then return end
     if not SB.Data.Spells[containerSpellID] then return end
 
+    -- ── ВОЛЯ РЕЖЕТ СРОК ЧУЖОГО ДЕБАФФА ──────────────────────
+    --
+    -- Здесь, в Add, а не в GetEffectDuration: это ЕДИНСТВЕННАЯ точка, куда
+    -- сходятся все пути — свой каст, чужой пакет по сети, выдача
+    -- Ведущего. Срез, поставленный в расчёт длительности, ловил бы
+    -- только первый из трёх.
+    --
+    -- ТОЛЬКО ДЕБАФФ: сопротивляются чужому вмешательству, а не помощи
+    -- союзника — иначе развитая Воля укорачивала бы собственные баффы.
+    --
+    -- НИЖЕ ОДНОГО ХОДА НЕ ОПУСКАЕТСЯ, и бессрочное не трогается вовсе:
+    -- срезать «до конца сцены» на четыре хода не значит ничего, а
+    -- испортить сентинел (-1) значит превратить его в отрицательный срок.
+    local turns = duration
+    if turns and turns ~= INFINITE and (tonumber(turns) or 0) > 0
+       and SB.ActiveEffects.GetKind(containerSpellID) == "debuff"
+       and SB.Skills and SB.Skills.GetWillDurationCut then
+        local cut = SB.Skills.GetWillDurationCut()
+        if cut > 0 then
+            turns = math.max(1, turns - cut)
+        end
+    end
+    duration = turns
+
     -- ПОДАВЛЕНО — НЕ ЛОЖИТСЯ. Проверяем ДО всего остального: иначе
     -- подавляемое сначала сбросило бы своё семейство (DropFamily), а
     -- потом само не легло — и игрок терял бы висящий эффект ни за что.

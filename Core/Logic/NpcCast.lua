@@ -258,20 +258,31 @@ end
 
 --- Порог, который существу надо взять на конкретном игроке.
 --- Ровно тот же, что берёт игрок на игроке (SB.Logic.EffectThreshold):
---- 60 + уровень цели, а на дебафф ещё и её «Воля».
-local function ThresholdOn(name, isDebuff)
+--- 60 плюс уровень цели.
+---
+--- СТОЙКОСТИ ЦЕЛИ ЗДЕСЬ НЕТ — и не потому, что её забыли. Чем цель
+--- сопротивляется дебаффу, знает только её клиент: игровое API отдаёт
+--- про чужого персонажа уровень, но не характеристики. Настоящий порог
+--- считает она сама и присылает назад вместе с исходом (см.
+--- SB.Logic.HandleBuffReceived), а это число — предварительное, на
+--- случай, если ответа не будет вовсе.
+---
+--- СЕБЕ ЖЕ СЧИТАЕМ ЧЕСТНО: Ведущий, накрывший залпом собственного
+--- персонажа, — единственная цель, чьи характеристики нам доступны.
+local function ThresholdOn(name, isDebuff, effectID, spell)
     local unit = UnitForName(name)
-    local will
-    if isDebuff then
-        local st = SB.Data.PlayersStatus and SB.Data.PlayersStatus[name]
-        will = st and st.will
+    if name == UnitName("player") then
+        local resistMod = isDebuff
+            and SB.Logic.OwnResistMod(SB.Logic.DebuffResistStat(effectID, spell))
+            or 0
+        return SB.Logic.EffectThreshold("player", isDebuff, false, resistMod)
     end
     if unit then
-        return SB.Logic.EffectThreshold(unit, isDebuff, will, false)
+        return SB.Logic.EffectThreshold(unit, isDebuff, false)
     end
     -- Игрока нет рядом (вышел из группы между отметкой и подтверждением) —
     -- берём порог по себе. Врать в чью-либо пользу тут нечем.
-    return SB.Logic.EffectThreshold("player", isDebuff, will, false)
+    return SB.Logic.EffectThreshold("player", isDebuff, false)
 end
 
 -- ============================================================
@@ -369,29 +380,61 @@ function SB.NpcCast.Confirm()
             landedOn = landedOn + 1
 
         elseif kind == "effect" then
-            -- ЭФФЕКТ БЕЗ УРОНА. Порог проверяет ЗАКЛИНАТЕЛЬ — ровно так же,
-            -- как игрок на игроке (см. ResolveEffectCast): бросок один, а
-            -- порог у каждой цели свой, по её уровню и «Воле».
-            local effectID = spell.debuff or spell.buff
-            local isDebuff = (spell.debuff ~= nil)
-            local threshold = ThresholdOn(name, isDebuff)
-            local ok = guaranteed or (total >= threshold)
-            if ok then
-                landedOn = landedOn + 1
-                if name == me then
-                    SB.Logic.ApplyEffect(effectID, spell, spell.level)
-                elseif SB.Net and SB.Net.SendBuff then
-                    SB.Net.SendBuff(name, pending.spellID, effectID,
-                                    spell.level or 0, pending.npcName)
-                end
+            -- ЭФФЕКТ БЕЗ УРОНА. Порог проверяет ТА СТОРОНА, по которой
+            -- бьют, — ровно так же, как у игрока на игроке (см.
+            -- SB.Logic.ResolveEffectCast) и у площадного пути: бросок
+            -- один, а порог у каждой цели свой, по её уровню и её же
+            -- стойкости. Стойкости этой мы не видим, поэтому шлём
+            -- бросок и ждём ответа.
+            local effectID  = spell.debuff or spell.buff
+            local isDebuff  = (spell.debuff ~= nil)
+            local threshold = ThresholdOn(name, isDebuff, effectID, spell)
+            local ok        = guaranteed or (total >= threshold)
+
+            -- ИМЯ СУЩЕСТВА КОПИРУЕМ В ЛОКАЛЬНУЮ, а не читаем из pending
+            -- внутри замыкания: к приходу ответа подготовка уже закрыта
+            -- и pending равно nil. Первый прогон на этом и упал.
+            local targetName = name
+            local actorName  = pending.npcName
+            local function Say(finalThreshold, finalOk)
+                SB.Events.Fire(SB.E.BROADCAST_LOG,
+                    SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. actorName ..
+                    " на " .. targetName .. ": итог " .. total .. " против " ..
+                    finalThreshold .. ". |r" ..
+                    (finalOk and (SB.Theme.MSG_GOOD .. "Эффект наложен.|r")
+                              or (SB.Theme.MSG_BAD  .. "Устоял.|r")),
+                    SB.LogRank.RESULT)
             end
-            SB.Events.Fire(SB.E.BROADCAST_LOG,
-                SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. pending.npcName ..
-                " на " .. name .. ": итог " .. total .. " против " ..
-                threshold .. ". |r" ..
-                (ok and (SB.Theme.MSG_GOOD .. "Эффект наложен.|r")
-                     or (SB.Theme.MSG_BAD  .. "Устоял.|r")),
-                SB.LogRank.RESULT)
+
+            if name == me then
+                -- Себе — напрямую: AceComm пакет самому себе не
+                -- доставляет, а порог себе мы посчитали точный.
+                if ok then
+                    landedOn = landedOn + 1
+                    SB.Logic.ApplyEffect(effectID, spell, spell.level)
+                end
+                Say(threshold, ok)
+            elseif (not guaranteed) and SB.Net and SB.Net.SendBuff then
+                -- ШЛЁМ И ПРИ СВОЁМ «ПРОВАЛЕ»: предварительный порог не
+                -- обязан быть выше настоящего, и отсекать чужой исход
+                -- у себя значит решать за цель ровно то, чего мы не знаем.
+                landedOn = landedOn + 1
+                SB.Net.SendBuff(name, pending.spellID, effectID,
+                                spell.level or 0, pending.npcName,
+                                roll, mod, total)
+                SB.Logic.BuffAwait(name, pending.spellID, threshold, ok, Say)
+            else
+                -- Гарантированному сверять нечего: он ложится всегда, и
+                -- ждать ответа не о чем.
+                if ok then
+                    landedOn = landedOn + 1
+                    if SB.Net and SB.Net.SendBuff then
+                        SB.Net.SendBuff(name, pending.spellID, effectID,
+                                        spell.level or 0, pending.npcName)
+                    end
+                end
+                Say(threshold, ok)
+            end
 
         elseif kind == "heal" then
             -- ЛЕЧЕНИЕ. Порог тот же, что у лечения игроком: 60 + уровень
