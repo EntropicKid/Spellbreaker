@@ -442,18 +442,18 @@ function SB.Logic.InitiateAoeAttack(spellID, slotLevel)
 
     SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, radius, slotLevel, epi, persuade)
 
-    -- Тот же собственный контейнер, что и у одиночной атаки.
-    if spell.container then
-        SB.Logic.ApplyEffect(spell.container, spell, slotLevel)
-    end
+    -- Тот же собственный контейнер, что и у одиночной атаки, и той же
+    -- функцией: правило про него живёт в одном месте на все пять путей
+    -- (см. SB.Logic.ApplyOwnContainer).
+    --
+    -- ИСХОД ЭТОЙ ВЕТКЕ НЕ ИЗВЕСТЕН, и не бывает известен в принципе:
+    -- целей много, каждая считает свой порог у себя, общего «попал» у
+    -- залпа нет. Вешаем сразу.
+    local ownContainer = SB.Logic.ApplyOwnContainer(spell, slotLevel, nil)
 
     -- Второй шапки здесь больше нет: всё, что она говорила, вошло в
     -- единственную шапку залпа выше (см. OpenAoeReport).
-    --
-    -- Контейнер лёг безусловно (ветка выше) — о нём и говорим: пропуск
-    -- тика теперь считается по наложенному, а не по объявленному
-    -- (см. SB.Logic.TurnSkipFor).
-    SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID, spell.container))
+    SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID, ownContainer))
 end
 
 --- Получатель площадной атаки. Вся разница с одиночной — проверка

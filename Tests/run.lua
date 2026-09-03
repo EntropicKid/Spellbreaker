@@ -1303,7 +1303,12 @@ do
     -- четыре, проверка потребует четвёртый вызов сама.
     do
         local src = ReadFile("Core/Logic.lua")
-        local _, containers = src:gsub("ApplyEffect%(spell%.container", "")
+        -- ОПОРА — ВЫЗОВ ApplyOwnContainer, а не голое наложение эффекта:
+        -- контейнер вешается теперь одной общей функцией на все пути
+        -- (см. SB.Logic.ApplyOwnContainer), и «где вешается контейнер»
+        -- читается по её вызовам. Берём именно присваивание: объявление
+        -- самой функции выглядит так же и завысило бы счёт на единицу.
+        local _, containers = src:gsub("= SB%.Logic%.ApplyOwnContainer%(spell", "")
         local _, mentions   = src:gsub("GrantCreatedItems%(spell%)", "")
         local _, defs       = src:gsub("function SB%.Logic%.GrantCreatedItems", "")
         -- Объявление функции выглядит так же, как вызов, — вычитаем его,
@@ -13537,20 +13542,68 @@ do
 
     SB.Data.Spells["t_chan"], SB.Data.Spells["t_cont"] = nil, nil
 
-    -- ── УДАР ПО СУЩЕСТВУ ВЕШАЕТ КОНТЕЙНЕР ──────────────────
+    -- ── КОГДА ЛОЖИТСЯ СОБСТВЕННЫЙ КОНТЕЙНЕР ────────────────
     --
-    -- Живой цели у заглушки нет, поэтому смотрим исходник: тот же приём,
-    -- что у проверок тика существ. Важен факт вызова — молча отвалившийся
-    -- шаг означал бы, что рой снова не призывается.
-    local src = ReadFile("Core/Logic/NPC.lua")
-    local fn  = src:match("function SB%.Logic%.ResolveNpcAttack.-\nend")
-    checkTrue("ResolveNpcAttack найден", fn ~= nil)
-    if fn then
-        checkTrue("удар по существу вешает свой контейнер",
-                  fn:find("ApplyEffect(spell.container", 1, true) ~= nil)
-        checkTrue("и говорит о нём ходу",
-                  fn:find("TurnSkipFor(spell, spellID, spell.container)", 1, true) ~= nil)
+    -- Правило одно на все пять путей резолва и по одному признаку —
+    -- ЗНАЕТ ЛИ ВЕТКА ИСХОД. Никаких «а вот у роя иначе»: ветка выбирается
+    -- по тому, что известно ПУТИ, а не по тому, какой спелл по нему
+    -- поехал.
+    SB.ActiveEffects.Clear()
+
+    check("исход отрицателен — не вешаем",
+          L.ApplyOwnContainer(swarm, 0, false), nil)
+    check("и на персонаже пусто", #SB.ActiveEffects.GetAll(), 0)
+
+    check("исход положителен — вешаем",
+          L.ApplyOwnContainer(swarm, 0, true), "eff_demonic_swarm")
+    check("и он на персонаже", #SB.ActiveEffects.GetAll(), 1)
+
+    SB.ActiveEffects.Clear()
+    check("исход неизвестен — вешаем сразу",
+          L.ApplyOwnContainer(swarm, 0, nil), "eff_demonic_swarm")
+    check("и он тоже на персонаже", #SB.ActiveEffects.GetAll(), 1)
+    SB.ActiveEffects.Clear()
+
+    -- Заклинанию без контейнера вешать нечего ни при каком исходе.
+    local plain = SB.Data.Spells["heroic_strike"]
+    check("без контейнера — nil на успехе", L.ApplyOwnContainer(plain, 0, true), nil)
+    check("и на неизвестном исходе", L.ApplyOwnContainer(plain, 0, nil), nil)
+    check("и на пустом заклинании", L.ApplyOwnContainer(nil, 0, nil), nil)
+
+    -- ── ПРАВИЛО ЖИВЁТ В ОДНОМ МЕСТЕ ────────────────────────
+    --
+    -- Главный инвариант всей этой правки. Пять одинаковых веток по пяти
+    -- файлам — это не пять веток, а одна забытая: размен с существом
+    -- отпочковался позже всех и шага не унаследовал вовсе. Мимо функции
+    -- контейнер вешать больше нельзя, и проверка следит именно за этим,
+    -- а не за поведением конкретного заклинания.
+    local FILES = { "Core/Logic.lua", "Core/Logic/Aoe.lua", "Core/Logic/NPC.lua",
+                    "Core/Logic/NpcCast.lua", "Core/ResourceGrant.lua" }
+    local direct, callers = {}, 0
+    for _, path in ipairs(FILES) do
+        local body = ReadFile(path)
+        if body:find("ApplyEffect(spell.container", 1, true) then
+            direct[#direct + 1] = path
+        end
+        -- Присваивание, а не просто имя: объявление самой функции
+        -- выглядит так же и посчиталось бы шестым «путём».
+        for _ in body:gmatch("= SB%.Logic%.ApplyOwnContainer%(spell") do
+            callers = callers + 1
+        end
     end
+    check("мимо общей функции контейнер не вешают",
+          table.concat(direct, ", "), "")
+    check("а через неё — все пять путей резолва", callers, 5)
+
+    -- И каждый из них отдаёт наложенное ходу: «что легло» и «что не
+    -- тикать» приходят из одного значения и разойтись не могут.
+    local skipCalls = 0
+    for _, path in ipairs(FILES) do
+        for _ in ReadFile(path):gmatch("TurnSkipFor%(spell, spellID, ownContainer%)") do
+            skipCalls = skipCalls + 1
+        end
+    end
+    check("и все пять говорят о наложенном ходу", skipCalls, 5)
 
     -- ── СКОЛЬКО ЗАКЛИНАНИЙ ЭТО ЛЕЧИТ ───────────────────────
     --

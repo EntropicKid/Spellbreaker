@@ -153,18 +153,16 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
     -- «Чародейская вспышка» мага, «Стена ветров» и «Удар духов стихий»
     -- шамана.
     --
-    -- НА ФАКТ КАСТА, А НЕ НА ПОПАДАНИЕ — тем же правилом, что в ПвП
-    -- (см. врезку у SB.Logic.InitiatePvpAttack): поле вокруг заклинателя
-    -- бушует независимо от того, прошли ли укусы. Иначе одно и то же
-    -- заклинание работало бы по разным правилам в зависимости от того,
-    -- игрок перед тобой или волк.
-    if spell.container then
-        SB.Logic.ApplyEffect(spell.container, spell, slotLevel)
-    end
+    -- ПО ИСХОДУ, И ОН ЗДЕСЬ ИЗВЕСТЕН. Размен с существом считает обе
+    -- стороны сам (своего клиента у волка нет), поэтому landed у нас на
+    -- руках уже сейчас — в отличие от ПвП, где ответ придёт по сети, и
+    -- от площади, где общего исхода нет вовсе. Правило одно на все пять
+    -- путей и записано один раз: SB.Logic.ApplyOwnContainer.
+    local ownContainer = SB.Logic.ApplyOwnContainer(spell, slotLevel, landed)
 
-    -- Наложенное едем ТРЕТЬИМ АРГУМЕНТОМ: иначе рой, только что
+    -- Наложенное едет ТРЕТЬИМ АРГУМЕНТОМ: иначе рой, только что
     -- призванный, тем же ходом и списался бы (см. TurnSkipFor).
-    SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID, spell.container))
+    SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID, ownContainer))
 
     -- ── Строка боя ────────────────────────────────────────
     local link    = SB.UI.MakeSpellLink(spell)
