@@ -27,7 +27,7 @@ local addonName, SB = ...
 SB.Migrations = SB.Migrations or {}
 
 --- Текущая версия схемы. Поднимать на +1 при добавлении миграции ниже.
-SB.SCHEMA_VERSION = 7
+SB.SCHEMA_VERSION = 8
 
 -- ============================================================
 -- ХЕЛПЕРЫ НОРМАЛИЗАЦИИ
@@ -288,6 +288,60 @@ SB.Migrations.List = {
                 end
                 db.turnTimer = nil
             end
+        end,
+    },
+
+    {
+        version = 8,
+        note = "сумка ужата с шести ячеек до трёх",
+
+        -- Ячеек под предметы было до шести (база 3 плюс пороги «Ремесла»
+        -- 2, 3 и 5), стало до трёх (база 1 плюс пороги 3 и 5).
+        --
+        -- БЕЗ ЭТОГО ШАГА ЛИШНЕЕ НЕ ПРОПАЛО БЫ, А СПРЯТАЛОСЬ. Интерфейс
+        -- рисует ровно GetMaxPrepared ячеек, и четвёртая пачка перестала
+        -- бы показываться — оставаясь в сохранёнке, занимая место и
+        -- мешая положить то, что теперь нужнее. Худший вид потери: вещь
+        -- вроде есть, но её нет.
+        --
+        -- ПОТОЛОК СЧИТАЕМ ЗДЕСЬ ЖЕ, а не через SB.Items.GetMaxPrepared:
+        -- та спрашивает навык у SB.Skills, а миграции идут ДО SB_INIT,
+        -- то есть до того, как подсистемы взяли свою базу. Константы при
+        -- этом берём у SB.Items — расходиться правилу с самим собой
+        -- нельзя, а к моменту запуска миграций файл уже загружен
+        -- (порядок в .toc: Core\Items.lua идёт раньше, чем Init создаёт
+        -- базу и зовёт SB.Migrations.Run).
+        --
+        -- ВЛОЖЕННОЕ, А НЕ ДЕЙСТВУЮЩЕЕ: db.skills — это ровно то, что
+        -- игрок вложил (эффекты в сохранёнке навыков не двигают), и это
+        -- то же самое, что считает GetMaxPrepared.
+        char = function(db, report)
+            local list = db.preparedItems
+            if type(list) ~= "table" or #list == 0 then return end
+
+            local craft = tonumber((db.skills or {})["Ремесло"]) or 1
+            local cap   = SB.Items.BASE_PREPARED
+            for _, need in ipairs(SB.Items.SLOT_STEPS) do
+                if craft >= need then cap = cap + 1 end
+            end
+            if #list <= cap then return end
+
+            -- Снимаем С КОНЦА: порядок ячеек — это порядок, в котором
+            -- игрок их раскладывал, и убирать первое положенное значило
+            -- бы отнять то, что он выбрал раньше и осознаннее.
+            local dropped = {}
+            while #list > cap do
+                local gone = table.remove(list)
+                local id   = (type(gone) == "table") and gone.id or gone
+                local sp   = id and SB.Data.Spells and SB.Data.Spells[id]
+                dropped[#dropped + 1] = (sp and sp.name) or tostring(id)
+            end
+
+            report("сумка теперь на " .. cap ..
+                (cap == 1 and " ячейку" or " ячейки") ..
+                " — убрано из-за нового потолка: " ..
+                table.concat(dropped, ", ") ..
+                ". Разложить заново можно в окне предметов.")
         end,
     },
 }

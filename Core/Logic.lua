@@ -2734,6 +2734,15 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
         -- чистая починка доспеха: применяет её носитель, как и лечение
         -- (см. SB.Logic.GetSpellRepair).
         SB.Logic.ResolveHeal(spellID, slotLevel)
+    elseif SB.Logic.CanSteal(spell, aimed) then
+        -- КРАЖА — состязание, у которого нет эффекта (см. ResolveSteal).
+        --
+        -- ВЫШЕ ЭФФЕКТНОЙ ВЕТКИ И НИЖЕ ВСЕХ БОЕВЫХ. Ниже боевых потому,
+        -- что заклинание, которое И бьёт, И крадёт, — прежде всего удар:
+        -- добыча там побочна. Выше эффектной — потому что та отбирает
+        -- себе всё с полем buff/debuff, а вор вполне может ещё и пугать
+        -- жертву; кража в таком заклинании главнее.
+        SB.Logic.ResolveSteal(spellID, slotLevel)
     elseif SB.Logic.GetTargetedEffect(spell) then
         -- Бафф на союзника/себя или дебафф на другого игрока — бросок
         -- на закрепление эффекта, минуя ГМа (см. ResolveEffectCast).
@@ -4472,12 +4481,228 @@ function SB.Logic.BuffAwait(targetName, spellID, fallbackThreshold,
 end
 
 --- Цель ответила: вот её настоящий порог и настоящий исход.
-function SB.Logic.HandleBuffResultReceived(targetName, spellID, threshold, ok)
+---
+--- ХВОСТ АРГУМЕНТОВ ПРОБРАСЫВАЕТСЯ КАК ЕСТЬ. Ожидание не знает и знать
+--- не должно, чем именно закончился каст: эффекту хватает порога с
+--- исходом, а краже нужна ещё и добыча (см. SB.Logic.HandleStealResult).
+--- Заводить второе такое же ожидание ради одного лишнего поля значило бы
+--- получить две расходящиеся копии одного механизма.
+function SB.Logic.HandleBuffResultReceived(targetName, spellID, threshold, ok, ...)
     local key = (targetName or "?") .. "::" .. tostring(spellID)
     local rec = buffAwaits[key]
     if not rec then return end
     buffAwaits[key] = nil
-    rec.announce(threshold, ok)
+    rec.announce(threshold, ok, ...)
+end
+
+-- ============================================================
+-- КРАЖА — СОСТЯЗАНИЕ, У КОТОРОГО НЕТ ЭФФЕКТА
+--
+-- «Карманная кража» разбойника не решалась аддоном вовсе: ни дебаффа,
+-- ни контейнера, а resistable = true, — значит каст падал в самый низ
+-- цепочки, прямо в заявку Ведущему. Тот отыгрывал бросок руками.
+--
+-- ЧЕГО НЕ ХВАТАЛО — НЕ ЗАКЛИНАНИЮ, А ВИДУ КАСТА. В аддоне был
+-- состязательный путь ровно один: наложить эффект. Всё, что решается
+-- броском против чужой стойкости, но эффектом не заканчивается,
+-- деваться было некуда. Поэтому здесь заведён не «путь карманной
+-- кражи», а путь ЗАКЛИНАНИЯ С ДОБЫЧЕЙ: поле steal объявительное, и
+-- любое будущее воровство поедет тем же кодом.
+--
+-- РЕШАЕТ ТОТ, У КОГО БЕРУТ, — то же правило, что у порога дебаффа и у
+-- всего остального спорного в этом файле. И причина та же, только здесь
+-- она вдвое весомее: заклинатель не знает ни стойкости цели, ни того,
+-- что у неё в сумке. Обе половины ответа есть только на её клиенте.
+--
+-- У СУЩЕСТВА СУМКИ НЕТ ВОВСЕ, и заводить её ради одного заклинания
+-- незачем: бросок считается честно, а что выпало из кармана купца —
+-- решает Ведущий, как и всё прочее про мир.
+--
+-- СТРОКИ ЛОКАЛЬНЫЕ, А НЕ В ОБЩИЙ ЛОГ. Удачная кража, объявленная всему
+-- рейду, — это не кража. Знают двое: вор и обворованный.
+-- ============================================================
+
+--- Что крадёт это заклинание. nil — не крадёт ничего.
+--- @return string|nil  пока единственный вид: "item"
+function SB.Logic.GetStealKind(spell)
+    if type(spell) ~= "table" then return nil end
+    local kind = spell.steal
+    -- Короткая запись steal = true читается как «предмет»: это
+    -- единственное, что у персонажа вообще можно отнять физически.
+    if kind == true then kind = "item" end
+    if kind ~= "item" then return nil end
+    return kind
+end
+
+--- Может ли аддон разрешить кражу сам, не спрашивая Ведущего.
+---
+--- ЦЕЛЬ ОБЯЗАТЕЛЬНА, и умолчания «нет цели — сам у себя» здесь быть не
+--- может: у кражи без жертвы нет смысла, в отличие от рассеивания, где
+--- самокаст — осмысленное действие.
+--- @param aimed boolean|nil  каст НЕ помечен «на себя»
+function SB.Logic.CanSteal(spell, aimed)
+    if not SB.Logic.GetStealKind(spell) then return false end
+    if aimed == false then return false end
+    if not UnitExists("target") then return false end
+    if UnitIsUnit("target", "player") then return false end
+    -- Игрок или существо — годятся оба: у первого сумка настоящая, у
+    -- второго её нет и добычу назначает Ведущий.
+    return UnitIsPlayer("target")
+        or (SB.Logic.TargetNpcStats and SB.Logic.TargetNpcStats() ~= nil)
+end
+
+--- Вор: бросок и отправка. Решение принимает цель.
+function SB.Logic.ResolveSteal(spellID, slotLevel)
+    local spell = SB.Data.Spells[spellID]
+    if not spell or not SB.Logic.GetStealKind(spell) then return end
+    if not UnitExists("target") then return end
+
+    local G    = SB.Theme.MSG_BODY
+    local link = SB.UI.MakeSpellLink(spell)
+
+    local hitBonus, hitParts = SB.Logic.GetSpellScaling(spell, "hit")
+    local mod, modParts = SB.Logic.GetModifierBreakdown("attack",
+        { spell = spell, slotLevel = slotLevel })
+    mod = mod + hitBonus
+    for _, p in ipairs(hitParts) do table.insert(modParts, p) end
+
+    local roll  = SB.Logic.Roll()
+    local total = roll + mod
+    local guaranteed  = SB.Logic.IsGuaranteed(spell)
+    local targetName  = UnitName("target") or "?"
+    local npcStats    = (not UnitIsPlayer("target"))
+        and SB.Logic.TargetNpcStats and SB.Logic.TargetNpcStats() or nil
+
+    -- ── СУЩЕСТВО: СЧИТАЕМ САМИ, ДОБЫЧУ ДАЁТ ВЕДУЩИЙ ─────────
+    if npcStats then
+        -- Тот же порог, что у эффекта на существо (см. ResolveNpcEffect):
+        -- 60 плюс уровень, плюс его «Воля» — кража чужому вмешательству
+        -- родня, и сопротивляются ей тем же.
+        local threshold = math.floor(60 +
+            SB.Data.ToReferenceLevel(npcStats.level or 1))
+            + SB.NPC.WillBonus(npcStats, "target")
+        local ok = guaranteed or (total >= threshold)
+
+        SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID))
+        print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. G ..
+            "вы обчищаете карманы |r" .. targetName .. G .. " через |r" .. link ..
+            G .. ": |r" .. SB.UI.RollLine(roll, mod, total, G) ..
+            G .. " против " .. threshold .. ". |r" ..
+            (ok and (SB.Theme.MSG_GOOD .. "Успех — добычу назначает Ведущий.|r")
+                 or (SB.Theme.MSG_BAD  .. "Не вышло.|r")))
+        return
+    end
+
+    -- ── ИГРОК: РЕШЕНИЕ И ДОБЫЧА — НА ЕГО КЛИЕНТЕ ────────────
+    --
+    -- Предварительный порог нужен ровно затем же, зачем в ResolveEffectCast:
+    -- цель может не ответить (нет аддона, потерялся пакет), и напечатать
+    -- исход придётся хоть по чему-то.
+    local threshold = SB.Logic.EffectThreshold("target", false, false)
+    local success   = guaranteed or (total >= threshold)
+
+    SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID))
+
+    --- @param itemID string|nil  что удалось вынуть (nil — карман пуст)
+    local function Announce(finalThreshold, finalOk, itemID, count)
+        local tail
+        if not finalOk then
+            tail = SB.Theme.MSG_BAD .. "Не вышло.|r"
+        elseif not itemID then
+            tail = SB.Theme.MSG_GOOD .. "Успех, |r" .. G .. "но карман пуст.|r"
+        else
+            local sp   = SB.Data.Spells[itemID]
+            local name = (sp and sp.name) or itemID
+            -- КЛАДЁМ ЗДЕСЬ, а не при получении пакета: положить надо
+            -- ровно один раз, и это то же место, где о добыче печатают.
+            local got  = (SB.Items and SB.Items.Grant)
+                and SB.Items.Grant(itemID, count) or 0
+            if got > 0 then
+                tail = SB.Theme.MSG_GOOD .. "Успех: |r" .. G ..
+                       name .. " (" .. got .. " шт.).|r"
+            else
+                -- СУМКА ПОЛНА — ДОБЫЧА ПОТЕРЯНА, и вернуть её нельзя:
+                -- у жертвы она уже вынута. Честнее сказать об этом, чем
+                -- тихо не положить ничего.
+                tail = SB.Theme.MSG_GOOD .. "Успех, |r" .. SB.Theme.MSG_BAD ..
+                       "но нести некуда: |r" .. G .. name ..
+                       SB.Theme.MSG_BAD .. " выронен.|r"
+            end
+        end
+        print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. G ..
+            "вы обчищаете карманы |r" .. targetName .. G .. " через |r" .. link ..
+            G .. ": |r" .. SB.UI.RollLine(roll, mod, total, G) ..
+            G .. " против " .. finalThreshold .. ". |r" .. tail)
+    end
+
+    if IsInGroup() and SB.Net and SB.Net.SendSteal then
+        SB.Net.SendSteal(targetName, spellID, slotLevel, roll, mod, total)
+        SB.Logic.BuffAwait(targetName, spellID, threshold, success, Announce)
+    else
+        -- Вне группы доставить нечего и некому: печатаем по своему
+        -- порогу, добычи нет — её выдаёт только клиент жертвы.
+        Announce(threshold, success, nil, nil)
+    end
+end
+
+--- Жертва: считает СВОЙ порог, сама лезет в СВОЮ сумку и отвечает вору.
+function SB.Logic.HandleStealReceived(casterName, spellID, slotLevel,
+                                      roll, mod, total, sender)
+    local spell = SB.Data.Spells[spellID]
+    if not spell or not SB.Logic.GetStealKind(spell) then return end
+
+    local G    = SB.Theme.MSG_BODY
+    local link = SB.UI.MakeSpellLink(spell)
+
+    -- Та же сверка чисел, что у ПвП-удара и одиночного эффекта:
+    -- завышенный итог иначе обчистил бы карман в обход броска.
+    local tamperNote
+    total, tamperNote = SB.Logic.VerifyIncomingCast(sender or casterName,
+        spellID, roll, mod, total, slotLevel)
+    if tamperNote then
+        print(SB.Theme.MSG_BAD .. "[Spellbreaker]: " .. (sender or casterName or "?") ..
+            " — цифры не сходятся: " .. tamperNote .. ".|r")
+    end
+
+    -- ЧЕМ СОПРОТИВЛЯЕМСЯ — СПРАШИВАЕМ У СЕБЯ, ровно как у дебаффа
+    -- (см. HandleBuffReceived). Заклинание называет стат полем resist,
+    -- и читается он тем же DebuffResistStat: эффекта здесь нет, а
+    -- правило одно.
+    local resistMod = SB.Logic.OwnResistMod(
+        SB.Logic.DebuffResistStat(nil, spell))
+    local threshold = SB.Logic.EffectThreshold("player", true, false, resistMod)
+    local ok = SB.Logic.IsGuaranteed(spell) or (total >= threshold)
+
+    local itemID, count
+    if ok and SB.Items and SB.Items.TakeRandomStack then
+        itemID, count = SB.Items.TakeRandomStack()
+    end
+
+    local tail
+    if not ok then
+        tail = SB.Theme.MSG_GOOD .. "Вы заметили.|r"
+    elseif not itemID then
+        tail = SB.Theme.MSG_BAD .. "Обчистили, |r" .. G .. "но взять было нечего.|r"
+    else
+        local sp = SB.Data.Spells[itemID]
+        tail = SB.Theme.MSG_BAD .. "Украдено: |r" .. G ..
+               ((sp and sp.name) or itemID) .. " (" .. (count or 1) .. " шт.).|r"
+    end
+    print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. G ..
+        (casterName or "Кто-то") .. " лезет к вам в карман |r" .. link ..
+        G .. ": |r" .. SB.UI.RollLine(roll, mod, total, G) ..
+        G .. " против " .. threshold .. ". |r" .. tail)
+
+    if SB.Net and SB.Net.SendStealResult then
+        SB.Net.SendStealResult(sender or casterName, spellID, threshold, ok,
+                               itemID, count)
+    end
+end
+
+--- Вор: ответ жертвы. Порог, исход и добыча приезжают вместе.
+function SB.Logic.HandleStealResult(targetName, spellID, threshold, ok, itemID, count)
+    SB.Logic.HandleBuffResultReceived(targetName, spellID, threshold, ok,
+                                      itemID, count)
 end
 
 --- Исцеляемая сторона: применяет результат лечения к своему здоровью.

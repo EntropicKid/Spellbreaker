@@ -1246,6 +1246,11 @@ do
     -- «По окончании действия заклинания все несъеденные буханки
     -- исчезают». Иначе один каст на первой сцене кормил бы мага до
     -- конца кампании.
+    -- ЯЧЕЕК НУЖНО ДВЕ: сотворённая пища и покупное зелье рядом. База —
+    -- одна ячейка, вторую открывает «Ремесло» на трёх очках, поэтому
+    -- навык здесь ставим явно. Иначе покупное просто не влезло бы, и
+    -- проверка про «долито Отдыхом» молчала бы не о том.
+    SpellbreakerCharDB.skills = { ["Ремесло"] = 5 }
     SpellbreakerCharDB.preparedItems = {}
     SB.Logic.GrantCreatedItems(food)
     SB.Items.Prepare("custom_abcdef34567123456789a23de9abcdef")
@@ -4593,18 +4598,35 @@ do
     checkTrue("зелье — предмет", SB.Items.IsItem("t_potion"))
     checkTrue("а заклинание — нет", not SB.Items.IsItem("t_strike"))
 
-    -- ── ТРИ ЯЧЕЙКИ, И НЕ БОЛЬШЕ ────────────────────────────
-    -- Одинаково на любом ранге: носить склянки умеет кто угодно.
+    -- ── ЯЧЕЕК СТОЛЬКО, СКОЛЬКО ОТКРЫТО, И НИ ОДНОЙ СВЕРХ ───
+    --
+    -- Ранг тут ни при чём (носить склянки умеет кто угодно), а вот
+    -- «Ремесло» — при чём: оно и решает, сколько ячеек. Ставим полный
+    -- навык, чтобы проверять ПРАВИЛО, а не конкретный потолок.
+    --
+    -- ЧИСЛА НЕ ПРИБИТЫ НАМЕРЕННО. Потолок сумки — вопрос баланса, и он
+    -- уже менялся (было до шести, стало до трёх). Проверка, прибитая к
+    -- числу, ломается от каждой такой правки, ничего при этом не
+    -- проверяя: важно, что Prepare пускает ровно GetMaxPrepared и
+    -- отбивает следующее с внятной причиной.
     _G.SpellbreakerCharDB.configLocked = false
-    checkTrue("первое влезло",  SB.Items.Prepare("t_potion"))
-    checkTrue("второе влезло",  SB.Items.Prepare("t_potion2"))
-    checkTrue("третье влезло",  SB.Items.Prepare("t_potion3"))
-    local ok, why = SB.Items.Prepare("t_potion4")
-    checkTrue("четвёртое не влезло", not ok)
+    _G.SpellbreakerCharDB.skills = { ["Ремесло"] = 5 }
+    SB.Items.ClearPrepared()
+
+    local FILL = { "t_potion", "t_potion2", "t_potion3", "t_potion4" }
+    local cap  = SB.Items.GetMaxPrepared()
+    checkTrue("зелий для проверки хватает", #FILL > cap)
+
+    for i = 1, cap do
+        checkTrue("ячейка " .. i .. " заполнилась", SB.Items.Prepare(FILL[i]))
+    end
+    local ok, why = SB.Items.Prepare(FILL[cap + 1])
+    checkTrue("сверх потолка не влезло", not ok)
     check("и причина названа", why, "full")
-    -- Геттер, а не константа: MAX_PREPARED теперь потолок вообще,
+    -- Геттер, а не константа: MAX_PREPARED — потолок вообще,
     -- а ячеек у персонажа столько, сколько открыло «Ремесло».
-    check("в сумке ровно три", SB.Items.CountPrepared(), SB.Items.GetMaxPrepared())
+    check("в сумке ровно столько, сколько открыто",
+          SB.Items.CountPrepared(), SB.Items.GetMaxPrepared())
 
     -- Повтор не занимает второе место.
     local ok2, why2 = SB.Items.Prepare("t_potion")
@@ -7191,8 +7213,13 @@ do
     ResetEffects()
     _G.SpellbreakerCharDB.attributes = { ["Сила"] = 5, ["Интеллект"] = 5 }
 
-    -- ── РЕМЕСЛО ОТКРЫВАЕТ ЯЧЕЙКИ: 2, 3, 5 ───────────────────
-    local EXPECT = { [1] = 3, [2] = 4, [3] = 5, [4] = 5, [5] = 6 }
+    -- ── РЕМЕСЛО ОТКРЫВАЕТ ЯЧЕЙКИ: 3 и 5 ─────────────────────
+    --
+    -- Одна базовая и по одной на каждый достигнутый порог. Числа здесь
+    -- прибиты НАМЕРЕННО, в отличие от блока про Prepare выше: это и есть
+    -- та самая лестница, ради которой навык берут, и молча уехать она не
+    -- должна. Меняешь пороги — меняй и эту таблицу, причём осознанно.
+    local EXPECT = { [1] = 1, [2] = 1, [3] = 2, [4] = 2, [5] = 3 }
     for craft, slots in pairs(EXPECT) do
         _G.SpellbreakerCharDB.skills = { ["Ремесло"] = craft }
         check("Ремесло " .. craft .. " → ячеек", SB.Items.GetMaxPrepared(), slots)
@@ -7242,7 +7269,7 @@ do
         for _, sp in ipairs(SB.Items.ListByProfession("alchemy")) do
             if SB.Items.Prepare(sp.id) then taken = taken + 1 end
         end
-        check("без Ремесла — базовые три", taken, SB.Items.BASE_PREPARED)
+        check("без Ремесла — только базовая", taken, SB.Items.BASE_PREPARED)
         SB.Items.ClearPrepared()
     end
 
@@ -13618,6 +13645,208 @@ do
         end
     end
     check("одиночных уронных со своим контейнером", #single, 5)
+end
+
+-- ============================================================
+-- МИГРАЦИЯ v8: СУМКА УЖАЛАСЬ, ЛИШНЕЕ НАДО УБРАТЬ ЧЕСТНО
+--
+-- Ячеек стало втрое меньше (было до шести, стало до трёх). Без шага
+-- миграции лишние пачки не пропали бы, а СПРЯТАЛИСЬ: интерфейс рисует
+-- ровно GetMaxPrepared ячеек, и четвёртая осталась бы в сохранёнке,
+-- занимая место и мешая положить нужное. Худший вид потери — вещь
+-- вроде есть, но её нет.
+--
+-- Миграция режет данные игрока, поэтому проверяется поимённо: сколько
+-- осталось, что именно осталось и не повторяется ли шаг.
+-- ============================================================
+do
+    local function Bag(n)
+        local out = {}
+        for i = 1, n do out[i] = { id = "t_mig_item" .. i, n = 1 } end
+        return out
+    end
+    -- Версию ставим предыдущую: гоняем ИМЕННО v8, а не всю лестницу с нуля.
+    local function RunOn(craft, count)
+        local char = { schemaVersion = 7, skills = { ["Ремесло"] = craft },
+                       preparedItems = Bag(count) }
+        SB.Migrations.Run(char, { schemaVersion = 7 })
+        return char
+    end
+
+    check("схема поднялась до восьмой", SB.SCHEMA_VERSION, 8)
+
+    -- ── БЕЗ РЕМЕСЛА ОСТАЁТСЯ ОДНА ЯЧЕЙКА ───────────────────
+    local c = RunOn(1, 5)
+    check("из пяти пачек осталась одна", #c.preparedItems, 1)
+    check("и это ПЕРВАЯ положенная", c.preparedItems[1].id, "t_mig_item1")
+    check("версия проставлена", c.schemaVersion, 8)
+
+    -- ── ПОЛНОЕ РЕМЕСЛО ОСТАВЛЯЕТ ТРИ ───────────────────────
+    c = RunOn(5, 6)
+    check("на полном навыке осталось три", #c.preparedItems, 3)
+    check("и порядок не переехал", c.preparedItems[3].id, "t_mig_item3")
+
+    -- ── ЧТО ВЛЕЗАЕТ — НЕ ТРОГАЕМ ВОВСЕ ─────────────────────
+    --
+    -- Миграция, которая «на всякий случай» переписывает укладывающееся,
+    -- однажды перепишет его неправильно.
+    c = RunOn(3, 2)
+    check("две пачки при двух ячейках целы", #c.preparedItems, 2)
+    c = RunOn(1, 0)
+    check("пустая сумка остаётся пустой", #c.preparedItems, 0)
+
+    -- ── ПОВТОРНО НЕ СРАБАТЫВАЕТ ────────────────────────────
+    --
+    -- Версия уже восьмая, значит шаг пройден. Повтори он себя — обрезал
+    -- бы сумку, которую игрок успел разложить заново.
+    local done = { schemaVersion = 8, skills = { ["Ремесло"] = 1 },
+                   preparedItems = Bag(3) }
+    SB.Migrations.Run(done, { schemaVersion = 8 })
+    check("на готовой базе шаг не повторяется", #done.preparedItems, 3)
+end
+
+-- ============================================================
+-- КРАЖА: СОСТЯЗАНИЕ, У КОТОРОГО НЕТ ЭФФЕКТА
+--
+-- «Карманная кража» разбойника не решалась аддоном вовсе: ни дебаффа,
+-- ни контейнера, а resistable = true — значит каст падал в самый низ
+-- цепочки, прямо в заявку Ведущему.
+--
+-- Чего не хватало — не заклинанию, а ВИДУ КАСТА: состязательный путь в
+-- аддоне был ровно один, и заканчивался он наложением эффекта. Поэтому
+-- проверяется здесь общий механизм (поле steal, путь резолва, дележ
+-- ответственности между вором и жертвой), а не поведение одного спелла.
+-- ============================================================
+do
+    local L = SB.Logic
+
+    -- ── ПОЛЕ ОБЪЯВИТЕЛЬНОЕ И УЗКОЕ ─────────────────────────
+    check("steal = item читается", L.GetStealKind({ steal = "item" }), "item")
+    check("короткая запись true — тоже предмет",
+          L.GetStealKind({ steal = true }), "item")
+    check("незнакомый вид добычи не принимается",
+          L.GetStealKind({ steal = "кошелёк" }), nil)
+    check("без поля — не крадёт", L.GetStealKind({}), nil)
+    check("мусор на входе не роняет", L.GetStealKind("строка"), nil)
+
+    -- ── ВОРОВАТЬ НАДО У КОГО-ТО ────────────────────────────
+    local thief = SB.Data.Spells["pick_pocket"]
+    checkTrue("«Карманная кража» на месте", thief ~= nil)
+    check("и объявляет добычу", L.GetStealKind(thief), "item")
+    checkTrue("и объявляет, чем ей сопротивляются",
+              L.DebuffResistStat(nil, thief) ~= nil)
+
+    checkTrue("с целью — аддон решает сам", L.CanSteal(thief, true))
+    check("каст «на себя» кражей не считается", L.CanSteal(thief, false), false)
+
+    local savedTarget = stub.world.units["target"]
+    stub.world.units["target"] = nil
+    check("без цели красть не у кого", L.CanSteal(thief, true), false)
+    stub.world.units["target"] = savedTarget
+
+    check("обычное заклинание сюда не попадает",
+          L.CanSteal(SB.Data.Spells["heroic_strike"], true), false)
+
+    -- ── ПАЧКУ ВЫНИМАЕТ САМА ЖЕРТВА ─────────────────────────
+    --
+    -- Не Unprepare: тот отбивает при замке набора, а кража происходит
+    -- ровно посреди сцены, когда замок уже стоит.
+    local savedBag  = _G.SpellbreakerCharDB.preparedItems
+    local savedLock = _G.SpellbreakerCharDB.configLocked
+
+    _G.SpellbreakerCharDB.preparedItems = {}
+    check("из пустой сумки не вынуть ничего", SB.Items.TakeRandomStack(), nil)
+
+    _G.SpellbreakerCharDB.preparedItems = {
+        { id = "t_steal_a", n = 3 }, { id = "t_steal_b", n = 2 },
+    }
+    _G.SpellbreakerCharDB.configLocked = true
+    local gotID, gotN = SB.Items.TakeRandomStack()
+    checkTrue("замок краже не помеха", gotID ~= nil)
+    checkTrue("вынулось что-то из лежавшего",
+              gotID == "t_steal_a" or gotID == "t_steal_b")
+    check("и пачкой целиком", gotN, (gotID == "t_steal_a") and 3 or 2)
+    check("в сумке осталась одна пачка",
+          #_G.SpellbreakerCharDB.preparedItems, 1)
+
+    -- ── ЖЕРТВА СЧИТАЕТ ПОРОГ САМА ──────────────────────────
+    --
+    -- Главное разделение: вор шлёт бросок, всё остальное — у жертвы.
+    -- Её стойкость вор не видит, её сумку — тем более.
+    SB.Data.Spells["t_steal"] = {
+        id = "t_steal", name = "Проба кражи", class = "Разбойник", level = 0,
+        isCantrip = true, resistable = true, canCrit = false, distance = 2.5,
+        steal = "item", resist = "Дух",
+    }
+
+    local sent
+    local realSend = SB.Net.SendStealResult
+    SB.Net.SendStealResult = function(caster, spellID, threshold, ok, item, n)
+        sent = { caster = caster, threshold = threshold, ok = ok, item = item, n = n }
+    end
+
+    -- Заведомо слабый бросок: порог 60 плюс уровень, взять нечем.
+    _G.SpellbreakerCharDB.preparedItems = { { id = "t_steal_a", n = 3 } }
+    L.HandleStealReceived("Линдси", "t_steal", 0, 5, 0, 5, "Линдси")
+    checkTrue("жертва ответила вору", sent ~= nil)
+    check("и ответ ушёл именно ему", sent and sent.caster, "Линдси")
+    check("слабый бросок замечен", sent and sent.ok, false)
+    check("и карман цел", #_G.SpellbreakerCharDB.preparedItems, 1)
+
+    -- Заведомо сильный: 200 перекрывает любой порог.
+    sent = nil
+    L.HandleStealReceived("Линдси", "t_steal", 0, 200, 0, 200, "Линдси")
+    check("сильный бросок прошёл", sent and sent.ok, true)
+    check("и добыча названа в ответе", sent and sent.item, "t_steal_a")
+    check("пачкой целиком", sent and sent.n, 3)
+    check("а сумка опустела", #_G.SpellbreakerCharDB.preparedItems, 0)
+
+    -- Успех при пустом кармане: исход есть, добычи нет.
+    sent = nil
+    L.HandleStealReceived("Линдси", "t_steal", 0, 200, 0, 200, "Линдси")
+    check("успех остаётся успехом", sent and sent.ok, true)
+    check("но брать было нечего", sent and sent.item, nil)
+
+    -- ── СТОЙКОСТЬ ЖЕРТВЫ И ПРАВДА РАБОТАЕТ ─────────────────
+    --
+    -- Порог кражи собран как порог дебаффа: модификатор стойкости идёт
+    -- в него ДВОЙНЫМ (см. SB.Logic.EffectThreshold).
+    local savedAttrs  = _G.SpellbreakerCharDB.attributes
+    local savedSkills = _G.SpellbreakerCharDB.skills
+    ResetEffects()
+
+    _G.SpellbreakerCharDB.attributes = { ["Дух"] = 1 }
+    _G.SpellbreakerCharDB.preparedItems = { { id = "t_steal_a", n = 1 } }
+    sent = nil
+    L.HandleStealReceived("Линдси", "t_steal", 0, 60, 0, 60, "Линдси")
+    local weakThreshold = sent and sent.threshold
+
+    _G.SpellbreakerCharDB.attributes = { ["Дух"] = 5 }
+    _G.SpellbreakerCharDB.preparedItems = { { id = "t_steal_a", n = 1 } }
+    sent = nil
+    L.HandleStealReceived("Линдси", "t_steal", 0, 60, 0, 60, "Линдси")
+    local strongThreshold = sent and sent.threshold
+
+    checkTrue("развитый Дух поднимает порог кражи",
+              (strongThreshold or 0) > (weakThreshold or 0))
+
+    SB.Net.SendStealResult = realSend
+    SB.Data.Spells["t_steal"] = nil
+    _G.SpellbreakerCharDB.attributes    = savedAttrs
+    _G.SpellbreakerCharDB.skills        = savedSkills
+    _G.SpellbreakerCharDB.preparedItems = savedBag
+    _G.SpellbreakerCharDB.configLocked  = savedLock
+
+    -- ── ВЕТКА РЕЗОЛВА ЗАВЕДЕНА ─────────────────────────────
+    --
+    -- Без неё заклинание с добычей снова уехало бы заявкой Ведущему —
+    -- молча, потому что заявка это штатный запасной вариант, а не сбой.
+    local src = ReadFile("Core/Logic.lua")
+    checkTrue("кража разбирается до заявки Ведущему",
+              src:find("elseif SB.Logic.CanSteal(spell, aimed) then", 1, true) ~= nil)
+    local net = ReadFile("Core/Network.lua")
+    checkTrue("пакет кражи заведён", net:find("STEAL", 1, true) ~= nil)
+    checkTrue("и ответ жертвы тоже", net:find("STEALR", 1, true) ~= nil)
 end
 
 -- ============================================================

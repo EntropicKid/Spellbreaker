@@ -537,6 +537,35 @@ local function ParseBUFFR(sender, t)
     end
 end
 
+--- Кто-то лезет к вам в карман. Peer-to-peer, без проверки на лидера —
+--- тот же уровень доверия, что у ПвП-удара: это действие игрока против
+--- игрока, а не команда Ведущего.
+---
+--- РЕШАЕТЕ ВЫ, А НЕ ВОР. В пакете едет только бросок; порог считается
+--- у вас (стойкости вашего персонажа вор не видит), в сумку лезет тоже
+--- ваш клиент, и что именно вынулось — знаете тоже вы
+--- (см. SB.Logic.HandleStealReceived).
+local function ParseSTEAL(sender, t)
+    if t.target ~= UnitName("player") then return end
+    local shown = ActorOf(sender, t)
+    if not shown then return end
+    if not (SB.Logic and SB.Logic.HandleStealReceived) then return end
+
+    SB.Logic.HandleStealReceived(shown, t.spellID, tonumber(t.slot) or 0,
+        t.roll, t.mod, t.total, sender)
+end
+
+--- Ответ жертвы вору: настоящий порог, исход и добыча.
+--- Ключ ожидания — из имени отправителя, по той же причине, что у BUFFR.
+local function ParseSTEALR(sender, t)
+    if t.caster ~= UnitName("player") then return end
+    if SB.Logic and SB.Logic.HandleStealResult then
+        SB.Logic.HandleStealResult(sender or t.target, t.spellID,
+            tonumber(t.threshold) or 0, t.ok == true,
+            t.item, tonumber(t.count) or 1)
+    end
+end
+
 --- Площадная атака. Уходит всей группе; кого задело — решает каждый
 --- получатель сам по дистанции (см. SB.Logic.HandleAoeAttackReceived).
 --- Проверки на лидера нет по той же причине, что и у PVPATK: атакует
@@ -1268,6 +1297,8 @@ Dispatch = function(sender, t)
     elseif action == "ITEMPAY" then ParseITEMPAY(sender, t)
     elseif action == "BUFF"    then ParseBUFF(sender, t)
     elseif action == "BUFFR"   then ParseBUFFR(sender, t)
+    elseif action == "STEAL"   then ParseSTEAL(sender, t)
+    elseif action == "STEALR"  then ParseSTEALR(sender, t)
     elseif action == "AOEATK"  then ParseAOEATK(sender, t)
     elseif action == "AOEEFF"  then ParseAOEEFF(t)
     elseif action == "AOEEFR"  then ParseAOEEFR(t)
@@ -1679,6 +1710,45 @@ function SB.Net.SendBuffResult(casterName, spellID, threshold, ok)
         spellID   = spellID,
         threshold = threshold,
         ok        = ok and true or false,
+    }, casterName, "NORMAL")
+end
+
+--- Вор лезет в карман: едет ТОЛЬКО БРОСОК.
+---
+--- Ни порога, ни добычи здесь нет и быть не может — оба числа знает лишь
+--- клиент жертвы: порог собран из её стойкости, добыча лежит в её сумке
+--- (см. SB.Logic.HandleStealReceived). Ровно то же разделение, что у
+--- одиночного эффекта, только у кражи оно вдвое очевиднее.
+function SB.Net.SendSteal(targetName, spellID, slotLevel, roll, mod, total)
+    if not IsInGroup() or not targetName or targetName == "" then return end
+    SendToPlayer({
+        action  = "STEAL",
+        caster  = UnitName("player"),
+        target  = targetName,
+        spellID = spellID,
+        slot    = tonumber(slotLevel) or 0,
+        roll    = roll,
+        mod     = mod,
+        total   = total,
+    }, targetName, "NORMAL")
+end
+
+--- Жертва отвечает вору: порог, исход и что именно вынулось.
+---
+--- Адресно, а не группе: удачная кража, объявленная всему рейду, — это
+--- не кража. Знают двое.
+--- @param itemID string|nil  nil — успех был, но карман оказался пуст
+function SB.Net.SendStealResult(casterName, spellID, threshold, ok, itemID, count)
+    if not IsInGroup() or not casterName or casterName == "" then return end
+    SendToPlayer({
+        action    = "STEALR",
+        caster    = casterName,
+        target    = UnitName("player"),
+        spellID   = spellID,
+        threshold = threshold,
+        ok        = ok and true or false,
+        item      = itemID,
+        count     = itemID and (tonumber(count) or 1) or nil,
     }, casterName, "NORMAL")
 end
 
