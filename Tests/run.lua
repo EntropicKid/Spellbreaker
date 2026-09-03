@@ -13316,6 +13316,130 @@ do
 end
 
 -- ============================================================
+-- ШАБЛОНЫ ВИДОВ ПРАВИТ ВЕДУЩИЙ
+--
+-- Зашитые цифры видов — заготовка под чужой стол. Правка Ведущего лежит
+-- отдельным слоем поверх эталона: «сбросить» значит снять слой, а не
+-- вспоминать, что там было.
+--
+-- Главное, за чем следят проверки: эталон остаётся эталоном, а
+-- ЕДИНСТВЕННЫЙ вход в шаблон — EffectiveTemplate. Пока список
+-- способностей читался из таблицы напрямую, Ведущий видел новый набор в
+-- форме создания и старый — в меню самого зверя.
+-- ============================================================
+do
+    local N = SB.NPC
+    _G.SpellbreakerNPCDB = _G.SpellbreakerNPCDB or {}
+    N.DB().templates = {}
+
+    -- ── БЕЗ ПРАВКИ — ЗАГОТОВКА КАК БЫЛА ────────────────────
+    local baseBeast = N.Templates.beast
+    check("нетронутый вид отдаёт эталон", N.EffectiveTemplate("beast"), baseBeast)
+    check("и правкой не помечен", N.HasTemplateOverride("beast"), false)
+    check("несуществующий вид — nil", N.EffectiveTemplate("вымысел"), nil)
+
+    local before = N.GetTemplate("beast")
+    check("здоровье зверя из заготовки", before.maxHealth, baseBeast.maxHealth)
+
+    -- ── ПРАВКА НАКРЫВАЕТ ───────────────────────────────────
+    local ok = N.SaveTemplate("beast", {
+        level = 30, maxHealth = 25, maxResource = 7,
+        resourceName = "Ярость",
+        attributes = { ["Сила"] = 5, ["Ловкость"] = 1 },  -- единица = не задано
+        skills     = { ["Точность"] = 4 },
+        spells     = { "rend", "нет_такого_заклинания", "charge" },
+    })
+    checkTrue("правка принята", ok)
+    check("и вид помечен правленым", N.HasTemplateOverride("beast"), true)
+
+    local t = N.GetTemplate("beast")
+    check("здоровье теперь своё", t.maxHealth, 25)
+    check("уровень тоже", t.level, 30)
+    check("ресурс переименован", t.resourceName, "Ярость")
+    check("и пул посчитан от имени", t.resourcePool, N.PoolFor("Ярость"))
+    check("характеристика сверх единицы осталась", t.attributes["Сила"], 5)
+    check("а единица отброшена", t.attributes["Ловкость"], nil)
+    check("навык на месте", t.skills["Точность"], 4)
+    check("мёртвый id заклинания выброшен", #t.spells, 2)
+
+    -- ЭТАЛОН НЕ ТРОГАЛИ. Правка копирует, а не пишет в таблицу видов:
+    -- испорти мы её — «сбросить к исходному» стало бы нечем.
+    check("зашитая заготовка цела", N.Templates.beast.maxHealth, baseBeast.maxHealth)
+    check("и её список способностей тоже", #N.Templates.beast.spells, 3)
+
+    -- ── СПОСОБНОСТИ ВИДА ЕДУТ ЗА ПРАВКОЙ ───────────────────
+    --
+    -- Тот самый разъезд: SpellsFor читал таблицу напрямую и правку не
+    -- видел. Записи с таким npcID нет, значит ответ берётся из вида.
+    local spells = N.SpellsFor(nil, "beast")
+    check("меню зверя знает правленый список", #spells, 2)
+    check("и это именно он", spells[1], "rend")
+
+    -- ── ЧИСЛА ПРИВОДЯТСЯ К ВМЕНЯЕМЫМ ───────────────────────
+    N.SaveTemplate("beast", {
+        level = -5, maxHealth = 0, maxResource = -3,
+        resourceName = "Патока", spells = {},
+    })
+    local bad = N.GetTemplate("beast")
+    check("уровень ниже единицы не бывает", bad.level, 1)
+    check("здоровье тоже", bad.maxHealth, 1)
+    check("ресурс не уходит в минус", bad.maxResource, 0)
+    check("незнакомый ресурс выправлен на Ману", bad.resourceName, "Мана")
+
+    -- Больше десяти способностей не влезает.
+    local many = {}
+    for id, sp in pairs(SB.Data.Spells) do
+        if not sp.isContainer and N.CanKnowSpell(id) and #many < 14 then
+            many[#many + 1] = id
+        end
+    end
+    checkTrue("нашлось чем переполнить список", #many > N.MAX_SPELLS)
+    N.SaveTemplate("beast", { level = 5, maxHealth = 5, spells = many })
+    check("список обрезан по потолку", #N.GetTemplate("beast").spells, N.MAX_SPELLS)
+
+    -- ── СБРОС ВОЗВРАЩАЕТ ЗАГОТОВКУ ─────────────────────────
+    checkTrue("сброс сработал", N.ResetTemplate("beast"))
+    check("правки больше нет", N.HasTemplateOverride("beast"), false)
+    check("здоровье снова эталонное", N.GetTemplate("beast").maxHealth,
+          baseBeast.maxHealth)
+    check("и способности тоже", #N.SpellsFor(nil, "beast"), #baseBeast.spells)
+    check("сбрасывать нечего — так и говорим",
+          select(2, N.ResetTemplate("beast")), "nothing")
+
+    -- ── ВИД ДОЛЖЕН СУЩЕСТВОВАТЬ ────────────────────────────
+    check("шаблон выдуманного вида не сохранить",
+          select(2, N.SaveTemplate("вымысел", { level = 1 })), "bad_class")
+    check("и не сбросить",
+          select(2, N.ResetTemplate("вымысел")), "bad_class")
+    check("мусор вместо записи отбит",
+          select(2, N.SaveTemplate("beast", "строка")), "no_data")
+
+    -- ── КТО РАССЫЛАЕТ, А КТО ТОЛЬКО ПРИНИМАЕТ ──────────────
+    --
+    -- SaveTemplate уезжает группе, ApplyTemplateFromNet — нет. Иначе
+    -- двое Ведущих гоняли бы один пакет друг за другом по кругу.
+    if SB.Net then
+        local sent, real = 0, SB.Net.SendNpcTemplate
+        SB.Net.SendNpcTemplate = function() sent = sent + 1 end
+
+        N.SaveTemplate("beast", { level = 9, maxHealth = 9, spells = {} })
+        check("своя правка уехала группе", sent, 1)
+
+        N.ApplyTemplateFromNet("beast", { level = 12, maxHealth = 12, spells = {} })
+        check("чужая правка дальше не пересылается", sent, 1)
+        check("но применилась", N.GetTemplate("beast").level, 12)
+
+        N.ApplyTemplateFromNet("beast", nil)
+        check("пустая правка — это сброс", N.HasTemplateOverride("beast"), false)
+        check("и он тоже не пересылается", sent, 1)
+
+        SB.Net.SendNpcTemplate = real
+    end
+
+    N.DB().templates = {}
+end
+
+-- ============================================================
 -- ИТОГ
 -- ============================================================
 print("")

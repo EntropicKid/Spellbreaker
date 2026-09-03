@@ -437,12 +437,39 @@ local function Build()
     frame.emptyFS:SetTextColor(0.5, 0.48, 0.42, 1)
 
     -- ── Кнопки ────────────────────────────────────────────
-    local saveBtn = SB.Theme.Button(frame, "Сохранить", 110, 26, "primary")
-    saveBtn:SetPoint("BOTTOMRIGHT", frame, "BOTTOM", -4, 12)
+    --
+    -- ТРИ В РЯД, а не две: между «Сохранить» и «Удалить» встал шаблон
+    -- вида. Ширина ужата со 110 до 100 — три кнопки по 110 в окно 380 не
+    -- влезают ни при каком отступе, а порядок «сохранить слева, удалить
+    -- справа» остался прежним: он уже в пальцах.
+    local saveBtn = SB.Theme.Button(frame, "Сохранить", 100, 26, "primary")
+    saveBtn:SetPoint("BOTTOM", frame, "BOTTOM", -106, 12)
     saveBtn:SetScript("OnClick", function() SB.NPCEditor.Save() end)
 
-    local delBtn = SB.Theme.Button(frame, "Удалить", 110, 26, "danger")
-    delBtn:SetPoint("BOTTOMLEFT", frame, "BOTTOM", 4, 12)
+    -- ШАБЛОН ВИДА — МЕНЮ, А НЕ ПРЯМОЕ ДЕЙСТВИЕ. Кнопка переписывает
+    -- заготовку, по которой соберут все следующие существа этого вида;
+    -- случайно нажать такое нельзя, поэтому щелчок открывает список, а
+    -- не делает. Оттуда же и обратный путь — сброс к исходному.
+    local tmplBtn = SB.Theme.Button(frame, "Шаблон вида", 100, 26, "secondary")
+    tmplBtn:SetPoint("BOTTOM", frame, "BOTTOM", 0, 12)
+    tmplBtn:SetScript("OnClick", function(self)
+        SB.NPCEditor.OpenTemplateMenu(self)
+    end)
+    tmplBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        SB.Theme.StyleTooltip(GameTooltip)
+        GameTooltip:SetText("Шаблон вида", 1, 0.82, 0)
+        GameTooltip:AddLine("Цифры из этой формы станут заготовкой для всех " ..
+            "новых существ этого вида.", 0.8, 0.8, 0.8, true)
+        GameTooltip:AddLine("Имя, иконка и NPC ID в заготовку не идут.",
+            0.6, 0.6, 0.6, true)
+        GameTooltip:Show()
+    end)
+    tmplBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    frame.tmplBtn = tmplBtn
+
+    local delBtn = SB.Theme.Button(frame, "Удалить", 100, 26, "danger")
+    delBtn:SetPoint("BOTTOM", frame, "BOTTOM", 106, 12)
     delBtn:SetScript("OnClick", function()
         if not editingID then frame:Hide() return end
         SB.NPC.Delete(editingID)
@@ -675,10 +702,13 @@ local function Fill(rec)
     frame.delBtn:SetShown(editingID ~= nil)
 end
 
---- Собрать запись из полей и сохранить.
-function SB.NPCEditor.Save()
-    if not current then return end
-
+--- ПЕРЕЛИТЬ ФОРМУ В ПРАВИМУЮ ЗАПИСЬ.
+---
+--- Отдельной функцией, потому что читателей теперь два: сохранение
+--- существа и сохранение шаблона его вида. Второй копией они бы
+--- разошлись — и «сохранил как шаблон» брало бы цифры на одну правку
+--- старее, чем «сохранил существо».
+local function ReadForm()
     current.npcID       = ReadNum(fields.npcID, 1, nil, nil)
     current.name        = fields.name:GetText() or ""
     current.level       = ReadNum(fields.level, 1, 200, 1)
@@ -701,6 +731,69 @@ function SB.NPCEditor.Save()
         local id = spellIDs[i]
         if id then current.spells[#current.spells + 1] = id end
     end
+end
+
+--- Меню кнопки «Шаблон вида»: запомнить цифры формы как заготовку либо
+--- вернуть виду зашитую.
+---
+--- ЗАКРЫВАТЬ ФОРМУ НЕ НАДО. Шаблон — это не сохранение существа: Ведущий
+--- сплошь и рядом хочет и заготовку поправить, и особь по ней тут же
+--- создать. Закройся окно — второе движение пришлось бы начинать заново.
+function SB.NPCEditor.OpenTemplateMenu(anchor)
+    if not current then return end
+    local classID = SB.NPC.GetClassification(current.classification).id
+    local className = SB.NPC.GetClassification(classID).name
+    local menu = {
+        { text = className, isTitle = true, notCheckable = true },
+        {
+            text = "Сохранить цифры как шаблон вида",
+            notCheckable = true,
+            func = function()
+                ReadForm()
+                local ok, why = SB.NPC.SaveTemplate(classID, current)
+                if not ok then
+                    print(SB.Theme.MSG_BAD .. "[Spellbreaker]: не удалось " ..
+                        "сохранить шаблон вида (" .. tostring(why) .. ").|r")
+                    return
+                end
+                print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " ..
+                    SB.Theme.MSG_BODY .. "шаблон вида «" .. className ..
+                    "» переписан — новые существа этого вида создаются " ..
+                    "по этим цифрам.|r")
+            end,
+        },
+    }
+
+    -- ПУНКТ СБРОСА ТОЛЬКО ТАМ, ГДЕ ЕСТЬ ЧТО СБРАСЫВАТЬ. Серый «сбросить»
+    -- у нетронутого вида отвечает на вопрос «а правил ли я его» медленнее,
+    -- чем его отсутствие (то же правило, что в OpenStatMenu).
+    if SB.NPC.HasTemplateOverride(classID) then
+        menu[#menu + 1] = {
+            text = "Сбросить к исходному",
+            notCheckable = true,
+            func = function()
+                if SB.NPC.ResetTemplate(classID) then
+                    print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " ..
+                        SB.Theme.MSG_BODY .. "шаблон вида «" .. className ..
+                        "» снова считается по заготовке аддона.|r")
+                end
+            end,
+        }
+    else
+        menu[#menu + 1] = { text = "Вид не правился", notCheckable = true,
+                            disabled = true }
+    end
+
+    frame.tmplMenu = frame.tmplMenu
+        or CreateFrame("Frame", "SBNPCTemplateMenu", UIParent, "UIDropDownMenuTemplate")
+    EasyMenu(menu, frame.tmplMenu, anchor, 0, 0, "MENU")
+end
+
+--- Собрать запись из полей и сохранить.
+function SB.NPCEditor.Save()
+    if not current then return end
+
+    ReadForm()
 
     local ok, reason = SB.NPC.Save(current)
     if not ok then

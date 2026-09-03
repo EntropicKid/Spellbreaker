@@ -592,6 +592,24 @@ local function ParseNPCEFF(sender, t)
     SB.NPC.ApplyRemoteEffects(t.key, t.eff)
 end
 
+--- Ведущий переписал шаблон вида. Пустой tmpl означает сброс к
+--- зашитой заготовке.
+---
+--- ТОЛЬКО ОТ ЛИДЕРА, и это тот же уровень доверия, что у ADDEFF: пакет
+--- меняет не одну тушку, а заготовку, по которой соберут все следующие.
+--- Бестиарий — хозяйство Ведущего, и переписывать его рядовому
+--- участнику незачем.
+---
+--- Своё не применяем повторно: у отправителя правка уже легла (см.
+--- SB.NPC.SaveTemplate), а ApplyTemplateFromNet намеренно не рассылает
+--- дальше — иначе двое Ведущих гоняли бы пакет по кругу.
+local function ParseNPCTMPL(sender, t)
+    if sender == UnitName("player") then return end
+    if not IsFromLeader(sender) then return end
+    if not (SB.NPC and SB.NPC.ApplyTemplateFromNet) then return end
+    SB.NPC.ApplyTemplateFromNet(t.class, t.tmpl)
+end
+
 --- УЧАСТНИК ПРЕДЛАГАЕТ ВЛАДЕЛЬЦУ ТО, ЧТО ЗНАЕТ САМ.
 ---
 --- Проверки на лидера здесь нет и быть не может: пакет по определению
@@ -1259,6 +1277,7 @@ Dispatch = function(sender, t)
     elseif action == "NPCST"   then ParseNPCST(sender, t)
     elseif action == "NPCDLT"  then ParseNPCDLT(sender, t)
     elseif action == "NPCEFF"  then ParseNPCEFF(sender, t)
+    elseif action == "NPCTMPL" then ParseNPCTMPL(sender, t)
     elseif action == "NPCREQ"  then ParseNPCREQ(sender, t)
     elseif action == "NPCOFR"  then ParseNPCOFR(sender, t)
     elseif action == "NPCRSY"  then ParseNPCRSY(sender, t)
@@ -1490,6 +1509,17 @@ end
 function SB.Net.SendNpcEffects(key, eff)
     if not IsInGroup() then return end
     SendToGroup({ action = "NPCEFF", key = key, eff = eff }, "NORMAL")
+end
+
+--- Разослать правку шаблона вида. tmpl = nil — сброс к заготовке.
+---
+--- Приоритет BULK: шаблон не боевой пакет, он нужен в момент СОЗДАНИЯ
+--- существа, а не в размене ударами. Задержка в секунду тут не значит
+--- ничего, а места он занимает больше среднего — характеристики,
+--- навыки и список способностей разом.
+function SB.Net.SendNpcTemplate(classID, tmpl)
+    if not IsInGroup() or not classID then return end
+    SendToGroup({ action = "NPCTMPL", class = classID, tmpl = tmpl }, "BULK")
 end
 
 --- Сообщить владельцу, сколько мы сняли (или вылечили) существу.

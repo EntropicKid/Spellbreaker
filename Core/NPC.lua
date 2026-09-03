@@ -390,10 +390,15 @@ SB.NPC.Templates = {
 
 --- Шаблон классификации. Возвращает КОПИЮ: вызывающий заполняет из неё
 --- форму создания и правит поля, а испортить эталон при этом не должен.
+---
+--- ЧЕРЕЗ EffectiveTemplate, А НЕ ПРЯМО ИЗ Templates: поверх зашитого
+--- эталона может лежать правка Ведущего (см. SB.NPC.SaveTemplate).
+--- Спроси мы таблицу напрямую — правка была бы видна в разделе шаблонов
+--- и не работала бы там, где шаблон собственно и нужен.
 --- @param id string  id классификации
 --- @return table
 function SB.NPC.GetTemplate(id)
-    local src = SB.NPC.Templates[id] or SB.NPC.Templates.other
+    local src = SB.NPC.EffectiveTemplate(id) or SB.NPC.EffectiveTemplate("other")
     local out = {
         classification = (SB.NPC.Templates[id] and id) or "other",
         level          = src.level,
@@ -421,9 +426,144 @@ end
 local function db()
     SpellbreakerNPCDB = SpellbreakerNPCDB or {}
     SpellbreakerNPCDB.npcs = SpellbreakerNPCDB.npcs or {}
+    -- Правки шаблонов видов: [id классификации] = поля поверх эталона.
+    -- Рядом с существами, а не в общей сохранёнке: это данные Ведущего о
+    -- бестиарии, и живут они там же, где сами существа.
+    SpellbreakerNPCDB.templates = SpellbreakerNPCDB.templates or {}
     return SpellbreakerNPCDB
 end
 SB.NPC.DB = db
+
+--- ЕДИНИЦА — ЭТО «НЕ ЗАДАНО», И В ЗАПИСИ ЕЙ НЕ МЕСТО.
+---
+--- Вынесено из SB.NPC.Save: то же правило понадобилось правке шаблона, а
+--- второй его копией они бы разошлись — в шаблоне единицы копились, в
+--- записи чистились, и «сохранил вид, создал по нему существо» давало
+--- разный набор характеристик.
+---
+--- Ноль и минус сюда же: у существа, как и у игрока, характеристика ниже
+--- единицы не опускается вложением — только эффектом на время.
+local function KeepOverOne(src)
+    local out = {}
+    for k, v in pairs(src or {}) do
+        v = tonumber(v)
+        if v and v > 1 then out[k] = math.floor(v) end
+    end
+    return out
+end
+
+-- ============================================================
+-- ШАБЛОНЫ ВИДОВ: ПРАВКА ВЕДУЩЕГО ПОВЕРХ ЭТАЛОНА
+--
+-- Зашитые в этот файл шаблоны — заготовка, и заготовка эта чужая:
+-- цифры в ней выведены из повадки вида, а не из баланса конкретного
+-- стола. Ведущий, у которого звери крепче, а гуманоиды злее, правил
+-- каждую особь руками и одни и те же числа набивал заново.
+--
+-- ЭТАЛОН НЕ ТРОГАЕМ, НАКРЫВАЕМ ЕГО. Правка лежит отдельным слоем в
+-- сохранёнке, и «сбросить к исходному» — это удалить слой, а не
+-- вспоминать, что там было. Иначе один неудачный «сохранить» стирал бы
+-- заготовку насовсем.
+--
+-- ПОЛЕ ЗА ПОЛЕМ, А НЕ ЦЕЛИКОМ. Правка хранит ровно те поля, которые
+-- читает GetTemplate; остальное (описание вида, иконка классификации)
+-- остаётся эталонным — их в форме существа и не правят.
+-- ============================================================
+
+--- Шаблон вида с учётом правки Ведущего.
+--- @param id string  id классификации
+--- @return table|nil  таблица шаблона либо nil, если вида нет вовсе
+function SB.NPC.EffectiveTemplate(id)
+    local base = SB.NPC.Templates[id]
+    if not base then return nil end
+
+    local over = db().templates[id]
+    if type(over) ~= "table" then return base end
+
+    local out = {}
+    for k, v in pairs(base) do out[k] = v end
+    for k, v in pairs(over) do out[k] = v end
+    return out
+end
+
+--- Правил ли Ведущий этот вид. Нужно интерфейсу: пункт «сбросить» имеет
+--- смысл только там, где есть что сбрасывать.
+function SB.NPC.HasTemplateOverride(id)
+    return type(db().templates[id]) == "table"
+end
+
+--- ПРИВЕСТИ ПРАВКУ ШАБЛОНА К ВИДУ, В КОТОРОМ ЕЙ МОЖНО ВЕРИТЬ.
+---
+--- Правило одно на все входы — форму Ведущего и пакет от другого
+--- Ведущего, — по той же причине, что у SB.NPC.Save: вход не один, а
+--- порча сохранёнки одинаковая. Здесь она опаснее: испорченный шаблон
+--- пролезет в КАЖДОЕ созданное потом существо.
+--- @return table
+local function NormalizeTemplate(rec)
+    if type(rec) ~= "table" then rec = {} end
+    local out = {
+        level       = math.max(1, math.floor(tonumber(rec.level) or 1)),
+        maxHealth   = math.max(1, math.floor(tonumber(rec.maxHealth) or 1)),
+        maxResource = math.max(0, math.floor(tonumber(rec.maxResource) or 0)),
+        attributes  = KeepOverOne(rec.attributes),
+        skills      = KeepOverOne(rec.skills),
+        spells      = {},
+    }
+    -- Ресурс только из известных, пул считается ОТ ИМЕНИ — те же два
+    -- правила, что у записи существа, и по тем же причинам.
+    out.resourceName = SB.NPC.IsKnownResource(rec.resourceName)
+        and rec.resourceName or "Мана"
+    out.resourcePool = SB.NPC.PoolFor(out.resourceName)
+
+    local seen = {}
+    for _, id in ipairs(rec.spells or {}) do
+        if not seen[id] and SB.NPC.CanKnowSpell(id)
+           and #out.spells < SB.NPC.MAX_SPELLS then
+            seen[id] = true
+            out.spells[#out.spells + 1] = id
+        end
+    end
+    return out
+end
+
+--- Запомнить настройки этого существа как шаблон его вида.
+--- @param id string  id классификации
+--- @param rec table  запись существа (или что угодно с теми же полями)
+--- @return boolean, string|nil  успех; причина отказа
+function SB.NPC.SaveTemplate(id, rec)
+    if not SB.NPC.Templates[id] then return false, "bad_class" end
+    if type(rec) ~= "table" then return false, "no_data" end
+
+    db().templates[id] = NormalizeTemplate(rec)
+    -- Наружу уходит УЖЕ ПРИВЕДЁННОЕ: получатель нормализует ещё раз у
+    -- себя (входу верить нельзя), но расходиться содержимому незачем.
+    if SB.Net and SB.Net.SendNpcTemplate then
+        SB.Net.SendNpcTemplate(id, db().templates[id])
+    end
+    return true
+end
+
+--- Убрать правку: вид снова считается по зашитой заготовке.
+function SB.NPC.ResetTemplate(id)
+    if not SB.NPC.Templates[id] then return false, "bad_class" end
+    if not SB.NPC.HasTemplateOverride(id) then return false, "nothing" end
+
+    db().templates[id] = nil
+    if SB.Net and SB.Net.SendNpcTemplate then
+        SB.Net.SendNpcTemplate(id, nil)
+    end
+    return true
+end
+
+--- Правка шаблона от другого Ведущего. Пустая означает сброс.
+---
+--- ПРИНИМАЕМ, НО НЕ ПЕРЕСЫЛАЕМ: иначе двое Ведущих в одной группе
+--- гоняли бы один пакет по кругу друг за другом. Отсюда и своя функция
+--- вместо SaveTemplate — та рассылает.
+function SB.NPC.ApplyTemplateFromNet(id, rec)
+    if not SB.NPC.Templates[id] then return end
+    db().templates[id] = (rec ~= nil) and NormalizeTemplate(rec) or nil
+end
 
 --- Способности существа: свои, если запись настроена, иначе шаблонные.
 ---
@@ -436,8 +576,12 @@ SB.NPC.DB = db
 --- @return table  массив id заклинаний (пустой, но не nil)
 function SB.NPC.SpellsFor(npcID, classification)
     local rec = SB.NPC.Get(npcID)
+    -- ЧЕРЕЗ EffectiveTemplate: правка шаблона обязана менять и то, что
+    -- существо умеет. Пока здесь стояла прямая таблица, Ведущий,
+    -- переписавший зверю список способностей, видел новый в форме
+    -- создания — и старый в меню самого зверя.
     local src = (rec and rec.spells)
-        or (SB.NPC.Templates[classification or ""] or {}).spells
+        or (SB.NPC.EffectiveTemplate(classification or "") or {}).spells
         or {}
     local out = {}
     for _, id in ipairs(src) do
@@ -517,16 +661,8 @@ function SB.NPC.Save(rec)
     -- StatOver: значение сверх минимума), зато раздувают сохранёнку и
     -- показываются в редакторе как «задано вручную».
     --
-    -- Ноль и минус тоже сюда: у существа, как и у игрока, характеристика
-    -- ниже единицы не опускается вложением — только эффектом на время.
-    local function KeepOverOne(src)
-        local out = {}
-        for k, v in pairs(src or {}) do
-            v = tonumber(v)
-            if v and v > 1 then out[k] = math.floor(v) end
-        end
-        return out
-    end
+    -- Само правило переехало выше, к db(): им пользуется ещё и правка
+    -- шаблона вида, а второй копией они бы разошлись (см. KeepOverOne).
     rec.attributes = KeepOverOne(rec.attributes)
     rec.skills     = KeepOverOne(rec.skills)
 
