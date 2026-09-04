@@ -867,6 +867,14 @@ function SB.Logic.IsGuaranteed(spell)
     if spell == nil then return false end
     if spell.resistable == false then return true end
 
+    -- СОТВОРЕНИЕ ПРЕДМЕТА — ТОЖЕ АВТОУСПЕХ, и по той же причине, что
+    -- бафф: сопротивляться нечему. Маг творит воду маны себе в сумку,
+    -- и «цель отвела» здесь означало бы, что сумка возразила.
+    --
+    -- Стоит ДО общей развилки: у creates-заклинаний нет ни buff, ни
+    -- container (предмет — не эффект), и в helpsOnly они не попадали.
+    if spell.creates and not SB.Logic.IsHarmful(spell) then return true end
+
     local helpsOnly = (spell.buff ~= nil or spell.container ~= nil)
         and not SB.Logic.IsHarmful(spell)
         and not SB.Logic.IsHealingCast(spell)
@@ -1101,7 +1109,7 @@ SB.Events.On("SB_INIT", function()
   C_Timer.After(0, function()
     local broken = {}
     for id, sp in pairs(SB.Data.Spells) do
-        for _, field in ipairs({ "container", "buff", "debuff" }) do
+        for _, field in ipairs({ "container", "buff", "debuff", "carried" }) do
             local ref = sp[field]
             if type(ref) == "string" and ref ~= "" and not SB.Data.Spells[ref] then
                 table.insert(broken, string.format("%s (%s) -> %s", sp.name or id, field, ref))
