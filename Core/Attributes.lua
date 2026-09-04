@@ -164,12 +164,18 @@ end
 
 --- Сколько всего очков атрибутов положено персонажу на его уровне.
 --- 5 базовых + 1 за каждые 5 уровней (5/10/15/20/25).
+---
+--- Раса и класс могут дать сверху — тем же рычагом, каким уже давали
+--- очки НАВЫКОВ (см. SB.Skills.GetTotalPoints и SB.Data.GetSoftBonus).
+--- Здесь его не было вовсе, и «дай классу пару очков характеристик»
+--- упиралось не в баланс, а в отсутствие ключа.
 function SB.Attributes.GetTotalPoints(level)
     level = level or UnitLevel("player") or 1
     -- Растягивает прогрессию под максимальный уровень реалма (см.
     -- SB.Data.ToReferenceLevel в Core/Database.lua) — на Origins
     -- (maxLevel = 25) это тождественная функция, число не меняется.
     return 5 + math.floor(SB.Data.ToReferenceLevel(level) / 5)
+        + SB.Data.GetSoftBonus("attrPoints")
 end
 
 --- Текущее ЧИСТОЕ значение атрибута (по умолчанию 1 — минимум), без

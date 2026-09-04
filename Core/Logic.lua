@@ -431,6 +431,21 @@ function SB.Logic.GetSpellScaling(spell, channel, slotLevel, statFn)
         mult = SB.Logic.GetDamageScaleMultiplier(slotLevel)
     end
 
+    -- ── ДРОБИ СКЛАДЫВАЮТСЯ, А НЕ ТЕРЯЮТСЯ ПО ОДНОЙ ──────────
+    --
+    -- Здесь усекалось КАЖДОЕ слагаемое по отдельности, и ради чего —
+    -- ради того, чтобы разбивка в тултипе сходилась с итогом. Цена
+    -- оказалась велика: заклинание со скейлингом «0.5 Дух + 0.5 Характер»
+    -- давало +1 только за пять очков в ОДНОЙ характеристике. Четыре
+    -- Характера и два Духа — те же четыре очка сверх минимума, честная
+    -- единица по формуле — превращались в 0.75 и 0.25, и обе доли
+    -- отбрасывались порознь. Игрок вложил ровно столько же и не получил
+    -- ничего; хуже того, узнать об этом можно было только опытом.
+    --
+    -- Теперь слагаемые копятся ТОЧНЫМИ, усекается один раз общий итог, а
+    -- разбивка раскладывается уже по целому итогу — так она по-прежнему
+    -- сходится с ним до единицы, но перестаёт врать о самой механике.
+    local exact = {}
     for statKey, coeff in pairs(sources) do
         coeff = tonumber(coeff) or 0
         if coeff ~= 0 then
@@ -439,13 +454,53 @@ function SB.Logic.GetSpellScaling(spell, channel, slotLevel, statFn)
             -- бафф на характеристику усиливал и скейлинг заклинаний,
             -- а не только сами броски по ней.
             local points = ((statFn or SB.Attributes.GetEffective)(statKey) or 1) - 1
-            -- Округляем КАЖДОЕ слагаемое, а не сумму: иначе разбивка в
-            -- тултипе не сходилась бы с итогом на дробных коэффициентах.
-            local val = TruncTowardZero(points * perPoint * coeff * mult)
-            if val ~= 0 then
-                total = total + val
-                table.insert(parts, { key = statKey, label = statKey, value = val })
+            local raw = points * perPoint * coeff * mult
+            if raw ~= 0 then
+                exact[#exact + 1] = { key = statKey, label = statKey, raw = raw }
+                total = total + raw
             end
+        end
+    end
+    if #exact == 0 then return 0, {} end
+
+    total = TruncTowardZero(total)
+
+    -- ── КАК ЦЕЛЫЙ ИТОГ РАСКЛАДЫВАЕТСЯ ОБРАТНО ───────────────
+    --
+    -- Каждому — его целая часть, а остаток от усечения итога уходит тем,
+    -- у кого БОЛЬШЕ ОТБРОШЕННАЯ ДОЛЯ. Способ известный (наибольший
+    -- остаток), и важен он не точностью, а тем, что сумма подписей
+    -- РАВНА показанному итогу при любых коэффициентах. Расхождение здесь
+    -- читалось бы как ошибка счёта, даже когда счёт верен.
+    local spare = total
+    for _, e in ipairs(exact) do
+        e.value = TruncTowardZero(e.raw)
+        e.rest  = math.abs(e.raw - e.value)
+        spare   = spare - e.value
+    end
+
+    if spare ~= 0 then
+        -- Порядок раздачи — по убыванию отброшенной доли; при равных
+        -- долях по имени, иначе pairs() делал бы результат случайным от
+        -- запуска к запуску.
+        local order = {}
+        for i, e in ipairs(exact) do order[i] = e end
+        table.sort(order, function(a, b)
+            if a.rest ~= b.rest then return a.rest > b.rest end
+            return a.key < b.key
+        end)
+        local step = (spare > 0) and 1 or -1
+        for i = 1, math.abs(spare) do
+            local e = order[((i - 1) % #order) + 1]
+            e.value = e.value + step
+        end
+    end
+
+    for _, e in ipairs(exact) do
+        -- Нулевые слагаемые в подписи не идут: «Дух +0» — это шум, а не
+        -- сведения. На итог это не влияет, он уже посчитан.
+        if e.value ~= 0 then
+            parts[#parts + 1] = { key = e.key, label = e.label, value = e.value }
         end
     end
 
