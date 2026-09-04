@@ -27,7 +27,7 @@ local addonName, SB = ...
 SB.Migrations = SB.Migrations or {}
 
 --- Текущая версия схемы. Поднимать на +1 при добавлении миграции ниже.
-SB.SCHEMA_VERSION = 10
+SB.SCHEMA_VERSION = 11
 
 -- ============================================================
 -- ХЕЛПЕРЫ НОРМАЛИЗАЦИИ
@@ -398,6 +398,49 @@ SB.Migrations.List = {
         char = function(db, report)
             db.personalRestCharges = nil
             db.monkRestCharges     = nil
+        end,
+    },
+
+    {
+        version = 11,
+        note = "«Рвение» и «Лидерство» поменялись атрибутами",
+
+        -- Рвение уехало под «Характер», Лидерство — под «Дух»
+        -- (см. SB.Data.Attributes).
+        --
+        -- ПОЧЕМУ ЭТО ВООБЩЕ МИГРАЦИЯ. Имена навыков не менялись, и на
+        -- первый взгляд в базе трогать нечего. Но атрибут-родитель задаёт
+        -- ПОТОЛОК навыка, а подрезка висит на событии ATTRIBUTES_CHANGED
+        -- (см. Core/Skills.lua) — то есть на входе в игру не сработает.
+        -- Персонаж с Лидерством 5 при Духе 2 остался бы с нелегальной
+        -- пятёркой до первого касания панели атрибутов, а там она молча
+        -- упала бы до двойки. Молчаливая потеря хуже объявленной.
+        --
+        -- РЕЖЕМ ОБА, А НЕ ТОЛЬКО ПОДОЗРИТЕЛЬНЫЙ: обмен двусторонний, и
+        -- обрезать могло любого из двух.
+        char = function(db, report)
+            local skills = db.skills
+            if type(skills) ~= "table" then return end
+            local attrs = db.attributes or {}
+
+            local MOVED = { ["Лидерство"] = "Дух", ["Рвение"] = "Характер" }
+            local said = {}
+            for skill, parent in pairs(MOVED) do
+                local have = tonumber(skills[skill])
+                local cap  = math.max(1, tonumber(attrs[parent]) or 1)
+                if have and have > cap then
+                    skills[skill] = cap
+                    said[#said + 1] = ("«%s» %d → %d (потолок «%s»)")
+                        :format(skill, have, cap, parent)
+                end
+            end
+
+            if #said > 0 then
+                report("навыки переехали к другим характеристикам, лишнее " ..
+                       "подрезано по новому потолку: " ..
+                       table.concat(said, ", ") ..
+                       ". Освободившиеся очки можно вложить заново.")
+            end
         end,
     },
 }
