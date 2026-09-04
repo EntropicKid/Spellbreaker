@@ -1586,13 +1586,30 @@ end
 -- нажатием и тем же кодом, что склянка алхимика.
 --
 -- ЗОВЁТСЯ ТАМ ЖЕ, ГДЕ ВЕШАЕТСЯ КОНТЕЙНЕР, и по той же причине: путей
--- резолва три (свой бросок, форсированный Ведущим исход, ПвП), и
--- заклинание, забывшее сработать в одном из них, — ровно тот баг,
--- который однажды уже был у onCast.
+-- резолва несколько, и заклинание, забывшее сработать в одном из них, —
+-- ровно тот баг, который однажды уже был у onCast.
+--
+-- ── СОТВОРЕНИЕ — ЭТО ИСХОД, А НЕ ОТДЕЛЬНЫЙ ВИД КАСТА ────────
+--
+-- Долгое время creates означало «заклинание, которое только и делает,
+-- что кладёт вещь в сумку»: шесть таких, у всех ни цели, ни броска.
+-- «Похищение души» ломает это допущение — оно БЬЁТ и при этом добывает
+-- осколок, — и допущение пришлось разобрать надвое:
+--
+--   • МАРШРУТ выбирается по тому, что заклинание делает с ЦЕЛЬЮ
+--     (см. развилку в ConfirmCast): бьёт — значит идёт ударом;
+--   • СОТВОРЕНИЕ срабатывает по ИСХОДУ, здесь.
+--
+-- ИСХОД СПРАШИВАЕМ ТЕМ ЖЕ ПРАВИЛОМ, что у собственного контейнера
+-- заклинателя (SB.Logic.ApplyOwnContainer): известен и положителен —
+-- кладём; известен и отрицателен — нет; НЕ известен (ответ придёт по
+-- сети) — кладём сразу. Второе правило на тот же вопрос заводить незачем.
+--- @param landed boolean|nil  исход, ЕСЛИ он известен этой ветке
 --- @return number сколько штук легло
-function SB.Logic.GrantCreatedItems(spell)
+function SB.Logic.GrantCreatedItems(spell, landed)
     local c = spell and spell.creates
     if not c then return 0 end
+    if landed == false then return 0 end
     local id    = (type(c) == "table") and c.item or c
     local count = (type(c) == "table") and c.count or nil
     if type(id) ~= "string" then return 0 end
@@ -2847,7 +2864,21 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
     local dualHealsTarget = spell.isHeal and spell.canCrit
         and targetName and SB.Data.IsFriend(targetName)
 
-    if spell.creates then
+    -- ТОЛЬКО ЧИСТОЕ СОТВОРЕНИЕ, а не всё, что кладёт вещь в сумку.
+    --
+    -- Раньше здесь стояло просто `spell.creates`, и ветка перехватывала
+    -- ЛЮБОЕ заклинание с этим полем. Врезка ниже честно предупреждала:
+    -- «заклинание, которое И создаёт предмет, И бьёт, пойдёт сюда, а не
+    -- в боевую ветку; таких в библиотеке нет, а появись оно — решать
+    -- придётся руками». Оно появилось — «Похищение души», которое добывает
+    -- осколок ударом.
+    --
+    -- Решаем так: МАРШРУТ выбирается по тому, что заклинание делает с
+    -- ЦЕЛЬЮ, а сотворение срабатывает по исходу в самой боевой ветке
+    -- (см. SB.Logic.GrantCreatedItems). Сюда попадает только то, чему с
+    -- целью делать нечего.
+    if spell.creates and not SB.Logic.IsHarmful(spell)
+       and not SB.Logic.IsHealingCast(spell) then
         -- СОТВОРЕНИЕ ПРЕДМЕТА — ВСЕГДА САМ, НИКОГДА ЗАЯВКОЙ.
         --
         -- Ведущему тут решать нечего: цели нет, сопротивляться некому,
@@ -3111,7 +3142,7 @@ function SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, totalScaling, turnS
     -- Активный эффект (контейнер) — вешается НА СЕБЯ. Исход этой ветке
     -- известен (мы сами его и посчитали), поэтому спрашиваем по нему.
     local ownContainer = SB.Logic.ApplyOwnContainer(spell, slotLevel, succeeded)
-    if succeeded then SB.Logic.GrantCreatedItems(spell) end
+    SB.Logic.GrantCreatedItems(spell, succeeded)
 
     -- Эффект на цель-союзника (или на себя, если цели нет) — см.
     -- SB.Logic.ApplyBuffToTarget. Если заклинание площадное — вместо
@@ -3337,6 +3368,7 @@ function SB.Logic.ExecuteForcedOutcome(spellID, outcomeIndex, slotLevel)
     -- Возвращённое значение здесь не нужно: его брали, чтобы отдать
     -- в TurnSkipFor, а хода тут больше нет.
     SB.Logic.ApplyOwnContainer(spell, slotLevel, succeeded)
+    SB.Logic.GrantCreatedItems(spell, succeeded)
 
     -- ХОД ЗДЕСЬ НЕ ТРАТИТСЯ ВОВСЕ, и SpendTurn отсюда убран.
     --
@@ -3356,8 +3388,10 @@ function SB.Logic.ExecuteForcedOutcome(spellID, outcomeIndex, slotLevel)
     if succeeded and spell.buff then
         SB.Logic.ApplyBuffToTarget(spell, slotLevel)
     end
-
-    SB.Logic.GrantCreatedItems(spell)
+    -- Сотворение вызвано ВЫШЕ, вместе с контейнером и по тому же исходу.
+    -- Здесь стоял второй его вызов — безусловный, — и после того как
+    -- верхний научился спрашивать succeeded, эти двое выдали бы вещь
+    -- дважды, причём и на форсированном провале.
 
     SB.Events.Fire("BROADCAST_LOG", sysMsg, SB.LogRank.ACTION)
     if outcomeText and outcomeText ~= "" then
@@ -3451,7 +3485,7 @@ function SB.Logic.InitiatePvpAttack(spellID, slotLevel)
     -- ответом позже (см. HandlePvpAttackResult). Ждать нечего — вешаем
     -- сразу, третьей строкой правила из ApplyOwnContainer.
     local ownContainer = SB.Logic.ApplyOwnContainer(spell, slotLevel, nil)
-    SB.Logic.GrantCreatedItems(spell)
+    SB.Logic.GrantCreatedItems(spell, nil)
 
     -- Атака — потраченный ход, как и любой другой каст.
     SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID, ownContainer))

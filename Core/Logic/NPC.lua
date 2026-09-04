@@ -159,6 +159,10 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
     -- от площади, где общего исхода нет вовсе. Правило одно на все пять
     -- путей и записано один раз: SB.Logic.ApplyOwnContainer.
     local ownContainer = SB.Logic.ApplyOwnContainer(spell, slotLevel, landed)
+    -- Добыча ударом («Похищение души») — по тому же исходу и тем же
+    -- правилом, что контейнер. Раньше эта ветка сотворение не звала
+    -- вовсе: до появления бьющего создателя звать было нечего.
+    SB.Logic.GrantCreatedItems(spell, landed)
 
     -- Наложенное едет ТРЕТЬИМ АРГУМЕНТОМ: иначе рой, только что
     -- призванный, тем же ходом и списался бы (см. TurnSkipFor).

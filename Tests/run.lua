@@ -1356,7 +1356,10 @@ do
         local _, containers = src:gsub("SB%.Logic%.ApplyOwnContainer%(spell", "")
         local _, ownDefs    = src:gsub("function SB%.Logic%.ApplyOwnContainer", "")
         containers = containers - ownDefs
-        local _, mentions   = src:gsub("GrantCreatedItems%(spell%)", "")
+        -- По ПРЕФИКСУ, а не по точной строке «(spell)»: у сотворения
+        -- появился второй аргумент — исход, — и точное совпадение
+        -- перестало находить вызовы вовсе, обнулив счёт.
+        local _, mentions   = src:gsub("GrantCreatedItems%(spell", "")
         local _, defs       = src:gsub("function SB%.Logic%.GrantCreatedItems", "")
         -- Объявление функции выглядит так же, как вызов, — вычитаем его,
         -- иначе проверка требовала бы на один вызов меньше и молчала бы
@@ -14793,7 +14796,12 @@ do
     local fh = S["eff_summon_felhunter"]
     check("Гончая даёт резист всей магии", fh.effect.mods.resistMagic, 1)
     checkTrue("и Атлетику",                (fh.effect.stats["Атлетика"] or 0) > 0)
-    checkTrue("прежнее не потеряно",       (fh.effect.mods.armor or 0) > 0)
+    -- БРОНИ У НЕЁ БОЛЬШЕ НЕТ, и это не потеря, а упрощение призыва:
+    -- броня гасит СТАЛЬ, а гончая занята чарами. Проверка стояла здесь
+    -- как сторож «не потеряй при добавлении» и честно поймала снятие —
+    -- но снятие было осознанным, и ожидание переписано под него.
+    check("а брони — нет, она не про сталь", fh.effect.mods.armor, nil)
+    check("и её кормят каждый ход",          fh.effect.tick.castResource, -1)
 
     -- ── ЧАСТИЦА СВЕТА ЛЕЧИТСЯ, А НЕ ЛЕЧИТ ──────────────────
     --
@@ -15217,6 +15225,123 @@ do
     checkTrue("«attrPoints» в списке", listed.attrPoints == true)
     check("и у шамана они есть",
           SB.Data.GetClassProfile("Шаман").attrPoints, 2)
+end
+
+-- ============================================================
+-- ОДИН ДЕМОН — ОДИН ОТВЕТ
+--
+-- Призыв был перегружен: от трёх до семи ручек на каждого демона, и
+-- главное тонуло среди мелочей. Бес поднимал хозяину «Исток» и
+-- «Ремесло», конь давал защиту больше, чем туша из Пустоты, суккуб бил.
+--
+-- Теперь каждый отвечает на ОДИН вопрос — «чего мне сейчас не хватает»:
+-- нечем жечь, сейчас будут бить, летят чары, надо договориться, надо
+-- успеть. Проверка стережёт не числа, а СЖАТОСТЬ: разрастись любой из
+-- них снова — и она укажет, какой именно.
+-- ============================================================
+do
+    local DEMONS = {
+        { "eff_summon_imp",        "Бес" },
+        { "eff_summon_voidwalker", "Демон Бездны" },
+        { "eff_summon_felhunter",  "Гончая Скверны" },
+        { "eff_summon_sayaada",    "Сайаад" },
+        { "eff_summon_felmaunt",   "Конь Скверны" },
+    }
+    local fat = {}
+    for _, row in ipairs(DEMONS) do
+        local sp = SB.Data.Spells[row[1]]
+        checkTrue("«" .. row[2] .. "» на месте", sp ~= nil)
+        if sp then
+            check("и он из семейства «Демон»", sp.effect.family, "Демон")
+            local n = 0
+            for _ in pairs(sp.effect.mods  or {}) do n = n + 1 end
+            for _ in pairs(sp.effect.stats or {}) do n = n + 1 end
+            if n > 3 then fat[#fat + 1] = row[2] .. " (" .. n .. ")" end
+        end
+    end
+    -- Три — это «главное плюс цена плюс, если надо, поддержка». Четвёртая
+    -- ручка означает, что в демона положили второго демона.
+    check("ни один демон не разросся снова", table.concat(fat, ", "), "")
+
+    -- ПОИМЁННО ТО, ЗАЧЕМ КАЖДОГО ЗОВУТ. Сжатость без этого была бы
+    -- достигнута и вырезанием сути.
+    local imp  = SB.Data.Spells["eff_summon_imp"].effect
+    local void = SB.Data.Spells["eff_summon_voidwalker"].effect
+    local hunt = SB.Data.Spells["eff_summon_felhunter"].effect
+    local succ = SB.Data.Spells["eff_summon_sayaada"].effect
+    local mount= SB.Data.Spells["eff_summon_felmaunt"].effect
+
+    check("бес жжёт огнём",            imp.mods.damageFire, 1)
+    check("и не двигает общий урон",   imp.mods.damage, nil)
+    checkTrue("туша держит удар",      (void.mods.defense or 0) > 0)
+    check("и усиливает тьму",          void.mods.damageShadow, 1)
+    check("гончая держит любые чары",  hunt.mods.resistMagic, 1)
+    checkTrue("и за ней поспевают",    (hunt.stats["Атлетика"] or 0) > 0)
+    checkTrue("суккуб про уговор",     (succ.stats["Внушение"] or 0) > 0)
+    check("а не про урон",             succ.mods and succ.mods.damage, nil)
+    checkTrue("конь про дорогу",       (mount.stats["Атлетика"] or 0) > 0)
+    check("и не про размен",           mount.mods and mount.mods.defense, nil)
+end
+
+-- ============================================================
+-- ДУХИ ОХОТНИКА
+-- ============================================================
+do
+    local hawk    = SB.Data.Spells["eff_aspect_of_the_hawk"].effect
+    local cheetah = SB.Data.Spells["eff_aspect_of_the_cheetah"].effect
+
+    check("ястреб больше не двигает урон", hawk.mods and hawk.mods.damage, nil)
+    check("а держит взгляд",               hawk.stats["Концентрация"], 2)
+    check("«Точность» при нём осталась",   hawk.stats["Точность"], 1)
+
+    check("гепард всё так же про бег",     cheetah.stats["Атлетика"], 2)
+    check("и получил выносливость сверху", cheetah.stats["Выносливость"], 1)
+end
+
+-- ============================================================
+-- «ПОХИЩЕНИЕ ДУШИ» ДОБЫВАЕТ ОСКОЛОК УДАРОМ
+--
+-- Первое заклинание в аддоне, которое И бьёт, И кладёт вещь в сумку.
+-- Врезка в ConfirmCast прямо предупреждала, что такое сочетание уйдёт не
+-- в ту ветку: поле creates перехватывало маршрут раньше всех разборов.
+-- Теперь маршрут выбирается по тому, что заклинание делает с ЦЕЛЬЮ, а
+-- сотворение срабатывает по исходу.
+-- ============================================================
+do
+    local L    = SB.Logic
+    local soul = SB.Data.Spells["soul_drain"]
+    checkTrue("«Похищение души» на месте", soul ~= nil)
+    check("оно добывает осколок", soul.creates, "item_soul_shard")
+    check("и по-прежнему бьёт",   soul.canCrit, true)
+
+    local shard = SB.Data.Spells["item_soul_shard"]
+    checkTrue("осколок заведён предметом", shard ~= nil)
+    checkTrue("и он именно предмет",       SB.Items.IsItem(shard))
+
+    -- МАРШРУТ. Ветка чистого сотворения не должна забирать бьющее
+    -- заклинание себе: проверяем по исходнику, что условие сузили.
+    local src = ReadFile("Core/Logic.lua")
+    checkTrue("ветка сотворения берёт только безвредное",
+              src:find("spell.creates and not SB.Logic.IsHarmful(spell)", 1, true) ~= nil)
+
+    -- ИСХОД. Сотворение спрашивает его тем же правилом, что контейнер:
+    -- известен и отрицателен — не кладём.
+    SB.Data.Spells["t_make"] = { id = "t_make", name = "Проба добычи",
+        class = "Воин", level = 0, canCrit = true, creates = "item_soul_shard" }
+    local savedBag = _G.SpellbreakerCharDB.preparedItems
+    _G.SpellbreakerCharDB.preparedItems = {}
+    _G.SpellbreakerCharDB.skills = { ["Ремесло"] = 5 }
+
+    check("на промахе не кладём ничего",
+          L.GrantCreatedItems(SB.Data.Spells["t_make"], false), 0)
+    checkTrue("на попадании кладём",
+              L.GrantCreatedItems(SB.Data.Spells["t_make"], true) > 0)
+    _G.SpellbreakerCharDB.preparedItems = {}
+    checkTrue("и когда исход неизвестен — тоже",
+              L.GrantCreatedItems(SB.Data.Spells["t_make"], nil) > 0)
+
+    _G.SpellbreakerCharDB.preparedItems = savedBag
+    SB.Data.Spells["t_make"] = nil
 end
 
 -- ============================================================
