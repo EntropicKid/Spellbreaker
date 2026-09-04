@@ -11992,15 +11992,17 @@ do
 end
 
 -- ============================================================
--- КОНЦЕНТРАЦИЯ СБИВАЕТСЯ УРОНОМ ПО УМОЛЧАНИЮ
+-- КОНЦЕНТРАЦИЮ СБИВАЕТ КОНТРОЛЬ, А НЕ УРОН
 --
--- Это и есть смысл слова: поддерживаемое заклинание требует внимания, а
--- удар внимание отнимает. Раньше правило приходилось выписывать каждому
--- эффекту руками, и половина концентраций его просто не имела —
--- невидимость держалась под обстрелом.
+-- Раньше умолчанием был УРОН, и звучало это складно: поддерживаемое
+-- заклинание требует внимания, а удар внимание отнимает. За столом
+-- означало другое — концентрацию не держал никто: в свалке урон
+-- прилетает каждый круг, и любой поддерживаемый эффект жил до первой
+-- стрелы, прилетевшей мимоходом.
 --
--- Правило, которое надо повторять в данных, рано или поздно окажется
--- повторённым не везде: проверка держит умолчание, а не список.
+-- Теперь сбивает то, что отнимает ВОЛЮ: оглушение, жёсткий контроль,
+-- страх (SB.Data.ConcentrationBreakers). Замедления в списке нет
+-- намеренно: оно отнимает метры, а не голову.
 -- ============================================================
 do
     ResetEffects()
@@ -12012,38 +12014,75 @@ do
         class = "Эффект", level = 0, isContainer = true,
         isConcentration = true,
         effect = { kind = "buff", mods = { crit = 5 },
-                   breakOn = { damaged = false } } }
+                   breakOn = { controlled = false } } }
     SB.Data.Spells["t_cc_ord"] = { id = "t_cc_ord", name = "Проба обычного",
         class = "Эффект", level = 0, isContainer = true,
         effect = { kind = "buff", mods = { crit = 5 } } }
 
-    -- БЕЗ ЕДИНОГО СЛОВА В ДАННЫХ — сбивается.
+    -- БЕЗ ЕДИНОГО СЛОВА В ДАННЫХ — сбивается контролем.
     SB.ActiveEffects.Add("t_cc_plain", 5, true)
     checkTrue("концентрация висит", UsesOf("t_cc_plain") ~= nil)
+    SB.ActiveEffects.BreakOn("controlled")
+    checkTrue("и сбилась от контроля", UsesOf("t_cc_plain") == nil)
+
+    -- А УРОН ЕЁ БОЛЬШЕ НЕ ТРОГАЕТ — в этом вся правка.
+    ResetEffects()
+    SB.ActiveEffects.Add("t_cc_plain", 5, true)
     SB.ActiveEffects.BreakOn("damaged")
-    checkTrue("и сбилась от удара", UsesOf("t_cc_plain") == nil)
+    checkTrue("удар концентрацию не сбивает", UsesOf("t_cc_plain") ~= nil)
 
     -- ЯВНЫЙ ОТКАЗ ПЕРЕОПРЕДЕЛЯЕТ УМОЛЧАНИЕ. Без него «эту концентрацию
-    -- ударом не сбить» стало бы невыразимым, а такие в библиотеке есть
-    -- (воинские стойки живут ровно на том, чтобы ловить удары).
+    -- контролем не сбить» стало бы невыразимым.
     ResetEffects()
     SB.ActiveEffects.Add("t_cc_tough", 5, true)
-    SB.ActiveEffects.BreakOn("damaged")
-    checkTrue("а объявившая damaged = false — устояла",
+    SB.ActiveEffects.BreakOn("controlled")
+    checkTrue("а объявившая controlled = false — устояла",
               UsesOf("t_cc_tough") ~= nil)
 
-    -- И ОБЫЧНЫЙ ЭФФЕКТ УДАРОМ НЕ СБИВАЕТСЯ: умолчание про концентрацию,
-    -- а не про всё подряд.
+    -- И ОБЫЧНЫЙ ЭФФЕКТ КОНТРОЛЕМ НЕ СБИВАЕТСЯ: умолчание про
+    -- концентрацию, а не про всё подряд.
     ResetEffects()
     SB.ActiveEffects.Add("t_cc_ord", 5, false)
-    SB.ActiveEffects.BreakOn("damaged")
-    checkTrue("обычный эффект удар не снял", UsesOf("t_cc_ord") ~= nil)
+    SB.ActiveEffects.BreakOn("controlled")
+    checkTrue("обычный эффект контроль не снял", UsesOf("t_cc_ord") ~= nil)
+
+    -- ── СБИВ ПРИХОДИТ ОТ САМОГО НАЛОЖЕНИЯ ──────────────────
+    --
+    -- Не от отдельного вызова BreakOn руками: контроль, который лёг,
+    -- обязан сорвать сосредоточение сам. Проверяем обе двери Add —
+    -- вставку нового и ПРОДЛЕНИЕ уже висящего.
+    SB.Data.Spells["t_cc_stun"] = { id = "t_cc_stun", name = "Проба оков",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "debuff", family = "Контроль", resist = "Сила",
+                   mods = { movePct = -60 } } }
+    SB.Data.Spells["t_cc_slow"] = { id = "t_cc_slow", name = "Проба вязкости",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "debuff", family = "Замедление", resist = "Сила",
+                   mods = { movePct = -30 } } }
+
+    ResetEffects()
+    SB.ActiveEffects.Add("t_cc_plain", 5, true)
+    SB.ActiveEffects.Add("t_cc_stun", 2, false)
+    checkTrue("лёгший контроль сорвал концентрацию", UsesOf("t_cc_plain") == nil)
+    checkTrue("а сам остался висеть", UsesOf("t_cc_stun") ~= nil)
+
+    -- ПРОДЛЕНИЕ ТОЖЕ СБИВАЕТ. Оглушить второй раз того, кто успел
+    -- сосредоточиться заново, — обычный ход, и ветка продления обязана
+    -- знать про сбив не хуже ветки вставки.
+    SB.ActiveEffects.Add("t_cc_plain", 5, true)
+    checkTrue("концентрация поднялась заново", UsesOf("t_cc_plain") ~= nil)
+    SB.ActiveEffects.Add("t_cc_stun", 2, false)
+    checkTrue("повторный контроль сорвал её снова", UsesOf("t_cc_plain") == nil)
+
+    -- ЗАМЕДЛЕНИЕ НЕ СБИВАЕТ. Оно отнимает метры, а не голову.
+    ResetEffects()
+    SB.ActiveEffects.Add("t_cc_plain", 5, true)
+    SB.ActiveEffects.Add("t_cc_slow", 2, false)
+    checkTrue("замедление концентрацию не трогает", UsesOf("t_cc_plain") ~= nil)
+
+    SB.Data.Spells["t_cc_stun"], SB.Data.Spells["t_cc_slow"] = nil, nil
 
     -- ── И ЭТО РАБОТАЕТ НА ЖИВЫХ ДАННЫХ ──────────────────────
-    --
-    -- Пять концентраций в библиотеке не объявляли breakOn вовсе. Раньше
-    -- они держались под обстрелом; проверка на заготовке этого не
-    -- заметила бы.
     ResetEffects()
     local bare
     for id, sp in pairs(SB.Data.Spells) do
@@ -12054,10 +12093,24 @@ do
     end
     if bare then
         SB.ActiveEffects.Add(bare, 5, true)
-        SB.ActiveEffects.BreakOn("damaged")
+        SB.ActiveEffects.BreakOn("controlled")
         checkTrue("«" .. (SB.Data.Spells[bare].name or bare) ..
                   "» сбивается без объявления", UsesOf(bare) == nil)
     end
+
+    -- ── СЕМЕЙСТВО «КОНТРОЛЬ» ЗАВЕДЕНО И РАЗВЕШЕНО ───────────
+    local ctrl = 0
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] and type(sp.effect) == "table"
+           and sp.effect.family == "Контроль" then
+            ctrl = ctrl + 1
+        end
+    end
+    check("контрольных эффектов помечено", ctrl, 16)
+    checkTrue("оглушение сбивает", SB.Data.ConcentrationBreakers["Оглушение"])
+    checkTrue("страх сбивает",     SB.Data.ConcentrationBreakers["Страх"])
+    check("а замедление — нет",    SB.Data.ConcentrationBreakers["Замедление"], nil)
+
     ResetEffects()
 end
 
