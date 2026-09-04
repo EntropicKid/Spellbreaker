@@ -332,8 +332,11 @@ local turnPaths = {
     { "лечение",      function() SB.Logic.ResolveHeal("t_heal", 1) end },
     { "пропуск хода", function() SB.Logic.SpendTurnManually() end },
     -- Короткий Отдых был здесь седьмым путём. Механики больше нет.
-    { "форсированный исход Ведущего",
-      function() SB.Logic.ExecuteForcedOutcome("t_strike", 1, 1) end },
+    --
+    -- ФОРСИРОВАННОГО ИСХОДА ЗДЕСЬ ТОЖЕ БОЛЬШЕ НЕТ, и это не потеря
+    -- покрытия, а смена устройства: он приходит ОТВЕТОМ Ведущего на
+    -- заявку, а заявка тратит ход сразу, в момент отправки. Тикать
+    -- второй раз он обязан НЕ уметь — на это своя проверка ниже.
 }
 
 -- В ПОШАГОВОМ РЕЖИМЕ действие игрока — единственный отсчёт, и тикать
@@ -357,6 +360,38 @@ for _, path in ipairs(turnPaths) do
         check("тик после «" .. path[1] .. "»", UsesOf("t_pain"), 2)
     end
 end
+
+-- ОТВЕТ ВЕДУЩЕГО НЕ ТРАТИТ ХОД ВТОРОЙ РАЗ.
+--
+-- Ход списывается на ЗАЯВКЕ: иначе между заявкой и ответом игрок
+-- числился непоходившим, а классовые механики (они срабатывают на
+-- CAST_CONFIRMED, то есть на попытку) уже заплатили — разбойник наливал
+-- себе ресурс заявками, ничего за них не отдавая.
+--
+-- Значит форсированный исход и присланный Ведущим бросок обязаны прийти
+-- «молча»: отнять два хода за одно действие — та же ошибка, только в
+-- другую сторону.
+SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = 1,
+    index = 1, slots = { { stub.world.playerName } }, acted = {} })
+ResetEffects()
+SB.ActiveEffects.Add("t_pain", 3, false)
+stub.world.time = stub.world.time + 10
+SB.Logic.ExecuteForcedOutcome("t_strike", 1, 1)
+check("форсированный исход хода не тратит", UsesOf("t_pain"), 3)
+
+ResetEffects()
+SB.ActiveEffects.Add("t_pain", 3, false)
+stub.world.time = stub.world.time + 10
+SB.Logic.ProcessRollAndCast("t_strike", 10, 1, false, true)
+check("и присланный бросок — тоже", UsesOf("t_pain"), 3)
+
+-- А тот же бросок БЕЗ пометки (локальный каст, заявки не было) тикает
+-- как прежде: признак несёт вызывающий, и путать эти два случая нельзя.
+ResetEffects()
+SB.ActiveEffects.Add("t_pain", 3, false)
+stub.world.time = stub.world.time + 10
+SB.Logic.ProcessRollAndCast("t_strike", 10, 1, false)
+check("локальный бросок тикает как прежде", UsesOf("t_pain"), 2)
 
 -- В СВОБОДНОМ ХОДУ действие не тикает ничего: там время идёт само, и
 -- второй отсчёт означал бы, что активный игрок теряет эффекты вдвое
@@ -1311,9 +1346,16 @@ do
         -- ОПОРА — ВЫЗОВ ApplyOwnContainer, а не голое наложение эффекта:
         -- контейнер вешается теперь одной общей функцией на все пути
         -- (см. SB.Logic.ApplyOwnContainer), и «где вешается контейнер»
-        -- читается по её вызовам. Берём именно присваивание: объявление
-        -- самой функции выглядит так же и завысило бы счёт на единицу.
-        local _, containers = src:gsub("= SB%.Logic%.ApplyOwnContainer%(spell", "")
+        -- читается по её вызовам.
+        --
+        -- СЧИТАЕМ ВЫЗОВ, А НЕ ПРИСВАИВАНИЕ. Форсированный исход зовёт её
+        -- без присваивания: возвращённое значение брали, чтобы отдать в
+        -- TurnSkipFor, а хода там больше нет — заявка потратила его
+        -- раньше. Объявление самой функции выглядит так же, поэтому его
+        -- вычитаем — тем же приёмом, что и у GrantCreatedItems ниже.
+        local _, containers = src:gsub("SB%.Logic%.ApplyOwnContainer%(spell", "")
+        local _, ownDefs    = src:gsub("function SB%.Logic%.ApplyOwnContainer", "")
+        containers = containers - ownDefs
         local _, mentions   = src:gsub("GrantCreatedItems%(spell%)", "")
         local _, defs       = src:gsub("function SB%.Logic%.GrantCreatedItems", "")
         -- Объявление функции выглядит так же, как вызов, — вычитаем его,
@@ -13668,25 +13710,32 @@ do
         if body:find("ApplyEffect(spell.container", 1, true) then
             direct[#direct + 1] = path
         end
-        -- Присваивание, а не просто имя: объявление самой функции
-        -- выглядит так же и посчиталось бы шестым «путём».
-        for _ in body:gmatch("= SB%.Logic%.ApplyOwnContainer%(spell") do
+        -- Вызов, а не присваивание: форсированный исход зовёт её «в
+        -- пустоту» — возвращённое значение шло в TurnSkipFor, а хода
+        -- там больше нет. Объявление функции вычитаем отдельно.
+        for _ in body:gmatch("SB%.Logic%.ApplyOwnContainer%(spell") do
             callers = callers + 1
+        end
+        for _ in body:gmatch("function SB%.Logic%.ApplyOwnContainer") do
+            callers = callers - 1
         end
     end
     check("мимо общей функции контейнер не вешают",
           table.concat(direct, ", "), "")
     check("а через неё — все пять путей резолва", callers, 5)
 
-    -- И каждый из них отдаёт наложенное ходу: «что легло» и «что не
-    -- тикать» приходят из одного значения и разойтись не могут.
+    -- И каждый, кто ТРАТИТ ХОД, отдаёт наложенное ходу: «что легло» и
+    -- «что не тикать» приходят из одного значения и разойтись не могут.
+    --
+    -- Таких четверо, а не пятеро: форсированный исход хода не тратит
+    -- вовсе — его потратила заявка, ответом на которую он и пришёл.
     local skipCalls = 0
     for _, path in ipairs(FILES) do
         for _ in ReadFile(path):gmatch("TurnSkipFor%(spell, spellID, ownContainer%)") do
             skipCalls = skipCalls + 1
         end
     end
-    check("и все пять говорят о наложенном ходу", skipCalls, 5)
+    check("и тратящие ход говорят о наложенном", skipCalls, 4)
 
     -- ── СКОЛЬКО ЗАКЛИНАНИЙ ЭТО ЛЕЧИТ ───────────────────────
     --

@@ -247,7 +247,7 @@ end
 local function ParseRES(sender, t)
     if not IsFromLeader(sender) then return end
     if t.target == UnitName("player") then
-        SB.Logic.ProcessRollAndCast(t.spellID, t.dc, t.slotLevel, t.scale == true)
+        SB.Logic.ProcessRollAndCast(t.spellID, t.dc, t.slotLevel, t.scale == true, true)
     end
 end
 
@@ -1387,7 +1387,7 @@ end
 --- Отправить решение ГМа игроку.
 function SB.Net.SendGMApproval(targetPlayer, spellID, dc, slotLevel, scaleDamage)
     if not IsInGroup() or targetPlayer == UnitName("player") then
-        SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, scaleDamage == "SCALE")
+        SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, scaleDamage == "SCALE", true)
         return
     end
     SendToPlayer({
