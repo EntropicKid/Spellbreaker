@@ -2326,13 +2326,50 @@ do
     for itemID, def in pairs(M) do
         checkTrue("у предмета " .. itemID .. " есть ранг", def.rank ~= nil)
         checkTrue("и класс",                              def.class ~= nil)
-        if def.class ~= SB.Data.ALL_CLASSES and not known[def.class] then
-            bad[#bad + 1] = tostring(def.class)
+        -- КЛАСС МОЖЕТ БЫТЬ СПИСКОМ: один предмет открывает две школы
+        -- (см. PM.ItemFitsClass). Проверяем каждое имя в нём — опечатка
+        -- внутри списка молчит ровно так же, как одиночная.
+        if def.class ~= SB.Data.ALL_CLASSES then
+            local list = (type(def.class) == "table") and def.class or { def.class }
+            checkTrue("список классов предмета " .. itemID .. " не пуст", #list > 0)
+            for _, cn in ipairs(list) do
+                if not known[cn] then bad[#bad + 1] = tostring(cn) end
+            end
         end
         checkTrue("ранг предмета " .. itemID .. " известен системе",
                   SB.Data.MasteryIndex(def.rank) ~= nil)
     end
     check("все классы в таблице предметов существуют", #bad, 0)
+
+    -- ── ОДИН ПРЕДМЕТ — ДВЕ ШКОЛЫ ───────────────────────────
+    --
+    -- Друидских жетонов на сервере нет, и друид повешен на шаманские id
+    -- списком. Раньше это пытались выразить второй строкой с тем же
+    -- ключом, и Lua молча оставляла одну: шаман переставал открываться
+    -- вовсе (см. врезку у MasteryItems).
+    do
+        local PM = SB.PlayerModel
+        local pair = { class = { "Шаман", "Друид" }, rank = "Неофит" }
+        checkTrue("список открывает первый класс",
+                  PM.ItemFitsClass(pair, "Шаман", false))
+        checkTrue("и второй тоже",
+                  PM.ItemFitsClass(pair, "Друид", false))
+        checkTrue("а посторонний — нет",
+                  not PM.ItemFitsClass(pair, "Жрец", false))
+
+        -- Одиночное имя работает как работало.
+        checkTrue("одиночный класс на месте",
+                  PM.ItemFitsClass({ class = "Жрец" }, "Жрец", false))
+        checkTrue("и чужому не отдаётся",
+                  not PM.ItemFitsClass({ class = "Жрец" }, "Маг", false))
+
+        -- Мастер-предмет по-прежнему зависит от реалма, а не от списка.
+        local master = { class = SB.Data.ALL_CLASSES, rank = "Неофит" }
+        checkTrue("мастер-предмет даёт всё, где он есть",
+                  PM.ItemFitsClass(master, "Маг", true))
+        checkTrue("и не даёт ничего, где его нет",
+                  not PM.ItemFitsClass(master, "Маг", false))
+    end
 
     -- Пять школ на каждом из трёх нижних рангов плюс мастер-предмет.
     for _, rank in ipairs({ "Неофит", "Адепт", "Эксперт" }) do
@@ -2357,10 +2394,13 @@ do
     -- — без единого слова о том, что дело в переименовании, а не в
     -- механике. Имя школы здесь не проверяется вовсе; нужна ЛЮБАЯ
     -- чужая, у которой есть вещи всех трёх рангов.
+    -- ТОЛЬКО ОДИНОЧНЫЙ КЛАСС: у предмета их может быть список (жетон
+    -- шамана открывает и друида), а здесь нужна ровно одна школа с
+    -- полным набором рангов — иначе «чужая школа» окажется двумя.
     local OTHER
     for _, def in pairs(M) do
-        if def.class ~= SB.Data.ALL_CLASSES and def.class ~= "Жрец"
-           and def.class ~= "Паладин"
+        if type(def.class) == "string" and def.class ~= SB.Data.ALL_CLASSES
+           and def.class ~= "Жрец" and def.class ~= "Паладин"
            and ItemOf(def.class, "Неофит") and ItemOf(def.class, "Эксперт") then
             OTHER = def.class
         end
@@ -2753,9 +2793,11 @@ do
 
     -- Та же беда, что выше: школа названа поимённо и однажды исчезла из
     -- таблицы. Берём любую с полным набором рангов.
+    -- Тоже одиночный: см. врезку у OTHER выше.
     local OTHER2
     for _, def in pairs(SB.Data.Config.MasteryItems) do
-        if def.class ~= SB.Data.ALL_CLASSES and def.class ~= "Жрец" then
+        if type(def.class) == "string" and def.class ~= SB.Data.ALL_CLASSES
+           and def.class ~= "Жрец" then
             OTHER2 = def.class
         end
     end
@@ -2764,6 +2806,7 @@ do
         if def.class == OTHER2 and def.rank == "Неофит"  then shamanNeo = itemID end
         if def.class == OTHER2 and def.rank == "Эксперт" then shamanExp = itemID end
     end
+    checkTrue("школа для проверки нашлась", shamanNeo ~= nil and shamanExp ~= nil)
 
     -- ── ВЕЩЬ ОТКРЫЛА ШКОЛУ ─────────────────────────────────
     -- Ранг героя при этом НЕ меняется: жрец как был неофитом в своём,
@@ -15738,13 +15781,20 @@ do
     -- И КАЖДЫЙ КАСТЕРСКИЙ КЛАСС ЛИБО ИМЕЕТ ЖЕТОНЫ, ЛИБО ЗНАЕТ, ЧТО НЕ
     -- ИМЕЕТ. Молчаливое отсутствие — ровно то, чем обернулась подмена:
     -- шаман пропал из таблицы, и никто этого не заметил.
-    local BEZ_ZHETONOV = { ["Друид"] = true, ["Монах"] = true }
+    local BEZ_ZHETONOV = { ["Монах"] = true }
     local missing = {}
     for _, cn in ipairs(SB.Data.Classes) do
         if not SB.Data.NonCasterClasses[cn] and not BEZ_ZHETONOV[cn] then
+            -- ЧЕРЕЗ ОБЩЕЕ ПРАВИЛО, а не сравнением: класс у предмета
+            -- может быть списком, и прямое равенство объявило бы шамана
+            -- с друидом классами без жетонов. Ровно на этом проверка и
+            -- поймала меня саму.
             local has = false
             for _, def in pairs(SB.Data.Config.MasteryItems or {}) do
-                if type(def) == "table" and def.class == cn then has = true end
+                if type(def) == "table"
+                   and SB.PlayerModel.ItemFitsClass(def, cn, false) then
+                    has = true
+                end
             end
             if not has then missing[#missing + 1] = cn end
         end

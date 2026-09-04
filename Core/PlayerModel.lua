@@ -100,13 +100,43 @@ end
 --- (см. SB.Data.IsClassHiddenForPlayer). Спросить там полный
 --- GetClassRank нельзя — он сам заглядывает в скрытость, и вышел бы
 --- круг.
+--- ПОДХОДИТ ЛИ ПРЕДМЕТ ЭТОМУ КЛАССУ — одно правило на все места.
+---
+--- Правило повторялось дословно трижды, и добавить в него что угодно
+--- значило бы однажды забыть одну из копий. Здесь оно одно.
+---
+--- КЛАСС МОЖЕТ БЫТЬ СПИСКОМ. На сервере один предмет иногда закреплён
+--- сразу за двумя школами: жетон шамана открывает и друида, потому что
+--- отдельных друидских предметов там не завели. Раньше это пытались
+--- выразить ДВУМЯ строками с одним и тем же id — и в конструкторе
+--- таблицы Lua вторая молча затирала первую, отчего шаман переставал
+--- существовать вовсе. Список говорит то же самое и не теряет ничего.
+---
+--- @param def table  запись из Config.MasteryItems
+--- @param className string
+--- @param allowMaster boolean  признаются ли мастер-предметы на реалме
+--- @return boolean
+function PM.ItemFitsClass(def, className, allowMaster)
+    local c = def and def.class
+    if c == nil then return false end
+    -- Мастер-предмет («*») даёт все школы разом, но только там, где он
+    -- вообще существует (см. врезку у MasteryItems).
+    if c == SB.Data.ALL_CLASSES then return allowMaster == true end
+    if type(c) == "table" then
+        for _, one in ipairs(c) do
+            if one == className then return true end
+        end
+        return false
+    end
+    return c == className
+end
+
 function PM.HasClassItem(className)
     if not className or className == "" then return false end
     local allowMaster = SB.Data.IsSanctuaryRealm and SB.Data.IsSanctuaryRealm()
     for itemID, def in pairs(SB.Data.Config.MasteryItems or {}) do
         if type(def) == "table" then
-            local fits = (def.class == className)
-                or (def.class == SB.Data.ALL_CLASSES and allowMaster)
+            local fits = PM.ItemFitsClass(def, className, allowMaster)
             if fits and (GetItemCount(itemID, false) or 0) > 0 then return true end
         end
     end
@@ -167,8 +197,7 @@ function PM.GetClassRank(className)
     local allowMaster = SB.Data.IsSanctuaryRealm and SB.Data.IsSanctuaryRealm()
     for itemID, def in pairs(SB.Data.Config.MasteryItems or {}) do
         if type(def) == "table" and def.rank then
-            local fits = (def.class == className)
-                or (def.class == SB.Data.ALL_CLASSES and allowMaster)
+            local fits = PM.ItemFitsClass(def, className, allowMaster)
             if fits and (GetItemCount(itemID, false) or 0) > 0 then
                 Take(def.rank)
             end
