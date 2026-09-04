@@ -2,7 +2,7 @@
 ## Title: |cff865BF2Spellbreaker|r
 ## Notes: Модульная RP-система заклинаний
 ## Notes-enUS: Modular RP spell system for World of Warcraft: Aviana RP
-## Version: 3.1
+## Version: 3.1.1
 ## Author: Spellbreaker contributors
 ## X-License: MIT
 ## SavedVariables: SpellbreakerDB SpellbreakerCustomDB SpellbreakerNPCDB
