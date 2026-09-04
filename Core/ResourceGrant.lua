@@ -208,21 +208,34 @@ local INPUT_W   = 46
 local FONT_ROW  = "SBFontHighlight"
 local BTN       = 18
 
--- Потолок одной выдачи. Не «сколько бывает здоровья», а предохранитель
--- от опечатки: лишний ноль в «-100» превращает правку в убийство, и
--- заметить это можно только по логу постфактум.
-local GRANT_MAX = 99
-
---- Читает дельту из поля, зажимая её в ±GRANT_MAX.
---- @return number  0, если в поле мусор или пусто
 --- Прочитать ИТОГ из поля. nil — поле пустое или в нём не число.
 --- Минус не принимаем вовсе: отрицательного здоровья не бывает, а
 --- «-3» в поле итога читалось бы как прибавка, то есть ровно как то,
 --- от чего уходим.
-local function ReadTarget(eb)
+---
+--- ПОТОЛОК — СОБСТВЕННЫЙ МАКСИМУМ ЦЕЛИ, А НЕ ЧИСЛО 99.
+---
+--- Здесь стояла константа в девяносто девять, с подписью «предохранитель от опечатки:
+--- лишний ноль в „-100“ превращает правку в убийство». Подпись была
+--- верна для ДЕЛЬТЫ — поле тогда принимало прибавку. Поле давно
+--- принимает ИТОГ, а зажим за ним не поехал, и предохранитель стал
+--- потолком самого значения: существу со 150 ХП нельзя было выставить
+--- больше 99 ничем, кроме переспавна.
+---
+--- От опечатки теперь бережёт то же самое, что и от неё же в бою:
+--- собственный максимум цели. Выше него здоровья не бывает, и лишний
+--- ноль упирается в него, а не проходит.
+---
+--- ПОТОЛОК НЕ ИЗВЕСТЕН — НЕ ЗАЖИМАЕМ. Панель может открыться на цели, о
+--- которой ещё не пришло состояние; выдумывать ей границу здесь нельзя,
+--- а зажать всё равно есть кому — и SB.NPC.AdjustHealth, и приём гранта
+--- держат значение в своих пределах сами.
+--- @param cap number|nil  максимум этой цели
+local function ReadTarget(eb, cap)
     local v = tonumber((eb:GetText() or ""):match("^%s*(%d+)%s*$"))
     if not v then return nil end
-    if v > GRANT_MAX then return GRANT_MAX end
+    cap = tonumber(cap)
+    if cap and v > cap then return cap end
     return v
 end
 
@@ -243,8 +256,11 @@ local function MeasureLabelWidth(parent, texts)
 end
 
 --- Строка «подпись | [поле] | было/станет».
---- @param onChange function(delta)  зовётся на каждое изменение текста
-local function MakeInputRow(parent, yOffset, labelText, onChange)
+--- @param onChange function(value)  зовётся на каждое изменение текста
+--- @param capFn function|nil  вернёт максимум цели на момент ввода;
+---        функцией, а не числом: строки строятся один раз, а цель у
+---        панели меняется с каждым открытием.
+local function MakeInputRow(parent, yOffset, labelText, onChange, capFn)
     local C   = SB.Theme.C
     local row = {}
 
@@ -267,11 +283,13 @@ local function MakeInputRow(parent, yOffset, labelText, onChange)
     local wrap, eb = SB.Theme.Input(parent, nil, INPUT_W, ROW_H)
     wrap:SetPoint("LEFT", row.label, "RIGHT", 6, 0)
     eb:SetJustifyH("CENTER")
-    -- Ограничение на длину — вместе с зажимом в ReadDelta: одно не
-    -- заменяет другое, потому что «-999» короче четырёх знаков только
-    -- на вид (минус тоже символ).
+    -- Четыре знака: столько же, сколько влезает в самый крупный
+    -- разумный максимум рейдового босса. Верхнюю границу держит не
+    -- длина поля, а собственный максимум цели (см. ReadTarget).
     eb:SetMaxLetters(4)
-    eb:SetScript("OnTextChanged", function(self) onChange(ReadTarget(self)) end)
+    eb:SetScript("OnTextChanged", function(self)
+        onChange(ReadTarget(self, capFn and capFn()))
+    end)
     -- Enter в поле — это «я закончил», а не «выдать»: подтверждение
     -- одно на всё окно, и делать вторую точку подтверждения в каждом
     -- поле значит выдавать половину задуманного по ошибке.
@@ -733,13 +751,15 @@ local function BuildFrame()
 
     -- Здоровье идёт ПЕРВЫМ (выше ресурса) для удобства восприятия.
     healthRow = MakeInputRow(grantFrame, y - 10, "Здоровье",
-        function(v) targets.health = v; RefreshDisplay() end)
+        function(v) targets.health = v; RefreshDisplay() end,
+        function() return currentTarget and currentTarget.maxHealth end)
 
     -- Текст подписи перезаписывается в ShowFor под ресурс конкретного
     -- игрока (Мана у кастеров, Ярость/Энергия/Фокус/... у некастеров) —
     -- здесь только дефолт до первого показа панели.
     zealRow = MakeInputRow(grantFrame, y - ROW_H - 14, "Мана",
-        function(v) targets.zeal = v; RefreshDisplay() end)
+        function(v) targets.zeal = v; RefreshDisplay() end,
+        function() return currentTarget and currentTarget.maxZeal end)
 
     -- ── ЭФФЕКТ ───────────────────────────────────────────────
     -- Отдельным блоком под ресурсами и со своей кнопкой: ресурсы
