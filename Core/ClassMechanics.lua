@@ -58,22 +58,7 @@ local MECHANICS = {
     -- размен «пропусти удар — ударь злее» выгоден по цифрам. Заодно это
     -- даёт ему то, чего у него не было вовсе, — причину лезть под удар,
     -- а не ждать своей очереди бить.
-    -- ДВА ИСТОЧНИКА, А НЕ ОДИН.
-    --
-    -- Ярость копилась ТОЛЬКО с полученного урона, и это оставляло класс
-    -- без ресурса ровно тогда, когда существо било не в него: воин
-    -- стоял и ждал, пока его заметят. Ведущие сообщали это как «вары
-    -- нищие», и цифры сходятся — у Рыцаря смерти руна заряжается
-    -- ПОПАДАНИЕМ, то есть его ресурс зависит от него самого.
-    --
-    -- Полученный урон остаётся ГЛАВНЫМ (по единице за очко здоровья) —
-    -- размен «пропусти удар, ударь злее» и есть лицо класса. Со своего
-    -- удара капает единица: этого мало, чтобы заменить первый источник,
-    -- и достаточно, чтобы воин не простаивал.
-    ["Воин"]               = {
-        { trigger = "healthLost", gain = "perPoint" },
-        { trigger = "damage",     gain = 1, announce = "ярость боя" },
-    },
+    ["Воин"]               = { trigger = "healthLost", gain = "perPoint" },
     -- ОХОТНИК КОПИТ ФОКУС ВРЕМЕНЕМ, А НЕ ДЕЙСТВИЯМИ.
     --
     -- Было: +1 после ЛЮБОГО применения способности, независимо от исхода.
@@ -224,36 +209,14 @@ local function IsOwnSchool(spellID)
     return PM ~= nil and spell.class ~= nil and spell.class == PM.GetClass()
 end
 
---- ПРАВИЛА КЛАССА СПИСКОМ — их может быть больше одного.
----
---- Запись класса — либо одно правило (как было у всех), либо массив
---- правил. Понадобилось это Воину: его Ярость копилась ТОЛЬКО с
---- полученного урона, то есть класс простаивал без ресурса ровно тогда,
---- когда существо било не в него. Второй источник в старую запись не
---- влезал вовсе — поле trigger одно.
----
---- РАЗЛИЧАЕМ ПО ПЕРВОМУ ЭЛЕМЕНТУ, а не по наличию trigger: правило без
---- триггера — это ошибка данных, и молча принимать её за список значило
---- бы её спрятать.
---- @return table  список правил (возможно пустой)
-local function RulesFor(className)
-    local def = DefFor(className)
-    if not def then return {} end
-    if def[1] ~= nil then return def end
-    return { def }
-end
-SB.ClassMechanics.RulesFor = RulesFor
-
 --- Общий вход: сработал триггер trigger с величиной magnitude.
---- Ничего не делает, если у класса игрока нет правила на этот триггер.
+--- Ничего не делает, если у класса игрока другой триггер.
 --- @param spellID string|nil  чем вызван (нужен для ownSchoolOnly)
 local function FireTrigger(trigger, magnitude, spellID)
-    for _, rule in ipairs(RulesFor()) do
-        if rule.trigger == trigger
-           and not (rule.ownSchoolOnly and not IsOwnSchool(spellID)) then
-            ApplyGain(ResolveGain(rule.gain, magnitude), rule.announce)
-        end
-    end
+    local def = DefFor()
+    if not def or def.trigger ~= trigger then return end
+    if def.ownSchoolOnly and not IsOwnSchool(spellID) then return end
+    ApplyGain(ResolveGain(def.gain, magnitude), def.announce)
 end
 
 -- ============================================================
@@ -318,23 +281,14 @@ end)
 local turnTicks = 0
 
 SB.Events.On(SB.E.TURN_TICK, function()
-    -- СЧЁТЧИК ОБЩИЙ НА ВСЕ ПОВРЕМЕННЫЕ ПРАВИЛА КЛАССА: он считает ходы,
-    -- а не срабатывания, и второй счётчик рядом означал бы два
-    -- расходящихся отсчёта одного и того же (см. врезку о «Лидерстве»
-    -- ниже — там ровно эта же причина).
-    local timed = {}
-    for _, rule in ipairs(SB.ClassMechanics.RulesFor()) do
-        if rule.trigger == "turnTick" then timed[#timed + 1] = rule end
-    end
-    if #timed == 0 then return end
+    local def = DefFor()
+    if not def or def.trigger ~= "turnTick" then return end
 
     turnTicks = turnTicks + 1
-    for _, rule in ipairs(timed) do
-        local every = SB.ClassMechanics.TurnPeriod(rule)
-        if every <= 1 or (turnTicks % every) == 0 then
-            ApplyGain(ResolveGain(rule.gain), rule.announce)
-        end
-    end
+    local every = SB.ClassMechanics.TurnPeriod(def)
+    if every > 1 and (turnTicks % every) ~= 0 then return end
+
+    ApplyGain(ResolveGain(def.gain), def.announce)
 end)
 
 -- ============================================================
