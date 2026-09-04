@@ -515,7 +515,7 @@ AddEffect({
     name = "Всё как на ладони",
     icon = "Interface\\Icons\\Spell_fire_flare",
     description = "Место залито ровным белым светом. Прятаться тут больше негде — ни врагу, ни самому охотнику.",
-    effect = { kind = "debuff", stats = { ["Скрытность"] = -20 }, mods = { defense = -10 } },
+    effect = { kind = "debuff", stats = { ["Скрытность"] = -8 }, mods = { defense = -10 } },
 })
 
 AddEffect({
@@ -607,15 +607,17 @@ AddEffect({
     name = "Аура защиты от тьмы",
     icon = "Interface\\Icons\\Spell_shadow_sealofkings",
     description = "Свет держит вокруг тонкую преграду. Тёмное касание слабеет, не дойдя до тела.",
-    -- resistShadow ПРИБАВЛЕН к тому, что было, а не поставлен вместо.
-    -- Прежние defense и «Воля» были приближением сопротивления теми
-    -- каналами, что существовали: канала резиста в аддоне не было вовсе.
-    -- Теперь он есть, и аура наконец делает то, что написано у неё в
-    -- описании («30 единиц сопротивления Тьме»), — но выкидывать ради
-    -- этого её прежний расчёт значило бы переписать баланс способности
-    -- заодно с механикой.
+    -- «30 ЕДИНИЦ СОПРОТИВЛЕНИЯ ТЬМЕ» — это resistShadow, и больше
+    -- ничего. Прежняя «Воля» была приближением того же самого теми
+    -- каналами, что существовали в 3.0: канала резиста в аддоне тогда не
+    -- было вовсе. Теперь он есть, и держать рядом оба выражения одного
+    -- обещания незачем — они всё равно разойдутся.
+    --
+    -- defense ОСТАЁТСЯ: это не приближение резиста, а вторая половина
+    -- описания — «невидимая преграда», под которой в тебя попросту
+    -- труднее попасть.
     effect = { kind = "buff", family = "Аура паладина", school = "magic",
-               mods = { defense = 10, resistShadow = 1 }, stats = { ["Воля"] = 4 } },
+               mods = { defense = 10, resistShadow = 1 } },
 })
 
 AddEffect({
@@ -777,7 +779,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_holy_harmundeadaura",
     description = "Свет очертил вокруг цели границу, через которую нечистое проходит с трудом.",
     -- То же заклинание у Жреца, и держится оно вдвое короче — два хода.
-    effect = { kind = "buff", mods = { resistShadow = 2 }, school = "magic", stats = { ["Воля"] = 15 } },
+    effect = { kind = "buff", mods = { resistShadow = 2 }, school = "magic", stats = { ["Воля"] = 2 } },
 })
 
 AddEffect({
@@ -834,7 +836,7 @@ AddEffect({
     name = "Внутреннее зрение",
     icon = "Interface\\Icons\\Spell_holy_mindvision",
     description = "Жрец смотрит чужими глазами. Своими в это время он не видит почти ничего.",
-    effect = { kind = "buff", school = "magic", mods = { defense = -5, movePct = -30 }, stats = { ["Акробатика"] = -3, ["Внушение"] = 10 }, breakOn = { damaged = true } },
+    effect = { kind = "buff", school = "magic", mods = { defense = -5, movePct = -30 }, stats = { ["Акробатика"] = -3, ["Внушение"] = 4 }, breakOn = { damaged = true } },
 })
 
 AddEffect({
@@ -855,8 +857,7 @@ AddEffect({
     -- на одного (см. лестницу в Core/DamageTypes.lua); групповая «Молитва
     -- от тёмных сил» ниже даёт единицу, как и положено тому, что
     -- накрывает всю паству.
-    effect = { kind = "buff", school = "magic", mods = { resistShadow = 2 },
-               stats = { ["Воля"] = 10 } },
+    effect = { kind = "buff", school = "magic", mods = { resistShadow = 2 } },
 })
 
 AddEffect({
@@ -893,8 +894,7 @@ AddEffect({
     description = "Тёмный голод отступил и обходит цель стороной.",
     -- «Ограждая жреца И ЕГО ПАСТВУ» — то же, что «Защита от тёмной
     -- магии», но на группу, поэтому единица, а не двойка.
-    effect = { kind = "buff", school = "magic", mods = { resistShadow = 1 },
-               stats = { ["Воля"] = 15 } },
+    effect = { kind = "buff", school = "magic", mods = { resistShadow = 1 } },
 })
 
 AddEffect({
@@ -2055,7 +2055,6 @@ AddEffect({
     effect = {
         kind  = "buff",
         mods  = { armor = 10, defense = 10, resistMagic = 2 },
-        stats = { ["Воля"] = 25 },
         -- «ЛЕТЯЩИЕ ЧАРЫ СКОЛЬЗЯТ ПО ЭТОЙ ПЛОТНОСТИ И УХОДЯТ В СТОРОНУ,
         -- НЕ НАХОДЯ, ЗА ЧТО ЗАЦЕПИТЬСЯ». Не сопротивление, а именно
         -- «не за что зацепиться»: чары не ослабевают, они не пристают.
@@ -2989,7 +2988,6 @@ AddEffect({
     effect = {
         kind  = "buff",
         mods = { movePct = -100 , defense = 300 },
-		stats = { ["Воля"] = 40 },
 		breakOn = { damaged = true, dealt = true },
     },
 })
@@ -3995,7 +3993,6 @@ AddEffect({
     effect = {
         kind  = "buff",
         mods  = { armor = 10 },
-        stats = { ["Воля"] = 15 },
         -- «НЕ ЧТОБЫ ПОГЛОТИТЬ ЕГО, А ЧТОБЫ СБРОСИТЬ ОБРАТНО» — поэтому
         -- возмездие, а не подавление: заклинание доходит до воина
         -- полностью и уходит назад тем же весом.
