@@ -498,7 +498,8 @@ Add({
     resistable = true,
     canCrit = true,
     isConcentration = true,
-    distance = 5.5,
+	-- Поток на два продолжения — см. врезку у «Вихря клинков».
+	channel = 2,    distance = 5.5,
     aoe = { radius = 4.5 },
     scaling = {
     	hit    = { ["Акробатика"] = 1, ["Концентрация"] = 0.5 },

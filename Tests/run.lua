@@ -6769,7 +6769,7 @@ do
         checkTrue("и красит её в цвет школы",
                   pain:find(SB.Data.DamageTypes.shadow.color, 1, true) ~= nil)
 
-        local bleed = card("eff_bleeding")
+        local bleed = card("eff_bleeding_garrote")
         checkTrue("у кровотечения урон физический",
                   bleed:find("Физический", 1, true) ~= nil)
 
@@ -13262,7 +13262,7 @@ do
         ["Демон"]     = { "eff_summon_imp", "eff_summon_voidwalker",
                           "eff_summon_felhunter", "eff_summon_sayaada",
                           "eff_summon_felmaunt" },
-        ["Чары оружия"] = { "eff_weapon_enchant", "eff_weapon_enchant_stone_crust",
+        ["Чары оружия"] = { "eff_weapon_enchant_stone_crust",
                             "eff_weapon_enchant_lightning_brand", "eff_weapon_enchant_ice_fringe",
                             "eff_weapon_enchant_flame_weapon", "eff_weapon_enchant_druid_club",
                             "eff_weapon_enchant_mighty_fangs" },
@@ -15533,32 +15533,24 @@ end
 -- «Слабость», на которую и ссылалось заклинание. Правка ушла бы не в
 -- тот, и заклинание не изменилось бы вовсе.
 --
--- СПИСОК ПРИБИТ, А НЕ ПОСЧИТАН. «Не больше двадцати шести» протухло бы
--- в тот же день: удалили один, завели другой — счёт сошёлся, подмены
--- никто не увидел. Поимённо же новая сирота видна сразу, а осознанно
--- заведённая заготовка дописывается сюда одной строкой.
+-- ВСЕ ДВАДЦАТЬ ШЕСТЬ НАКОПИВШИХСЯ УДАЛЕНЫ, и список ниже пуст: любая
+-- сирота теперь новая. Комментарии потомков при этом переписаны с
+-- «отщеплён от «eff_weakness»» на «из гнезда eff_weakness_*» — родителя
+-- больше нет, а соглашение об именах осталось, и по приставке гнездо
+-- ищется ровно так же.
+--
+-- ПОИМЁННО, А НЕ СЧЁТОМ: «не больше N» протухло бы в тот же день —
+-- удалили один, завели другой, счёт сошёлся, подмены никто не увидел.
 -- ============================================================
 do
-    -- Отщеплённые родители: потомки живы, сам он ждёт своей очереди.
-    local KNOWN_PARENTS = {
-        "eff_armor_magic", "eff_battle_shout", "eff_bleeding", "eff_bloodlust",
-        "eff_cat_grace", "eff_concentration", "eff_demoralized", "eff_evasion",
-        "eff_fear", "eff_giant_strength", "eff_mercy_blessing", "eff_owl_wisdom",
-        "eff_shield", "eff_slowed", "eff_stone_skin", "eff_vulnerable",
-        "eff_weakness", "eff_weapon_enchant",
-    }
-    -- Мёртвые совсем: ни ссылок, ни потомков. Держатся здесь, чтобы их
-    -- удаление было отдельным осознанным решением, а не побочным
-    -- следствием чужой правки.
-    local KNOWN_DEAD = {
-        "eff_blinded_blind", "eff_burning_pain", "eff_crusaderaura",
-        "eff_fire_cape_burn", "eff_garrote", "eff_justice_of_justice",
-        "eff_mana_burn_manaburn", "eff_stealth_stealth",
-    }
+    -- ПУСТО, И ЭТО НЕ ЗАГЛУШКА. Двадцать шесть накопившихся сирот
+    -- удалены разом: восемнадцать заготовок с живыми потомками и восемь
+    -- мёртвых совсем. Список остаётся здесь как дверь — осознанно
+    -- заведённая заготовка дописывается сюда одной строкой, и тогда
+    -- видно, что её оставили нарочно.
+    local KNOWN_ORPHANS = {}
     local known = {}
-    for _, list in ipairs({ KNOWN_PARENTS, KNOWN_DEAD }) do
-        for _, id in ipairs(list) do known[id] = true end
-    end
+    for _, id in ipairs(KNOWN_ORPHANS) do known[id] = true end
 
     -- ССЫЛАТЬСЯ МОЖНО СЕМЬЮ СПОСОБАМИ, и все семь считаются: четыре поля
     -- заклинания (включая держатель потока) и три стороны срабатывания.
@@ -15588,14 +15580,14 @@ do
     end
     -- И ОБРАТНО: сирота, на которую снова сослались, из списка обязана
     -- уйти — иначе он превращается в свалку имён без смысла.
-    for _, id in ipairs(KNOWN_DEAD) do
+    for _, id in ipairs(KNOWN_ORPHANS) do
         if used[id] then revived[#revived + 1] = id end
     end
 
     table.sort(fresh)
     check("новых эффектов-сирот", #fresh, 0)
     for _, one in ipairs(fresh) do print("          " .. one) end
-    check("мёртвых, на которые снова ссылаются", #revived, 0)
+    check("записанных в сироты, на которые снова ссылаются", #revived, 0)
     for _, one in ipairs(revived) do print("          " .. one) end
 end
 

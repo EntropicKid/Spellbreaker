@@ -172,43 +172,6 @@ end
 -- ── ЗАЩИТНЫЕ БАФФЫ ───────────────────────────────────────────
 
 AddEffect({
-    id   = "eff_armor_magic",
-    name = "Магический доспех",
-    icon = "Interface\\Icons\\Spell_frost_frostarmor02",
-    description = "Тело укрыто слоем затвердевшей магии: удары теряют часть силы, но чары стесняют движения.",
-    -- ОБРАЗЕЦ ШКОЛЫ НА БАФФЕ. Доспех целиком состоит из чар, значит
-    -- «Рассеивание магии» его снимает — как и любые другие наведённые
-    -- чары, на пользу они или во вред. Больше школа на баффе не значит
-    -- ничего: ни рамка, ни длительность, ни mods от неё не зависят
-    -- (см. врезку о школах в Core/Database.lua).
-    effect = { kind = "buff", school = "magic", mods = { armor = 10, attack = -4 } },
-})
-
-AddEffect({
-    id   = "eff_stone_skin",
-    name = "Каменная кожа",
-    icon = "Interface\\Icons\\Spell_nature_stoneskintotem",
-    description = "Плоть покрыта камнем. Держит удар заметно лучше живой, но двигаться в такой шкуре тяжело.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 20, attack = -8, defense = -4 } },
-})
-
-AddEffect({
-    id   = "eff_shield",
-    name = "Щит",
-    icon = "Interface\\Icons\\Spell_holy_powerwordshield",
-    description = "Мерцающая преграда отводит слабые удары и сбивает прицел стрелкам.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 10, defense = 12 } },
-})
-
-AddEffect({
-    id   = "eff_evasion",
-    name = "Уклонение",
-    icon = "Interface\\Icons\\Spell_shadow_shadowward",
-    description = "Тело движется раньше, чем разум успевает испугаться: удары проходят мимо.",
-    effect = { kind = "buff", mods = { defense = 25 } },
-})
-
-AddEffect({
     id   = "eff_devotion",
     name = "Благочестие",
     icon = "Interface\\Icons\\Spell_holy_devotionaura",
@@ -249,39 +212,11 @@ AddEffect({
 })
 
 AddEffect({
-    id   = "eff_battle_shout",
-    name = "Боевой клич",
-    icon = "Interface\\Icons\\Ability_warrior_battleshout",
-    description = "Крик выбивает из головы сомнения. Мышцы наливаются силой, рука перестаёт дрожать.",
-    effect = { kind = "buff", mods = { attack = 12, maxHealth = 1 } },
-})
-
-AddEffect({
     id   = "eff_blessing_might",
     name = "Благословение мощи",
     icon = "Interface\\Icons\\Spell_holy_fistofjustice",
     description = "Свет ведёт руку: удар ложится точнее и оставляет более глубокий след.",
     effect = { kind = "buff", school = "magic", mods = { attack = 5, damage = 1 } },
-})
-
-AddEffect({
-    id   = "eff_weapon_enchant",
-    name = "Зачарованное оружие",
-    icon = "Interface\\Icons\\Spell_fire_flametounge",
-    description = "Орудие обёрнуто стихией: к каждому удару добавляется то, от чего доспех не спасает.",
-    effect = { family = "Чары оружия", kind = "buff", school = "magic", mods = { damage = 1 } },
-})
-
-AddEffect({
-    id   = "eff_bloodlust",
-    name = "Кровавая жажда",
-    icon = "Interface\\Icons\\Spell_nature_bloodlust",
-    description = "Ярость предков вытесняет осторожность: бьёшь чаще и злее, но забываешь защищаться.",
-    effect = {
-        kind  = "buff",
-        mods  = { attack = 18, damage = 1, defense = -12 },
-        stats = { ["Запугивание"] = 2 },
-    },
 })
 
 AddEffect({
@@ -300,20 +235,6 @@ AddEffect({
 -- ── ПОДДЕРЖИВАЮЩИЕ БАФФЫ ─────────────────────────────────────
 
 AddEffect({
-    id   = "eff_mercy_blessing",
-    name = "Благодать",
-    icon = "Interface\\Icons\\Spell_holy_prayerofhealing",
-    description = "Раны затягиваются охотнее, чем должны: чужая забота ложится на них ровнее.",
-    effect = {
-        kind  = "buff",
-        school = "magic",
-        mods  = { heal = 1 },
-        stats = { ["Милосердие"] = 1 },
-        tick  = { heal = 1 },
-    },
-})
-
-AddEffect({
     id   = "eff_wisdom",
     name = "Мудрость",
     icon = "Interface\\Icons\\Spell_holy_sealofwisdom",
@@ -329,45 +250,7 @@ AddEffect({
     effect = { kind = "buff", school = "magic", mods = { maxHealth = 2 } },
 })
 
-AddEffect({
-    id   = "eff_concentration",
-    name = "Подготовка",
-    icon = "Interface\\Icons\\Ability_rogue_preparation",
-    description = "Шум, боль и суета вокруг перестают существовать. Есть только замысел и его исполнение.",
-    isConcentration = true,
-    effect = { kind = "buff", mods = { crit = 10, damage = 1 }, stats = { ["Ловкость"] = 3, ["Концентрация"] = 4 }, breakOn = { damaged = true } },
-})
-
 -- ── ДЕБАФФЫ ──────────────────────────────────────────────────
-
-AddEffect({
-    id   = "eff_weakness",
-    name = "Слабость",
-    icon = "Interface\\Icons\\Spell_shadow_curseofmannoroth",
-    description = "Доспех тяжелеет, оружие держится без уверенности. Удары выходят вялыми.",
-    effect = {
-        kind  = "debuff", resist = "Выносливость",
-        mods  = { attack = -12, damage = -1, movePct = -30 },
-        stats = { ["Мощь"] = -2, ["Атлетика"] = -1 },
-    },
-})
-
-AddEffect({
-    id   = "eff_demoralized",
-    name = "Деморализация",
-    icon = "Interface\\Icons\\Ability_warrior_warcry",
-    description = "Решимость сменилась сомнением. Рука делает то, что велено, но без веры в исход.",
-    effect = { kind = "debuff", resist = "Характер", mods = { attack = -8 } },
-})
-
-AddEffect({
-    id   = "eff_slowed",
-    name = "Замедление",
-    icon = "Interface\\Icons\\Spell_nature_slow",
-    description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
-    -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { family = "Замедление", kind = "debuff", resist = "Сила", mods = { defense = -8, attack = -3, movePct = -50 } },
-})
 
 AddEffect({
     id   = "eff_blinded",
@@ -383,27 +266,6 @@ AddEffect({
 })
 
 AddEffect({
-    id   = "eff_vulnerable",
-    name = "Уязвимость",
-    icon = "Interface\\Icons\\Spell_shadow_curseofachimonde",
-    description = "Защита разобрана изнутри: то, что раньше скользило по доспеху, теперь доходит до тела.",
-    effect = { kind = "debuff", mods = { armor = -20 } },
-})
-
-AddEffect({
-    id   = "eff_bleeding",
-    name = "Кровотечение",
-    damageType = "physical",
-    icon = "Interface\\Icons\\Ability_rogue_bloodyeye",
-    description = "Рана не закрывается. Сил становится меньше с каждым движением.",
-    effect = {
-        kind = "debuff", resist = "Выносливость", school = "bleed",
-        tick = { damage = 1 },
-		stats = { ["Мощь"] = -2 },
-    },
-})
-
-AddEffect({
     -- Канал маны, а не общий: у Воина выжигать нечего — ярость он копит
     -- битьём, а не черпает из запаса (см. врезку о пулах в
     -- Core/PlayerModel.lua). Раньше сожжение маны резало ему ярость.
@@ -414,14 +276,6 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_shadow_manaburn",
     description = "Внутренний источник обожжён. Черпать из него больно и почти нечего.",
     effect = { kind = "debuff", resist = "Выносливость", school = "magic", tick = { mana = -1, damage = 1 } },
-})
-
-AddEffect({
-    id   = "eff_fear",
-    name = "Ужас",
-    icon = "Interface\\Icons\\Spell_shadow_possession",
-    description = "Тело хочет бежать, а не драться. Разум занят чужими кошмарами.",
-    effect = { kind = "debuff", resist = "Дух", mods = { attack = -18, defense = -8 } },
 })
 
 AddEffect({
@@ -441,30 +295,6 @@ AddEffect({
 -- Здесь mods нет вовсе: вся сила эффекта в stats. Такой эффект
 -- «поднимает саму характеристику», а всё остальное — броски, проверки,
 -- скейлинг заклинаний, пассивки навыков — подтягивается само.
-
-AddEffect({
-    id   = "eff_giant_strength",
-    name = "Сила гиганта",
-    icon = "Interface\\Icons\\Spell_nature_strength",
-    description = "Мышцы наливаются чужой, слишком большой для этого тела мощью. Поднять получается то, что поднимать не следовало.",
-    effect = { kind = "buff", stats = { ["Сила"] = 1, ["Мощь"] = 2 } },
-})
-
-AddEffect({
-    id   = "eff_cat_grace",
-    name = "Кошачья грация",
-    icon = "Interface\\Icons\\Ability_druid_catform",
-    description = "Тело становится легче и точнее. Там, где раньше приходилось перелезать, теперь перепрыгиваешь.",
-    effect = { kind = "buff", stats = { ["Ловкость"] = 1, ["Акробатика"] = 2 } },
-})
-
-AddEffect({
-    id   = "eff_owl_wisdom",
-    name = "Совиная мудрость",
-    icon = "Interface\\Icons\\Spell_nature_polymorph",
-    description = "Мысль идёт ровнее и дальше обычного: связи между вещами видны без усилия.",
-    effect = { kind = "buff", stats = { ["Интеллект"] = 1, ["Эрудиция"] = 2 } },
-})
 
 AddEffect({
     id   = "eff_clumsy",
@@ -1979,15 +1809,6 @@ AddEffect({
 })
 
 AddEffect({
-    id   = "eff_garrote",
-    name = "Гаррота",
-    damageType = "physical",
-    icon = "Interface\\Icons\\Ability_rogue_garrote",
-    description = "В голове разорвалось что-то чужое. Мысли не собираются, руки не слушаются.",
-    effect = { kind = "debuff", resist = "Выносливость", school = "bleed", stats = { ["Концентрация"] = -2 }, tick = { damage = 1 } },
-})
-
-AddEffect({
     id   = "eff_shiv",
     name = "Отравляющий укол",
     damageType = "nature",
@@ -2302,22 +2123,6 @@ AddEffect({
 })
 
 AddEffect({
-    id   = "eff_crusaderaura",
-    name = "Аура рыцаря",
-    icon = "Interface\\Icons\\Spell_holy_crusaderaura",
-    description = "Свет наполняет тело целиком: удар тяжелее, кожа твёрже, дыхание глубже.",
-    effect = { kind = "buff", mods = { attack = 12 }, stats = { ["Рвение"] = 2 } },
-})
-
-AddEffect({
-    id   = "eff_justice_of_justice",
-    name = "Суд справедливости",
-    icon = "Interface\\Icons\\Ability_paladin_judgementred",
-    description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
-    effect = { kind = "debuff", resist = "Дух", school = "magic", mods = { defense = -15 }, stats = { ["Ловкость"] = -4, ["Акробатика"] = -4 } },
-})
-
-AddEffect({
     id   = "eff_auraoflight",
     name = "Аура воздаяния",
     icon = "Interface\\Icons\\Spell_holy_auraoflight",
@@ -2373,7 +2178,7 @@ AddEffect({
 -- ==========================================================
 
 AddEffect({
-    -- Тёмное повеление (Рыцарь смерти, круг 0). Отщеплён от «eff_demoralized».
+    -- Тёмное повеление (Рыцарь смерти, круг 0). Из гнезда eff_demoralized_*.
     id   = "eff_demoralized_dark_command",
     name = "Деморализация",
     icon = "Interface\\Icons\\Ability_warrior_warcry",
@@ -2382,7 +2187,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Льдистый путь (Рыцарь смерти, круг 0). Отщеплён от «eff_evasion».
+    -- Льдистый путь (Рыцарь смерти, круг 0). Из гнезда eff_evasion_*.
     id   = "eff_evasion_path_of_frost",
     name = "Уклонение",
     icon = "Interface\\Icons\\Spell_shadow_shadowward",
@@ -2391,7 +2196,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Ледяное касание (Рыцарь смерти, круг 0). Отщеплён от «eff_slowed».
+    -- Ледяное касание (Рыцарь смерти, круг 0). Из гнезда eff_slowed_*.
     id   = "eff_slowed_icy_touch",
     name = "Ледяное касание",
     icon = "Interface\\Icons\\Spell_nature_slow",
@@ -2401,7 +2206,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Зимний горн (Рыцарь смерти, круг 1). Отщеплён от «eff_battle_shout».
+    -- Зимний горн (Рыцарь смерти, круг 1). Из гнезда eff_battle_shout_*.
     id   = "eff_battle_shout_horn_of_winter",
     name = "Зимний горн",
     icon = "Interface\\Icons\\Ability_warrior_battleshout",
@@ -2410,7 +2215,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Кровавая чума (Рыцарь смерти, круг 1). Отщеплён от «eff_bleeding».
+    -- Кровавая чума (Рыцарь смерти, круг 1). Из гнезда eff_bleeding_*.
     id   = "eff_bleeding_blood_plague",
     name = "Кровавая чума",
     damageType = "shadow",
@@ -2424,7 +2229,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Удар чумы (Рыцарь смерти, круг 1). Отщеплён от «eff_bleeding».
+    -- Удар чумы (Рыцарь смерти, круг 1). Из гнезда eff_bleeding_*.
     id   = "eff_bleeding_plague_strike",
     name = "Удар чумы",
     damageType = "shadow",
@@ -2452,7 +2257,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Костяной щит (Рыцарь смерти, круг 1). Отщеплён от «eff_shield».
+    -- Костяной щит (Рыцарь смерти, круг 1). Из гнезда eff_shield_*.
     id   = "eff_shield_bone_shield",
     name = "Костяной щит",
     icon = "Interface\\Icons\\Spell_holy_powerwordshield",
@@ -2470,7 +2275,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Ледяные оковы (Рыцарь смерти, круг 1). Отщеплён от «eff_slowed».
+    -- Ледяные оковы (Рыцарь смерти, круг 1). Из гнезда eff_slowed_*.
     id   = "eff_slowed_chains_of_ice",
     name = "Ледяные оковы",
     icon = "Interface\\Icons\\Spell_nature_slow",
@@ -2480,7 +2285,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Ледяная лихорадка (Рыцарь смерти, круг 1). Отщеплён от «eff_weakness».
+    -- Ледяная лихорадка (Рыцарь смерти, круг 1). Из гнезда eff_weakness_*.
     id   = "eff_weakness_frost_fever",
     name = "Ледяная лихорадка",
     icon = "Interface\\Icons\\Spell_shadow_curseofmannoroth",
@@ -2508,7 +2313,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Вихрь ветров (Рыцарь смерти, круг 2). Отщеплён от «eff_slowed».
+    -- Вихрь ветров (Рыцарь смерти, круг 2). Из гнезда eff_slowed_*.
     id   = "eff_slowed_howling_blast",
     name = "Вихрь ветров",
     icon = "Interface\\Icons\\Spell_nature_slow",
@@ -2518,7 +2323,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Панцирь антимагии (Рыцарь смерти, круг 3). Отщеплён от «eff_armor_magic».
+    -- Панцирь антимагии (Рыцарь смерти, круг 3). Из гнезда eff_armor_magic_*.
     id   = "eff_armor_magic_anti_magic_shell",
     name = "Панцирь антимагии",
     icon = "Interface\\Icons\\Spell_frost_frostarmor02",
@@ -2533,7 +2338,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Пляшущее рунное оружие (Рыцарь смерти, круг 3). Отщеплён от «eff_bloodlust».
+    -- Пляшущее рунное оружие (Рыцарь смерти, круг 3). Из гнезда eff_bloodlust_*.
     id   = "eff_bloodlust_dancing_rune_weapon",
     name = "Кровавая жажда",
     icon = "Interface\\Icons\\Spell_nature_bloodlust",
@@ -2558,7 +2363,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Апокалипсис (Рыцарь смерти, круг 4). Отщеплён от «eff_fear».
+    -- Апокалипсис (Рыцарь смерти, круг 4). Из гнезда eff_fear_*.
     id   = "eff_fear_apocalypse",
     name = "Апокалипсис",
     icon = "Interface\\Icons\\Spell_shadow_possession",
@@ -2576,7 +2381,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Ярость ледяного змея (Рыцарь смерти, круг 5). Отщеплён от «eff_slowed».
+    -- Ярость ледяного змея (Рыцарь смерти, круг 5). Из гнезда eff_slowed_*.
     id   = "eff_slowed_frostwyrms_fury",
     name = "Ярость ледяного змея",
     icon = "Interface\\Icons\\Spell_nature_slow",
@@ -2586,7 +2391,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Удар хаоса (Охотник на демонов, круг 0). Отщеплён от «eff_bleeding».
+    -- Удар хаоса (Охотник на демонов, круг 0). Из гнезда eff_bleeding_*.
     id   = "eff_bleeding_chaos_strike",
     name = "Удар хаоса",
     damageType = "physical",
@@ -2600,7 +2405,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Пытка умов (Охотник на демонов, круг 0). Отщеплён от «eff_demoralized».
+    -- Пытка умов (Охотник на демонов, круг 0). Из гнезда eff_demoralized_*.
     id   = "eff_demoralized_torment",
     name = "Деморализация",
     icon = "Interface\\Icons\\Ability_warrior_warcry",
@@ -2609,7 +2414,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Затуманивание (Охотник на демонов, круг 1). Отщеплён от «eff_evasion».
+    -- Затуманивание (Охотник на демонов, круг 1). Из гнезда eff_evasion_*.
     id   = "eff_evasion_blur",
     name = "Затуманивание",
     icon = "Interface\\Icons\\Spell_shadow_shadowward",
@@ -2667,7 +2472,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Тьма (Охотник на демонов, круг 2). Отщеплён от «eff_evasion».
+    -- Тьма (Охотник на демонов, круг 2). Из гнезда eff_evasion_*.
     id   = "eff_evasion_dh_darkness",
     name = "Тьма",
     icon = "Interface\\Icons\\Spell_shadow_shadowward",
@@ -2676,7 +2481,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Печать страдания (Охотник на демонов, круг 2). Отщеплён от «eff_fear».
+    -- Печать страдания (Охотник на демонов, круг 2). Из гнезда eff_fear_*.
     id   = "eff_fear_sigil_of_misery",
     name = "Печать страдания",
     icon = "Interface\\Icons\\Spell_shadow_possession",
@@ -2706,7 +2511,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Чтение души (Охотник на демонов, круг 3). Отщеплён от «eff_bleeding».
+    -- Чтение души (Охотник на демонов, круг 3). Из гнезда eff_bleeding_*.
     id   = "eff_bleeding_soul_carving",
     name = "Чтение души",
     damageType = "physical",
@@ -2734,7 +2539,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Печать цепей (Охотник на демонов, круг 3). Отщеплён от «eff_slowed».
+    -- Печать цепей (Охотник на демонов, круг 3). Из гнезда eff_slowed_*.
     id   = "eff_slowed_sigil_of_chains",
     name = "Печать цепей",
     icon = "Interface\\Icons\\Spell_nature_slow",
@@ -2744,7 +2549,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Мстительный отход (Охотник на демонов, круг 3). Отщеплён от «eff_slowed».
+    -- Мстительный отход (Охотник на демонов, круг 3). Из гнезда eff_slowed_*.
     id   = "eff_slowed_vengeful_retreat",
     name = "Мстительный отход",
     icon = "Interface\\Icons\\Spell_nature_slow",
@@ -2754,7 +2559,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Шипы демона (Охотник на демонов, круг 3). Отщеплён от «eff_stone_skin».
+    -- Шипы демона (Охотник на демонов, круг 3). Из гнезда eff_stone_skin_*.
     id   = "eff_stone_skin_demon_spikes",
     name = "Шипы демона",
     icon = "Interface\\Icons\\Spell_nature_stoneskintotem",
@@ -2763,7 +2568,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Огненное клеймо (Охотник на демонов, круг 3). Отщеплён от «eff_vulnerable».
+    -- Огненное клеймо (Охотник на демонов, круг 3). Из гнезда eff_vulnerable_*.
     id   = "eff_vulnerable_fiery_brand",
     name = "Огненное клеймо",
     icon = "Interface\\Icons\\Spell_shadow_curseofachimonde",
@@ -2772,7 +2577,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Метаморфоза (Охотник на демонов, круг 4). Отщеплён от «eff_bloodlust».
+    -- Метаморфоза (Охотник на демонов, круг 4). Из гнезда eff_bloodlust_*.
     id   = "eff_bloodlust_metamorphosis_dh",
     name = "Метаморфоза",
     icon = "Interface\\Icons\\Spell_nature_bloodlust",
@@ -2785,7 +2590,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Разрыв сущности (Охотник на демонов, круг 4). Отщеплён от «eff_weakness».
+    -- Разрыв сущности (Охотник на демонов, круг 4). Из гнезда eff_weakness_*.
     id   = "eff_weakness_essence_break",
     name = "Разрыв сущности",
     icon = "Interface\\Icons\\Spell_shadow_curseofmannoroth",
@@ -2798,7 +2603,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Охота (Охотник на демонов, круг 5). Отщеплён от «eff_bleeding».
+    -- Охота (Охотник на демонов, круг 5). Из гнезда eff_bleeding_*.
     id   = "eff_bleeding_the_hunt",
     name = "Охота",
     damageType = "physical",
@@ -2812,7 +2617,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Элизийский декрет (Охотник на демонов, круг 5). Отщеплён от «eff_fear».
+    -- Элизийский декрет (Охотник на демонов, круг 5). Из гнезда eff_fear_*.
     id   = "eff_fear_elysian_decree",
     name = "Элизийский декрет",
     icon = "Interface\\Icons\\Spell_shadow_possession",
@@ -2843,7 +2648,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Гнев деревьев (Друид, круг 1). Отщеплён от «eff_slowed».
+    -- Гнев деревьев (Друид, круг 1). Из гнезда eff_slowed_*.
     id   = "eff_slowed_tree_wrath",
     name = "Гнев деревьев",
     icon = "Interface\\Icons\\Spell_nature_slow",
@@ -2853,7 +2658,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Волшебный огонь (Друид, круг 1). Отщеплён от «eff_vulnerable».
+    -- Волшебный огонь (Друид, круг 1). Из гнезда eff_vulnerable_*.
     id   = "eff_vulnerable_faerie_fire",
     name = "Волшебный огонь",
     icon = "Interface\\Icons\\Spell_shadow_curseofachimonde",
@@ -2862,7 +2667,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Дубинка (Друид, круг 1). Отщеплён от «eff_weapon_enchant».
+    -- Дубинка (Друид, круг 1). Из гнезда eff_weapon_enchant_*.
     id   = "eff_weapon_enchant_druid_club",
     name = "Дубинка",
     icon = "Interface\\Icons\\Spell_fire_flametounge",
@@ -2871,7 +2676,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Могучие клыки (Друид, круг 1). Отщеплён от «eff_weapon_enchant».
+    -- Могучие клыки (Друид, круг 1). Из гнезда eff_weapon_enchant_*.
     id   = "eff_weapon_enchant_mighty_fangs",
     name = "Могучие клыки",
     icon = "Interface\\Icons\\Spell_fire_flametounge",
@@ -2880,7 +2685,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Озарение (Друид, круг 2). Отщеплён от «eff_mercy_blessing».
+    -- Озарение (Друид, круг 2). Из гнезда eff_mercy_blessing_*.
     id   = "eff_mercy_blessing_nature_patronage",
     name = "Озарение",
     icon = "Interface\\Icons\\Spell_holy_prayerofhealing",
@@ -2904,7 +2709,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Дубовая кожа (Друид, круг 3). Отщеплён от «eff_stone_skin».
+    -- Дубовая кожа (Друид, круг 3). Из гнезда eff_stone_skin_*.
     id   = "eff_stone_skin_druid_stoneskin",
     name = "Дубовая кожа",
     icon = "Interface\\Icons\\Spell_nature_stoneskintotem",
@@ -2945,7 +2750,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Метка охотника (Охотник, круг 0). Отщеплён от «eff_vulnerable».
+    -- Метка охотника (Охотник, круг 0). Из гнезда eff_vulnerable_*.
     id   = "eff_hunters_mark",
     name = "Метка охотника",
     icon = "Interface\\Icons\\Ability_hunter_snipershot",
@@ -2966,7 +2771,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Отскок (Охотник, круг 1). Отщеплён от «eff_evasion».
+    -- Отскок (Охотник, круг 1). Из гнезда eff_evasion_*.
     id   = "eff_evasion_disengage",
     name = "Отскок",
     icon = "Interface\\Icons\\Ability_rogue_feint",
@@ -2997,7 +2802,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Укус змеи (Охотник, круг 2). Отщеплён от «eff_bleeding».
+    -- Укус змеи (Охотник, круг 2). Из гнезда eff_bleeding_*.
     id   = "eff_bleeding_serpent_sting",
     name = "Укус змеи",
     damageType = "nature",
@@ -3011,7 +2816,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Отвлекающий выстрел (Охотник, круг 2). Отщеплён от «eff_demoralized».
+    -- Отвлекающий выстрел (Охотник, круг 2). Из гнезда eff_demoralized_*.
     id   = "eff_demoralized_distracting_shot",
     name = "Отвлекающий выстрел",
     icon = "Interface\\Icons\\Inv_trickshot",
@@ -3049,7 +2854,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Замораживающая ловушка (Охотник, круг 2). Отщеплён от «eff_slowed».
+    -- Замораживающая ловушка (Охотник, круг 2). Из гнезда eff_slowed_*.
     id   = "eff_slowed_freezing_trap",
     name = "Замораживающая ловушка",
     icon = "Interface\\Icons\\Spell_nature_slow",
@@ -3059,7 +2864,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Знание зверя (Охотник, заговор). Отщеплён от «eff_owl_wisdom».
+    -- Знание зверя (Охотник, заговор). Из гнезда eff_owl_wisdom_*.
     id   = "eff_owl_wisdom_beast_lore",
     name = "Знание зверя",
     icon = "Interface\\Icons\\Spell_nature_polymorph",
@@ -3095,7 +2900,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Чёрная стрела (Охотник, круг 4). Отщеплён от «eff_bleeding».
+    -- Чёрная стрела (Охотник, круг 4). Из гнезда eff_bleeding_*.
     id   = "eff_bleeding_black_arrow",
     name = "Черная стрела",
     damageType = "shadow",
@@ -3109,7 +2914,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Ярость зверя (Охотник, круг 4). Отщеплён от «eff_bloodlust».
+    -- Ярость зверя (Охотник, круг 4). Из гнезда eff_bloodlust_*.
     id   = "eff_bloodlust_bestial_wrath",
     name = "Ярость зверя",
     icon = "Interface\\Icons\\Spell_nature_bloodlust",
@@ -3135,7 +2940,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Зов дикой природы (Охотник, круг 5). Отщеплён от «eff_bloodlust».
+    -- Зов дикой природы (Охотник, круг 5). Из гнезда eff_bloodlust_*.
     id   = "eff_bloodlust_call_of_the_wild",
     name = "Зов дикой природы",
     icon = "Interface\\Icons\\Spell_nature_bloodlust",
@@ -3148,7 +2953,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Ледяной доспех (Маг, круг 1). Отщеплён от «eff_armor_magic».
+    -- Ледяной доспех (Маг, круг 1). Из гнезда eff_armor_magic_*.
     id   = "eff_armor_magic_frost_armor_mage",
     name = "Ледяной доспех",
     icon = "Interface\\Icons\\Spell_frost_frostarmor02",
@@ -3168,7 +2973,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Уменьшение гуманоида (Маг, круг 1). Отщеплён от «eff_cat_grace».
+    -- Уменьшение гуманоида (Маг, круг 1). Из гнезда eff_cat_grace_*.
     id   = "eff_cat_grace_decrease_humanoid",
     name = "Уменьшение гуманоида",
     icon = "Interface\\Icons\\Ability_druid_catform",
@@ -3177,7 +2982,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Увеличение гуманоида (Маг, круг 1). Отщеплён от «eff_giant_strength».
+    -- Увеличение гуманоида (Маг, круг 1). Из гнезда eff_giant_strength_*.
     id   = "eff_giant_strength_increase_humanoid",
     name = "Увеличение гуманоида",
     icon = "Interface\\Icons\\Spell_nature_strength",
@@ -3195,7 +3000,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Ослабление магии (Маг, круг 1). Отщеплён от «eff_weakness».
+    -- Ослабление магии (Маг, круг 1). Из гнезда eff_weakness_*.
     id   = "eff_weakness_abonish_magic",
     name = "Ослабление магии",
     icon = "Interface\\Icons\\Spell_shadow_curseofmannoroth",
@@ -3233,7 +3038,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Арканный интеллект (Маг, круг 2). Отщеплён от «eff_owl_wisdom».
+    -- Арканный интеллект (Маг, круг 2). Из гнезда eff_owl_wisdom_*.
     id   = "eff_owl_wisdom_arcaneintellect",
     name = "Арканный интеллект",
     icon = "Interface\\Icons\\Spell_nature_polymorph",
@@ -3270,7 +3075,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Размытый образ (Маг, круг 3). Отщеплён от «eff_evasion».
+    -- Размытый образ (Маг, круг 3). Из гнезда eff_evasion_*.
     id   = "eff_evasion_blurred_image",
     name = "Размытый образ",
     icon = "Interface\\Icons\\Spell_shadow_shadowward",
@@ -3279,7 +3084,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Замедление (Маг, круг 3). Отщеплён от «eff_slowed».
+    -- Замедление (Маг, круг 3). Из гнезда eff_slowed_*.
     id   = "eff_slowed_mage_slow",
     name = "Замедление",
     icon = "Interface\\Icons\\Spell_nature_slow",
@@ -3289,7 +3094,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Провокация (Монах, круг 0). Отщеплён от «eff_demoralized».
+    -- Провокация (Монах, круг 0). Из гнезда eff_demoralized_*.
     id   = "eff_demoralized_provoke",
     name = "Провокация",
     icon = "Interface\\Icons\\Ability_monk_provoke",
@@ -3298,7 +3103,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Перекат (Монах, круг 0). Отщеплён от «eff_evasion».
+    -- Перекат (Монах, круг 0). Из гнезда eff_evasion_*.
     id   = "eff_evasion_monk_roll",
     name = "Перекат",
     icon = "Interface\\Icons\\Ability_monk_roll",
@@ -3320,7 +3125,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Жажда тигра (Монах, круг 1). Отщеплён от «eff_cat_grace».
+    -- Жажда тигра (Монах, круг 1). Из гнезда eff_cat_grace_*.
     id   = "eff_cat_grace_tigers_lust",
     name = "Жажда тигра",
     icon = "Interface\\Icons\\Ability_monk_tigerslust",
@@ -3329,7 +3134,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Удар бочонком (Монах, круг 1). Отщеплён от «eff_slowed».
+    -- Удар бочонком (Монах, круг 1). Из гнезда eff_slowed_*.
     id   = "eff_slowed_keg_smash",
     name = "Удар бочонком",
     icon = "Interface\\Icons\\Achievement_brewery_2",
@@ -3351,7 +3156,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Укрепляющий отвар (Монах, круг 2). Отщеплён от «eff_stone_skin».
+    -- Укрепляющий отвар (Монах, круг 2). Из гнезда eff_stone_skin_*.
     id   = "eff_stone_skin_fortifying_brew",
     name = "Укрепляющий отвар",
     icon = "Interface\\Icons\\Ability_monk_fortifyingale_new",
@@ -3360,7 +3165,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Благословение Сюэня (Монах, круг 3). Отщеплён от «eff_bloodlust».
+    -- Благословение Сюэня (Монах, круг 3). Из гнезда eff_bloodlust_*.
     id   = "eff_bloodlust_invoke_xuen",
     name = "Благословение Сюэня",
     icon = "Interface\\Icons\\Monk_stance_whitetiger",
@@ -3376,7 +3181,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Медитация дзен (Монах, круг 3). Отщеплён от «eff_concentration».
+    -- Медитация дзен (Монах, круг 3). Из гнезда eff_concentration_*.
     id   = "eff_concentration_zen_meditation",
     name = "Медитация дзен",
     icon = "Interface\\Icons\\Ability_monk_zenmeditation",
@@ -3395,7 +3200,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Обновляющий туман (Монах, круг 3). Отщеплён от «eff_mercy_blessing».
+    -- Обновляющий туман (Монах, круг 3). Из гнезда eff_mercy_blessing_*.
     id   = "eff_mercy_blessing_renewing_mist",
     name = "Обновляющий туман",
     icon = "Interface\\Icons\\Ability_monk_renewingmists",
@@ -3410,7 +3215,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Купель жизни (Монах, круг 3). Отщеплён от «eff_shield».
+    -- Купель жизни (Монах, круг 3). Из гнезда eff_shield_*.
     id   = "eff_shield_life_cocoon",
     name = "Купель жизни",
     icon = "Interface\\Icons\\Ability_monk_essencefont",
@@ -3427,7 +3232,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Ослабление вреда (Монах, круг 4). Отщеплён от «eff_armor_magic».
+    -- Ослабление вреда (Монах, круг 4). Из гнезда eff_armor_magic_*.
     id   = "eff_armor_magic_dampen_harm",
     name = "Ослабление вреда",
     icon = "Interface\\Icons\\Ability_monk_dampenharm",
@@ -3436,7 +3241,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Благословение Нюцзао (Монах, круг 5). Отщеплён от «eff_stone_skin».
+    -- Благословение Нюцзао (Монах, круг 5). Из гнезда eff_stone_skin_*.
     id   = "eff_stone_skin_invoke_niuzao",
     name = "Благословение Нюцзао",
     icon = "Interface\\Icons\\Monk_stance_drunkenox",
@@ -3445,7 +3250,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Аура рыцаря (Паладин, круг 1). Отщеплён от «eff_evasion».
+    -- Аура рыцаря (Паладин, круг 1). Из гнезда eff_evasion_*.
     id   = "eff_evasion_crusaderaura",
     name = "Аура рыцаря",
     icon = "Interface\\Icons\\Spell_holy_crusaderaura",
@@ -3471,7 +3276,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Печать справедливости (Паладин, круг 2). Отщеплён от «eff_weapon_enchant».
+    -- Печать справедливости (Паладин, круг 2). Из гнезда eff_weapon_enchant_*.
     id   = "eff_weapon_enchant_seal_of_wrath",
     name = "Печать справедливости",
     icon = "Interface\\Icons\\Spell_holy_sealofwrath",
@@ -3480,7 +3285,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Суд справедливости (Паладин, круг 3). Отщеплён от «eff_weakness».
+    -- Суд справедливости (Паладин, круг 3). Из гнезда eff_weakness_*.
     id   = "eff_weakness_justice_of_justice",
     name = "Суд справедливости",
     icon = "Interface\\Icons\\Ability_paladin_judgementred",
@@ -3532,15 +3337,6 @@ AddEffect({
 })
 
 AddEffect({
-    -- Сожжение маны (Жрец, круг 3). Отщеплён от «eff_mana_burn».
-    id   = "eff_mana_burn_manaburn",
-    name = "Выжженный источник",
-    icon = "Interface\\Icons\\Spell_shadow_manaburn",
-    description = "Внутренний источник обожжён. Черпать из него больно и почти нечего.",
-    effect = { kind = "debuff", resist = "Дух", school = "magic", mods = { maxMana = -2 } },
-})
-
-AddEffect({
     id   = "eff_bleeding_garrote",
     name = "Гаррота",
     damageType = "physical",
@@ -3550,29 +3346,6 @@ AddEffect({
         kind = "debuff", resist = "Выносливость", school = "bleed",
         tick = { damage = 1 },
 		stats = { ["Мощь"] = -2 },
-    },
-})
-
-AddEffect({
-    id   = "eff_blinded_blind",
-    name = "Ослепление",
-    icon = "Interface\\Icons\\Spell_shadow_mindsteal",
-    description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
-    effect = {
-        kind  = "debuff", resist = "Выносливость",
-        mods = { attack = -33, defense = -33, range = -18 },
-    },
-})
-
-AddEffect({
-    id   = "eff_stealth_stealth",
-    name = "Незаметность",
-    icon = "Interface\\Icons\\Ability_stealth",
-    description = "Пока тебя не видят, первый удар приходит оттуда, откуда его не ждут.",
-	isConcentration = true,
-    effect = {
-        kind  = "buff",
-        stats = { ["Скрытность"] = 3, ["Акробатика"] = 3, ["Точность"] = 3 },
     },
 })
 
@@ -3682,7 +3455,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Воспламенение (Шаман, круг 0). Отщеплён от «eff_bleeding».
+    -- Воспламенение (Шаман, круг 0). Из гнезда eff_bleeding_*.
     id   = "eff_bleeding_ignition",
     name = "Воспламенение",
     damageType = "fire",
@@ -3696,7 +3469,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Опаляющий щит (Шаман, круг 1). Отщеплён от «eff_shield».
+    -- Опаляющий щит (Шаман, круг 1). Из гнезда eff_shield_*.
     id   = "eff_shield_flame_shield",
     name = "Опаляющий",
     icon = "Interface\\Icons\\Ability_mage_moltenarmor",
@@ -3710,7 +3483,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Молниеносные Стражи (Шаман, круг 1). Отщеплён от «eff_shield».
+    -- Молниеносные Стражи (Шаман, круг 1). Из гнезда eff_shield_*.
     id   = "eff_shield_lightningshield",
     name = "Молниеносные Стражи",
     icon = "Interface\\Icons\\Spell_nature_lightningshield",
@@ -3723,7 +3496,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Водяной щит (Шаман, круг 1). Отщеплён от «eff_shield».
+    -- Водяной щит (Шаман, круг 1). Из гнезда eff_shield_*.
     id   = "eff_shield_water_shield",
     name = "Водяной щит",
     icon = "Interface\\Icons\\Ability_shaman_watershield",
@@ -3739,7 +3512,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Барьер ветра (Шаман, круг 1). Отщеплён от «eff_shield».
+    -- Барьер ветра (Шаман, круг 1). Из гнезда eff_shield_*.
     id   = "eff_shield_wind_barrier",
     name = "Барьер ветра",
     icon = "Interface\\Icons\\Inv_ability_farseershaman_ancestralswiftness",
@@ -3748,7 +3521,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Каменная кожа (Шаман, круг 1). Отщеплён от «eff_stone_skin».
+    -- Каменная кожа (Шаман, круг 1). Из гнезда eff_stone_skin_*.
     id   = "eff_stone_skin_stone_skin",
     name = "Каменная кожа",
     icon = "Interface\\Icons\\Spell_nature_skinofearth",
@@ -3757,7 +3530,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Лёгкость ветра (Шаман, круг 2). Отщеплён от «eff_evasion».
+    -- Лёгкость ветра (Шаман, круг 2). Из гнезда eff_evasion_*.
     id   = "eff_evasion_lightness_of_the_wind",
     name = "Легкость ветра",
     icon = "Interface\\Icons\\Ability_shaman_windwalktotem",
@@ -3766,7 +3539,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Ледяные оковы (Шаман, круг 2). Отщеплён от «eff_slowed».
+    -- Ледяные оковы (Шаман, круг 2). Из гнезда eff_slowed_*.
     id   = "eff_slowed_ice_shackles",
     name = "Ледяные оковы",
     icon = "Interface\\Icons\\Spell_frost_chainsofice",
@@ -3775,7 +3548,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Пламенное клеймо (Шаман, круг 1). Отщеплён от «eff_weapon_enchant».
+    -- Пламенное клеймо (Шаман, круг 1). Из гнезда eff_weapon_enchant_*.
     id   = "eff_weapon_enchant_flame_weapon",
     name = "Пламенное клеймо",
     icon = "Interface\\Icons\\Spell_fire_flametounge",
@@ -3809,7 +3582,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Ледяная кайма (Шаман, круг 1). Отщеплён от «eff_weapon_enchant».
+    -- Ледяная кайма (Шаман, круг 1). Из гнезда eff_weapon_enchant_*.
     id   = "eff_weapon_enchant_ice_fringe",
     name = "Ледяная кайма",
     icon = "Interface\\Icons\\Inv_weapon_shortblade_37",
@@ -3826,7 +3599,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Клеймо молний (Шаман, круг 2). Отщеплён от «eff_weapon_enchant».
+    -- Клеймо молний (Шаман, круг 2). Из гнезда eff_weapon_enchant_*.
     id   = "eff_weapon_enchant_lightning_brand",
     name = "Клеймо молний",
     icon = "Interface\\Icons\\Ability_shaman_stormstrike",
@@ -3843,7 +3616,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Каменная корка (Шаман, круг 1). Отщеплён от «eff_weapon_enchant».
+    -- Каменная корка (Шаман, круг 1). Из гнезда eff_weapon_enchant_*.
     id   = "eff_weapon_enchant_stone_crust",
     name = "Каменная корка",
     icon = "Interface\\Icons\\Spell_nature_rockbiter",
@@ -3881,7 +3654,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Кровавая жажда (Шаман, круг 3). Отщеплён от «eff_bloodlust».
+    -- Кровавая жажда (Шаман, круг 3). Из гнезда eff_bloodlust_*.
     id   = "eff_bloodlust_bloodlust",
     name = "Кровавая жажда",
     icon = "Interface\\Icons\\Spell_nature_bloodlust",
@@ -3894,7 +3667,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Порча (Чернокнижник, круг 1). Отщеплён от «eff_bleeding».
+    -- Порча (Чернокнижник, круг 1). Из гнезда eff_bleeding_*.
     id   = "eff_corruption",
     name = "Порча",
     damageType = "shadow",
@@ -3908,7 +3681,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Темный оберег (Чернокнижник, круг 1). Отщеплён от «eff_shield».
+    -- Темный оберег (Чернокнижник, круг 1). Из гнезда eff_shield_*.
     id   = "eff_shield_dark_amulet",
     name = "Темный оберег",
     icon = "Interface\\Icons\\Inv_jewelry_necklace_04",
@@ -3918,7 +3691,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Проклятие стихий (Чернокнижник, круг 1). Отщеплён от «eff_vulnerable».
+    -- Проклятие стихий (Чернокнижник, круг 1). Из гнезда eff_vulnerable_*.
     id   = "eff_vulnerable_curse_of_elements",
     name = "Проклятие стихий",
     icon = "Interface\\Icons\\Spell_shadow_chilltouch",
@@ -3930,7 +3703,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Проклятие слабости (Чернокнижник, круг 1). Отщеплён от «eff_weakness».
+    -- Проклятие слабости (Чернокнижник, круг 1). Из гнезда eff_weakness_*.
     id   = "eff_curse_of_weakness",
     name = "Проклятие слабости",
     icon = "Interface\\Icons\\Spell_shadow_curseofmannoroth",
@@ -3944,7 +3717,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Проклятие агонии (Чернокнижник, круг 2). Отщеплён от «eff_bleeding».
+    -- Проклятие агонии (Чернокнижник, круг 2). Из гнезда eff_bleeding_*.
     id   = "eff_bleeding_curse_of_agony",
     name = "Проклятие агонии",
     damageType = "shadow",
@@ -3958,7 +3731,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Страх (Чернокнижник, круг 2). Отщеплён от «eff_fear».
+    -- Страх (Чернокнижник, круг 2). Из гнезда eff_fear_*.
     id   = "eff_fear_warlock_fear",
     name = "Страх",
     icon = "Interface\\Icons\\Spell_shadow_possession",
@@ -3967,7 +3740,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Проклятие Тьмы (Чернокнижник, круг 3). Отщеплён от «eff_vulnerable».
+    -- Проклятие Тьмы (Чернокнижник, круг 3). Из гнезда eff_vulnerable_*.
     id   = "eff_vulnerable_curse_of_darkness",
     name = "Проклятие Тьмы",
     icon = "Interface\\Icons\\Spell_shadow_curseofachimonde",
@@ -3994,7 +3767,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Вой ужаса (Чернокнижник, круг 4). Отщеплён от «eff_fear».
+    -- Вой ужаса (Чернокнижник, круг 4). Из гнезда eff_fear_*.
     id   = "eff_fear_warlock_terror_howl",
     name = "Вой ужаса",
     icon = "Interface\\Icons\\Ability_warlock_howlofterror",
@@ -4003,7 +3776,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Кровопускание (Воин, круг 0). Отщеплён от «eff_bleeding».
+    -- Кровопускание (Воин, круг 0). Из гнезда eff_bleeding_*.
     id   = "eff_bleeding_rend",
     name = "Кровопускание",
     damageType = "physical",
@@ -4041,7 +3814,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Подрезать сухожилия (Воин, круг 1). Отщеплён от «eff_slowed».
+    -- Подрезать сухожилия (Воин, круг 1). Из гнезда eff_slowed_*.
     id   = "eff_hamstring",
     name = "Подрезать сухожилия",
     icon = "Interface\\Icons\\Spell_holy_ashestoashes",
@@ -4071,7 +3844,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Деморализующий крик (Воин, круг 2). Отщеплён от «eff_demoralized».
+    -- Деморализующий крик (Воин, круг 2). Из гнезда eff_demoralized_*.
     id   = "eff_demoralizing_shout",
     name = "Деморализующий крик",
     icon = "Interface\\Icons\\Ability_warrior_warcry",
@@ -4080,7 +3853,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Пронзительный вой (Воин, круг 2). Отщеплён от «eff_slowed».
+    -- Пронзительный вой (Воин, круг 2). Из гнезда eff_slowed_*.
     id   = "eff_piercing_howl",
     name = "Пронзительный вой",
     icon = "Interface\\Icons\\Spell_shadow_deathscream",
@@ -4127,7 +3900,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Ярость берсерка (Воин, круг 4). Отщеплён от «eff_bloodlust».
+    -- Ярость берсерка (Воин, круг 4). Из гнезда eff_bloodlust_*.
     id   = "eff_bloodlust_berserker_rage",
     name = "Ярость берсерка",
     icon = "Interface\\Icons\\Spell_nature_ancestralguardian",
@@ -4149,7 +3922,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Безрассудство (Воин, круг 5). Отщеплён от «eff_concentration».
+    -- Безрассудство (Воин, круг 5). Из гнезда eff_concentration_*.
     id   = "eff_concentration_recklessness",
     name = "Безрассудство",
     icon = "Interface\\Icons\\Ability_criticalstrike",
@@ -4159,7 +3932,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Аватара (Воин, круг 5). Отщеплён от «eff_giant_strength».
+    -- Аватара (Воин, круг 5). Из гнезда eff_giant_strength_*.
     id   = "eff_giant_strength_avatar",
     name = "Аватара",
     icon = "Interface\\Icons\\Warrior_talent_icon_avatar",
@@ -4173,15 +3946,6 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_holy_divinespirit",
     description = "Тело существа изнутри стремительно заполняется маной, возвращая бодрость и силы для использования заклинаний и молитв.",
     effect = { kind = "buff", school = "magic", tick = { mana = 1 }, stats = { ["Дух"] = 2 } },
-})
-
-AddEffect({
-    id   = "eff_burning_pain",
-    name = "Жгучая боль",
-    damageType = "fire",
-    icon = "Interface\\Icons\\Spell_shadow_painandsuffering",
-    description = "Пораженная цель ощущает, как ее кровь закипает и заставляет владельца полыхать.",
-    effect = { kind = "debuff", resist = "Выносливость", school = "magic", tick = { damage = 2 } },
 })
 
 AddEffect({
@@ -4504,15 +4268,6 @@ AddEffect({
     effect = { kind = "debuff", resist = "Сила", school = "magic", family = "Замедление",
                mods = { movePct = -25 } },
     damageType = "frost",
-})
-
-AddEffect({
-    id   = "eff_fire_cape_burn",
-    name = "Занялся пламенем",
-    icon = "Interface\\Icons\\Spell_fire_sealoffire",
-    description = "Одежда занялась от чужого плаща. Сбить это с себя нечем.",
-    effect = { kind = "debuff", resist = "Выносливость", school = "magic", tick = { damage = 1 } },
-    damageType = "fire",
 })
 
 AddEffect({

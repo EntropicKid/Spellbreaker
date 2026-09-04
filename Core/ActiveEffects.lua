@@ -53,7 +53,7 @@ end
 -- как scaling у обычных заклинаний (см. SB.Logic.GetSpellScaling):
 --
 --   Add({
---       id = "eff_stone_skin", name = "Каменная кожа", ...
+--       id = "eff_stone_skin_druid_stoneskin", name = "Каменная кожа", ...
 --       isContainer = true,
 --       effect = {
 --           kind = "buff",          -- необязательно, см. ниже

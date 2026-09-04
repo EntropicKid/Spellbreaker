@@ -356,7 +356,8 @@ Add({
     resistable = true,
     canCrit = true,
     isConcentration = true,
-    distance = 4,
+	-- Поток на два продолжения — см. врезку у «Вихря клинков».
+	channel = 2,    distance = 4,
     aoe = { radius = 3 },
     scaling = {
     	hit    = { ["Воля"] = 1 },
@@ -550,7 +551,8 @@ Add({
     resistable = true,
     canCrit = true,
     isConcentration = true,
-    distance = 13,
+	-- Поток на два продолжения — см. врезку у «Вихря клинков».
+	channel = 2,    distance = 13,
     aoe = { radius = 9 },
     scaling = {
     	hit    = { ["Воля"] = 1, ["Концентрация"] = 0.5 },
