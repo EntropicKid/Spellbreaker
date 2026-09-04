@@ -136,7 +136,7 @@ end
 local MOD_ORDER = {
     "attack", "defense", "crit", "damage", "heal", "healTaken",
     "maxHealth", "maxMana", "maxResource", "maxCastResource",
-    "armor", "movePct", "range",
+    "armor", "movePct", "range", "rollFloor",
 }
 
 -- СОПРОТИВЛЕНИЯ ДОПИСЫВАЮТСЯ СПИСКОМ (см. SB.Data.ResistKeys). Восемь
@@ -179,6 +179,9 @@ local MOD_LABELS = {
     armor       = "Броня (ед.)",
     movePct     = "Передвижение за круг (%)",
     range       = "Дальность заклинаний (м)",
+    -- Не «прибавка к броску»: это срез неудачных граней снизу, и назвать
+    -- его прибавкой значило бы обещать плюс к результату, которого нет.
+    rollFloor   = "Минимум на кубике",
 }
 
 -- Подписи сопротивлений — оттуда же, откуда ключи (см. ResistLabel).

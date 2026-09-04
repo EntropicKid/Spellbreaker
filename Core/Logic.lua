@@ -2305,7 +2305,19 @@ function SB.Logic.GetRollRange()
     local rollMax = SB.Logic.ROLL_MAX
     local rollMin = 1
 
+    -- ПОЛ ДВИГАЮТ И ЭФФЕКТЫ, А НЕ ТОЛЬКО ПРОИСХОЖДЕНИЕ. Раньше здесь
+    -- читался один профиль расы и класса, то есть пол был свойством, с
+    -- которым рождаются, и выразить «пока на тебе благословение, худшее
+    -- не случается» было нечем.
+    --
+    -- Канал общий с профилем намеренно: и то и другое отвечает на один
+    -- вопрос — с какой грани начинается кубик, — и складывать их в разных
+    -- местах значило бы завести два ответа. Гном под «Благословением»
+    -- получает сумму, а не большее из двух, и это верно: и кровь, и чары
+    -- работают в одну сторону.
     local floor = SB.Data.GetSoftBonus("rollFloor")
+        + ((SB.ActiveEffects and SB.ActiveEffects.GetMod)
+            and (SB.ActiveEffects.GetMod("rollFloor")) or 0)
     if floor > rollMin then rollMin = floor end
     -- Пол не должен схлопнуть диапазон: оставляем хотя бы половину граней.
     if rollMin > math.floor(rollMax / 2) then rollMin = math.floor(rollMax / 2) end

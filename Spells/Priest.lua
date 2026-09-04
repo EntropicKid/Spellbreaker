@@ -319,6 +319,10 @@ Add({
 	resistable = true,
     canCrit = true,
 	distance = 19,
+    -- Пламя не гаснет вместе с попаданием: два хода оно горит на цели
+    -- (см. eff_holy_fire — имя и иконка у него отсюда же).
+	duration = 2,
+	debuff = "eff_holy_fire",
 	scaling = {
 		hit    = { ["Религия"] = 1 },
 		crit   = { ["Рвение"] = 1 },

@@ -275,7 +275,10 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = false,
-    duration = 20,
+    -- БЫЛО 20 ХОДОВ — две минуты по часам сцены на площадном оглушении
+    -- второго круга. Три хода: приём остаётся сильным ходом в размене, но
+    -- перестаёт закрывать бой одним нажатием.
+    duration = 3,
     isConcentration = false,
 	distance = 19,
     debuff = "eff_deafening_screech",

@@ -437,6 +437,11 @@ Add({
     canCrit = true,
     distance = 4,
     aoe = { radius = 3 },
+    -- Срок стоит у ЗАКЛИНАНИЯ, а не у эффекта: у эффектов своего срока
+    -- в системе нет вовсе (см. SB.Logic.GetEffectDuration). Два хода —
+    -- столько кровят поверхностные порезы.
+    duration = 2,
+    debuff = "eff_bleeding_blade_flurry",
     scaling = {
         hit    = { ["Ловкость рук"] = 1 },
         crit   = { ["Точность"] = 0.5 },

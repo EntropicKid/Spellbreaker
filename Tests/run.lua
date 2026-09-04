@@ -14648,6 +14648,122 @@ do
 end
 
 -- ============================================================
+-- ПОЛ КУБИКА ДВИГАЮТ И ЭФФЕКТЫ
+--
+-- Раньше rollFloor читался только из профиля расы и класса — то есть был
+-- свойством, с которым рождаются. Выразить «пока на тебе благословение,
+-- худшее не случается» было нечем, а именно это обещает описание
+-- «Благословения» жреца: «предотвращает критические неудачи».
+-- ============================================================
+do
+    local L = SB.Logic
+    local savedRace = stub.world.race
+    stub.world.race = "Human"          -- у людей своего пола кубика нет
+    ResetEffects()
+
+    local lo0, hi0 = L.GetRollRange()
+    check("без эффектов кубик с единицы", lo0, 1)
+
+    SB.ActiveEffects.Add("eff_bless", 5, false)
+    local lo1, hi1 = L.GetRollRange()
+    check("под «Благословением» пол поднялся", lo1, 15)
+    check("верхняя грань не тронута",          hi1, hi0)
+    ResetEffects()
+    check("эффект спал — пол вернулся", (L.GetRollRange()), 1)
+
+    -- СКЛАДЫВАЕТСЯ С ПРОИСХОЖДЕНИЕМ, а не заменяет его: и кровь, и чары
+    -- работают в одну сторону, и два ответа на один вопрос заводить незачем.
+    stub.world.race = "Gnome"          -- rollFloor = 10 в профиле расы
+    check("у гнома свой пол", (L.GetRollRange()), 10)
+    SB.ActiveEffects.Add("eff_bless", 5, false)
+    check("под благословением они складываются", (L.GetRollRange()), 25)
+    ResetEffects()
+
+    -- ПОЛ НЕ СХЛОПЫВАЕТ ДИАПАЗОН. Защита была и раньше, но теперь пол
+    -- можно нарастить эффектами, и упереться в неё стало реально.
+    SB.Data.Spells["t_floor_huge"] = { id = "t_floor_huge", name = "Проба пола",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff", mods = { rollFloor = 200 } } }
+    SB.ActiveEffects.Add("t_floor_huge", 5, false)
+    local loMax, hiMax = L.GetRollRange()
+    checkTrue("хотя бы половина граней осталась", loMax <= math.floor(hiMax / 2))
+    ResetEffects()
+    SB.Data.Spells["t_floor_huge"] = nil
+
+    -- И канал виден в подсказке: иначе игрок не поймёт, откуда взялся
+    -- необычно ровный бросок.
+    checkTrue("у канала есть подпись",
+              SB.ActiveEffects.ModLabel and SB.ActiveEffects.ModLabel("rollFloor") ~= nil
+              or ReadFile("Core/ActiveEffects.lua"):find("rollFloor   =", 1, true) ~= nil)
+
+    stub.world.race = savedRace
+end
+
+-- ============================================================
+-- ПРАВКИ ПО ЗАКЛИНАНИЯМ
+-- ============================================================
+do
+    local S = SB.Data.Spells
+
+    -- ── ВЕЕР КЛИНКОВ КРОВИТ ────────────────────────────────
+    local bf = S["blade_flurry"]
+    check("«Веер клинков» вешает кровотечение", bf.debuff, "eff_bleeding_blade_flurry")
+    check("на два хода", bf.duration, 2)
+    local bfe = S["eff_bleeding_blade_flurry"]
+    checkTrue("эффект заведён", bfe ~= nil)
+    check("школа — кровотечение", bfe.effect.school, "bleed")
+    check("тик на единицу",       bfe.effect.tick.damage, 1)
+
+    -- ── ВИЗГ УКОРОЧЕН ──────────────────────────────────────
+    check("«Оглушительный визг» держит три хода",
+          S["deafening_screech"].duration, 3)
+
+    -- ── СВЯЩЕННЫЙ ОГОНЬ ГОРИТ ──────────────────────────────
+    local hf, hfe = S["holy_fire"], S["eff_holy_fire"]
+    check("«Священный огонь» вешает эффект", hf.debuff, "eff_holy_fire")
+    checkTrue("эффект заведён", hfe ~= nil)
+    check("тик на единицу", hfe.effect.tick.damage, 1)
+    -- Имя и иконка взяты у родителя — так и было заказано.
+    check("имя от родителя",   hfe.name, hf.name)
+    check("иконка от родителя", hfe.icon, hf.icon)
+    check("и школа урона тоже", hfe.damageType, hf.damageType)
+
+    -- ── ЧАРОКАМЕНЬ ─────────────────────────────────────────
+    local ms = S["item_magic_stone"]
+    check("чарокамень отдаёт две маны", ms.onCast.mana, 2)
+    check("и вешает свой заряд",        ms.buff, "eff_magic_stone")
+    check("канал школьный, а не общий",
+          S["eff_magic_stone"].effect.mods.damageMagic, 1)
+
+    -- ── ДЕМОН БЕЗДНЫ И ГОНЧАЯ ──────────────────────────────
+    local vw = S["eff_summon_voidwalker"].effect.mods
+    check("Демон Бездны даёт урон тьмой", vw.damageShadow, 1)
+    check("общего канала у него нет",     vw.damage, nil)
+    checkTrue("защита осталась",          (vw.defense or 0) > 0)
+
+    local fh = S["eff_summon_felhunter"]
+    check("Гончая даёт резист всей магии", fh.effect.mods.resistMagic, 1)
+    checkTrue("и Атлетику",                (fh.effect.stats["Атлетика"] or 0) > 0)
+    checkTrue("прежнее не потеряно",       (fh.effect.mods.armor or 0) > 0)
+
+    -- ── ЧАСТИЦА СВЕТА ЛЕЧИТСЯ, А НЕ ЛЕЧИТ ──────────────────
+    --
+    -- Канал был не тот, и это меняло смысл заклинания на противоположный:
+    -- heal двигает ВЫДАВАЕМОЕ исцеление, то есть баф делал цель лучшим
+    -- лекарем вместо того, чтобы её саму было проще лечить.
+    local bol = S["eff_beaconoflight"].effect.mods
+    checkTrue("«Частица Света» двигает получаемое исцеление",
+              (bol.healTaken or 0) > 0)
+    check("а выдаваемое — не трогает", bol.heal, nil)
+
+    -- ── БЛАГОСЛОВЕНИЕ ДЕЛАЕТ ТО, ЧТО ОБЕЩАЕТ ───────────────
+    local bl = S["eff_bless"].effect
+    checkTrue("оно срезает неудачные грани", (bl.mods.rollFloor or 0) > 0)
+    check("плоской прибавки к атаке больше нет", bl.mods.attack, nil)
+    checkTrue("и держит «Волю» против страха", (bl.stats["Воля"] or 0) > 0)
+end
+
+-- ============================================================
 -- ИТОГ
 -- ============================================================
 print("")
