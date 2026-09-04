@@ -376,6 +376,56 @@ function SB.Logic.GetDamageScaleMultiplier(slotLevel)
     return 1 + slot * (SB.Data.Config.DamageScalePerMana or 0)
 end
 
+-- ============================================================
+-- ДАЁТ ЛИ ВЛИВАНИЕ РЕСУРСА ХОТЬ ЧТО-НИБУДЬ
+--
+-- Окно выбора круга предлагало влить ресурс В ЛЮБОЕ заклинание, включая
+-- те, где от этого не меняется ровно ничего. Хуже всего это выглядело на
+-- бессрочных стойках и обликах: игрок видел «Мана x 3» над «Боевой
+-- стойкой», выбирал, платил — и получал ту же самую бесконечную стойку.
+-- Предложенный выбор, который ничего не решает, читается как поломка.
+--
+-- ЧТО РЕАЛЬНО ЗАВИСИТ ОТ ВЛОЖЕННОГО — ровно две вещи, и обе выведены не
+-- из замысла, а из арифметики резолва:
+--
+--   • МНОЖИТЕЛЬ СКЕЙЛИНГА канала damage (GetDamageScaleMultiplier выше).
+--     Работает, только если у заклинания этот канал вообще есть;
+--   • РАСТЯЖЕНИЕ СРОКА эффекта (GetUpcastMultiplier ниже). Работает,
+--     только если эффект есть и срок у него КОНЕЧНЫЙ: «до конца сцены»
+--     вдвое — это всё та же «до конца сцены».
+--
+-- ПОЧЕМУ НЕ ПО canCrit И НЕ ПО isHeal, хотя так и просится. База урона и
+-- база лечения от вложенного НЕ РАСТУТ: обе считаются как
+-- «база + slot * DamagePerMana», а DamagePerMana давно ноль — мана
+-- перестала прибавлять урон сама и стала множить уже развитое (см.
+-- врезку у DamageScalePerMana). Уронное заклинание без канала damage
+-- получает от вливания ровно ноль, и предлагать его игроку не за что.
+--
+-- Заклинаний, которым вливание не даёт ничего, в библиотеке 72.
+-- ============================================================
+
+--- @return boolean  true — вливать сверх своего круга имеет смысл
+function SB.Logic.CanUpcast(spell)
+    if type(spell) ~= "table" then return false end
+
+    -- Канал damage: и новый формат scaling, и старый attributes.
+    local src = spell.scaling and spell.scaling.damage
+    if src == nil then src = spell.attributes and spell.attributes.damage end
+    if type(src) == "string" then return true end
+    if type(src) == "table" then
+        for _, coeff in pairs(src) do
+            if (tonumber(coeff) or 0) ~= 0 then return true end
+        end
+    end
+
+    -- Эффект с конечным сроком. Срок берём у ЗАКЛИНАНИЯ: своего у
+    -- эффекта нет вовсе (см. SB.Logic.GetEffectDuration).
+    local eff = spell.container or spell.buff or spell.debuff
+    if eff and (tonumber(spell.duration) or 1) > 0 then return true end
+
+    return false
+end
+
 --- @param spell   table   Заклинание
 --- @param channel string  "hit" | "crit" | "damage"
 --- @param slotLevel number|nil  сколько ресурса вложено в каст. Влияет
