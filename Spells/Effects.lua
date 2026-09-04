@@ -1153,7 +1153,7 @@ AddEffect({
     name = "Веселье",
     icon = "Interface\\Icons\\Inv_offhand_1h_ardenweald_d_01",
     description = "Только цель слышит музыку — красивую настолько, что трудно думать о другом.",
-    effect = { kind = "buff", school = "magic", stats = { ["Дипломатия"] = 1 } },
+    effect = { kind = "buff", school = "magic", stats = { ["Воодушевление"] = 1 } },
 })
 
 AddEffect({
@@ -1269,7 +1269,7 @@ AddEffect({
     name = "Языки",
     icon = "Interface\\Icons\\Ability_mage_studentofthemind",
     description = "Любая речь стала понятной, и своя звучит на языке собеседника.",
-    effect = { kind = "buff", school = "magic", stats = { ["Дипломатия"] = 1, ["Эрудиция"] = 2 } },
+    effect = { kind = "buff", school = "magic", stats = { ["Воодушевление"] = 1, ["Эрудиция"] = 2 } },
 })
 
 -- ==========================================================
@@ -1309,7 +1309,7 @@ AddEffect({
     name = "Милость духов",
     icon = "Interface\\Icons\\Spell_shaman_blessingoftheeternals",
     description = "Бесплотные слушают шамана охотнее, чем живые: с ними он говорит на их языке.",
-    effect = { kind = "buff", school = "magic", stats = { ["Дипломатия"] = 1, ["Религия"] = 1 } },
+    effect = { kind = "buff", school = "magic", stats = { ["Воодушевление"] = 1, ["Религия"] = 1 } },
 })
 
 AddEffect({
@@ -1571,7 +1571,7 @@ AddEffect({
     name = "Разговор с животными",
     icon = "Interface\\Icons\\Ability_hunter_beastsoothe",
     description = "Звери отвечают на вопросы так, как понимают их сами.",
-    effect = { kind = "buff", stats = { ["Выживание"] = 1, ["Дипломатия"] = 1 } },
+    effect = { kind = "buff", stats = { ["Выживание"] = 1, ["Воодушевление"] = 1 } },
 })
 
 AddEffect({
@@ -1604,7 +1604,7 @@ AddEffect({
     name = "Звериный транс",
     icon = "Interface\\Icons\\Spell_shaman_spectraltransformation",
     description = "Звери вокруг заворожены пением и стоят, не понимая, чего ждут.",
-    effect = { kind = "buff", school = "magic", stats = { ["Выживание"] = 1, ["Дипломатия"] = 2 } },
+    effect = { kind = "buff", school = "magic", stats = { ["Выживание"] = 1, ["Воодушевление"] = 2 } },
 })
 
 AddEffect({
@@ -1802,7 +1802,7 @@ AddEffect({
     icon = "Interface\\Icons\\Ability_warlock_randomizesuccubusincubus",
     description = "Суккуб стоит рядом и делает то, о чём договорились. Смотреть на него долго не стоит.",
     effect = { family = "Демон", kind = "buff", mods = { damage = 1 },
-               stats = { ["Дипломатия"] = 2, ["Внушение"] = 2, ["Живучесть"] = -1 },
+               stats = { ["Воодушевление"] = 2, ["Внушение"] = 2, ["Живучесть"] = -1 },
                tick = { castResource = -1 } },
 })
 

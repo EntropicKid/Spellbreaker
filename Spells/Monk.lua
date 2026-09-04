@@ -347,7 +347,7 @@ Add({
     duration = 3,
     debuff = "eff_demoralized_provoke",
     scaling = {
-    	hit    = { ["Дипломатия"] = 1, ["Живучесть"] = 0.5 },
+    	hit    = { ["Воодушевление"] = 1, ["Живучесть"] = 0.5 },
     },
 })
 

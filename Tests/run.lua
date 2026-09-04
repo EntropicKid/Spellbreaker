@@ -13108,7 +13108,7 @@ do
             ["Свет"]          = "Религия",
             ["Защита"]        = "Ношение брони",
             ["Воздаяние"]     = "Рвение",
-            ["Благословение"] = "Дипломатия",
+            ["Благословение"] = "Воодушевление",
         },
         ["Чернокнижник"] = {
             ["Разрушение"]  = "Живучесть",
@@ -13678,13 +13678,15 @@ do
         return char
     end
 
-    check("схема поднялась до восьмой", SB.SCHEMA_VERSION, 8)
+    -- Число прибито НАМЕРЕННО: поднимать версию положено осознанно, вместе
+    -- с новой миграцией, и молча уехать она не должна.
+    check("схема поднялась до девятой", SB.SCHEMA_VERSION, 9)
 
     -- ── БЕЗ РЕМЕСЛА ОСТАЁТСЯ ОДНА ЯЧЕЙКА ───────────────────
     local c = RunOn(1, 5)
     check("из пяти пачек осталась одна", #c.preparedItems, 1)
     check("и это ПЕРВАЯ положенная", c.preparedItems[1].id, "t_mig_item1")
-    check("версия проставлена", c.schemaVersion, 8)
+    check("версия проставлена", c.schemaVersion, SB.SCHEMA_VERSION)
 
     -- ── ПОЛНОЕ РЕМЕСЛО ОСТАВЛЯЕТ ТРИ ───────────────────────
     c = RunOn(5, 6)
@@ -14224,6 +14226,149 @@ do
     -- Попадание и крит не тронуты: правка про урон.
     check("бросок не тронут", shot.scaling.hit["Концентрация"], 1)
     check("крит не тронут",   shot.scaling.crit["Точность"], 1)
+end
+
+-- ============================================================
+-- ВООДУШЕВЛЕНИЕ: ЗЕРКАЛО «ВОЛИ»
+--
+-- Навык переименован из «Дипломатии» и до реворка был единственным из
+-- четвёрки «Характера» БЕЗ механики вовсе. Теперь: каждое очко сверх
+-- первого добавляет ход баффу, который ты кладёшь на СОЮЗНИКА.
+--
+-- «Воля» режет срок дряни, входящей в тебя; эта продлевает добро,
+-- исходящее от тебя. Один рычаг, разные стороны.
+-- ============================================================
+do
+    local L = SB.Logic
+    local savedSkills = _G.SpellbreakerCharDB.skills
+    ResetEffects()
+
+    -- ── СТАРОГО ИМЕНИ НЕ ОСТАЛОСЬ НИГДЕ ────────────────────
+    --
+    -- Незнакомый ключ навыка в данных — ошибка ТИХАЯ: скейлинг просто
+    -- берёт единицу и идёт дальше. Поэтому проверяем поимённо.
+    local charSkills
+    for _, def in ipairs(SB.Data.Attributes) do
+        if def.key == "Характер" then charSkills = def.skills end
+    end
+    checkTrue("«Характер» на месте", charSkills ~= nil)
+    local hasNew, hasOld = false, false
+    for _, s in ipairs(charSkills or {}) do
+        if s == "Воодушевление" then hasNew = true end
+        if s == "Дипломатия"    then hasOld = true end
+    end
+    checkTrue("навык называется «Воодушевление»", hasNew)
+    checkTrue("а «Дипломатии» больше нет", not hasOld)
+    checkTrue("у него есть описание бонуса",
+              SB.Data.SkillEffects["Воодушевление"] ~= nil)
+
+    local stale = {}
+    for id, sp in pairs(SB.Data.Spells) do
+        for _, ch in ipairs({ "hit", "crit", "damage" }) do
+            local src = sp.scaling and sp.scaling[ch]
+            if type(src) == "table" and src["Дипломатия"] then
+                stale[#stale + 1] = (sp.name or id) .. "/" .. ch
+            end
+        end
+        local st = sp.effect and sp.effect.stats
+        if type(st) == "table" and st["Дипломатия"] then
+            stale[#stale + 1] = (sp.name or id) .. "/stats"
+        end
+    end
+    check("старого имени в данных не осталось", table.concat(stale, ", "), "")
+
+    -- ── СКОЛЬКО ХОДОВ ДОБАВЛЯЕТ ────────────────────────────
+    _G.SpellbreakerCharDB.skills = { ["Воодушевление"] = 1 }
+    check("невложенный навык не добавляет ничего", SB.Skills.GetEncouragementBonus(), 0)
+    _G.SpellbreakerCharDB.skills = { ["Воодушевление"] = 4 }
+    check("вложенный — по ходу за очко сверх первого",
+          SB.Skills.GetEncouragementBonus(), 3)
+
+    -- ── ТОЛЬКО НА ДРУГИХ И ТОЛЬКО НА БАФФЫ ─────────────────
+    SB.Data.Spells["t_enc_buff"] = { id = "t_enc_buff", name = "Проба добра",
+        class = "Эффект", level = 0, effect = { kind = "buff", mods = { attack = 1 } } }
+    SB.Data.Spells["t_enc_debuff"] = { id = "t_enc_debuff", name = "Проба зла",
+        class = "Эффект", level = 0, effect = { kind = "debuff", mods = { attack = -1 } } }
+
+    check("на союзника бафф продлевается",
+          L.EncouragementFor("t_enc_buff", false), 3)
+    check("на себя — нет",
+          L.EncouragementFor("t_enc_buff", true), 0)
+    check("дебафф не продлевается ВООБЩЕ",
+          L.EncouragementFor("t_enc_debuff", false), 0)
+
+    -- ── И ЭТО ПРАВДА МЕНЯЕТ СРОК ───────────────────────────
+    local src = { id = "t_enc_src", name = "Источник", class = "Жрец",
+                  level = 1, duration = 3, buff = "t_enc_buff" }
+    check("без прибавки — свой срок",
+          L.GetEffectDuration("t_enc_buff", src, 1), 3)
+    check("с прибавкой — длиннее ровно на неё",
+          L.GetEffectDuration("t_enc_buff", src, 1, 3), 6)
+
+    -- ПРИБАВКА НЕ УМНОЖАЕТСЯ ВЛОЖЕННЫМ РЕСУРСОМ. Иначе очко навыка
+    -- стоило бы вчетверо больше на третьем круге, чем на первом.
+    local upcast = L.GetEffectDuration("t_enc_buff", src, 3)
+    check("вливание растягивает своё", upcast, 9)
+    check("а навык кладётся сверху плоско",
+          L.GetEffectDuration("t_enc_buff", src, 3, 3), upcast + 3)
+
+    -- Бесконечное не продлевается: «до конца сцены» плюс ход — это всё
+    -- та же «до конца сцены».
+    local forever = { id = "t_enc_inf", name = "Навсегда", class = "Жрец",
+                      level = 1, duration = -1, buff = "t_enc_buff" }
+    check("бесконечный эффект остаётся бесконечным",
+          L.GetEffectDuration("t_enc_buff", forever, 1, 3), SB.ActiveEffects.INFINITE)
+
+    SB.Data.Spells["t_enc_buff"], SB.Data.Spells["t_enc_debuff"] = nil, nil
+    _G.SpellbreakerCharDB.skills = savedSkills
+
+    -- ── ПРИБАВКУ ПРИЦЕПЛЯЕТ ОДНО МЕСТО ─────────────────────
+    --
+    -- Отправок баффа пять, и это ровно та россыпь, из которой одну ветку
+    -- однажды забывают. Правило живёт в SendBuff — точке, через которую
+    -- бафф физически уходит другому.
+    local net = ReadFile("Core/Network.lua")
+    local send = net:match("function SB%.Net%.SendBuff%(.-\nend")
+    checkTrue("SendBuff найден", send ~= nil)
+    checkTrue("и он спрашивает про «Воодушевление»",
+              send and send:find("EncouragementFor", 1, true) ~= nil)
+    checkTrue("от лица существа навык не считается",
+              send and send:find("not npcName", 1, true) ~= nil)
+end
+
+-- ============================================================
+-- МИГРАЦИЯ v9: ПЕРЕИМЕНОВАНИЕ НАВЫКА НЕ ТЕРЯЕТ ВЛОЖЕННОЕ
+--
+-- Навыки лежат в сохранёнке по ИМЕНИ-КЛЮЧУ, id у них нет. Переезд имени
+-- для базы неотличим от «старый навык удалили, новый добавили», причём
+-- молча: незнакомый ключ просто никем не читается.
+-- ============================================================
+do
+    local function Run(skills)
+        local char = { schemaVersion = 8, skills = skills }
+        SB.Migrations.Run(char, { schemaVersion = 8 })
+        return char.skills
+    end
+
+    local s = Run({ ["Дипломатия"] = 4, ["Милосердие"] = 2 })
+    check("вложенное переехало под новое имя", s["Воодушевление"], 4)
+    check("старого ключа не осталось",         s["Дипломатия"], nil)
+    check("соседи не тронуты",                 s["Милосердие"], 2)
+
+    -- Ничего не было — ничего и не появляется: миграция не выдумывает
+    -- навык тому, кто в него не вкладывался.
+    s = Run({ ["Милосердие"] = 2 })
+    check("без старого ключа новый не заводится", s["Воодушевление"], nil)
+
+    -- Оба ключа сразу (полуручная правка сохранёнки): берём БОЛЬШЕЕ.
+    -- Отнять вложенное молча хуже, чем оставить лишнее.
+    s = Run({ ["Дипломатия"] = 5, ["Воодушевление"] = 2 })
+    check("при споре побеждает большее", s["Воодушевление"], 5)
+
+    -- Повторный прогон на готовой базе ничего не трогает.
+    local done = { schemaVersion = 9, skills = { ["Воодушевление"] = 3 } }
+    SB.Migrations.Run(done, { schemaVersion = 9 })
+    check("на готовой базе шаг не повторяется", done.skills["Воодушевление"], 3)
 end
 
 -- ============================================================

@@ -519,7 +519,7 @@ local function ParseBUFF(sender, t)
     if not shown then return end
     if SB.Logic and SB.Logic.HandleBuffReceived then
         SB.Logic.HandleBuffReceived(shown, t.spellID, t.effectID, t.slot,
-            t.roll, t.mod, t.total, sender)
+            t.roll, t.mod, t.total, sender, tonumber(t.enc) or 0)
     end
 end
 
@@ -1685,6 +1685,22 @@ end
 ---        nil — пакет со старой сборки, там эффект ложится безусловно.
 function SB.Net.SendBuff(targetName, spellID, effectID, slot, npcName, roll, mod, total)
     if not IsInGroup() then return end
+
+    -- «ВООДУШЕВЛЕНИЕ» ПРИЦЕПЛЯЕТСЯ ЗДЕСЬ, А НЕ У КАЖДОГО ОТПРАВИТЕЛЯ.
+    --
+    -- Отправок баффа пять — самокаст союзнику, одиночный эффект, отдача
+    -- щита, способность существа, — и это ровно та россыпь, из которой
+    -- одну ветку однажды забывают (см. историю с собственным контейнером
+    -- заклинателя). Правило решает SB.Logic.EncouragementFor, а место у
+    -- него одно: точка, через которую бафф ФИЗИЧЕСКИ уходит другому.
+    --
+    -- ОТ ЛИЦА СУЩЕСТВА — НЕ СЧИТАЕТСЯ. Ведущий, кастующий за волка,
+    -- одалживает волку свои руки, а не свой навык (поле npc).
+    local enc = 0
+    if not npcName and SB.Logic and SB.Logic.EncouragementFor then
+        enc = SB.Logic.EncouragementFor(effectID, targetName == UnitName("player"))
+    end
+
     SendToPlayer({
         action   = "BUFF",
         caster   = UnitName("player"),
@@ -1696,6 +1712,9 @@ function SB.Net.SendBuff(targetName, spellID, effectID, slot, npcName, roll, mod
         roll     = roll,
         mod      = mod,
         total    = total,
+        -- Ноль не везём: лишнее поле в каждом пакете ради навыка,
+        -- которого у большинства нет.
+        enc      = (enc > 0) and enc or nil,
     }, targetName, "NORMAL")
 end
 

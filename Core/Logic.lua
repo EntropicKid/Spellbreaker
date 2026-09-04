@@ -886,8 +886,11 @@ end
 --- Итоговая длительность эффекта в ходах (или SB.ActiveEffects.INFINITE).
 --- Отдельной функцией, потому что то же число показывает пикер круга
 --- ДО каста — а расходиться расчёт и обещание не должны.
+--- @param extraTurns number|nil  прибавка ЗАКЛИНАТЕЛЯ, приехавшая вместе
+---        с эффектом («Воодушевление», см. SB.Logic.EncouragementFor).
+---        Своя длительность о ней знать не может: навык чужой.
 --- @return number
-function SB.Logic.GetEffectDuration(effectID, sourceSpell, slotLevel)
+function SB.Logic.GetEffectDuration(effectID, sourceSpell, slotLevel, extraTurns)
     -- СКОЛЬКО ЭФФЕКТ ПРОВИСИТ, РЕШАЕТ ТОЛЬКО ЗАКЛИНАНИЕ, которое его
     -- наложило. Так одна и та же «Каменная кожа» держится 3 хода от
     -- слабого заклинания и 10 от сильного, и правится это там же, где
@@ -910,11 +913,39 @@ function SB.Logic.GetEffectDuration(effectID, sourceSpell, slotLevel)
 
     if turns < 0 then
         -- Бесконечность не умножается: «до конца сцены» вдвое — это всё
-        -- та же «до конца сцены».
+        -- та же «до конца сцены». И не продлевается: см. ниже.
         return SB.ActiveEffects.INFINITE
     end
 
-    return math.max(1, math.floor(turns * SB.Logic.GetUpcastMultiplier(sourceSpell, slotLevel)))
+    -- «ВООДУШЕВЛЕНИЕ» ПРИБАВЛЯЕТСЯ ПОСЛЕ УМНОЖЕНИЯ, а не до. Вложенный
+    -- ресурс растягивает то, что заложено в заклинание, — навык
+    -- заклинателя к этому отношения не имеет и умножаться вместе с ним
+    -- не должен: иначе очко навыка стоило бы вчетверо больше на третьем
+    -- круге, чем на нулевом.
+    --
+    -- Число приезжает СНАРУЖИ, потому что считает его заклинатель, а
+    -- длительность собирает получатель (см. SB.Skills.GetEncouragementBonus).
+    local extra = math.max(0, math.floor(tonumber(extraTurns) or 0))
+
+    return math.max(1,
+        math.floor(turns * SB.Logic.GetUpcastMultiplier(sourceSpell, slotLevel)) + extra)
+end
+
+--- Сколько ходов «Воодушевление» добавит ЭТОМУ эффекту у ЭТОЙ цели.
+---
+--- ОДНО МЕСТО НА ВСЕ ОТПРАВКИ. Решение состоит из двух условий, и оба
+--- легко забыть порознь: бафф ли это (дебафф продлевать было бы прямо
+--- наоборот задуманному) и чужой ли получатель (на себя навык не
+--- работает — в этом весь его размен).
+--- @param onSelf boolean  эффект ложится на самого заклинателя
+--- @return number
+function SB.Logic.EncouragementFor(effectID, onSelf)
+    if onSelf then return 0 end
+    if not (SB.Skills and SB.Skills.GetEncouragementBonus) then return 0 end
+    local kind = SB.ActiveEffects and SB.ActiveEffects.GetKind
+        and SB.ActiveEffects.GetKind(effectID) or "buff"
+    if kind ~= "buff" then return 0 end
+    return SB.Skills.GetEncouragementBonus()
 end
 
 -- ============================================================
@@ -1350,12 +1381,15 @@ end
 --- @param fromOther boolean|nil  эффект пришёл от ЧУЖОГО каста: бафф
 ---        союзника, залп по площади, способность существа. Тогда моим
 ---        слотом концентрации он не считается — см. врезку ниже.
-function SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, fromOther)
+--- @param extraTurns number|nil  прибавка к сроку от ЗАКЛИНАТЕЛЯ
+---        («Воодушевление»). Приезжает по сети вместе с эффектом: свой
+---        клиент чужого навыка не видит (см. SB.Logic.GetEffectDuration).
+function SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, fromOther, extraTurns)
     if not effectID or not SB.ActiveEffects or not SB.ActiveEffects.Add then return end
     local effectSpell = SB.Data.Spells[effectID]
     if not effectSpell then return end
 
-    local turns = SB.Logic.GetEffectDuration(effectID, sourceSpell, slotLevel)
+    local turns = SB.Logic.GetEffectDuration(effectID, sourceSpell, slotLevel, extraTurns)
 
     -- ── КОНЦЕНТРИРУЕТСЯ ТОТ, КТО КАСТОВАЛ ───────────────────
     --
@@ -1554,8 +1588,11 @@ end
 ---        там броска и не было).
 --- @param sender string|nil  настоящее имя отправителя: casterName может
 ---        оказаться именем существа, от чьего лица бьёт Ведущий.
+--- @param extraTurns number|nil  прибавка к сроку от «Воодушевления»
+---        заклинателя. Считает её ОН и шлёт вместе с эффектом: своего
+---        клиента чужой навык не касается (см. SB.Logic.EncouragementFor).
 function SB.Logic.HandleBuffReceived(casterName, spellID, effectID, slotLevel,
-                                     roll, mod, total, sender)
+                                     roll, mod, total, sender, extraTurns)
     local sourceSpell = SB.Data.Spells[spellID]
 
     -- Называем ЗАКЛИНАНИЕ, а не эффект: ссылка кликабельна, и в карточке
@@ -1569,7 +1606,7 @@ function SB.Logic.HandleBuffReceived(casterName, spellID, effectID, slotLevel,
 
     if total == nil then
         -- fromOther: каст чужой, концентрацию держит заклинатель.
-        SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, true)
+        SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, true, extraTurns)
         print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. who)
         return
     end
@@ -1597,7 +1634,7 @@ function SB.Logic.HandleBuffReceived(casterName, spellID, effectID, slotLevel,
     -- сопротивления» проверяем сами, а не верим присланным числам.
     local ok = SB.Logic.IsGuaranteed(sourceSpell) or (total >= threshold)
 
-    if ok then SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, true) end
+    if ok then SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, true, extraTurns) end
 
     local G = SB.Theme.MSG_BODY
     print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. who .. G .. ": |r" ..
@@ -1697,7 +1734,7 @@ end
 -- Свободный бросок «на характеристику», не привязанный к заклинанию:
 -- бросок кубика + модификатор самой характеристики + бонус за уровень
 -- персонажа. Мастерство сюда НЕ входит — это ранг заклинателя, к
--- проверке Атлетики или Дипломатии он отношения не имеет.
+-- проверке Атлетики или Скрытности он отношения не имеет.
 -- ============================================================
 
 --- @param key string  Имя атрибута ИЛИ навыка (SB.Attributes.Get
