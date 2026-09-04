@@ -15071,12 +15071,28 @@ do
     -- «Снятие проклятья» переставало предлагать вливание.
     checkTrue("рассеиванию вливать есть смысл",
               L.CanUpcast({ dispel = { "magic" }, level = 1 }))
-    local purge = SB.Data.Spells["remove_curse"] or SB.Data.Spells["cure_poison"]
-    for id, sp in pairs(SB.Data.Spells) do
-        if ShippedSpells[id] and L.GetDispelSchools(sp) then purge = sp break end
+    -- ВЫБИРАЕМ ДЕТЕРМИНИРОВАННО И С ЗАПАСОМ ПО КРУГАМ. Первая версия
+    -- брала первое попавшееся рассеивание перебором pairs — а порядок
+    -- там непредсказуем, и раз в несколько прогонов попадалось
+    -- рассеивание ТРЕТЬЕГО круга. Вливать ему некуда: потолок реалма
+    -- тоже третий, — и правило честно отвечало «нет», роняя проверку.
+    -- Плавающая проверка хуже упавшей: она приучает не верить прогону.
+    local cap = SB.Data.GetRealmMaxOrder and SB.Data.GetRealmMaxOrder() or 3
+    local purge
+    do
+        local ids = {}
+        for id, sp in pairs(SB.Data.Spells) do
+            if ShippedSpells[id] and L.GetDispelSchools(sp)
+               and (tonumber(sp.level) or 0) < cap then
+                ids[#ids + 1] = id
+            end
+        end
+        table.sort(ids)                       -- порядок один и тот же всегда
+        purge = ids[1] and SB.Data.Spells[ids[1]]
     end
+    checkTrue("рассеивание с запасом по кругам в библиотеке есть", purge ~= nil)
     if purge then
-        checkTrue("и живому рассеиванию тоже", L.CanUpcast(purge))
+        checkTrue("и живому рассеиванию вливать есть смысл", L.CanUpcast(purge))
         checkTrue("а число снимаемого и правда растёт",
                   L.GetDispelCount(purge, (purge.level or 0) + 1)
                   > L.GetDispelCount(purge, purge.level or 0))
