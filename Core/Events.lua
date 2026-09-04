@@ -88,7 +88,16 @@ SB.E = {
     CAST_CONFIRMED          = "CAST_CONFIRMED",          -- (spellID, slotLevel)
     CAST_RESOLVED           = "CAST_RESOLVED",           -- (spellID, succeeded, resultStatus, detail)
     CAST_REJECTED           = "CAST_REJECTED",           -- (spellID)
-    PVP_HIT_RESOLVED        = "PVP_HIT_RESOLVED",        -- (dmg, spellID, landed)
+    -- ИСХОД СОБСТВЕННОЙ АТАКИ — по игроку И по существу.
+    --
+    -- Раньше событие звалось PVP_HIT_RESOLVED, и имя оказалось не
+    -- описанием, а границей: путь по существу (Core/Logic/NPC.lua) его
+    -- не выпускал вовсе — «ПвП» же. Молчали разом все три слушателя:
+    -- поводы onAction("hit"), спадение эффектов от собственного удара
+    -- (breakOn.dealt) и классовое восполнение Воина с Охотником на
+    -- демонов. «Печать Света» не лечила, Воин не копил ярость, а
+    -- «Незаметность» не спадала — ровно там, где идёт основная игра.
+    ATTACK_RESOLVED         = "ATTACK_RESOLVED",         -- (dmg, spellID, landed, targetName)
     GM_REQUEST_RECEIVED     = "GM_REQUEST_RECEIVED",     -- (caster, spellID, slotLevel, targetLabel)
 
     -- Активные эффекты

@@ -249,12 +249,13 @@ SB.Events.On(SB.E.CAST_RESOLVED, function(spellID, succeeded)
     end
 end)
 
--- Исход ПвП-атаки (CAST_RESOLVED в ПвП не участвует — там свой путь
--- резолва через ответ защищающейся стороны).
+-- Исход СОБСТВЕННОЙ АТАКИ — и по игроку, и по существу. CAST_RESOLVED
+-- ни там, ни там не участвует: у обоих свой путь резолва (ответ
+-- защищающейся стороны в ПвП, обе стороны разом в Core/Logic/NPC.lua).
 -- landed — попало ли заклинание (бросок атаки пробил защиту). Именно
 -- он, а не факт урона: удар, полностью поглощённый бронёй цели,
 -- приходит с dmg = 0, но промахом не является.
-SB.Events.On(SB.E.PVP_HIT_RESOLVED, function(dmg, spellID, landed)
+SB.Events.On(SB.E.ATTACK_RESOLVED, function(dmg, spellID, landed)
     if landed then
         FireTrigger("damage")
     else

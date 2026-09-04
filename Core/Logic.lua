@@ -3281,7 +3281,7 @@ function SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, totalScaling, turnS
 
     -- «Нанёс урон» — вторая половина воронки для эффектов, спадающих от
     -- собственного удара (см. effect.breakOn в Core/ActiveEffects.lua).
-    -- Первая половина — PVP_HIT_RESOLVED, но она приходит ответом от
+    -- Первая половина — ATTACK_RESOLVED, но она приходит ответом от
     -- цели-игрока, а по НПС ответа нет: урон считает сам аддон, здесь.
     if leechFrom > 0 and SB.ActiveEffects and SB.ActiveEffects.BreakOn then
         SB.ActiveEffects.BreakOn("dealt")
@@ -3692,7 +3692,7 @@ end
 -- этого события не шлют и слать не могут:
 --   * ПвП-удар — исход приходит ответом защищающейся стороны, а на
 --     CAST_RESOLVED подписаны классовые механики, для которых ПвП уже
---     отработан через PVP_HIT_RESOLVED (двойной триггер);
+--     отработан через ATTACK_RESOLVED (двойной триггер);
 --   * лечение — свой самостоятельный резолв.
 -- Им звук нужен ровно так же, поэтому вот общая точка на оба.
 --
@@ -4088,7 +4088,11 @@ function SB.Logic.HandlePvpResultReceived(targetName, defRoll, defMod, defTotal,
     -- Триггер уникальных механик некастеров (Воин копит ресурс с
     -- попадания, Охотник на демонов восполняет ресурс с промаха) —
     -- нужен независимо от того, есть ли у нас отпись для этого заклинания.
-    SB.Events.Fire(SB.E.PVP_HIT_RESOLVED, dmg, spellID, landed)
+    -- ИМЯ ЦЕЛИ ЧЕТВЁРТЫМ ДОВОДОМ: по нему уходит onAction.toTarget —
+    -- «с каждой атакой цель испытывает шанс получить оглушение».
+    -- Доставляет эффект клиент цели, поэтому нужно именно имя игрока
+    -- (см. врезку о возмездии в Core/ActiveEffects.lua).
+    SB.Events.Fire(SB.E.ATTACK_RESOLVED, dmg, spellID, landed, targetName)
 
     -- Результат задетого — в общий блок залпа (см. OpenAoeReport).
     if aoe then

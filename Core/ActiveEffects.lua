@@ -455,19 +455,25 @@ function SB.ActiveEffects.GetEffectLines(spellID)
         if act.melee then head = head .. " в ближнем бою" end
         if act.chance then head = head .. ", шанс " .. act.chance .. "%" end
 
-        local what = PayloadText(act.payload)
-        if not what and type(act.effect) == "string" then
-            -- Здесь стоял вызов SB.Logic.EffectName — функции, которой в
-            -- аддоне нет. Ветка была защищена «and», поэтому молчала, но
-            -- читалась как рабочая: имя эффекта всё это время приходило
-            -- из запасного варианта справа.
-            local by = SB.Data.Spells[act.effect]
-            what = by and by.name
+        -- ЧТО ПРОИСХОДИТ — СПИСКОМ, А НЕ ПЕРВЫМ НАЙДЕННЫМ.
+        --
+        -- Здесь стояла цепочка «if not what», и повод, у которого есть
+        -- и выплата, и эффект в чужую сторону, показывал только
+        -- выплату — карточка молчала ровно о том, ради чего эффект и
+        -- берут. Части друг друга не исключают: срабатывает повод
+        -- целиком, значит и перечисляется целиком.
+        local parts = {}
+        local function name(id)
+            local by = SB.Data.Spells[id]
+            return (by and by.name) or id
         end
-        if not what and type(act.toAttacker) == "string" then
-            local nm = SB.Data.Spells[act.toAttacker]
-            what = "ударившему — " .. ((nm and nm.name) or act.toAttacker)
-        end
+        local payTxt = PayloadText(act.payload)
+        if payTxt then table.insert(parts, payTxt) end
+        if type(act.effect)     == "string" then table.insert(parts, name(act.effect)) end
+        if type(act.toAttacker) == "string" then table.insert(parts, "ударившему — " .. name(act.toAttacker)) end
+        -- Зеркало возмездия: «я попал — цель получила» (см. SendAside).
+        if type(act.toTarget)   == "string" then table.insert(parts, "цели — "       .. name(act.toTarget)) end
+        local what = (#parts > 0) and table.concat(parts, ", ") or nil
         -- РАСХОД — В ТОЙ ЖЕ СТРОКЕ, что и повод: игрок должен понимать,
         -- что «4 хода» у щита на зарядах означают «4 удара», а не время.
         if act.consume then
@@ -1851,7 +1857,27 @@ function SB.ActiveEffects.ActionsOf(sp)
     return { act }
 end
 
-local function FireAction(when, spell, attacker)
+-- ЭФФЕКТ НА ЧУЖОГО ПЕРСОНАЖА — ОДНОЙ ДВЕРЬЮ ДЛЯ ОБОИХ НАПРАВЛЕНИЙ.
+--
+-- toAttacker («ударил меня — получи») и toTarget («я попал — получи»)
+-- различаются ровно адресатом. Проверки же у них одни: только по имени
+-- (нет имени — удар от существа или правка Ведущего, отвечать некому),
+-- только не себе (иначе щит поджигал бы носителя) и только пока сеть
+-- поднята. Две копии этих проверок означали бы, что однажды правку
+-- внесут в одну.
+--
+-- СРОК СЧИТАЕТ ПОЛУЧАТЕЛЬ, и считает по общему правилу: длительность
+-- задаёт заклинание-источник, а у контейнера щита её нет — значит один
+-- ход (см. SB.Logic.GetEffectDuration). Ровно то, что нужно: искры
+-- вспыхнули и погасли, а не жгут врага полбоя.
+local function SendAside(ok, effectID, name, sourceID)
+    if not ok or type(effectID) ~= "string" then return end
+    if not name or name == "" or name == UnitName("player") then return end
+    if not (SB.Net and SB.Net.SendBuff) then return end
+    SB.Net.SendBuff(name, sourceID, effectID, 0)
+end
+
+local function FireAction(when, spell, attacker, target)
     -- КОПИЯ СПИСКА, а не сам список: повод умеет вешать эффект на себя
     -- (act.effect), а Add правит ту же таблицу — обход по живой съел бы
     -- часть эффектов или зациклился.
@@ -1918,11 +1944,22 @@ local function FireAction(when, spell, attacker)
             -- контейнера щита её нет — значит один ход (см.
             -- SB.Logic.GetEffectDuration). Ровно то, что нужно: искры
             -- вспыхнули и погасли, а не жгут врага полбоя.
-            if ok and type(act.toAttacker) == "string"
-               and attacker and attacker ~= "" and attacker ~= UnitName("player")
-               and SB.Net and SB.Net.SendBuff then
-                SB.Net.SendBuff(attacker, eff.spellID, act.toAttacker, 0)
-            end
+            SendAside(ok, act.toAttacker, attacker, eff.spellID)
+
+            -- ── И ОБРАТНО: ЭФФЕКТ УХОДИТ ТОМУ, КОГО УДАРИЛ ─────
+            --
+            -- «С каждой такой атакой цель испытывает шанс получить
+            -- оглушение» (Каменная корка), яд на клинке, клеймо от
+            -- печати — весь пласт «попал — цель получила» до сих пор
+            -- не выражался ничем: возмездие умело отвечать только
+            -- назад, ударившему.
+            --
+            -- Направление разное, доставка одна и та же: наш клиент не
+            -- вешает эффекты на чужого персонажа ни в ту, ни в другую
+            -- сторону — их вешает ЕГО клиент по нашему пакету. Поэтому
+            -- обе строки идут через один SendAside, и новой двери в
+            -- чужой персонаж не открывается.
+            SendAside(ok, act.toTarget, target, eff.spellID)
 
             -- ── СРАБАТЫВАНИЕ РАСХОДУЕТ САМ ЭФФЕКТ ──────────────
             --
@@ -1996,8 +2033,10 @@ SB.Events.On(SB.E.CAST_CONFIRMED, function(spellID)
     FireAction("cast", SB.Data.Spells[spellID])
 end)
 
-SB.Events.On(SB.E.PVP_HIT_RESOLVED, function(_, spellID, landed)
-    if landed then FireAction("hit", SB.Data.Spells[spellID]) end
+SB.Events.On(SB.E.ATTACK_RESOLVED, function(_, spellID, landed, targetName)
+    -- ТРЕТИЙ ДОВОД ПУСТОЙ: ударил здесь МЫ, отвечать назад некому.
+    -- Четвёртый — тот, кого ударили: по нему уходит toTarget.
+    if landed then FireAction("hit", SB.Data.Spells[spellID], nil, targetName) end
 end)
 
 -- ПОВОД «damaged» ПРИХОДИТ ОТ УДАРА, а не от изменения здоровья.
@@ -2280,7 +2319,7 @@ end
 -- резолва: «получил урон» и «исцелён» — это HEALTH_CHANGED с
 -- отрицательной и положительной дельтой (через него проходит ВСЁ:
 -- ПвП-удар, тик кровотечения, лечение союзника, правка Ведущего),
--- «нанёс урон» — PVP_HIT_RESOLVED плюс ПвЕ-ветка, где урон считает сам
+-- «нанёс урон» — ATTACK_RESOLVED плюс ПвЕ-ветка, где урон считает сам
 -- аддон. Ставить проверки в каждый путь значило бы однажды забыть один.
 --
 -- КРОВОТЕЧЕНИЕ ПОЛЬЗУЕТСЯ ЭТИМ БЕЗ ОБЪЯВЛЕНИЯ. Школа "bleed" сама по
@@ -2394,7 +2433,7 @@ SB.Events.On(SB.E.HEALTH_CHANGED, function(_, _, delta)
     end
 end)
 
-SB.Events.On(SB.E.PVP_HIT_RESOLVED, function(dmg, _, landed)
+SB.Events.On(SB.E.ATTACK_RESOLVED, function(dmg, _, landed)
     if landed and (tonumber(dmg) or 0) > 0 then
         SB.ActiveEffects.BreakOn("dealt")
     end

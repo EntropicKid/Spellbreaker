@@ -478,14 +478,14 @@ SB.PlayerModel.Heal(1)
 check("лечение эффекты не снимает",            UsesOf("t_ambush"),  5)
 
 -- Нанесли урон: спадает засада.
-SB.Events.Fire(SB.E.PVP_HIT_RESOLVED, 3, "t_strike", true)
+SB.Events.Fire(SB.E.ATTACK_RESOLVED, 3, "t_strike", true)
 check("засада спала от нанесённого урона",     UsesOf("t_ambush"),  nil)
 check("обычный эффект по-прежнему цел",        UsesOf("t_steady"),  5)
 
 -- Промах уроном не считается.
 ResetEffects()
 SB.ActiveEffects.Add("t_ambush", 5, false)
-SB.Events.Fire(SB.E.PVP_HIT_RESOLVED, 0, "t_strike", false)
+SB.Events.Fire(SB.E.ATTACK_RESOLVED, 0, "t_strike", false)
 check("промах засаду не снимает",              UsesOf("t_ambush"),  5)
 
 -- Условие видно в карточке эффекта — до того, как повесишь его на себя.
@@ -1123,6 +1123,42 @@ do
         checkTrue("в ударе по существу оба шага на месте",
                   mit ~= nil and crit ~= nil)
         checkTrue("защита считается раньше удвоения", mit < crit)
+    end
+
+    -- ── УДАР ПО СУЩЕСТВУ — ТОЖЕ УДАР ────────────────────────
+    --
+    -- Событие исхода атаки когда-то звалось PVP_HIT_RESOLVED, и имя
+    -- оказалось не описанием, а границей: путь по существу его не
+    -- выпускал вовсе — «ПвП» же. Молчали разом ТРИ слушателя: поводы
+    -- onAction("hit"), спадение эффектов с breakOn.dealt и классовое
+    -- восполнение Воина с Охотником на демонов. «Печать Света» не
+    -- лечила, Воин не копил ярость, «Незаметность» не спадала — ровно
+    -- там, где идёт основная игра.
+    --
+    -- Проверяем ВОРОНКУ, а не число слушателей: их станет больше, и
+    -- каждый новый обязан получать оба вида атаки даром. Поэтому
+    -- условие одно — путь по существу выпускает то же событие, что и
+    -- ПвП, и нигде больше сведений об исходе атаки не заводится.
+    do
+        local paths = {
+            { "Core/Logic/NPC.lua", "удар по существу" },
+            { "Core/Logic.lua",     "удар по игроку"   },
+        }
+        for _, row in ipairs(paths) do
+            local src = ReadFile(row[1])
+            checkTrue(row[2] .. " выпускает исход атаки",
+                      src:find("Fire(SB.E.ATTACK_RESOLVED", 1, true) ~= nil)
+        end
+        -- И СТАРОГО ИМЕНИ НЕ ОСТАЛОСЬ НИГДЕ: пережившая правку строка
+        -- подписалась бы на событие, которого больше никто не шлёт, и
+        -- молчала бы точно так же, как молчал ПвЕ-путь.
+        for _, p in ipairs({ "Core/Events.lua", "Core/Logic.lua", "Core/Logic/NPC.lua",
+                             "Core/ActiveEffects.lua", "Core/ClassMechanics.lua" }) do
+            local src = ReadFile(p)
+            local stale = src:find("PVP_HIT_RESOLVED", 1, true)
+                          and not src:find("звалось PVP_HIT_RESOLVED", 1, true)
+            checkTrue(p .. ": старого имени события нет", not stale)
+        end
     end
 
     ResetEffects()
@@ -6092,19 +6128,19 @@ do
     -- ── СРАБАТЫВАЕТ НА СВОЙ ПОПАВШИЙ УДАР ───────────────────
     SB.ActiveEffects.Add("t_oa_hit", 9, false)
     local before = PM.GetPool("mana")
-    SB.Events.Fire(SB.E.PVP_HIT_RESOLVED, 3, "t_oa_melee", true)
+    SB.Events.Fire(SB.E.ATTACK_RESOLVED, 3, "t_oa_melee", true)
     checkTrue("попавший удар в упор вернул ману", PM.GetPool("mana") > before)
 
     -- ПРОМАХ НЕ СЧИТАЕТСЯ: событие приходит и на промах тоже, и без
     -- проверки эффект кормился бы мимо цели.
     before = PM.GetPool("mana")
-    SB.Events.Fire(SB.E.PVP_HIT_RESOLVED, 0, "t_oa_melee", false)
+    SB.Events.Fire(SB.E.ATTACK_RESOLVED, 0, "t_oa_melee", false)
     check("промах ничего не даёт", PM.GetPool("mana"), before)
 
     -- УТОЧНЕНИЕ melee РАБОТАЕТ: дальнобойное заклинание не кормит стойку
     -- ближнего боя.
     before = PM.GetPool("mana")
-    SB.Events.Fire(SB.E.PVP_HIT_RESOLVED, 3, "t_oa_far", true)
+    SB.Events.Fire(SB.E.ATTACK_RESOLVED, 3, "t_oa_far", true)
     check("дальний удар стойку не кормит", PM.GetPool("mana"), before)
     ResetEffects()
 
@@ -6210,15 +6246,75 @@ do
                    onAction = { when = "hit", effect = "t_oa_gift", turns = 2 } } }
     SB.ActiveEffects.Add("t_oa_giver", 9, false)
     checkTrue("подарка ещё нет", UsesOf("t_oa_gift") == nil)
-    SB.Events.Fire(SB.E.PVP_HIT_RESOLVED, 3, "t_oa_far", true)
+    SB.Events.Fire(SB.E.ATTACK_RESOLVED, 3, "t_oa_far", true)
     checkTrue("после попадания эффект повешен", UsesOf("t_oa_gift") ~= nil)
     check("и ровно на заказанный срок", UsesOf("t_oa_gift"), 2)
     ResetEffects()
 
+    -- ── ЭФФЕКТ УХОДИТ ТОМУ, КОГО УДАРИЛ ─────────────────────
+    --
+    -- Зеркало возмездия. «С каждой такой атакой цель испытывает шанс
+    -- получить оглушение» — до toTarget этот пласт описаний не
+    -- выражался ничем: отвечать умели только назад, ударившему.
+    do
+        SB.Data.Spells["t_oa_mark"] = { id = "t_oa_mark", name = "Проба клейма",
+            class = "Эффект", level = 0, isContainer = true,
+            effect = { kind = "debuff", mods = { defense = -5 } } }
+        SB.Data.Spells["t_oa_brander"] = { id = "t_oa_brander", name = "Проба клеймящего",
+            class = "Эффект", level = 0, isContainer = true,
+            effect = { kind = "buff",
+                       onAction = { when = "hit", toTarget = "t_oa_mark" } } }
+        SB.ActiveEffects.Add("t_oa_brander", 9, false)
+
+        local realSend, sentTo, sentEff = SB.Net.SendBuff, nil, nil
+        SB.Net.SendBuff = function(name, _, effectID)
+            sentTo, sentEff = name, effectID
+        end
+
+        SB.Events.Fire(SB.E.ATTACK_RESOLVED, 3, "t_oa_far", true, "Цельникто")
+        check("клеймо ушло тому, кого ударили", sentTo, "Цельникто")
+        check("и это заказанный эффект", sentEff, "t_oa_mark")
+
+        -- ПРОМАХ НЕ КЛЕЙМИТ: повод «hit» и означает попадание.
+        sentTo = nil
+        SB.Events.Fire(SB.E.ATTACK_RESOLVED, 0, "t_oa_far", false, "Цельникто")
+        check("промах ничего не отправляет", sentTo, nil)
+
+        -- БЕЗ ИМЕНИ НЕКОМУ: удар по существу приходит без цели, и
+        -- отправлять пакет в пустоту (или тёзке волка) нельзя.
+        sentTo = nil
+        SB.Events.Fire(SB.E.ATTACK_RESOLVED, 3, "t_oa_far", true, nil)
+        check("без имени цели не отправляем", sentTo, nil)
+
+        -- И СЕБЕ НЕ КЛЕЙМИМ — та же защита, что у возмездия.
+        sentTo = nil
+        SB.Events.Fire(SB.E.ATTACK_RESOLVED, 3, "t_oa_far", true, stub.world.playerName)
+        check("самому себе клеймо не уходит", sentTo, nil)
+
+        SB.Net.SendBuff = realSend
+        ResetEffects()
+    end
+
+    -- ── КАРТОЧКА НАЗЫВАЕТ ВСЕ ЧАСТИ ПОВОДА, А НЕ ПЕРВУЮ ──────
+    --
+    -- Раньше описание собиралось цепочкой «if not what», и повод с
+    -- выплатой И эффектом в чужую сторону показывал только выплату:
+    -- карточка молчала ровно о том, ради чего эффект и берут.
+    do
+        SB.Data.Spells["t_oa_both"] = { id = "t_oa_both", name = "Проба обоих",
+            class = "Эффект", level = 0, isContainer = true,
+            effect = { kind = "buff",
+                       onAction = { when = "hit", payload = { mana = 1 },
+                                    toTarget = "t_oa_mark" } } }
+        local txt = table.concat(SB.ActiveEffects.GetEffectLines("t_oa_both") or {}, " ")
+        checkTrue("в карточке названа выплата", txt:find("Мана", 1, true) ~= nil)
+        checkTrue("и клеймо цели тоже", txt:find("цели — ", 1, true) ~= nil)
+    end
+
     -- ── БЕЗ ЭФФЕКТА НИЧЕГО НЕ ПРОИСХОДИТ ────────────────────
     -- Механика висит на эффекте, а не на классе: снял — перестало.
     before = PM.GetPool("mana")
-    SB.Events.Fire(SB.E.PVP_HIT_RESOLVED, 3, "t_oa_melee", true)
+    SB.Events.Fire(SB.E.ATTACK_RESOLVED, 3, "t_oa_melee", true)
     check("без эффекта повод ничего не делает", PM.GetPool("mana"), before)
 
     -- ── И ЖИВЫМИ ДАННЫМИ: КТО ИМ ПОЛЬЗУЕТСЯ ─────────────────
@@ -6321,7 +6417,7 @@ do
         if ShippedSpells[id] and type(sp.effect) == "table"
            and type(sp.effect.onAction) == "table" then
             for _, act in ipairs(SB.ActiveEffects.ActionsOf(sp) or {}) do
-                for _, f in ipairs({ "effect", "toAttacker" }) do
+                for _, f in ipairs({ "effect", "toAttacker", "toTarget" }) do
                     local ref = act[f]
                     if type(ref) == "string" and not SB.Data.Spells[ref] then
                         broken[#broken + 1] = (sp.name or id) .. "." .. f .. "=" .. ref
