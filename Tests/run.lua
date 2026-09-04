@@ -15473,6 +15473,86 @@ do
 end
 
 -- ============================================================
+-- ЭФФЕКТ, НА КОТОРЫЙ НИКТО НЕ ССЫЛАЕТСЯ
+--
+-- Библиотека эффектов растёт отщеплением: общая «Слабость» дробится на
+-- «Слабость от Суда справедливости» и полдюжины таких же, заклинания
+-- переезжают на потомков, а родитель остаётся лежать. Игроку он не
+-- виден вовсе (фильтр библиотеки отсекает класс «Эффект»), заметить его
+-- нечем — а править при этом продолжают, считая живым.
+--
+-- Ровно так «Суд справедливости» оказался в двух экземплярах: один под
+-- своим именем и никем не используемый, второй — отщеплённая
+-- «Слабость», на которую и ссылалось заклинание. Правка ушла бы не в
+-- тот, и заклинание не изменилось бы вовсе.
+--
+-- СПИСОК ПРИБИТ, А НЕ ПОСЧИТАН. «Не больше двадцати шести» протухло бы
+-- в тот же день: удалили один, завели другой — счёт сошёлся, подмены
+-- никто не увидел. Поимённо же новая сирота видна сразу, а осознанно
+-- заведённая заготовка дописывается сюда одной строкой.
+-- ============================================================
+do
+    -- Отщеплённые родители: потомки живы, сам он ждёт своей очереди.
+    local KNOWN_PARENTS = {
+        "eff_armor_magic", "eff_battle_shout", "eff_bleeding", "eff_bloodlust",
+        "eff_cat_grace", "eff_concentration", "eff_demoralized", "eff_evasion",
+        "eff_fear", "eff_giant_strength", "eff_mercy_blessing", "eff_owl_wisdom",
+        "eff_shield", "eff_slowed", "eff_stone_skin", "eff_vulnerable",
+        "eff_weakness", "eff_weapon_enchant",
+    }
+    -- Мёртвые совсем: ни ссылок, ни потомков. Держатся здесь, чтобы их
+    -- удаление было отдельным осознанным решением, а не побочным
+    -- следствием чужой правки.
+    local KNOWN_DEAD = {
+        "eff_blinded_blind", "eff_burning_pain", "eff_crusaderaura",
+        "eff_fire_cape_burn", "eff_garrote", "eff_justice_of_justice",
+        "eff_mana_burn_manaburn", "eff_stealth_stealth",
+    }
+    local known = {}
+    for _, list in ipairs({ KNOWN_PARENTS, KNOWN_DEAD }) do
+        for _, id in ipairs(list) do known[id] = true end
+    end
+
+    -- ССЫЛАТЬСЯ МОЖНО СЕМЬЮ СПОСОБАМИ, и все семь считаются: четыре поля
+    -- заклинания (включая держатель потока) и три стороны срабатывания.
+    -- Забыть любой — значит объявить живой эффект сиротой.
+    local used = {}
+    for id, sp in pairs(SB.Data.Spells) do
+        for _, fld in ipairs({ "buff", "debuff", "container", "channelEffect" }) do
+            local ref = sp[fld]
+            if type(ref) == "string" then used[ref] = true end
+        end
+        if type(sp.effect) == "table" then
+            for _, act in ipairs(SB.ActiveEffects.ActionsOf(sp) or {}) do
+                for _, fld in ipairs({ "effect", "toAttacker", "toTarget" }) do
+                    local ref = act[fld]
+                    if type(ref) == "string" then used[ref] = true end
+                end
+            end
+        end
+    end
+
+    local fresh, revived = {}, {}
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] and type(sp.effect) == "table" and not used[id]
+           and not known[id] then
+            fresh[#fresh + 1] = (sp.name or id) .. " (" .. id .. ")"
+        end
+    end
+    -- И ОБРАТНО: сирота, на которую снова сослались, из списка обязана
+    -- уйти — иначе он превращается в свалку имён без смысла.
+    for _, id in ipairs(KNOWN_DEAD) do
+        if used[id] then revived[#revived + 1] = id end
+    end
+
+    table.sort(fresh)
+    check("новых эффектов-сирот", #fresh, 0)
+    for _, one in ipairs(fresh) do print("          " .. one) end
+    check("мёртвых, на которые снова ссылаются", #revived, 0)
+    for _, one in ipairs(revived) do print("          " .. one) end
+end
+
+-- ============================================================
 -- ХАРАКТЕРИСТИКА — НЕ ЗАМЕНА МЕХАНИКЕ
 --
 -- В 3.0 канала сопротивления школе не существовало, и обещания вроде
