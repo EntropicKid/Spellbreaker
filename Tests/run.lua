@@ -331,7 +331,7 @@ local turnPaths = {
     { "площадь",      function() SB.Logic.InitiateAoeAttack("t_aoe", 1) end },
     { "лечение",      function() SB.Logic.ResolveHeal("t_heal", 1) end },
     { "пропуск хода", function() SB.Logic.SpendTurnManually() end },
-    { "Короткий Отдых", function() SB.Logic.LocalShortRest() end },
+    -- Короткий Отдых был здесь седьмым путём. Механики больше нет.
     { "форсированный исход Ведущего",
       function() SB.Logic.ExecuteForcedOutcome("t_strike", 1, 1) end },
 }
@@ -341,7 +341,7 @@ local turnPaths = {
 for _, path in ipairs(turnPaths) do
     -- Очередь сбрасывается ПЕРЕД КАЖДЫМ путём: после первого же
     -- действия игрок числится походившим, и пути, которые спрашивают
-    -- очередь (пропуск хода, Короткий Отдых), честно откажут.
+    -- очередь (пропуск хода), честно откажут.
     SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = 1,
         index = 1, slots = { { stub.world.playerName } }, acted = {} })
     ResetEffects()
@@ -8600,9 +8600,7 @@ do
     checkTrue("остаток меньше десятки не поглощает",
         SB.Skills.GetArmorPoints() < perDR)
 
-    -- Долгий Отдых чинит доспех, Короткий — нет.
-    SB.PlayerModel.ShortReset()
-    checkTrue("Короткий Отдых броню не возвращает", SB.Skills.GetArmorPoints() < perDR)
+    -- Броню возвращает ТОЛЬКО Долгий Отдых — теперь и единственный.
     SB.PlayerModel.FullReset()
     check("Долгий Отдых возвращает запас целиком", SB.Skills.GetArmorPoints(), max)
 
@@ -13680,7 +13678,7 @@ do
 
     -- Число прибито НАМЕРЕННО: поднимать версию положено осознанно, вместе
     -- с новой миграцией, и молча уехать она не должна.
-    check("схема поднялась до девятой", SB.SCHEMA_VERSION, 9)
+    check("схема поднялась до десятой", SB.SCHEMA_VERSION, 10)
 
     -- ── БЕЗ РЕМЕСЛА ОСТАЁТСЯ ОДНА ЯЧЕЙКА ───────────────────
     local c = RunOn(1, 5)
@@ -14369,6 +14367,140 @@ do
     local done = { schemaVersion = 9, skills = { ["Воодушевление"] = 3 } }
     SB.Migrations.Run(done, { schemaVersion = 9 })
     check("на готовой базе шаг не повторяется", done.skills["Воодушевление"], 3)
+end
+
+-- ============================================================
+-- КОРОТКОГО ОТДЫХА БОЛЬШЕ НЕТ
+--
+-- Механика упразднена целиком: групповая, личная, заряды к ней и оба
+-- «мягких рычага», которые её двигали. Проверка стережёт именно ПОЛНОТУ
+-- сноса: половина убранной механики опаснее целой — она выглядит
+-- работающей ровно до того места, где обрывается.
+-- ============================================================
+do
+    -- ── ТОЧЕК ВХОДА НЕ ОСТАЛОСЬ ────────────────────────────
+    local gone = {}
+    for _, name in ipairs({ "ShortRest", "LocalShortRest", "MakeShortRestMessage" }) do
+        if SB.Logic[name] ~= nil then gone[#gone + 1] = "SB.Logic." .. name end
+    end
+    if SB.PlayerModel.ShortReset ~= nil then gone[#gone + 1] = "PM.ShortReset" end
+    for _, name in ipairs({ "GetPersonalRestCharges", "GetMaxPersonalRestCharges",
+                            "SpendPersonalRestCharge", "RestorePersonalRestCharges" }) do
+        if SB.PlayerModel[name] ~= nil then gone[#gone + 1] = "PM." .. name end
+    end
+    for _, name in ipairs({ "OnShortRest", "HasPersonalShortRest",
+                            "CanPersonalShortRest", "TryPersonalShortRest",
+                            "GetMaxPersonalRestCharges" }) do
+        if SB.ClassMechanics[name] ~= nil then gone[#gone + 1] = "CM." .. name end
+    end
+    if SB.Skills.GetLeadershipRestCharges ~= nil then
+        gone[#gone + 1] = "Skills.GetLeadershipRestCharges"
+    end
+    check("ни одной функции отдыха не осталось", table.concat(gone, ", "), "")
+
+    -- ── И НИ ОДНОГО РЫЧАГА ─────────────────────────────────
+    local live = {}
+    for _, key in ipairs(SB.Data.SoftBonusKeys) do
+        if key == "restHeal" or key == "restCharges" then live[#live + 1] = key end
+    end
+    check("рычаги отдыха убраны из списка", table.concat(live, ", "), "")
+    check("и подписи к ним тоже", SB.Data.SoftBonusLabels.restHeal, nil)
+
+    local dirty = {}
+    for name, prof in pairs(SB.Data.ClassProfiles) do
+        if prof.restHeal ~= nil or prof.restCharges ~= nil then dirty[#dirty + 1] = name end
+    end
+    for name, prof in pairs(SB.Data.RaceProfiles) do
+        if prof.restHeal ~= nil or prof.restCharges ~= nil then dirty[#dirty + 1] = name end
+    end
+    table.sort(dirty)
+    check("и из профилей рас и классов", table.concat(dirty, ", "), "")
+
+    -- Долгий Отдых на месте: убирали не отдых вообще, а один из двух.
+    checkTrue("Долгий Отдых остался", SB.Logic.Rest ~= nil)
+    checkTrue("и полный сброс модели тоже", SB.PlayerModel.FullReset ~= nil)
+
+    -- ── МИГРАЦИЯ ЧИСТИТ ПОЛЕ ЗАРЯДОВ ───────────────────────
+    local char = { schemaVersion = 9, personalRestCharges = 2, monkRestCharges = 1,
+                   health = 5 }
+    SB.Migrations.Run(char, { schemaVersion = 9 })
+    check("заряды вычищены из сохранёнки", char.personalRestCharges, nil)
+    check("и старое монашье поле тоже",    char.monkRestCharges, nil)
+    check("остальное не тронуто",          char.health, 5)
+end
+
+-- ============================================================
+-- ЛИДЕРСТВО: РУЧЕЁК ВМЕСТО ОТДЫХА
+--
+-- Единица ресурса каста раз в 4/3/2/1 хода по ВЛОЖЕННОМУ навыку.
+-- Лестница частоты, а не размера — тем же приёмом, что у Фокуса
+-- охотника: ровный ручеёк читается за столом, а «раз в четыре хода
+-- четыре штуки» превращает планирование в ожидание.
+-- ============================================================
+do
+    local savedSkills = _G.SpellbreakerCharDB.skills
+    ResetEffects()
+
+    local EXPECT = { [1] = nil, [2] = 4, [3] = 3, [4] = 2, [5] = 1 }
+    for v = 1, 5 do
+        _G.SpellbreakerCharDB.skills = { ["Лидерство"] = v }
+        check("Лидерство " .. v .. " → период",
+              SB.Skills.GetLeadershipRegenPeriod(), EXPECT[v])
+    end
+
+    -- ── ВНИЗ НЕ ШТРАФУЕТ ───────────────────────────────────
+    --
+    -- Прямое требование: просаженный дебаффами навык не должен ни
+    -- замедлять ручеёк, ни тем более отнимать ресурс. Поэтому считается
+    -- ВЛОЖЕННОЕ (Get), а не действующее (GetEffective).
+    _G.SpellbreakerCharDB.skills = { ["Лидерство"] = 5 }
+    SB.Data.Spells["t_lead_down"] = { id = "t_lead_down", name = "Проба давления",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "debuff", stats = { ["Лидерство"] = -9 } } }
+    SB.ActiveEffects.Add("t_lead_down", 5, false)
+    checkTrue("дебафф действительно топит навык",
+              SB.Skills.GetEffective("Лидерство") < 1)
+    check("но период не сдвинулся", SB.Skills.GetLeadershipRegenPeriod(), 1)
+    ResetEffects()
+    SB.Data.Spells["t_lead_down"] = nil
+
+    -- Ручеёк висит на том же TURN_TICK, что и классовые механики, но
+    -- своим счётчиком: общий заставлял бы обе прибавки приходить строго
+    -- вместе или не приходить вовсе.
+    local cm = ReadFile("Core/ClassMechanics.lua")
+    checkTrue("ручеёк подписан на тик хода",
+              cm:find("GetLeadershipRegenPeriod", 1, true) ~= nil)
+    checkTrue("и счётчик у него свой", cm:find("leadTicks", 1, true) ~= nil)
+
+    _G.SpellbreakerCharDB.skills = savedSkills
+end
+
+-- ============================================================
+-- МОНАХ СТАЛ КАСТЕРОМ
+--
+-- Одна строка в NonCasterClasses меняет о нём всё: ресурс (Мана вместо
+-- Энергии), откуда растёт ранг (предмет вместо уровня), цвет полоски и
+-- работает ли навык «Исток». Второго списка «кто кастер» в аддоне нет.
+-- ============================================================
+do
+    checkTrue("монаха нет среди некастеров",
+              SB.Data.NonCasterClasses["Монах"] == nil)
+    check("и своего ресурса класса у него нет",
+          SB.Data.ClassResourceNames["Монах"], nil)
+    -- Остальные пятеро на месте: правка про монаха, а не про всех.
+    local nonCasters = 0
+    for _ in pairs(SB.Data.NonCasterClasses) do nonCasters = nonCasters + 1 end
+    check("некастеров осталось пятеро", nonCasters, 5)
+
+    -- Его запись в механиках была целиком про Короткий Отдых — ушла с ним.
+    check("классовой механики у монаха больше нет",
+          SB.ClassMechanics.Definitions["Монах"], nil)
+
+    local savedClass, savedToken = stub.world.class, stub.world.classToken
+    stub.world.class, stub.world.classToken = "Монах", "MONK"
+    checkTrue("движок считает монаха кастером", SB.PlayerModel.IsCaster())
+    check("и ресурс у него — Мана", SB.PlayerModel.CastPool(), "mana")
+    stub.world.class, stub.world.classToken = savedClass, savedToken
 end
 
 -- ============================================================

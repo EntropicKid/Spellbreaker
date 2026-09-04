@@ -240,22 +240,6 @@ SB.Data.Tooltips = {
             "Объявляет только лидер и только вне пошагового режима.",
         },
     },
-    shortRest = {
-        title = "Короткий Отдых",
-        lines = {
-            function()
-                local parts = {}
-                for _, m in ipairs(SB.Data.GetMasteryList()) do
-                    table.insert(parts, tostring((SB.Data.Config.ShortRestHeal or {})[m] or 0))
-                end
-                return "Немного Здоровья по рангу: " .. table.concat(parts, "/") ..
-                    ". Раса и класс сдвигают объём."
-            end,
-            "|cFFFF6666Ресурс не восстанавливает|r — кроме |cFFFFCC00Монаха|r: ему столько же Энергии, сколько ХП.",
-            "Считается ходом: активные эффекты тикают.",
-            "Группе объявляет лидер. |cFFFFCC00Монаху|r и навыку |cFFFFCC00Лидерство|r доступен личный отдых.",
-        },
-    },
     chooseIcon = {
         title = "Клик для выбора иконки",
         lines = {},
@@ -542,7 +526,6 @@ end
 -- ============================================================
 SB.Data.Messages = {
     leaderOnlyLongRest      = SB.Theme.MSG_BAD .. "[Spellbreaker]: Только лидер группы может объявлять Долгий Отдых.|r",
-    leaderOnlyShortRest     = SB.Theme.MSG_BAD .. "[Spellbreaker]: Только лидер группы может объявлять Короткий Отдых.|r",
     spellNotPrepared        = SB.Theme.MSG_BAD .. "[Spellbreaker] Вы не подготовили это заклинание!|r",
     itemNotInBag            = SB.Theme.MSG_BAD .. "[Spellbreaker] Этого предмета нет в сумке — возьмите его в разделе «Ремесло».|r",
     passiveCantActivate     = "|cFFFFCC00[Spellbreaker]|r: Это пассивный эффект — его нельзя активировать вручную.",
@@ -562,7 +545,6 @@ SB.Data.Messages = {
     noPrepAfterCast         = SB.Theme.MSG_BAD .. "[Spellbreaker]: Нельзя менять подготовку после применения заклинания. Отдохни.|r",
     noRespecAfterCast       = SB.Theme.MSG_BAD .. "[Spellbreaker]: Нельзя менять атрибуты и навыки после применения заклинания — до Долгого Отдыха.|r",
     spellAlreadyPrepared    = "|cFFFFFF00[Spellbreaker]: Заклинание уже подготовлено.|r",
-    noGroupRestInFight      = SB.Theme.MSG_BAD .. "[Spellbreaker]: Вы уже в ПвП-размене — объявить Короткий Отдых ГРУППЕ нельзя. Личный отдых доступен, если есть заряды. Сбрасывается Долгим Отдыхом.|r",
     classHiddenOnRealm      = SB.Theme.MSG_BAD .. "[Spellbreaker]: Этот класс недоступен на вашем сервере — заклинание нельзя подготовить.|r",
     noUnlearnAfterCast      = SB.Theme.MSG_BAD .. "[Spellbreaker]: Нельзя разучивать заклинания после применения. Отдохни.|r",
     mainFrameBuildFailed    = SB.Theme.MSG_BAD .. "[Spellbreaker]:|r Не удалось построить главное окно.",

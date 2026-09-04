@@ -319,11 +319,6 @@ initFrame:SetScript("OnEvent", function(self, event, loadedAddon)
     if SpellbreakerCharDB.classResource == nil then
         SpellbreakerCharDB.classResource = SB.Data.MaxClassResourceFor(mastery)
     end
-    -- personalRestCharges здесь намеренно НЕ инициализируется: nil
-    -- означает «ни разу не тратил» и трактуется как полный запас
-    -- (см. PM.GetPersonalRestCharges). Это убирает зависимость от того,
-    -- доступен ли уже UnitClass("player") на стадии ADDON_LOADED.
-
     -- Нормализация preparedSpells (мусор, дыры, дубликаты) переехала
     -- в миграцию схемы v1 — см. Core/Migrations.lua.
 

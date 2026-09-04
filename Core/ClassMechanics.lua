@@ -5,17 +5,16 @@
 --
 -- ЗАЧЕМ ПЕРЕПИСАН. Первая версия задумывалась как «одна точка для
 -- классовых механик», но по факту ею не стала: Рыцарь смерти жил
--- внутри PlayerModel.GrantHealth, Монах — внутри Logic.ShortRest,
--- а «монашность» проверялась строковым сравнением класса ещё и в
--- UI/MainFrame.lua и в MinimapButton.lua. Добавление седьмой механики
--- означало «найти подходящий хук и вписать туда ещё один if по имени
--- класса» — то есть ровно то, чего модуль должен был избежать.
+-- внутри PlayerModel.GrantHealth, Монах — внутри отдыха, а «монашность»
+-- проверялась строковым сравнением класса ещё и в UI/MainFrame.lua и в
+-- MinimapButton.lua. Добавление седьмой механики означало «найти
+-- подходящий хук и вписать туда ещё один if по имени класса» — то есть
+-- ровно то, чего модуль должен был избежать.
 --
 -- КАК СЕЙЧАС. Всё поведение описано декларативно в таблице MECHANICS
 -- ниже. Остальной код классы не знает вообще: PlayerModel шлёт
--- HEALTH_CHANGED, Logic шлёт CAST_* и спрашивает у этого модуля про
--- личный отдых, UI спрашивает HasPersonalShortRest(). Чтобы выдать
--- механику новому классу, достаточно добавить одну запись в MECHANICS.
+-- HEALTH_CHANGED, Logic шлёт CAST_*. Чтобы выдать механику новому
+-- классу, достаточно добавить одну запись в MECHANICS.
 --
 -- ТРИГГЕРЫ ВОСПОЛНЕНИЯ РЕСУРСА (поле trigger):
 --   "cantrip"    — применён приём/заговор (slotLevel == 0)
@@ -98,14 +97,12 @@ local MECHANICS = {
     -- собственная броня работала против собственной механики.
     ["Рыцарь смерти"]      = { trigger = "damage",     gain = "byMastery" },
 
-    -- У Монаха нет боевого триггера восполнения — вместо этого он
-    -- получает личный Короткий Отдых (см. TryPersonalShortRest ниже)
-    -- и ЕДИНСТВЕННЫЙ восполняет ресурс самим Коротким Отдыхом:
-    -- shortRestResource = "asHealed" значит «столько же Энергии,
-    -- сколько восстановлено здоровья» (то есть 1/2/3 по рангу).
-    -- Остальным Короткий Отдых ресурс не возвращает вовсе.
-    ["Монах"]              = { personalShortRest = "byMastery",
-                               shortRestResource = "asHealed" },
+    -- МОНАХА ЗДЕСЬ БОЛЬШЕ НЕТ. Вся его запись была про Короткий Отдых:
+    -- личный отдых по рангу и возврат Энергии им же. Механики нет, и
+    -- записи нет — но главное не это: монах стал КАСТЕРОМ (см.
+    -- SB.Data.NonCasterClasses) и держит Ману, а Мана этими механиками
+    -- не управляется вовсе. Своего боевого триггера восполнения у него
+    -- не было и раньше.
 }
 
 SB.ClassMechanics.Definitions = MECHANICS
@@ -293,12 +290,58 @@ SB.Events.On(SB.E.TURN_TICK, function()
     ApplyGain(ResolveGain(def.gain), def.announce)
 end)
 
+-- ============================================================
+-- РУЧЕЁК ОТ «ЛИДЕРСТВА» — единица ресурса каста раз в 4/3/2/1 хода
+--
+-- ПОЧЕМУ ЗДЕСЬ, А НЕ В Core/Skills.lua. Это механика НАВЫКА, и правило
+-- («через сколько ходов») живёт именно там — SB.Skills.GetLeadershipRegenPeriod.
+-- Здесь только проводка: счётчик ходов и подписка на TURN_TICK уже
+-- заведены выше, ровно те же самые, и заводить рядом вторую копию того
+-- же счётчика значило бы получить два расходящихся отсчёта.
+--
+-- СВОЙ СЧЁТЧИК, А НЕ ОБЩИЙ С КЛАССОВЫМ: периоды разные, и общий
+-- заставлял бы Охотника с «Лидерством» получать обе прибавки строго
+-- вместе или не получать вовсе.
+--
+-- НЕ ЧЕРЕЗ ApplyGain: тот молча выходит для кастеров (у них Мана, а не
+-- ресурс класса), а этот ручеёк положен ВСЕМ — отдых, который навык
+-- заменил, тоже был общим. Поэтому кладём в «ресурс каста», единый
+-- для обеих половин (см. PM.GetCastResource).
+-- ============================================================
+local leadTicks = 0
+
+SB.Events.On(SB.E.TURN_TICK, function()
+    if not (SB.Skills and SB.Skills.GetLeadershipRegenPeriod) then return end
+    local every = SB.Skills.GetLeadershipRegenPeriod()
+    if not every then return end
+
+    leadTicks = leadTicks + 1
+    if every > 1 and (leadTicks % every) ~= 0 then return end
+
+    local PM = SB.PlayerModel
+    if not PM then return end
+    local before = PM.GetCastResource()
+    local after  = math.min(PM.GetMaxCastResource(), before + 1)
+    -- Не УМЕНЬШАЕМ: Ведущий мог выдать сверх максимума, и min() выше
+    -- срезал бы подаренное (та же оговорка, что в ApplyGain).
+    if after <= before then return end
+
+    if PM.IsCaster() then PM.SetZeal(after) else PM.SetClassResource(after) end
+    SB.Events.Fire(SB.E.STATUS_CHANGED)
+
+    -- Строка нужна: прибавка приходит САМА, и без неё это выглядит как
+    -- самопроизвольно поехавшая цифра. Локальная — группе про чужой
+    -- ресурс знать незачем.
+    print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BODY ..
+        "лидерство: +" .. (after - before) .. " " .. PM.GetResourceName() .. ".|r")
+end)
+
 -- Начало пошагового режима — новая сцена, новый отсчёт.
 do
     local wasActive = false
     SB.Events.On(SB.E.TURN_ORDER_CHANGED, function()
         local active = (SB.TurnOrder and SB.TurnOrder.IsActive()) or false
-        if active and not wasActive then turnTicks = 0 end
+        if active and not wasActive then turnTicks = 0; leadTicks = 0 end
         wasActive = active
     end)
 end
@@ -312,105 +355,15 @@ SB.Events.On(SB.E.HEALTH_CHANGED, function(newHP, oldHP, delta)
     end
 end)
 
---- Короткий Отдых состоялся: некоторым классам он вдобавок возвращает
---- ресурс. Вызывается из SB.Logic.LocalShortRest.
---- @param healed number  сколько ХП реально восстановилось
---- @return number  сколько ресурса возвращено (0 — механики нет)
-function SB.ClassMechanics.OnShortRest(healed)
-    local def = DefFor()
-    if not def or not def.shortRestResource then return 0 end
-
-    local amount
-    if def.shortRestResource == "asHealed" then
-        amount = tonumber(healed) or 0
-    else
-        amount = ResolveGain(def.shortRestResource) or 0
-    end
-    if amount <= 0 then return 0 end
-
-    -- Через GrantCastResource, а не ApplyGain: тот молча выходит для
-    -- кастеров, а механика в принципе может достаться и кастерскому
-    -- классу. Ограничение максимумом остаётся за самой моделью.
-    local PM = SB.PlayerModel
-    if not PM then return 0 end
-    local before = PM.GetCastResource()
-    local after  = math.min(PM.GetMaxCastResource(), before + amount)
-    if after <= before then return 0 end
-
-    if PM.IsCaster() then PM.SetZeal(after) else PM.SetClassResource(after) end
-    SB.Events.Fire(SB.E.STATUS_CHANGED)
-    return after - before
-end
 
 -- ============================================================
--- ЛИЧНЫЙ КОРОТКИЙ ОТДЫХ
--- Позволяет объявить Короткий Отдых себе одному, не будучи лидером
--- группы. Количество зарядов — по рангу, сброс — на Долгом Отдыхе.
+-- ЗДЕСЬ БЫЛ КОРОТКИЙ ОТДЫХ — ЕГО БОЛЬШЕ НЕТ
+--
+-- Механика упразднена целиком: и групповая, и личная, и заряды к
+-- ней. Вместе с ней ушли OnShortRest (возврат ресурса Монаху),
+-- HasPersonalShortRest / CanPersonalShortRest / TryPersonalShortRest
+-- и подсчёт зарядов от «Лидерства» и профилей.
+--
+-- Отдых в аддоне остался ОДИН — Долгий (см. SB.Logic.Rest): конец
+-- сцены, полное восстановление, починка доспеха и запасов.
 -- ============================================================
-
---- Заряды от навыка «Лидерство» — не зависят от класса и
---- складываются с классовыми (см. SB.Skills.GetLeadershipRestCharges).
-local function SkillRestCharges()
-    if SB.Skills and SB.Skills.GetLeadershipRestCharges then
-        return SB.Skills.GetLeadershipRestCharges()
-    end
-    return 0
-end
-
---- Есть ли у персонажа механика личного Короткого Отдыха — от класса
---- ИЛИ от навыка «Лидерство».
-function SB.ClassMechanics.HasPersonalShortRest(className)
-    local def = DefFor(className)
-    if def and def.personalShortRest then return true end
-    return SkillRestCharges() > 0
-end
-
---- Максимум зарядов личного Короткого Отдыха (0 — механики нет).
-function SB.ClassMechanics.GetMaxPersonalRestCharges(className)
-    -- Заряды от навыка «Лидерство» + «мягкий» бонус расы/класса
-    -- (Нежить, Монах) — см. SB.Data.RaceProfiles / ClassProfiles.
-    local total = SkillRestCharges() + SB.Data.GetSoftBonus("restCharges")
-
-    local def = DefFor(className)
-    if def and def.personalShortRest then
-        if def.personalShortRest == "byMastery" then
-            total = total + (SB.Data.Config.ResourceRegenByMastery[SB.PlayerModel.GetMastery()] or 1)
-        else
-            total = total + (tonumber(def.personalShortRest) or 0)
-        end
-    end
-
-    return total
-end
-
---- Доступен ли сейчас личный Короткий Отдых (механика есть И заряды не
---- кончились). UI спрашивает это вместо сравнения имени класса.
-function SB.ClassMechanics.CanPersonalShortRest()
-    if not SB.ClassMechanics.HasPersonalShortRest() then return false end
-    local PM = SB.PlayerModel
-    return PM ~= nil and PM.GetPersonalRestCharges() > 0
-end
-
---- Пытается потратить заряд и провести личный Короткий Отдых.
---- Вызывается из Logic.ShortRest, когда обычный путь недоступен
---- (игрок в группе и не лидер).
---- @return boolean  true, если отдых состоялся
-function SB.ClassMechanics.TryPersonalShortRest()
-    if not SB.ClassMechanics.CanPersonalShortRest() then return false end
-
-    local PM = SB.PlayerModel
-    if not PM.SpendPersonalRestCharge() then return false end
-
-    local healed, regained = SB.Logic.LocalShortRest()
-
-    -- Личный отдых теперь ВИДЕН группе: «N переводит дух». Раньше он
-    -- печатался только себе, и для остальных игрок просто молча
-    -- поправлял здоровье — отыгрывать такое было нечем.
-    SB.Events.Fire(SB.E.BROADCAST_LOG, SB.Logic.MakeShortRestMessage(healed or 0, true, regained),
-        SB.LogRank.ACTION)
-
-    print(string.format(
-        "|cFF33FF99[Spellbreaker]|r: Вы используете личный Короткий Отдых (осталось зарядов: %d/%d).",
-        PM.GetPersonalRestCharges(), SB.ClassMechanics.GetMaxPersonalRestCharges()))
-    return true
-end

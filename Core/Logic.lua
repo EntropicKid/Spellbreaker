@@ -2340,34 +2340,21 @@ function SB.Logic.LocalRest()
     SB.Events.Fire("STATUS_CHANGED")
 end
 
---- Короткий Отдых на СВОЁМ персонаже. Возвращает восстановленные ХП,
---- чтобы вызывающий мог их назвать в сообщении.
----
---- Отдых считается ПОТРАЧЕННЫМ ХОДОМ: активные эффекты тикают ровно
---- так же, как при касте. Иначе передышка была бы бесплатной паузой,
---- в которой можно бесконечно держать баффы.
---- @param declared boolean|nil  отдых объявил ВЕДУЩИЙ всей группе, а не
----        сам игрок. Тогда ход в очереди не засчитывается: одно
----        объявление не должно закрывать круг всему рейду (см.
----        SB.Logic.SpendTurn и Core/TurnOrder.lua).
---- @return number healed, number resourceRegained
-function SB.Logic.LocalShortRest(declared)
-    local healed = SB.PlayerModel.ShortReset()
-
-    -- Классовая надбавка: Монах вдобавок возвращает Энергию, столько же,
-    -- сколько восстановил здоровья (см. Core/ClassMechanics.lua).
-    -- Остальным Короткий Отдых ресурс не возвращает.
-    local regained = 0
-    if SB.ClassMechanics and SB.ClassMechanics.OnShortRest then
-        regained = SB.ClassMechanics.OnShortRest(healed) or 0
-    end
-
-    -- SpendTurn заодно обнуляет пройденный путь — Короткий Отдых это
-    -- потраченный ход ровно так же, как каст.
-    SB.Logic.SpendTurn(nil, declared)
-    SB.Events.Fire("STATUS_CHANGED")
-    return healed, regained
-end
+-- ============================================================
+-- ЗДЕСЬ БЫЛ КОРОТКИЙ ОТДЫХ
+--
+-- Три функции: LocalShortRest (отдых на своём персонаже),
+-- MakeShortRestMessage (строка «перевёл дух») и ShortRest (точка
+-- входа с кнопки). Механики больше нет — нет и их.
+--
+-- ОТДЫХ В АДДОНЕ ОСТАЛСЯ ОДИН — Долгий, ниже. Это конец сцены, а
+-- не передышка посреди неё: полное восстановление, снятие
+-- эффектов, починка доспеха и запасов.
+--
+-- Передышку заменил ручеёк от «Лидерства»: единица ресурса каста
+-- раз в 4/3/2/1 хода по вложенному навыку. Разница не в числах, а
+-- в том, что за неё не платят ходом и её не надо объявлять.
+-- ============================================================
 
 -- ============================================================
 -- ДОЛГИЙ ОТДЫХ
@@ -2397,76 +2384,6 @@ function SB.Logic.Rest()
     SB.Events.Fire("BROADCAST_REST", "LONG")
 end
 
--- ============================================================
--- КОРОТКИЙ ОТДЫХ
--- Небольшая передышка: несколько ХП по рангу, ресурс каста НЕ
--- восполняется, и сам отдых считается потраченным ходом.
--- ============================================================
-
---- Строка «перевёл дух» для рассылки в лог. Общая для личного отдыха и
---- для объявленного лидером — чтобы формулировка была одна.
---- @param healed number  сколько ХП восстановлено
---- @param personal boolean  личный отдых (вне очереди лидера)
-function SB.Logic.MakeShortRestMessage(healed, personal, regained)
-    local G = SB.Theme.MSG_BODY
-    local who = UnitName("player")
-    -- Возвращённый ресурс есть только у классов с такой механикой
-    -- (Монах), поэтому дописывается, а не входит в формат постоянно.
-    local resTxt = ""
-    if (regained or 0) > 0 then
-        resTxt = string.format(", +%d %s", regained, SB.PlayerModel.GetResourceName())
-    end
-    if personal then
-        return SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. who ..
-               " переводит дух" .. string.format(" (%+d ХП%s).|r", healed or 0, resTxt)
-    end
-    -- Своё восстановление объявляющий видит ЗДЕСЬ же. Раньше к этой
-    -- строке добавлялся ещё локальный print с той же мыслью — и лидер
-    -- получал два сообщения подряд на одно действие.
-    return SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. who ..
-           string.format(" объявляет Короткий Отдых (%+d ХП%s) — все переводят дух. ", healed or 0, resTxt) ..
-           "Ресурс каста не восстанавливается.|r"
-end
-
-function SB.Logic.ShortRest()
-    -- Павший не переводит дух сам — его поднимают лечением или Отдыхом
-    -- (см. PM.IsDowned). Долгий Отдых объявляет Ведущий, и он ниже.
-    if SB.PlayerModel.IsDowned() then SB.UI.PrintMsg("downedCantAct") return end
-
-    -- Короткий Отдых — действие, а значит подчиняется и очереди ходов, и
-    -- общему темпу. Долгий Отдых сюда не попадает намеренно: он вне
-    -- сцены, и у него свой счётчик — Ведущего (см. Core/Cooldowns.lua).
-    if SB.TurnOrder and not SB.TurnOrder.CheckCanAct() then return end
-    if SB.Cooldowns and not SB.Cooldowns.Check(SB.Cooldowns.TURN) then return end
-
-    -- Объявить отдых ГРУППЕ нельзя, если бой уже начался: тот, кто
-    -- ударил или получил удар в ПвП, для остальных ничем не отличается
-    -- от рядового участника схватки, и раздавать передышку всему отряду
-    -- посреди размена не должен. Личный отдых при этом остаётся —
-    -- поэтому не return, а провал в ветку ниже.
-    local inFight = SB.PlayerModel.IsPvpEngaged()
-
-    if IsInGroup() and (inFight or not UnitIsGroupLeader("player")) then
-        -- Личный Короткий Отдых из ограниченного пула зарядов: не
-        -- требует лидерства и не восстанавливает НИЧЕГО у остальных, но
-        -- о самом факте группа теперь узнаёт — раньше он проходил
-        -- совершенно молча, и со стороны выглядел как ничего не делающая
-        -- кнопка. Кому механика положена, знает Core/ClassMechanics.lua,
-        -- здесь только точка входа.
-        if SB.ClassMechanics and SB.ClassMechanics.TryPersonalShortRest
-           and SB.ClassMechanics.TryPersonalShortRest() then
-            return
-        end
-        SB.UI.PrintMsg(inFight and "noGroupRestInFight" or "leaderOnlyShortRest")
-        return
-    end
-    local healed, regained = SB.Logic.LocalShortRest()
-    -- Одно сообщение на действие: своё восстановление объявляющий видит
-    -- в этой же строке (см. MakeShortRestMessage).
-    SB.Events.Fire("BROADCAST_LOG", SB.Logic.MakeShortRestMessage(healed or 0, false, regained),
-        SB.LogRank.ACTION)
-    SB.Events.Fire("BROADCAST_REST", "SHORT")
-end
 
 -- ============================================================
 -- ПОДТВЕРЖДЕНИЕ КАСТА

@@ -267,24 +267,13 @@ end
 
 local function ParseREST(sender, t)
     if not IsFromLeader(sender) then return end
+    -- ВЕТКА "SHORT" УБРАНА ВМЕСТЕ С МЕХАНИКОЙ. Поле restType оставлено:
+    -- пакет тот же, и старая сборка, приславшая "SHORT", просто ничего
+    -- здесь не найдёт — это лучше, чем разобрать её командой, которой у
+    -- нас больше нет.
     if t.restType == "LONG" then
         SB.Logic.LocalRest()
         print("|cFFFFCC00[Spellbreaker]: Лидер группы объявил Долгий Отдых. Ресурсы восстановлены!|r")
-    elseif t.restType == "SHORT" then
-        -- Сколько восстановилось — зависит от РАНГА каждого, поэтому
-        -- число печатается локально, а не рассылается: иначе на рейд из
-        -- 40 человек в лог улетело бы 40 почти одинаковых строк.
-        -- Ресурс каста Короткий Отдых больше не восполняет.
-        -- true — «отдых объявлен Ведущим»: восстановление и тик эффектов
-        -- проходят, а ход в пошаговой очереди не тратится.
-        local healed, regained = SB.Logic.LocalShortRest(true)
-        local resTxt = ""
-        if (regained or 0) > 0 then
-            resTxt = string.format(", +%d %s", regained, SB.PlayerModel.GetResourceName())
-        end
-        print(string.format(
-            "|cFFFFCC00[Spellbreaker]: Лидер группы объявил Короткий Отдых. Вы переводите дух: %+d ХП%s.|r",
-            healed or 0, resTxt))
     end
 end
 

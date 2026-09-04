@@ -499,7 +499,7 @@ local function BuildMainFrame()
         local ROW_ORDER = {
             "health", "resource", "attack", "defense",
             "prepared", "rollFloor", "armor", "skillPoints",
-            "restHeal", "restCharges", "moveCap",
+            "attrPoints", "moveCap",
         }
         -- СОПРОТИВЛЕНИЯ ДОПИСЫВАЮТСЯ СПИСКОМ — ровно по той причине, о
         -- которой предупреждает врезка выше. Перечисли их здесь руками, и
@@ -864,10 +864,9 @@ local function BuildMainFrame()
         return b
     end
 
-    local restItem = SpecialItem("Короткий отдых", "primary", nil, "shortRest", function()
-        if SB.Logic and SB.Logic.ShortRest then SB.Logic.ShortRest() end
-    end)
-    local skipItem = SpecialItem("Пропустить ход", "secondary", restItem, nil, function()
+    -- ПЕРВЫМ ПУНКТОМ БЫЛ КОРОТКИЙ ОТДЫХ — механики больше нет, нет и
+    -- пункта. «Пропустить ход» встал на его место (родитель nil).
+    local skipItem = SpecialItem("Пропустить ход", "secondary", nil, nil, function()
         if SB.Logic and SB.Logic.SpendTurnManually then SB.Logic.SpendTurnManually() end
     end)
     -- ПОДСКАЗКИ У ПРОПУСКА ХОДА НЕТ НАМЕРЕННО. Она обещала «+1 ресурса»
@@ -908,9 +907,6 @@ local function BuildMainFrame()
     -- Доступность считается при КАЖДОМ раскрытии, а не на обновлении
     -- окна: меню закрыто почти всегда, и трогать его кнопки незачем.
     local function RefreshSpecialMenu()
-        local canRest = SB.UI.CanGroupShortRest()
-            or (SB.ClassMechanics and SB.ClassMechanics.CanPersonalShortRest())
-        if canRest then restItem:Enable() else restItem:Disable() end
         local fled = SB.PlayerModel.HasFled and SB.PlayerModel.HasFled()
         if fled then
             fleeItem:Disable()
@@ -1381,23 +1377,15 @@ end
 -- ОБНОВЛЕНИЕ ВСЕГО UI
 -- ============================================================
  
---- Можно ли сейчас объявить отдых (Долгий/Короткий) — используется
---- мини-карточкой миникарты при построении своих кнопок отдыха.
 --- Может ли игрок объявить ДОЛГИЙ Отдых: вне группы — всегда,
 --- в группе — только лидер. Вовлечённость в ПвП здесь НЕ проверяется
 --- намеренно: Долгий Отдых — единственное, что снимает флаг боя
 --- (см. PM.FullReset), и запрет на него замкнул бы группу в тупик.
+---
+--- Отдых теперь один, поэтому и функция одна: CanGroupShortRest ушла
+--- вместе с механикой.
 function SB.UI.CanRest()
     return not IsInGroup() or UnitIsGroupLeader("player")
-end
-
---- Может ли игрок объявить КОРОТКИЙ Отдых всей группе. То же самое
---- плюс условие «ещё не в размене»: начавший бой (или получивший удар)
---- раздавать передышку отряду не должен — ему остаётся личный отдых,
---- как и всем остальным.
-function SB.UI.CanGroupShortRest()
-    if not SB.UI.CanRest() then return false end
-    return not (SB.PlayerModel and SB.PlayerModel.IsPvpEngaged())
 end
  
 -- ============================================================

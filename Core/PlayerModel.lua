@@ -642,48 +642,12 @@ function PM.RestoreClassResource()
 end
 
 -- ============================================================
--- ЛИЧНЫЕ ЗАРЯДЫ КОРОТКОГО ОТДЫХА
--- Позволяют объявить Короткий Отдых себе одному, даже не будучи
--- лидером группы. Сброс — на Долгом Отдыхе.
+-- ЗДЕСЬ ХРАНИЛИСЬ ЗАРЯДЫ ЛИЧНОГО КОРОТКОГО ОТДЫХА
 --
--- Здесь ТОЛЬКО хранение. Кому эта механика вообще положена и сколько
--- зарядов ему полагается — решает Core/ClassMechanics.lua; PlayerModel
--- про классы ничего не знает (раньше знал: поле называлось
--- monkRestCharges, а максимум считался прямо здесь).
+-- Механики больше нет — ни групповой, ни личной, — поэтому нет и
+-- хранения. Само поле personalRestCharges вычищается из сохранёнок
+-- миграцией: мёртвое поле в базе однажды прочтут как живое.
 -- ============================================================
-
---- Текущее число зарядов. nil (поле ни разу не записывалось) означает
---- «ещё не тратил» и трактуется как полный запас — так значение не
---- зависит от того, был ли известен класс игрока в момент ADDON_LOADED
---- (UnitClass("player") на этой стадии не гарантирован, а инициализация
---- нулём молча оставила бы Монаха без механики до первого Долгого Отдыха).
-function PM.GetPersonalRestCharges()
-    local v = db().personalRestCharges
-    if v == nil then return PM.GetMaxPersonalRestCharges() end
-    return v
-end
-
-function PM.GetMaxPersonalRestCharges()
-    if SB.ClassMechanics and SB.ClassMechanics.GetMaxPersonalRestCharges then
-        return SB.ClassMechanics.GetMaxPersonalRestCharges()
-    end
-    return 0
-end
-
---- Тратит один личный заряд Короткого Отдыха. false, если их нет.
-function PM.SpendPersonalRestCharge()
-    local cur = PM.GetPersonalRestCharges()
-    if cur <= 0 then return false end
-    db().personalRestCharges = cur - 1
-    SB.Events.Fire(SB.E.PLAYER_MODEL_CHANGED)
-    return true
-end
-
---- Восстанавливает заряды до максимума текущего ранга (Долгий Отдых).
-function PM.RestorePersonalRestCharges()
-    db().personalRestCharges = PM.GetMaxPersonalRestCharges()
-    SB.Events.Fire(SB.E.PLAYER_MODEL_CHANGED)
-end
 
 -- ============================================================
 -- РЕСУРС КАСТА — унифицированная обёртка над Рвением (кастеры)
@@ -1573,13 +1537,11 @@ end
 -- ============================================================
 function PM.FullReset()
     PM.RestoreCastResource()
-    -- Долгий Отдых закрывает сцену: бой считается законченным, и лидер
-    -- снова может объявлять Короткий Отдых группе.
+    -- Долгий Отдых закрывает сцену: бой считается законченным.
     db().pvpEngaged = false
 	db().health = PM.GetMaxHealth()   -- полное восстановление ХП
-    PM.RestorePersonalRestCharges()   -- заряды личного Короткого Отдыха
     -- Доспех чинится ровно здесь и больше нигде: броня — расходуемый
-    -- запас, и Короткий Отдых её не возвращает (см. SB.Skills.ResetArmor).
+    -- запас (см. SB.Skills.ResetArmor).
     if SB.Skills and SB.Skills.ResetArmor then SB.Skills.ResetArmor() end
     -- Сумка доливается там же, где чинится доспех: выпитое за сцену
     -- возвращается, взятые ячейки остаются взятыми
@@ -1595,23 +1557,14 @@ function PM.FullReset()
 end
 
 -- ============================================================
--- КОРОТКИЙ ОТДЫХ
--- Только здоровье, и только несколько единиц по рангу
--- (Config.ShortRestHeal). Ресурс каста НЕ восполняется — это забота
--- Долгого Отдыха. Тик активных эффектов делает вызывающий
--- (см. SB.Logic.LocalShortRest): модель про ходы ничего не знает.
--- @return number healed  сколько ХП реально восстановлено (0, если уже полное)
+-- ЗДЕСЬ БЫЛ КОРОТКИЙ ОТДЫХ (PM.ShortReset)
+--
+-- Механика упразднена целиком. Отдых в аддоне остался ОДИН — Долгий
+-- (PM.FullReset выше): конец сцены, полное восстановление, починка
+-- доспеха и запасов.
+--
+-- Передышку посреди боя заменил ручеёк от «Лидерства»: единица ресурса
+-- каста раз в 4/3/2/1 хода по вложенному навыку
+-- (см. SB.Skills.GetLeadershipRegenPeriod). Разница не в числах, а в
+-- том, что за неё не платят ходом.
 -- ============================================================
-function PM.ShortReset()
-    local amount = (SB.Data.Config.ShortRestHeal or {})[PM.GetMastery()] or 1
-    -- Раса и класс могут двигать объём передышки (Тролль, Друид — вверх,
-    -- Рыцарь смерти — вниз). Ниже нуля не уходим: «отдых, который ранит»
-    -- ни из чего в системе не следует.
-    amount = math.max(0, amount + SB.Data.GetSoftBonus("restHeal"))
-    local maxHP  = PM.GetMaxHealth()
-    local before = PM.GetHealth()
-    local after  = math.min(maxHP, before + amount)
-    db().health = after
-    SB.Events.Fire("PLAYER_MODEL_CHANGED")
-    return after - before
-end

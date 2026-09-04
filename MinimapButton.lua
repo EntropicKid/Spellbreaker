@@ -188,29 +188,12 @@ local function BuildHoverCard()
         ScheduleHideHoverCard()
     end)
 
-    -- Короткий отдых
-    local shortRestBtn = SB.Theme.Button(hoverCard, "Короткий Отдых", 156, 24, "secondary")
-    shortRestBtn:SetPoint("TOP", restBtn, "BOTTOM", 0, -4)
-    shortRestBtn:SetScript("OnClick", function()
-        hoverCard:Hide()
-        if SB.Logic and SB.Logic.ShortRest then
-            SB.Logic.ShortRest()
-        end
-    end)
-    shortRestBtn:HookScript("OnEnter", function(self)
-        CancelHideTimer()
-        if SB.UI and SB.UI.ShowInfoTooltip then
-            SB.UI.ShowInfoTooltip(self, "shortRest")
-        end
-    end)
-    shortRestBtn:HookScript("OnLeave", function(self)
-        HideOwnedTooltip(self)
-        ScheduleHideHoverCard()
-    end)
+    -- КНОПКИ КОРОТКОГО ОТДЫХА ЗДЕСЬ БОЛЬШЕ НЕТ: механики не существует.
+    -- Панель Ведущего встала на её место, под Долгий Отдых.
 
     -- Панель ГМа
     local gmPanelBtn = SB.Theme.Button(hoverCard, "Панель ГМа", 156, 24, "secondary")
-    gmPanelBtn:SetPoint("TOP", shortRestBtn, "BOTTOM", 0, -4)
+    gmPanelBtn:SetPoint("TOP", restBtn, "BOTTOM", 0, -4)
     gmPanelBtn:SetScript("OnClick", function()
         hoverCard:Hide()
 
@@ -265,7 +248,6 @@ local function BuildHoverCard()
         "|cffffd100Shift+ЛКМ|r — Библиотека")
 
     hoverCard._restBtn = restBtn
-    hoverCard._shortRestBtn = shortRestBtn
 
     -- ВАЖНО: наведение на любую дочернюю кнопку внутри карточки меняет
     -- фокус мыши с карточки на кнопку — это САМО ПО СЕБЕ вызывает
@@ -298,19 +280,8 @@ local function UpdateHoverCardState()
         hoverCard._restBtn:Disable()
     end
 
-    -- Короткий Отдых доступен отдельно от Долгого: у него своё условие
-    -- (лидер И не в ПвП-размене, см. SB.UI.CanGroupShortRest), а личные
-    -- заряды (см. Core/ClassMechanics.lua) обходят его целиком.
-    local canGroupShort = SB.UI and SB.UI.CanGroupShortRest
-        and SB.UI.CanGroupShortRest() or false
-    local canShortRest = canGroupShort
-        or (SB.ClassMechanics and SB.ClassMechanics.CanPersonalShortRest())
-
-    if canShortRest then
-        hoverCard._shortRestBtn:Enable()
-    else
-        hoverCard._shortRestBtn:Disable()
-    end
+    -- Отдых в карточке остался один — Долгий. Условие у него своё, и
+    -- второго набора кнопок здесь больше нет.
 end
 
 function ShowHoverCard(anchor)
