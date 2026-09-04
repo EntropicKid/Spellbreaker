@@ -690,7 +690,11 @@ Add({
     isCantrip = false,
     resistable = true,
 	duration = 600,
-    isConcentration = false,
+    -- «Пока дух поддерживает концентрацию на союзнике»; «если шаман
+    -- потеряет концентрацию... элементаль возвращается на родной план» —
+    -- описание говорит это дважды, а флаг стоял в false, и дух держался
+    -- сам по себе шестьсот ходов.
+    isConcentration = true,
 	distance = 19,
     container = "eff_summon_earth_elemental",
 	scaling = {
