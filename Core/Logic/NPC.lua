@@ -292,6 +292,17 @@ function SB.Logic.ResolveNpcHeal(spellID, slotLevel)
         healed  = hpAfter - before      -- сколько ДОШЛО: упор в максимум
     end
 
+    -- ЭФФЕКТ ЛЕЧЕНИЯ ЛОЖИТСЯ И НА СУЩЕСТВО. Шага здесь не было, ровно как
+    -- и в ResolveHeal: «Целительный ливень» на союзном волке лечил, но
+    -- ничего на нём не оставлял. Тем же вызовом, что у рассеивания
+    -- существа ниже, — своей таблицы «эффекты для НПС» в аддоне нет.
+    --
+    -- На успех, а не на факт каста: у лечения исход известен здесь же.
+    if success and spell.buff then
+        local turns = SB.Logic.GetEffectDuration(spell.buff, spell, slotLevel)
+        SB.NPC.AddEffect("target", spell.buff, turns)
+    end
+
     SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID))
 
     local link    = SB.UI.MakeSpellLink(spell)

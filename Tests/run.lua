@@ -9094,9 +9094,14 @@ do
     SB.Data.Spells["t_sure_eff"] = { id = "t_sure_eff", name = "Проверочная волна",
         class = "Маг", level = 1, distance = 0, resistable = false,
         aoe = { radius = 9 }, buff = "t_eff" }
+    -- НОСИТЕЛЬ «СОПРОТИВЛЯЕМОГО» ОБРАЗЦА — ДЕБАФФ, а не бафф, и это не
+    -- придирка к оформлению. Чистый бафф больше не бросает вовсе, каким
+    -- бы ни было resistable (см. SB.Logic.IsGuaranteed): спорить с
+    -- помощью не с кем. Оставь здесь buff — и проверка «низкий бросок не
+    -- кладёт» проверяла бы не порог, а собственную устарелость.
     SB.Data.Spells["t_unsure_eff"] = { id = "t_unsure_eff", name = "Проверочная волна II",
         class = "Маг", level = 1, distance = 0, resistable = true,
-        aoe = { radius = 9 }, buff = "t_eff" }
+        aoe = { radius = 9 }, debuff = "t_eff" }
 
     local epiHere = { name = stub.world.playerName, isSelf = false }
     local function AoeEffect(spellID)
@@ -14074,6 +14079,151 @@ do
 
     stub.world.class, stub.world.classToken = savedClass, savedToken
     stub.world.race = savedRace
+end
+
+-- ============================================================
+-- ЧИСТЫЙ БАФФ НЕ БРОСАЕТ, А ЛЕЧЕНИЕ БРОСАЕТ ПО-ПРЕЖНЕМУ
+--
+-- Бросок существует, чтобы решить спор. У баффа спорить не с кем: цель
+-- либо ты сам, либо союзник, который его и ждёт. Ста пятидесяти
+-- заклинаниям бросок стоял просто потому, что resistable = true — это
+-- умолчание, а не решение.
+--
+-- Граница проведена по ПОЛЬЗЕ, и проверка стережёт именно её: вредное,
+-- лечебное, крадущее и рассеивающее бросают как бросали.
+-- ============================================================
+do
+    local L = SB.Logic
+    local function G(t) return L.IsGuaranteed(t) end
+
+    checkTrue("чистый бафф — автоуспех",     G({ buff = "e" }))
+    checkTrue("самобафф-контейнер — тоже",   G({ container = "e" }))
+    check("голое заклинание без эффекта не автоуспех", G({}), false)
+    check("пустой вход не роняет",           G(nil), false)
+
+    -- Вредная половина решает за добрую.
+    check("бафф вместе с дебаффом бросает",  G({ buff = "e", debuff = "d" }), false)
+    check("бафф вместе с уроном бросает",    G({ buff = "e", canCrit = true }), false)
+
+    -- ЛЕЧЕНИЕ БРОСАЕТ. Без этого «Милосердие» перестало бы значить
+    -- что-либо: навык покупает лекарю именно надёжность.
+    check("лечение с баффом бросает", G({ buff = "e", isHeal = true }), false)
+    check("починка доспеха тоже",     G({ buff = "e", repairArmor = 10 }), false)
+
+    -- Состязания остаются состязаниями.
+    check("кража бросает",       G({ buff = "e", steal = "item" }), false)
+    check("рассеивание бросает", G({ buff = "e", dispel = { "magic" } }), false)
+
+    -- Явное поле по-прежнему сильнее всего и работает в обе стороны.
+    checkTrue("resistable = false остаётся автоуспехом", G({ resistable = false }))
+    checkTrue("и у вредоносного тоже",
+              G({ canCrit = true, resistable = false }))
+
+    -- ── ЖИВЫЕ ЗАКЛИНАНИЯ ───────────────────────────────────
+    local rolling = {}
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] and not sp.isItem and not sp.isContainer
+           and (sp.buff or sp.container) and not sp.debuff and not sp.canCrit
+           and not L.IsHealingCast(sp) and not sp.steal
+           and not L.GetDispelSchools(sp) and not L.IsGuaranteed(sp) then
+            rolling[#rolling + 1] = sp.name or id
+        end
+    end
+    check("чистых баффов, которым всё ещё нужен бросок",
+          table.concat(rolling, ", "), "")
+
+    -- А лечебные — наоборот, обязаны бросать все до одного.
+    local freeHeals = {}
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] and L.IsHealingCast(sp)
+           and sp.resistable ~= false and L.IsGuaranteed(sp) then
+            freeHeals[#freeHeals + 1] = sp.name or id
+        end
+    end
+    check("лечения, разучившегося бросать", table.concat(freeHeals, ", "), "")
+end
+
+-- ============================================================
+-- ЛЕЧЕНИЕ ДОСТАВЛЯЕТ СВОЙ ЭФФЕКТ
+--
+-- «Озарение» друида работало ровно наполовину: рана затягивалась, а
+-- эффект — прибавка к лечению, «Милосердие» и тик на два — не появлялся
+-- ни у кого и никогда.
+--
+-- Причина та же, что была у «Призвать рой»: доставку выполняет
+-- ApplyBuffToTarget, а звали её из ОДНОГО пути резолва. Лечащий каст с
+-- живой целью идёт своей веткой и мимо неё; парадокс тот же — чтобы
+-- эффект лёг, надо было лечить так, чтобы каст НЕ разрешился сам и ушёл
+-- заявкой Ведущему.
+-- ============================================================
+do
+    -- Кого это касается: список держит правку от молчаливого сужения.
+    local withBuff = {}
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] and not sp.isItem and not sp.isContainer
+           and sp.buff and SB.Logic.IsHealingCast(sp) then
+            withBuff[#withBuff + 1] = sp.name or id
+        end
+    end
+    table.sort(withBuff)
+    check("лечащих заклинаний со своим эффектом", #withBuff, 6)
+
+    local ozar = SB.Data.Spells["nature_patronage"]
+    checkTrue("«Озарение» на месте", ozar ~= nil)
+    check("оно лечащее",         ozar.isHeal, true)
+    check("и вешает свой эффект", ozar.buff, "eff_mercy_blessing_nature_patronage")
+    -- Эффект был исправен всегда — не доезжал именно он.
+    local eff = SB.Data.Spells["eff_mercy_blessing_nature_patronage"]
+    checkTrue("у эффекта есть тик", eff and eff.effect and eff.effect.tick ~= nil)
+
+    -- ── ДОСТАВКА ЕСТЬ ВО ВСЕХ ВЕТКАХ ───────────────────────
+    --
+    -- Проверяем по исходнику: живой цели и сети у заглушки нет, а важен
+    -- ФАКТ вызова — молча отвалившийся шаг и есть весь этот баг.
+    local L2 = ReadFile("Core/Logic.lua")
+    local heal = L2:match("function SB%.Logic%.ResolveHeal.-\nend")
+    checkTrue("ResolveHeal найден", heal ~= nil)
+    checkTrue("лечение вешает свой эффект",
+              heal and heal:find("ApplyBuffToTarget(spell, slotLevel)", 1, true) ~= nil)
+
+    local forced = L2:match("function SB%.Logic%.ExecuteForcedOutcome.-\nend")
+    checkTrue("и форсированный Ведущим исход тоже",
+              forced and forced:find("ApplyBuffToTarget(spell, slotLevel)", 1, true) ~= nil)
+
+    local npc = ReadFile("Core/Logic/NPC.lua"):match("function SB%.Logic%.ResolveNpcHeal.-\nend")
+    checkTrue("и лечение существа тоже",
+              npc and npc:find("AddEffect(\"target\", spell.buff", 1, true) ~= nil)
+end
+
+-- ============================================================
+-- ДВЕ ПРАВКИ ПО ЧИСЛАМ
+-- ============================================================
+do
+    -- ── ЗЕЛЬЕ ЯРОСТИ ДОКАПЫВАЕТ ────────────────────────────
+    --
+    -- Тело эффекта было пустым: ни тика, ни отписи — одно название и
+    -- обещание словами. Две единицы разом приходили от onCast предмета,
+    -- а обещанные «ещё две на следующий ход» — ниоткуда.
+    local rage = SB.Data.Spells["custom_cont_456789abc6789acde"]
+    checkTrue("эффект «Ярость» на месте", rage ~= nil)
+    checkTrue("и у него есть тик", rage and rage.effect and rage.effect.tick ~= nil)
+    check("тик кормит ресурс", rage and rage.effect.tick.resource, 2)
+
+    local potion = SB.Data.Spells["custom_9ab23456789adef01789ab"]
+    checkTrue("«Мощное зелье ярости» на месте", potion ~= nil)
+    check("и вешает именно этот эффект", potion and potion.buff,
+          "custom_cont_456789abc6789acde")
+    -- Немедленная выплата осталась своей: тик её не заменяет, а дополняет.
+    check("немедленная выплата на месте", potion and potion.onCast.resource, 2)
+
+    -- ── ЧАРОДЕЙСКИЙ ВЫСТРЕЛ ────────────────────────────────
+    local shot = SB.Data.Spells["arcane_shot"]
+    checkTrue("«Чародейский выстрел» на месте", shot ~= nil)
+    check("Выносливость урезана вдвое", shot.scaling.damage["Выносливость"], 0.5)
+    check("и Интеллект тоже",           shot.scaling.damage["Интеллект"], 0.5)
+    -- Попадание и крит не тронуты: правка про урон.
+    check("бросок не тронут", shot.scaling.hit["Концентрация"], 1)
+    check("крит не тронут",   shot.scaling.crit["Точность"], 1)
 end
 
 -- ============================================================

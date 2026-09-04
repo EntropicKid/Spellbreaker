@@ -748,8 +748,40 @@ end
 --- заклинания лежит в библиотеке у всех одинаковое, и везти признак по
 --- сети незачем — лишнее поле в пакете, которому к тому же пришлось бы
 --- верить на слово.
+---
+--- ── ЧИСТЫЙ БАФФ НЕ БРОСАЕТ ВОВСЕ ────────────────────────────
+---
+--- Второе основание, и оно не поле, а ПРАВИЛО: заклинание, которое
+--- только помогает, попадает всегда.
+---
+--- Бросок существует затем, чтобы решить спор. У баффа спорить не с кем:
+--- цель либо ты сам, либо союзник, который её и ждёт. Провалившийся
+--- самобафф — это не драматичный промах, а потраченный ход, за который
+--- не случилось ровно ничего; такой исход ничего не рассказывает и
+--- ничему не учит. Ста пятидесяти заклинаниям в библиотеке бросок был
+--- проставлен просто потому, что resistable = true — умолчание.
+---
+--- ГРАНИЦА ПРОВЕДЕНА ПО ПОЛЕЗНОСТИ, а не по названию поля:
+---
+---   • урон и дебафф (IsHarmful) — спор есть, бросок остаётся;
+---   • ЛЕЧЕНИЕ бросает по-прежнему. Это не придирка: «Милосердие»
+---     покупает лекарю именно надёжность (см. SB.Skills.GetMercyHealBonus),
+---     и без броска навык перестал бы значить хоть что-нибудь;
+---   • кража (steal) — состязание по определению;
+---   • рассеивание — тоже спор, там снимают чужое.
+---
+--- Заклинание с обоими концами (бафф себе плюс дебафф цели) остаётся
+--- бросковым: решает вредная половина, а не добрая.
 function SB.Logic.IsGuaranteed(spell)
-    return (spell ~= nil) and (spell.resistable == false)
+    if spell == nil then return false end
+    if spell.resistable == false then return true end
+
+    local helpsOnly = (spell.buff ~= nil or spell.container ~= nil)
+        and not SB.Logic.IsHarmful(spell)
+        and not SB.Logic.IsHealingCast(spell)
+        and not spell.steal
+        and not SB.Logic.GetDispelSchools(spell)
+    return helpsOnly and true or false
 end
 
 --- Применяет критический удар к уже посчитанному урону.
@@ -3181,6 +3213,14 @@ function SB.Logic.ExecuteForcedOutcome(spellID, outcomeIndex, slotLevel)
     local ownContainer = SB.Logic.ApplyOwnContainer(spell, slotLevel, succeeded)
     SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID, ownContainer))
 
+    -- ЭФФЕКТ НА ЦЕЛЬ — ТОЖЕ. Здесь вешался только собственный контейнер
+    -- заклинателя, а spell.buff терялся: Ведущий жал «Успех», союзник
+    -- ничего не получал. Тем же вызовом, что и в ProcessRollAndCast, —
+    -- доставка эффекта живёт в одном месте (см. ApplyBuffToTarget).
+    if succeeded and spell.buff then
+        SB.Logic.ApplyBuffToTarget(spell, slotLevel)
+    end
+
     SB.Logic.GrantCreatedItems(spell)
 
     SB.Events.Fire("BROADCAST_LOG", sysMsg, SB.LogRank.ACTION)
@@ -4012,12 +4052,37 @@ function SB.Logic.ResolveHeal(spellID, slotLevel)
     end
     SB.Net.SendHealResult(healName, spellID, success, healAmount, repairArmor)
 
+    -- ── ЭФФЕКТ, КОТОРЫЙ ВЕШАЕТ ЛЕЧЕНИЕ (spell.buff) ─────────
+    --
+    -- ЭТОГО ШАГА ЗДЕСЬ НЕ БЫЛО, и «Озарение» друида работало ровно
+    -- наполовину: рана затягивалась, а сам эффект — прибавка к лечению,
+    -- «Милосердие» и тик на два — не появлялся ни у кого и никогда.
+    --
+    -- Причина та же, что была у «Призвать рой»: доставку эффекта
+    -- выполняет ApplyBuffToTarget, а звали её из ОДНОГО пути резолва
+    -- (ProcessRollAndCast). Лечащий каст с живой целью идёт своей веткой
+    -- и мимо неё; парадокс тот же — чтобы эффект лёг, надо было лечить
+    -- ТАК, чтобы каст не разрешился сам и ушёл заявкой Ведущему.
+    -- Заклинаний с этой болезнью шесть: «Жизнецвет», «Озарение» и
+    -- «Спокойствие» друида, «Успокаивающий туман» монаха, «Аура защиты
+    -- от тьмы» паладина и «Целительный ливень» шамана.
+    --
+    -- ТОЛЬКО НА УСПЕХЕ: провалившееся лечение не лечит и эффекта не
+    -- оставляет — иначе промах давал бы половину заклинания даром.
+    local healBuff
+    if success and spell.buff then
+        SB.Logic.ApplyBuffToTarget(spell, slotLevel)
+        -- Что легло НА МЕНЯ — только самолечение: эффект на союзника
+        -- уезжает ему и моего хода не касается (см. TurnSkipFor).
+        if healName == UnitName("player") then healBuff = spell.buff end
+    end
+
     -- Отклик лекарю. Лечение резолвится локально и CAST_RESOLVED не
     -- шлёт, поэтому звук здесь (см. SB.Logic.PlayOutcomeSound).
     SB.Logic.PlayOutcomeSound(success)
 
     -- Лечение — такой же потраченный ход, как удар.
-    SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID))
+    SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID, healBuff))
 
     local link    = SB.UI.MakeSpellLink(spell)
     local modLink = SB.UI.ModText(mod)
