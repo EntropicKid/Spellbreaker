@@ -2050,6 +2050,98 @@ AsClass("Воин", "WARRIOR", function()
     check("мана при этом не двигается", SB.PlayerModel.GetZeal(), 2)
 end)
 
+-- ============================================================
+-- У КЛАССА МОЖЕТ БЫТЬ НЕСКОЛЬКО ИСТОЧНИКОВ РЕСУРСА
+--
+-- Ярость Воина копилась ТОЛЬКО с полученного урона, и это оставляло его
+-- без ресурса ровно тогда, когда существо било не в него: класс стоял и
+-- ждал, пока его заметят. Ведущие сообщали это как «вары нищие».
+--
+-- Второй источник в прежнюю запись не влезал вовсе — поле trigger одно
+-- на класс, — поэтому запись класса теперь может быть СПИСКОМ правил.
+-- Проверяем оба конца: что работают оба источника и что классы с одним
+-- правилом от этого ничего не потеряли.
+-- ============================================================
+do
+    ResetEffects()
+    AsClass("Воин", "WARRIOR", function()
+        local PM = SB.PlayerModel
+        SB.Data.Spells["t_war_hit"] = { id = "t_war_hit", name = "Проба удара",
+            class = "Воин", level = 1, canCrit = true, distance = 2.5 }
+
+        -- ЧЕРЕЗ PM.SetClassResource, а не записью в таблицу: ресурс
+        -- читается через модель, и прямая правка поля мимо неё —
+        -- обход того самого правила, которое проверяется.
+        --
+        -- И МЕРИМ ПРИРОСТ, а не итог: пул упирается в максимум, и
+        -- проверка «стало ровно три» падала бы просто от того, что до
+        -- потолка оставалось два.
+        local function Gain(fire)
+            PM.SetClassResource(0)
+            local before = PM.GetClassResource()
+            fire()
+            return PM.GetClassResource() - before
+        end
+
+        -- ── ПОЛУЧЕННЫЙ УРОН: ПО ЕДИНИЦЕ ЗА ОЧКО ────────────
+        check("ярость копится с полученного урона",
+              Gain(function() SB.Events.Fire(SB.E.HEALTH_CHANGED, 7, 10, -3) end), 3)
+
+        -- ── СВОЙ УДАР: КАПЛЯ ───────────────────────────────
+        -- Тот самый второй источник. Событие то же, которым пользуются
+        -- все прочие механики попадания (см. ATTACK_RESOLVED).
+        check("и со своего попадания тоже",
+              Gain(function()
+                  SB.Events.Fire(SB.E.ATTACK_RESOLVED, 2, "t_war_hit", true)
+              end), 1)
+
+        -- ПРОМАХ НЕ КОРМИТ: иначе ресурс набирался бы махами в воздух.
+        check("промах ярости не даёт",
+              Gain(function()
+                  SB.Events.Fire(SB.E.ATTACK_RESOLVED, 0, "t_war_hit", false)
+              end), 0)
+
+        -- ── ОБА ИСТОЧНИКА СКЛАДЫВАЮТСЯ ─────────────────────
+        check("источники не заменяют друг друга",
+              Gain(function()
+                  SB.Events.Fire(SB.E.HEALTH_CHANGED, 8, 10, -2)
+                  SB.Events.Fire(SB.E.ATTACK_RESOLVED, 2, "t_war_hit", true)
+              end), 3)
+
+        SB.Data.Spells["t_war_hit"] = nil
+        PM.SetClassResource(0)
+    end)
+
+    -- ── ОДНО ПРАВИЛО ОСТАЛОСЬ ОДНИМ ПРАВИЛОМ ───────────────
+    -- Запись без списка обязана читаться как раньше: иначе разбор
+    -- «список или нет» тихо выключил бы механики всех прочих классов.
+    local rules = SB.ClassMechanics.RulesFor("Рыцарь смерти")
+    check("у класса с одним правилом оно одно", #rules, 1)
+    checkTrue("и это по-прежнему настоящее правило",
+              rules[1] ~= nil and rules[1].trigger ~= nil)
+
+    local war = SB.ClassMechanics.RulesFor("Воин")
+    check("а у Воина их два", #war, 2)
+    local seen = {}
+    for _, r in ipairs(war) do seen[r.trigger] = true end
+    checkTrue("и это разные поводы", seen.healthLost and seen.damage)
+
+    -- У КАЖДОГО ПРАВИЛА ЕСТЬ ПОВОД. Правило без него молчит навсегда, а
+    -- по коду выглядит рабочим — ровно тот вид ошибки, которую здесь
+    -- ловить и нужно.
+    local mute = {}
+    for cn in pairs(SB.ClassMechanics.Definitions) do
+        for i, r in ipairs(SB.ClassMechanics.RulesFor(cn)) do
+            if type(r) ~= "table" or r.trigger == nil then
+                mute[#mute + 1] = cn .. "#" .. i
+            end
+        end
+    end
+    check("правил без повода", #mute, 0)
+    for _, one in ipairs(mute) do print("          " .. one) end
+    ResetEffects()
+end
+
 -- Максимумы: канал маны двигает только ману, канал ресурса — только
 -- ресурс класса, общий — оба (у каждого свой).
 ResetEffects()
