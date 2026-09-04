@@ -268,8 +268,7 @@ function SB.Logic.ResolveNpcHeal(spellID, slotLevel)
     -- работает лучше». У игрока второй читается в PM.Heal, то есть у
     -- получателя; у существа получателя-клиента нет, поэтому оба
     -- складываются здесь.
-    local effHeal = (SB.ActiveEffects and SB.ActiveEffects.GetMod)
-        and (SB.ActiveEffects.GetMod("heal")) or 0
+    local effHeal = SB.Logic.GetHealBonus()
     local taken = SB.NPC.EffectMod and (SB.NPC.EffectMod("target", "healTaken")) or 0
     effHeal = effHeal + taken
 

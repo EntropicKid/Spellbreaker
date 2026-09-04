@@ -698,8 +698,9 @@ function SB.Logic.ResolveAoeHeal(spellID, slotLevel)
     -- здесь он у каждого свой) — на непопадании число просто не
     -- применяется.
     local baseHeal = SB.Logic.GetHealPower(spell, slotLevel)
-    local effHeal  = (SB.ActiveEffects and SB.ActiveEffects.GetMod)
-        and (SB.ActiveEffects.GetMod("heal")) or 0
+    -- Эффекты И профиль класса, одним ответом: залп лечит по тем же
+    -- правилам, что одиночный каст (см. SB.Logic.GetHealBonus).
+    local effHeal  = SB.Logic.GetHealBonus()
     local amount   = SB.Logic.ApplyCritHeal(baseHeal + dmgBonus + effHeal, isCrit)
 
     pendingHealEmote = { spellID = spellID, sent = false }

@@ -2073,8 +2073,13 @@ function SB.UI.ShowSlotPicker(spellID)
         -- Третий ответ на тот же вопрос завёлся бы ровно здесь.
         local effBonus = 0
         if spell.isHeal then
-            effBonus = (SB.ActiveEffects and SB.ActiveEffects.GetMod)
-                and SB.ActiveEffects.GetMod("heal") or 0
+            -- Тем же ответом, что уйдёт в резолв и в карточку: у лечения
+            -- слагаемых два, эффекты и профиль класса, и складывает их
+            -- одно место (см. SB.Logic.GetHealBonus). Пока здесь стоял
+            -- голый канал эффектов, пикер занижал бы жрецу ровно на его
+            -- классовую единицу — тем же способом, каким уже занижал под
+            -- «Внутренним огнём».
+            effBonus = SB.Logic.GetHealBonus()
         else
             effBonus = (SB.ActiveEffects and SB.ActiveEffects.GetDamageMod)
                 and SB.ActiveEffects.GetDamageMod(spell) or 0

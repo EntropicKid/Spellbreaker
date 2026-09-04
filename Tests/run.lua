@@ -12084,8 +12084,8 @@ do
         -- вырезан начисто.
         checkTrue("урон учитывает школьную прибавку эффектов",
                   tag:find("GetDamageMod(spell)", 1, true) ~= nil)
-        checkTrue("лечение учитывает свой канал",
-                  tag:find('GetMod("heal")', 1, true) ~= nil)
+        checkTrue("лечение учитывает свой канал И профиль класса",
+                  tag:find("GetHealBonus()", 1, true) ~= nil)
     end
 
     -- И ТА ЖЕ РАЗВИЛКА В КАРТОЧКЕ — она в Core и проверяется живьём.
@@ -13847,6 +13847,104 @@ do
     local net = ReadFile("Core/Network.lua")
     checkTrue("пакет кражи заведён", net:find("STEAL", 1, true) ~= nil)
     checkTrue("и ответ жертвы тоже", net:find("STEALR", 1, true) ~= nil)
+end
+
+-- ============================================================
+-- ЖРЕЦ ЛЕЧИТ, А НЕ ПРОСТО ХУЖЕ БЬЁТ
+--
+-- В профиле жреца стоял attack = -3, и это был штраф не только по
+-- урону: профильный attack двигает ВСЕ броски разом, включая лечебный.
+-- То есть класс, назначенный лечить, лечил ненадёжнее прочих — ровно за
+-- то, что он лекарь. Штраф снят, а сила названа прямо: единица к ОБЪЁМУ
+-- исходящего исцеления.
+--
+-- Отсюда же второе: у объёма лечения появилось ВТОРОЕ слагаемое. Пока
+-- оно было одно (канал "heal" висящих эффектов), четыре места считали
+-- его одинаково по случайности. Теперь считает одно.
+-- ============================================================
+do
+    local L = SB.Logic
+
+    -- ── ПРОФИЛЬ ────────────────────────────────────────────
+    local priest = SB.Data.GetClassProfile("Жрец")
+    check("штрафа к броску у жреца больше нет", priest.attack or 0, 0)
+    check("зато есть прибавка к исцелению",     priest.heal or 0, 1)
+    -- Остальное не тронуто: правка про атаку и лечение, а не про живучесть.
+    check("защита на месте",   priest.defense, 3)
+    check("здоровье на месте", priest.health, -1)
+
+    -- ── СКЛАДЫВАЕТ ОДНО МЕСТО ──────────────────────────────
+    --
+    -- Класс персонажа берётся из игрового API (PM.GetClass →
+    -- SB.Data.CanonicalClass), а не из сохранёнки, — поэтому и подменяем
+    -- его в заглушке, а не в базе.
+    local savedClass, savedToken = stub.world.class, stub.world.classToken
+    ResetEffects()
+
+    stub.world.class, stub.world.classToken = "Шаман", "SHAMAN"
+    check("без классовой прибавки — ноль", L.GetHealBonus(), 0)
+
+    stub.world.class, stub.world.classToken = "Жрец", "PRIEST"
+    check("классовая прибавка видна", L.GetHealBonus(), 1)
+
+    -- Эффект поверх класса: слагаемые именно СКЛАДЫВАЮТСЯ.
+    SB.Data.Spells["t_healup"] = { id = "t_healup", name = "Проба лечения",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff", mods = { heal = 2 } } }
+    SB.ActiveEffects.Add("t_healup", 5, false)
+    check("эффект и класс складываются", L.GetHealBonus(), 3)
+    ResetEffects()
+    SB.Data.Spells["t_healup"] = nil
+
+    stub.world.class, stub.world.classToken = savedClass, savedToken
+
+    -- ── И СЧИТАЕТ ЕГО ВЕЗДЕ ────────────────────────────────
+    --
+    -- Главный инвариант. Мест, где собирается объём исходящего лечения,
+    -- четыре: резолв, залп, лечение существа и сводка в интерфейсе.
+    -- Забудь любое из них — прибавка жреца работала бы через раз, и
+    -- хуже того: карточка показывала бы не то, что персонаж вылечит.
+    local HEAL_FILES = { "Core/Logic.lua", "Core/Logic/Aoe.lua",
+                         "Core/Logic/NPC.lua", "UI/MainFrame.lua" }
+    local stray = {}
+    for _, path in ipairs(HEAL_FILES) do
+        local body = ReadFile(path)
+        local _, raw = body:gsub('GetMod%("heal"%)', "")
+        -- Единственное законное упоминание — внутри самой GetHealBonus.
+        local allowed = (path == "Core/Logic.lua") and 1 or 0
+        if raw > allowed then stray[#stray + 1] = path end
+    end
+    check("объём лечения нигде не считают в обход общей функции",
+          table.concat(stray, ", "), "")
+
+    local callers = 0
+    for _, path in ipairs(HEAL_FILES) do
+        for _ in ReadFile(path):gmatch("SB%.Logic%.GetHealBonus%(%)") do
+            callers = callers + 1
+        end
+    end
+    -- Три вызова в Core/Logic.lua (карточка и резолв) и по одному в
+    -- остальных трёх файлах.
+    checkTrue("а через неё — все места сбора", callers >= 4)
+end
+
+-- ============================================================
+-- «ЖИЗНЕОТВОД» ОПУСТИЛСЯ ДО НУЛЕВОГО КРУГА
+--
+-- Круг и заговор — РАЗНЫЕ признаки, и путать их нельзя: круг говорит,
+-- с какого ранга заклинание доступно, а isCantrip — тратит ли оно
+-- ресурс. В библиотеке десять заклинаний нулевого круга не заговоры и
+-- шесть заговоров выше нулевого, так что связи между полями нет.
+-- ============================================================
+do
+    local tap = SB.Data.Spells["burningspirit"]
+    checkTrue("«Жизнеотвод» на месте", tap ~= nil)
+    check("круг нулевой", tap.level, 0)
+    check("но заговором не стал", tap.isCantrip, false)
+    -- Сделка не должна была превратиться в бросок: заклинание как было
+    -- без сопротивления и потоковым, так и осталось.
+    check("сделка по-прежнему без броска", tap.resistable, false)
+    checkTrue("и по-прежнему поток", tap.channel == true)
 end
 
 -- ============================================================

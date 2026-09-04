@@ -600,6 +600,31 @@ function SB.Logic.GetHealPower(spell, slotLevel)
     return base + slot * (cfg.DamagePerMana or 0), slot * (cfg.HitPerResource or 0)
 end
 
+--- НА СКОЛЬКО СДВИНУТО СВОЁ ИСХОДЯЩЕЕ ИСЦЕЛЕНИЕ — одним ответом.
+---
+--- Слагаемых два: канал "heal" висящих эффектов и профиль класса. Читать
+--- их порознь нельзя, и это не вкусовщина: прибавка обязана попасть В ДВА
+--- МЕСТА — в резолв лечения (SB.Logic.ResolveHeal) и в строку «Лечение»
+--- на карточке заклинания. Пока слагаемое было одно, оба места считали
+--- его одинаково по случайности; стоило появиться второму, и карточка
+--- начала бы врать жрецу ровно на его классовую единицу.
+---
+--- ЭТО ОБЪЁМ, А НЕ БРОСОК. Профильные attack/defense живут в реестре
+--- источников (SB.Logic.ModifierSources) и складываются в модификатор
+--- d100; здесь другая шкала — единицы здоровья, — и общего с ними у
+--- этого числа ничего нет, кроме того, что оба берутся из профиля.
+---
+--- НЕ ПУТАТЬ С "healTaken": тот двигает ПОЛУЧАЕМОЕ исцеление и считается
+--- у того, кого лечат (см. врезку о каналах в Core/ActiveEffects.lua).
+--- @return number
+function SB.Logic.GetHealBonus()
+    local eff = (SB.ActiveEffects and SB.ActiveEffects.GetMod)
+        and (SB.ActiveEffects.GetMod("heal")) or 0
+    local cls = (SB.Data and SB.Data.GetClassProfile
+        and SB.Data.GetClassProfile().heal) or 0
+    return eff + cls
+end
+
 -- ============================================================
 -- ПОЧИНКА ДОСПЕХА КАСТОМ (spell.repairArmor)
 --
@@ -1772,8 +1797,9 @@ function SB.Logic.GetSpellScalingLines(spell)
     local dmgSources = ScalingSourceNames(spell, "damage")
     if spell.isHeal then
         local base = SB.Logic.GetHealPower(spell, slot)
-        local eff  = (SB.ActiveEffects and SB.ActiveEffects.GetMod)
-            and (SB.ActiveEffects.GetMod("heal")) or 0
+        -- Тем же ответом, что уйдёт в резолв: карточка обязана показывать
+        -- то, что персонаж реально вылечит (см. SB.Logic.GetHealBonus).
+        local eff  = SB.Logic.GetHealBonus()
         local sum  = base + SB.Logic.GetSpellScaling(spell, "damage", slot) + eff
         Line("Лечение", tostring(math.max(0, sum)), dmgSources)
     elseif spell.canCrit or dmgSources then
@@ -3902,11 +3928,10 @@ function SB.Logic.ResolveHeal(spellID, slotLevel)
     -- «Милосердие» в объём БОЛЬШЕ НЕ ВХОДИТ: навык переехал в бросок
     -- (источник реестра "mercy", см. SB.Skills.GetMercyHealBonus) и
     -- покупает теперь надёжность, а не размер исцеления.
-    -- Канал "heal" висящих эффектов — сдвиг силы исцеления (см.
-    -- Core/ActiveEffects.lua). Отдельный от "damage": бафф может усилить
-    -- лечение, не усиливая удары, и наоборот.
-    local effHeal = (SB.ActiveEffects and SB.ActiveEffects.GetMod)
-        and (SB.ActiveEffects.GetMod("heal")) or 0
+    -- Канал "heal" висящих эффектов плюс профиль класса — сдвиг силы
+    -- исцеления (см. SB.Logic.GetHealBonus). Отдельный от "damage": бафф
+    -- может усилить лечение, не усиливая удары, и наоборот.
+    local effHeal = SB.Logic.GetHealBonus()
     local healAmount = baseHeal + (success and (dmgBonus + effHeal) or 0)
     -- Критическое исцеление УМНОЖАЕТ итог — по тем же соображениям, что
     -- и крит урона: плоская прибавка у развитого лекаря значила бы
