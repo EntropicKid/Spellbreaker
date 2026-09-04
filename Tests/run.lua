@@ -14764,6 +14764,121 @@ do
 end
 
 -- ============================================================
+-- ПЕРЕД РЕЛИЗОМ: ЧИСЛУ ИЗ ЧУЖОГО ПАКЕТА ВЕРИТЬ НЕЛЬЗЯ
+--
+-- Прибавка к сроку от «Воодушевления» считается у ЗАКЛИНАТЕЛЯ и едет в
+-- пакете BUFF — то есть её пишет чужой клиент. Без потолка присланное
+-- «enc = 9999» повесило бы эффект на девять тысяч ходов, а снять его
+-- можно было бы только Долгим Отдыхом.
+--
+-- Тот же принцип, по которому здесь сверяются броски: своему клиенту
+-- верим, чужому — нет.
+-- ============================================================
+do
+    local L = SB.Logic
+    SB.Data.Spells["t_cap_eff"] = { id = "t_cap_eff", name = "Проба потолка",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff", mods = { attack = 1 } } }
+    local src = { id = "t_cap_src", name = "Источник", class = "Жрец",
+                  level = 1, duration = 3, buff = "t_cap_eff" }
+
+    -- Потолок выведен из максимума навыка, а не назначен числом.
+    local cap = SB.Attributes.GetMaxValue() - 1
+    check("честная прибавка проходит целиком",
+          L.GetEffectDuration("t_cap_eff", src, 1, cap), 3 + cap)
+    check("присланное сверх потолка зажимается",
+          L.GetEffectDuration("t_cap_eff", src, 1, 9999), 3 + cap)
+    check("отрицательное не укорачивает срок",
+          L.GetEffectDuration("t_cap_eff", src, 1, -50), 3)
+    check("мусор вместо числа не роняет",
+          L.GetEffectDuration("t_cap_eff", src, 1, "много"), 3)
+
+    SB.Data.Spells["t_cap_eff"] = nil
+end
+
+-- ============================================================
+-- ПЕРЕД РЕЛИЗОМ: ЧИСТАЯ УСТАНОВКА
+--
+-- У нового игрока сохранёнка пуста, а миграций уже одиннадцать, и они
+-- бегут все подряд с нуля. Любая, забывшая проверить тип поля, уронит
+-- аддон на ПЕРВОМ же входе — то есть ровно там, где ошибку заметят все
+-- и сразу.
+-- ============================================================
+do
+    local char, acct = {}, {}
+    local ok, err = pcall(SB.Migrations.Run, char, acct)
+    checkTrue("миграции проходят на пустой базе: " .. tostring(err), ok)
+    check("и версия проставлена сразу целевая", char.schemaVersion, SB.SCHEMA_VERSION)
+    check("аккаунтная тоже",                    acct.schemaVersion, SB.SCHEMA_VERSION)
+
+    -- Второй прогон на уже готовой базе не должен делать ничего.
+    local ok2 = pcall(SB.Migrations.Run, char, acct)
+    checkTrue("повторный прогон безопасен", ok2)
+
+    -- И на базе с мусором вместо таблиц: поля сохранёнок правят руками,
+    -- и «не таблица там, где ждали таблицу» — обычное дело.
+    local junk = { schemaVersion = 0, skills = "мусор", attributes = 42,
+                   preparedItems = false, preparedSpells = "нет" }
+    local ok3, err3 = pcall(SB.Migrations.Run, junk, { schemaVersion = 0 })
+    checkTrue("миграции переживают мусор в полях: " .. tostring(err3), ok3)
+end
+
+-- ============================================================
+-- ПЕРЕД РЕЛИЗОМ: У ПОРОГА ОДНА БАЗА, А НЕ ШЕСТЬ
+--
+-- «60 + уровень» было выписано руками в ПЯТИ местах помимо
+-- EffectThreshold: лечение, лечение существа, эффект на существо,
+-- площадь и кража. Шесть копий одного числа — это не шесть порогов, а
+-- один, из которого пять однажды не поедут за правкой.
+-- ============================================================
+do
+    local L = SB.Logic
+
+    -- Считает ли она то же, что EffectThreshold на том же уровне.
+    local lvl = UnitLevel("player") or 1
+    check("база сходится с порогом эффекта",
+          L.BaseThresholdFor(lvl), L.EffectThreshold("player", false, false))
+
+    -- Мусор на входе не роняет и даёт порог первого уровня.
+    check("без уровня — как за первый", L.BaseThresholdFor(nil), L.BaseThresholdFor(1))
+    check("мусор тоже",                 L.BaseThresholdFor("ой"), L.BaseThresholdFor(1))
+    checkTrue("выше уровень — выше порог",
+              L.BaseThresholdFor(25) > L.BaseThresholdFor(1))
+
+    -- ── ИНВАРИАНТ: КОПИЙ БОЛЬШЕ НЕТ ────────────────────────
+    --
+    -- Проверка стережёт не число, а то, что оно одно. Шестая копия
+    -- заводится незаметно: строка «60 + уровень» выглядит очевидной и
+    -- пишется быстрее, чем ищется общая функция.
+    local FILES = { "Core/Logic.lua", "Core/Logic/Aoe.lua", "Core/Logic/NPC.lua",
+                    "Core/Logic/NpcCast.lua", "Core/ActiveEffects.lua" }
+    local stray = {}
+    for _, path in ipairs(FILES) do
+        for line in ReadFile(path):gmatch("[^\r\n]+") do
+            -- Комментарии не в счёт: в них число называют по делу.
+            if not line:match("^%s*%-%-") and line:find("60 +", 1, true) then
+                stray[#stray + 1] = path
+                break
+            end
+        end
+    end
+    check("базу порога руками больше не пишут", table.concat(stray, ", "), "")
+
+    -- ── И КУБИК БРОСАЕТ ОДНА ФУНКЦИЯ ───────────────────────
+    --
+    -- Пол кубика теперь двигают и эффекты, а не только раса
+    -- (см. «Благословение»), поэтому второй бросок мимо SB.Logic.Roll
+    -- однажды уехал бы от первого.
+    local rollers = {}
+    for _, path in ipairs({ "Core/Logic.lua", "Core/Logic/Aoe.lua", "Core/Logic/NPC.lua" }) do
+        local body = ReadFile(path)
+        local _, n = body:gsub("math%.random%(roll", "")
+        if n > 0 then rollers[#rollers + 1] = path end
+    end
+    check("по границам кубика бросает только Roll", table.concat(rollers, ", "), "")
+end
+
+-- ============================================================
 -- ИТОГ
 -- ============================================================
 print("")

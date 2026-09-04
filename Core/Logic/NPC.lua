@@ -258,7 +258,8 @@ function SB.Logic.ResolveNpcHeal(spellID, slotLevel)
     local total  = roll + mod
     local isCrit = roll >= SB.Logic.GetCritThreshold(critBonus, rollMax)
 
-    local threshold = math.floor(60 + SB.Data.ToReferenceLevel(stats.level or 1))
+    -- Та же база, что у лечения игрока (см. SB.Logic.BaseThresholdFor).
+    local threshold = SB.Logic.BaseThresholdFor(stats.level)
     local guaranteed = SB.Logic.IsGuaranteed(spell)
     local success    = guaranteed or (total >= threshold)
 
@@ -392,7 +393,9 @@ function SB.Logic.ResolveNpcEffect(spellID, slotLevel)
     local total = roll + mod
 
     -- Порог тот же, что у эффекта на игрока: 60 + уровень цели.
-    local threshold = math.floor(60 + SB.Data.ToReferenceLevel(stats.level or 1))
+    -- База — общая с игроками (см. SB.Logic.BaseThresholdFor): существо
+    -- отличается не порогом, а тем, откуда берётся его уровень.
+    local threshold = SB.Logic.BaseThresholdFor(stats.level)
     if isDebuff then
         threshold = threshold + SB.NPC.WillBonus(stats, "target")
     end

@@ -925,7 +925,19 @@ function SB.Logic.GetEffectDuration(effectID, sourceSpell, slotLevel, extraTurns
     --
     -- Число приезжает СНАРУЖИ, потому что считает его заклинатель, а
     -- длительность собирает получатель (см. SB.Skills.GetEncouragementBonus).
-    local extra = math.max(0, math.floor(tonumber(extraTurns) or 0))
+    --
+    -- И РАЗ СНАРУЖИ — ЗНАЧИТ ЗАЖИМАЕМ. Поле едет в пакете BUFF, а пакет
+    -- пишет чужой клиент: без потолка присланное «enc = 9999» повесило бы
+    -- эффект на девять тысяч ходов, и снять его можно было бы только
+    -- Долгим Отдыхом. Это тот же принцип, по которому здесь сверяются
+    -- броски (VerifyIncomingCast): своему клиенту верим, чужому — нет.
+    --
+    -- ПОТОЛОК ВЫВЕДЕН, А НЕ НАЗНАЧЕН: больше, чем даёт полностью
+    -- вложенный навык, «Воодушевление» не даёт и у себя. Максимум навыка
+    -- равен максимуму его атрибута-родителя, минус невложенная единица.
+    local cap = ((SB.Attributes and SB.Attributes.GetMaxValue
+        and SB.Attributes.GetMaxValue()) or 5) - 1
+    local extra = math.max(0, math.min(cap, math.floor(tonumber(extraTurns) or 0)))
 
     return math.max(1,
         math.floor(turns * SB.Logic.GetUpcastMultiplier(sourceSpell, slotLevel)) + extra)
@@ -2862,8 +2874,7 @@ function SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, totalScaling)
     -- "resource" (прибавка к попаданию за вложенный ресурс).
     local mod, modParts = SB.Logic.GetModifierBreakdown("attack",
         { spell = spell, slotLevel = slotLevel })
-    local rollMin, rollMax = SB.Logic.GetRollRange()
- 
+
     -- Скейлинг от характеристик, объявленный самим заклинанием
     -- (spell.scaling / устаревшее spell.attributes) — см. GetSpellScaling.
     local hitBonus,  hitParts  = SB.Logic.GetSpellScaling(spell, "hit")
@@ -2893,7 +2904,12 @@ function SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, totalScaling)
     -- в тултипе броска было видно, за счёт чего именно набрался бонус.
     for _, p in ipairs(hitParts) do table.insert(modParts, p) end
 
-    local roll    = math.random(rollMin, rollMax)
+    -- ЧЕРЕЗ SB.Logic.Roll, А НЕ math.random ПО ГРАНИЦАМ: здесь стояла
+    -- вторая копия одной строки — «взять диапазон и бросить в нём». Пока
+    -- пол кубика двигала одна раса, копия была безобидной; теперь его
+    -- двигают и эффекты, и второй бросок мимо общей функции однажды
+    -- уехал бы от первого.
+    local roll, _, rollMax = SB.Logic.Roll()
     local total   = roll + mod
     local dcNum   = tonumber(dc) or 0
     local success = total >= dcNum
@@ -3375,6 +3391,27 @@ end
 --- в константу, потому что от неё считаются ВСЕ пороги эффектов —
 --- одиночные, площадные и каст на себя.
 local EFFECT_BASE_THRESHOLD = 60
+
+--- ПОРОГ ПО ЧИСЛУ УРОВНЯ, а не по юниту: 60 плюс уровень по эталонной
+--- шкале.
+---
+--- ЗАЧЕМ ОТДЕЛЬНО ОТ EffectThreshold. Та спрашивает уровень у ИГРОВОГО
+--- ЮНИТА (UnitLevel), и это верно ровно там, где юнит есть. У половины
+--- расчётов его нет: у существа уровень лежит в его записи, у площадного
+--- залпа — свой у каждого задетого, у лечения — у того, кого лечат.
+---
+--- ПОКА ЭТОЙ ФУНКЦИИ НЕ БЫЛО, эти места писали «60 + …» руками, и таких
+--- мест набралось ПЯТЬ: лечение, лечение существа, эффект на существо,
+--- площадь и кража. Шестая копия одного числа — это не шесть порогов, а
+--- один, из которого пять однажды не поедут за правкой. Ровно та же
+--- болезнь, что была у собственного контейнера заклинателя и у объёма
+--- исходящего исцеления.
+--- @param level number|nil  уровень цели «как в игре» (не эталонный)
+--- @return number
+function SB.Logic.BaseThresholdFor(level)
+    return math.floor(EFFECT_BASE_THRESHOLD
+        + SB.Data.ToReferenceLevel(tonumber(level) or 1))
+end
 
 --- Порог закрепления эффекта на юните: 60 + его уровень по эталонной
 --- шкале, плюс «Воля», если эффект враждебный.
@@ -3976,7 +4013,7 @@ function SB.Logic.ResolveHeal(spellID, slotLevel)
     -- Округляем: healLevel может быть дробным на реалме с растянутой
     -- прогрессией (см. ToReferenceLevel выше) — без floor порог/лог
     -- показывали бы игроку что-то вроде "против порога 82.5".
-    local threshold = math.floor(60 + healLevel)
+    local threshold = SB.Logic.BaseThresholdFor(UnitLevel(healUnit) or 1)
     -- «Без сопротивления» действует и на лечение: порог не берётся вовсе
     -- (см. SB.Logic.IsGuaranteed). Крит при этом остаётся случайным — он
     -- от кубика, а кубик бросается в любом случае.
@@ -4687,10 +4724,9 @@ function SB.Logic.ResolveSteal(spellID, slotLevel)
     -- ── СУЩЕСТВО: СЧИТАЕМ САМИ, ДОБЫЧУ ДАЁТ ВЕДУЩИЙ ─────────
     if npcStats then
         -- Тот же порог, что у эффекта на существо (см. ResolveNpcEffect):
-        -- 60 плюс уровень, плюс его «Воля» — кража чужому вмешательству
+        -- база плюс уровень, плюс его «Воля» — кража чужому вмешательству
         -- родня, и сопротивляются ей тем же.
-        local threshold = math.floor(60 +
-            SB.Data.ToReferenceLevel(npcStats.level or 1))
+        local threshold = SB.Logic.BaseThresholdFor(npcStats.level)
             + SB.NPC.WillBonus(npcStats, "target")
         local ok = guaranteed or (total >= threshold)
 

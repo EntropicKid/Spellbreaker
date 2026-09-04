@@ -457,8 +457,12 @@ function SB.ActiveEffects.GetEffectLines(spellID)
 
         local what = PayloadText(act.payload)
         if not what and type(act.effect) == "string" then
-            what = SB.Logic.EffectName and SB.Logic.EffectName(act.effect)
-                   or (SB.Data.Spells[act.effect] and SB.Data.Spells[act.effect].name)
+            -- Здесь стоял вызов SB.Logic.EffectName — функции, которой в
+            -- аддоне нет. Ветка была защищена «and», поэтому молчала, но
+            -- читалась как рабочая: имя эффекта всё это время приходило
+            -- из запасного варианта справа.
+            local by = SB.Data.Spells[act.effect]
+            what = by and by.name
         end
         if not what and type(act.toAttacker) == "string" then
             local nm = SB.Data.Spells[act.toAttacker]
@@ -1325,8 +1329,9 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc)
     -- находили не раз.
     local incoming = SB.Data.Spells[containerSpellID]
     incoming = incoming and incoming.effect
+    local breakers = SB.Data.ConcentrationBreakers or {}
     local breaksConc = incoming and incoming.kind == "debuff"
-        and SB.Data.ConcentrationBreakers[incoming.family or ""] or false
+        and breakers[incoming.family or ""] or false
 
     for _, eff in ipairs(effects) do
         if eff.spellID == containerSpellID then

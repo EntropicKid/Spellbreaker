@@ -656,11 +656,11 @@ local function HealEmoteOnce(spellID)
 end
 
 --- Порог, который проверяет у себя КАЖДЫЙ задетый. Тот же, что в
---- одиночном лечении: 60 + собственный уровень по эталонной шкале
---- (см. SB.Data.ToReferenceLevel — на реалме с капом 100 без перевода
---- порог ушёл бы к 160).
+--- одиночном лечении, и считается ТОЙ ЖЕ функцией: база плюс собственный
+--- уровень (см. SB.Logic.BaseThresholdFor). Своя копия «60 + …» здесь
+--- стояла и молча разошлась бы с остальными при первой же правке базы.
 local function OwnHealThreshold()
-    return math.floor(60 + SB.Data.ToReferenceLevel(UnitLevel("player") or 1))
+    return SB.Logic.BaseThresholdFor(UnitLevel("player") or 1)
 end
 
 --- Ответ задетого лечением — в тот же сборщик блока.
