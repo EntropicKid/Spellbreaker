@@ -131,7 +131,7 @@ local function Build()
     built = true
 
     panel = SB.Theme.Frame("SpellbreakerNpcCastFrame", UIParent,
-                           "Способность существа", 260, 132, "gm")
+                           "Способность существа", 260, 164, "gm")
     SB.Theme.AttachPositionMemory(panel, "npcCastPos", 0, 120)
 
     panel.what = panel:CreateFontString(nil, "OVERLAY", "SBFontHighlight")
@@ -156,6 +156,40 @@ local function Build()
     panel.allFS = panel:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
     panel.allFS:SetPoint("LEFT", panel.allChk, "RIGHT", 2, 0)
     panel.allFS:SetText("Задеть всех")
+
+    -- ── ДВА БЫСТРЫХ СПОСОБА ОТМЕТИТЬ ─────────────────────
+    --
+    -- «В ЦЕЛИ» — потому что рамками неудобно ровно там, где это нужнее
+    -- всего: в рейде на сорок человек Ведущий ищет нужную табличку
+    -- глазами, а цель у него и так взята. Кнопка берёт того, кто СЕЙЧАС
+    -- в таргете, и ей всё равно, игрок это или существо: у игрока адрес
+    -- — имя, у существа — ключ спавна, а нажатие одно и то же.
+    --
+    -- Это же и есть удар существа по существу: взял в цель волка,
+    -- нажал — волк под залпом.
+    panel.targetBtn = SB.Theme.Button(panel, "В цели", 76, 20, "secondary")
+    panel.targetBtn:SetPoint("TOPLEFT", panel.allChk, "BOTTOMLEFT", 4, -4)
+    panel.targetBtn:SetScript("OnClick", function()
+        if not UnitExists("target") then
+            print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BAD ..
+                "Возьмите кого-нибудь в цель.|r")
+            return
+        end
+        if UnitIsPlayer("target") then
+            SB.NpcCast.Toggle(UnitName("target"))
+        else
+            SB.NpcCast.ToggleNpc("target")
+        end
+    end)
+
+    -- «СЕБЯ» — самолечение и собственный оберег. Через «в цели» это
+    -- тоже достижимо, но требует взять в цель самого заклинателя, то
+    -- есть потерять ту цель, по которой Ведущий и работает.
+    panel.selfBtn = SB.Theme.Button(panel, "Себя", 76, 20, "secondary")
+    panel.selfBtn:SetPoint("LEFT", panel.targetBtn, "RIGHT", 6, 0)
+    panel.selfBtn:SetScript("OnClick", function()
+        SB.NpcCast.ToggleSelf()
+    end)
 
     panel.castBtn = SB.Theme.Button(panel, "Применить", 96, 24, "primary")
     panel.castBtn:SetPoint("BOTTOMRIGHT", panel, "BOTTOM", -4, 10)
@@ -195,17 +229,36 @@ local function RefreshPanel()
         panel.count:SetText("|cFF999999Ложится на само существо.|r")
         panel.allChk:Hide()
         panel.allFS:Hide()
+        panel.targetBtn:Hide()
+        panel.selfBtn:Hide()
         panel.castBtn:Enable()
         panel:Show()
         return
     end
     panel.allChk:Show()
     panel.allFS:Show()
+    panel.targetBtn:Show()
+    panel.selfBtn:Show()
+    -- Кнопка «Себя» — переключатель, и надпись говорит, что случится по
+    -- нажатию: иначе отмеченного заклинателя видно только по счётчику.
+    panel.selfBtn:SetText(SB.NpcCast.IsSelfSelected() and "Снять себя" or "Себя")
 
-    local n = SB.NpcCast.CountSelected()
-    panel.count:SetText(n > 0
-        and string.format("Задето игроков: |cFFFFD100%d|r", n)
-        or  "|cFFFF6666Никто не отмечен|r — кликните по рамкам.")
+    -- СЧЁТ ОБЩИЙ, А СУЩЕСТВА НАЗВАНЫ ОТДЕЛЬНО. «Задето: 3» не говорит
+    -- Ведущему, попал ли под залп тот волк, которого он только что
+    -- отметил, — а рамки существ, в отличие от игроцких, галочкой не
+    -- помечаются: их попросту нет на экране.
+    local n     = SB.NpcCast.CountSelected()
+    local mobs  = SB.NpcCast.NpcTargetNames()
+    local line
+    if n == 0 then
+        line = "|cFFFF6666Никто не отмечен|r — рамки, «В цели» или «Себя»."
+    else
+        line = string.format("Задето: |cFFFFD100%d|r", n)
+        if #mobs > 0 then
+            line = line .. "  |cFF99CCFF(" .. table.concat(mobs, ", ") .. ")|r"
+        end
+    end
+    panel.count:SetText(line)
 
     -- Галочка отражает СОСТОЯНИЕ, а не то, чем его получили: отметил
     -- всех поштучно — она встаёт сама.

@@ -4236,6 +4236,120 @@ do
         end
     end
 
+    -- ============================================================
+    -- ЦЕЛЬЮ МОЖЕТ БЫТЬ СУЩЕСТВО — СВОЁ ЖЕ ИЛИ СОСЕДНЕЕ
+    --
+    -- Набор целей состоял из имён игроков и только из них: существо не
+    -- могло ни ударить существо, ни вылечить себя, ни повесить на себя
+    -- оберег. Ведущий не мог этого и панелью выдачи — та кладёт эффект,
+    -- но не кастует способность, и «положительный дот на самого себя»
+    -- не выражался вообще ничем.
+    --
+    -- СЧИТАЕТСЯ ЗДЕСЬ ЖЕ, БЕЗ СЕТИ: состояние всех особей сцены держит
+    -- владелец. Поэтому проверяем не «что отправилось», как у игроков, а
+    -- прямое последствие — здоровье и список эффектов особи.
+    -- ============================================================
+    do
+        local st = SB.NPC.GetState("target")
+        st.res, st.maxRes = 9, 9
+
+        -- ── ЛЕЧЕНИЕ САМОГО СЕБЯ ────────────────────────────
+        st.maxHp, st.hp = 40, 10
+        calls, buffs, heals = {}, {}, {}
+        SB.NpcCast.Begin("target", "t_npc_heal")
+        checkTrue("сам ещё не отмечен", not SB.NpcCast.IsSelfSelected())
+        SB.NpcCast.ToggleSelf()
+        checkTrue("после нажатия — отмечен", SB.NpcCast.IsSelfSelected())
+        check("и он единственная цель", SB.NpcCast.CountSelected(), 1)
+        local ok, n = SB.NpcCast.Confirm()
+        checkTrue("самолечение прошло", ok)
+        check("и засчиталось одной целью", n, 1)
+        checkTrue("здоровье выросло", SB.NPC.GetState("target").hp > 10)
+        check("наружу не ушло ничего", #calls + #buffs + #heals, 0)
+
+        -- ЛЕЧЕНИЕ НЕ ПЕРЕЛИВАЕТСЯ ЧЕРЕЗ КРАЙ — тем же зажимом, что
+        -- везде (см. SB.NPC.AdjustHealth).
+        local full = SB.NPC.GetState("target")
+        full.hp = full.maxHp
+        SB.NpcCast.Begin("target", "t_npc_heal")
+        SB.NpcCast.ToggleSelf()
+        SB.NpcCast.Confirm()
+        check("выше максимума не поднялось",
+              SB.NPC.GetState("target").hp, full.maxHp)
+
+        -- ── ПОЛОЖИТЕЛЬНЫЙ ЭФФЕКТ НА СЕБЯ ───────────────────
+        SB.NPC.ClearEffects("target")
+        SB.NpcCast.Begin("target", "t_npc_buff")
+        SB.NpcCast.ToggleSelf()
+        checkTrue("бафф на себя применился", SB.NpcCast.Confirm())
+        checkTrue("и он висит на существе",
+                  SB.NPC.HasEffect("target", "t_eff"))
+
+        -- ── УДАР ПО ДРУГОМУ СУЩЕСТВУ ───────────────────────
+        --
+        -- Второй особи хватает своего GUID: ключ спавна берётся из
+        -- него, и две тушки одного вида не сливаются в одну.
+        local savedFocus = stub.world.units["focus"]
+        stub.world.units["focus"] = { name = "Ледяной волк", level = 10, npc = true,
+            creatureType = "Животное", guid = "Creature-0-970-0-11-4243-00BB02" }
+
+        local victim = SB.NPC.GetState("focus")
+        victim.maxHp, victim.hp = 50, 50
+
+        -- ГАРАНТИРОВАННЫЙ УДАР, а не «Когти твари»: у тех бросок
+        -- защиты случайный, и проверка мигала бы через раз. Проверяем
+        -- маршрут и последствие, а не везение кубика — попадание само
+        -- по себе проверено на пути игрока по существу.
+        SB.Data.Spells["t_npc_smash"] = { id = "t_npc_smash", name = "Верный удар",
+            class = "Маг", level = 2, canCrit = true, resistable = false,
+            distance = 5 }
+
+        calls = {}
+        SB.NPC.GetState("target").res = 9
+        SB.NpcCast.Begin("target", "t_npc_smash")
+        SB.NpcCast.ToggleNpc("focus")
+        checkTrue("чужое существо отмечено", SB.NpcCast.IsNpcSelected("focus"))
+        checkTrue("а сам заклинатель — нет", not SB.NpcCast.IsSelfSelected())
+        check("цель одна", SB.NpcCast.CountSelected(), 1)
+        checkTrue("удар прошёл", SB.NpcCast.Confirm())
+        check("по сети не ушло ничего", #calls, 0)
+        checkTrue("жертва потеряла здоровье",
+                  SB.NPC.GetState("focus").hp < 50)
+
+        -- ── ДВЕ РАЗНЫЕ ОСОБИ НЕ СЛИВАЮТСЯ В ОДНУ ───────────
+        --
+        -- Первая версия хранила отмеченное по ЮНИТ-ТОКЕНУ, и две тушки,
+        -- отмеченные подряд через «target», ложились под один ключ:
+        -- вторая затирала первую, и залп уходил в одну цель вместо двух.
+        SB.NPC.GetState("target").res = 9
+        SB.NpcCast.Begin("target", "t_npc_smash")
+        SB.NpcCast.ToggleNpc("focus")
+        SB.NpcCast.ToggleSelf()
+        check("две особи считаются двумя", SB.NpcCast.CountSelected(), 2)
+        check("и обе названы", #SB.NpcCast.NpcTargetNames(), 2)
+        SB.NpcCast.Cancel()
+
+        -- ── ПОВТОРНОЕ НАЖАТИЕ СНИМАЕТ ──────────────────────
+        SB.NpcCast.Begin("target", "t_npc_smash")
+        SB.NpcCast.ToggleNpc("focus")
+        SB.NpcCast.ToggleNpc("focus")
+        checkTrue("повторное нажатие сняло отметку",
+                  not SB.NpcCast.IsNpcSelected("focus"))
+        check("целей не осталось", SB.NpcCast.CountSelected(), 0)
+        SB.NpcCast.Cancel()
+
+        -- ── ИГРОКА ЭТОТ ПУТЬ НЕ БЕРЁТ ──────────────────────
+        -- У игрока свой адрес и своя доставка; попади он сюда — удар
+        -- посчитали бы за него мы, а не он сам.
+        SB.NpcCast.Begin("target", "t_npc_smash")
+        SB.NpcCast.ToggleNpc("player")
+        check("игрок в список существ не попал", SB.NpcCast.CountSelected(), 0)
+        SB.NpcCast.Cancel()
+
+        stub.world.units["focus"] = savedFocus
+        SB.NPC.ClearEffects("target")
+    end
+
     SB.Net.SendBuff       = realBuff
     SB.Net.SendHealResult = realHeal
 

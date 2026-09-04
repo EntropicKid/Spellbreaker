@@ -53,12 +53,113 @@ function SB.NpcCast.IsSelected(name)
     return pending ~= nil and pending.targets[name] == true
 end
 
---- Сколько игроков отмечено.
+--- ЮНИТ, КОТОРЫМ СЕЙЧАС ДОСТУПНА ОСОБЬ С ЭТИМ КЛЮЧОМ.
+---
+--- Отмечают существо одним юнит-токеном («target»), а к подтверждению
+--- он почти наверняка указывает на другого: Ведущий перещёлкивает цель,
+--- пока набирает залп. Поэтому отмеченное хранится по КЛЮЧУ СПАВНА —
+--- он у особи один и не меняется, — а юнит ищется заново перед
+--- применением: все правила работы с особью принимают именно юнит.
+---
+--- ПОДСКАЗКА ПЕРВОЙ: чаще всего особь так и осталась в том же слоте, и
+--- перебирать сорок табличек ради этого незачем.
+--- @param key string  ключ спавна
+--- @param hint string|nil  где она была в момент отметки
+--- @return string|nil
+local function UnitForKey(key, hint)
+    local function Fits(u)
+        return u and UnitExists(u) and SB.NPC.SpawnKey(u) == key
+    end
+    if Fits(hint) then return hint end
+    for _, u in ipairs({ "target", "focus", "mouseover", "targettarget" }) do
+        if Fits(u) then return u end
+    end
+    for i = 1, 40 do
+        local u = "nameplate" .. i
+        if Fits(u) then return u end
+    end
+    return nil
+end
+SB.NpcCast.UnitForKey = UnitForKey
+
+--- Отмечено ли существо, доступное этим юнитом.
+function SB.NpcCast.IsNpcSelected(unit)
+    if not pending or not unit then return false end
+    local key = SB.NPC.SpawnKey(unit)
+    return key ~= nil and pending.npcTargets[key] ~= nil
+end
+
+--- Сколько целей отмечено — игроков И существ вместе.
+---
+--- ОДНИМ ЧИСЛОМ, А НЕ ДВУМЯ. Окну важно одно: есть ли по кому бить.
+--- Разделять счёт значило бы завести два условия «можно применять» там,
+--- где условие одно.
 function SB.NpcCast.CountSelected()
     if not pending then return 0 end
     local n = 0
-    for _ in pairs(pending.targets) do n = n + 1 end
+    for _ in pairs(pending.targets)    do n = n + 1 end
+    for _ in pairs(pending.npcTargets) do n = n + 1 end
     return n
+end
+
+--- Отметить/снять СУЩЕСТВО под способность.
+---
+--- ЮНИТ-ТОКЕНОМ, как и сам заклинатель (pending.unit). Ключ спавна был
+--- бы честнее, но вся работа с особью — состояние, защита, гашение
+--- урона, эффекты — принимает именно юнит, и перевод туда-обратно
+--- завёл бы второй язык описания одной и той же особи.
+--- @param unit string  юнит существа ("target" в момент отметки)
+function SB.NpcCast.ToggleNpc(unit)
+    if not pending or not unit or not UnitExists(unit) then return end
+    if UnitIsPlayer(unit) then return end
+    local key = SB.NPC.SpawnKey(unit)
+    if not key or not (SB.NPC.GetState and SB.NPC.GetState(unit)) then
+        SB.UI.PrintMsg("npcCastNoStats")
+        return
+    end
+    if pending.npcTargets[key] then
+        pending.npcTargets[key] = nil
+    else
+        -- ИМЯ ЗАПОМИНАЕМ СРАЗУ, а не читаем при подтверждении: в лог
+        -- должно уйти имя того, кого отметили, — та же причина, по
+        -- которой запоминается сам заклинатель.
+        pending.npcTargets[key] = { name = UnitName(unit) or "Существо", unit = unit }
+    end
+    SB.Events.Fire(SB.E.NPC_CAST_CHANGED)
+end
+
+--- Отметить/снять САМОГО ЗАКЛИНАТЕЛЯ.
+---
+--- Отдельной функцией, а не «ToggleNpc(pending.unit)»: самолечение и
+--- собственный оберег — самая частая просьба Ведущего, и добираться до
+--- неё через «возьми себя в цель» неудобно ровно тогда, когда некогда.
+function SB.NpcCast.ToggleSelf()
+    if not pending then return end
+    local unit = pending.unit
+    local key  = unit and SB.NPC.SpawnKey(unit)
+    if not key then return end
+    if pending.npcTargets[key] then
+        pending.npcTargets[key] = nil
+    else
+        pending.npcTargets[key] = { name = pending.npcName, unit = unit }
+    end
+    SB.Events.Fire(SB.E.NPC_CAST_CHANGED)
+end
+
+--- Отмечен ли сам заклинатель.
+function SB.NpcCast.IsSelfSelected()
+    if not pending or not pending.unit then return false end
+    local key = SB.NPC.SpawnKey(pending.unit)
+    return key ~= nil and pending.npcTargets[key] ~= nil
+end
+
+--- Имена отмеченных существ, для подписи окна.
+function SB.NpcCast.NpcTargetNames()
+    local out = {}
+    if not pending then return out end
+    for _, t in pairs(pending.npcTargets) do out[#out + 1] = t.name end
+    table.sort(out)
+    return out
 end
 
 -- ============================================================
@@ -98,6 +199,18 @@ function SB.NpcCast.Begin(unit, spellID)
         stats   = stats,
         spellID = spellID,
         targets = {},
+        -- ЦЕЛЬЮ МОЖЕТ БЫТЬ И СУЩЕСТВО — своё же, чужое, соседнее.
+        --
+        -- Раньше набор целей состоял из имён игроков и только из них:
+        -- существо не могло ни ударить существо, ни вылечить себя, ни
+        -- повесить на себя оберег. Ведущий не мог этого и через панель
+        -- выдачи — та кладёт эффект, но не кастует способность.
+        --
+        -- ОТДЕЛЬНЫМ НАБОРОМ, а не общим с игроками: у них разные
+        -- адреса (имя против юнит-токена) и разные пути доставки (сеть
+        -- против прямой правки состояния у владельца сцены). Смешать их
+        -- в один список значило бы у каждой цели спрашивать «а ты кто».
+        npcTargets = {},
     }
 
     SB.Events.Fire(SB.E.NPC_CAST_CHANGED)
@@ -351,7 +464,19 @@ function SB.NpcCast.Confirm()
     local names = {}
     for name in pairs(pending.targets) do names[#names + 1] = name end
     table.sort(names)
-    if #names == 0 then
+
+    -- ОТМЕЧЕННЫЕ СУЩЕСТВА — вторым списком и по имени, чтобы порядок в
+    -- логе не зависел от того, как легли ключи (см. ту же сортировку
+    -- игроков выше).
+    -- ЮНИТ ИЩЕМ ЗАНОВО, по ключу: подсказка, сохранённая при отметке,
+    -- к этому мигу уже могла указывать на соседа (см. UnitForKey).
+    local npcs = {}
+    for key, t in pairs(pending.npcTargets) do
+        npcs[#npcs + 1] = { unit = UnitForKey(key, t.unit), name = t.name }
+    end
+    table.sort(npcs, function(a, b) return a.name < b.name end)
+
+    if #names == 0 and #npcs == 0 then
         SB.UI.PrintMsg("npcCastNoTargets")
         return false, 0
     end
@@ -467,6 +592,103 @@ function SB.NpcCast.Confirm()
         end
     end
 
+    -- ── ПО СУЩЕСТВАМ: СЧИТАЕМ ЗДЕСЬ ЖЕ, ЦЕЛИКОМ ────────────
+    --
+    -- Ни сети, ни ожидания ответа: состояние всех особей сцены держит
+    -- владелец, то есть мы. Это ровно та же развилка, по которой удар
+    -- ИГРОКА по существу считается атакующим (см. SB.Logic.ResolveNpcAttack),
+    -- только атакующий здесь тоже существо.
+    --
+    -- ПРАВИЛА БЕРЁМ ГОТОВЫЕ, а не переписываем: защита — DefenseModifier,
+    -- гашение — MitigateDamage (сначала сопротивление школе, потом
+    -- шкура), порог эффекта — BaseThresholdFor плюс WillBonus. Второй
+    -- набор тех же правил разошёлся бы с первым на первой же правке.
+    for _, t in ipairs(npcs) do
+        local unit, nm = t.unit, t.name
+        local st = SB.NPC.GetState and SB.NPC.GetState(unit)
+        local nstats = SB.NPC.StatsForUnit and SB.NPC.StatsForUnit(unit)
+        -- Особь могла исчезнуть между отметкой и подтверждением.
+        if st and nstats then
+            if kind == "attack" then
+                local defMod  = SB.NPC.DefenseModifier(nstats, unit)
+                local defRoll = guaranteed and 0 or SB.Logic.Roll()
+                local defTot  = guaranteed and 0 or (defRoll + defMod)
+                local landed  = guaranteed or (total > defTot)
+                local dmg, resisted, reduction = 0, 0, 0
+                if landed then
+                    -- Тот же пол, что везде: попавший удар не может
+                    -- стоить ноль ещё до брони.
+                    local sum = math.max(SB.Data.Config.MinDamageOnHit or 1,
+                                         (baseDmg or 0) + (dmgBonus or 0))
+                    local through
+                    through, resisted, reduction =
+                        SB.NPC.MitigateDamage(sum, nstats, unit, spell.damageType)
+                    dmg = SB.Logic.ApplyCritDamage(through, isCrit)
+                    if dmg > 0 then SB.NPC.AdjustHealth(unit, -dmg) end
+                    landedOn = landedOn + 1
+                end
+                -- ДЕБАФФ ОТ ПОПАДАНИЯ — по тому же исходу, что урон, и
+                -- тем же правилом, что у игрока по существу.
+                if landed and spell.debuff then
+                    local turns = SB.Logic.GetEffectDuration(spell.debuff, spell,
+                                                             spell.level)
+                    SB.NPC.AddEffect(unit, spell.debuff, turns)
+                end
+                local after = SB.NPC.GetState(unit)
+                local guard = {}
+                if resisted  > 0 then guard[#guard + 1] = "резист " .. resisted end
+                if reduction > 0 then guard[#guard + 1] = "шкура "  .. reduction end
+                SB.Events.Fire(SB.E.BROADCAST_LOG,
+                    SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. nm .. ": |r" ..
+                    (landed
+                        and (SB.Theme.MSG_BAD .. "Урон " .. dmg .. "|r" .. G ..
+                             (after and (" (" .. after.hp .. "/" .. after.maxHp .. ")") or "") ..
+                             ((#guard > 0) and (" — " .. table.concat(guard, ", ")) or "") .. ".|r")
+                        or (SB.Theme.MSG_GOOD .. "Уклонилось.|r")),
+                    SB.LogRank.ACTION)
+
+            elseif kind == "heal" then
+                -- ЛЕЧЕНИЕ СУЩЕСТВА — от помощи не сопротивляются, порога
+                -- нет вовсе. Ровно та же поблажка, что у лечения игрока
+                -- (см. ветку heal выше): бросок там есть, но отвести его
+                -- нечем, и на своём же существе он тем более ни к чему.
+                local amount = math.max(1,
+                    (SB.Logic.GetHealPower(spell, spell.level) or 1) + (dmgBonus or 0))
+                if isCrit then amount = amount * 2 end
+                SB.NPC.AdjustHealth(unit, amount)
+                landedOn = landedOn + 1
+                local after = SB.NPC.GetState(unit)
+                SB.Events.Fire(SB.E.BROADCAST_LOG,
+                    SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. nm .. ": |r" ..
+                    SB.Theme.MSG_GOOD .. "Исцеление " .. amount .. "|r" .. G ..
+                    (after and (" (" .. after.hp .. "/" .. after.maxHp .. ").|r") or ".|r"),
+                    SB.LogRank.ACTION)
+
+            elseif kind == "effect" then
+                -- ЭФФЕКТ. Бафф ложится без броска — сопротивляются
+                -- вмешательству, а не помощи; дебафф проверяет порог
+                -- существа, тот же, что у игрока по существу.
+                local effectID = spell.debuff or spell.buff
+                local isDebuff = (spell.debuff ~= nil)
+                local threshold = SB.Logic.BaseThresholdFor(nstats.level)
+                if isDebuff then
+                    threshold = threshold + SB.NPC.WillBonus(nstats, unit)
+                end
+                local ok = guaranteed or (not isDebuff) or (total >= threshold)
+                if ok then
+                    local turns = SB.Logic.GetEffectDuration(effectID, spell, spell.level)
+                    ok = SB.NPC.AddEffect(unit, effectID, turns)
+                    if ok then landedOn = landedOn + 1 end
+                end
+                SB.Events.Fire(SB.E.BROADCAST_LOG,
+                    SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. nm .. ": |r" ..
+                    (ok and (SB.Theme.MSG_GOOD .. "Эффект наложен.|r")
+                         or (SB.Theme.MSG_BAD  .. "Эффект отведён.|r")),
+                    SB.LogRank.ACTION)
+            end
+        end
+    end
+
     -- ЗАГОЛОВОК ЗАЛПА — один на всё. Ответы задетых придут каждый своей
     -- строкой; объявление сверху нужно ровно одно — сказать, что вообще
     -- произошло и по кому.
@@ -474,10 +696,10 @@ function SB.NpcCast.Confirm()
         SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. pending.npcName ..
         " применяет |r" .. SB.UI.MakeSpellLink(spell) .. G ..
         string.format(" (бросок %d%+d = %d)%s. Целей: %d.|r",
-            roll, mod, total, isCrit and ", КРИТ" or "", #names),
+            roll, mod, total, isCrit and ", КРИТ" or "", #names + #npcs),
         SB.LogRank.ACTION)
 
-    local count = #names
+    local count = #names + #npcs
     pending = nil
     SB.Events.Fire(SB.E.NPC_CAST_CHANGED)
     return true, count
