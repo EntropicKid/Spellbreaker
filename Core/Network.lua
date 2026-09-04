@@ -203,13 +203,53 @@ function SB.Net.GetLeaderName()
     return nil
 end
 
+-- ОТКАЗ ПЕРЕПРОВЕРЯЕТСЯ ПО ЖИВОМУ СОСТАВУ, И ВОТ ПОЧЕМУ.
+--
+-- Через эту проверку проходит ВЕСЬ удар существа по игроку: не признали
+-- отправителя Ведущим — пакет молча выброшен (см. ActorOf). Наружу это
+-- выходит так, что игрок перестаёт получать урон от НПС вовсе, и
+-- лечится только релогом.
+--
+-- А кэш состава протухает легко. Он строится по событию, и в рейде на
+-- сорок человек GROUP_ROSTER_UPDATE прилетает в тот миг, когда список
+-- ещё не устоялся: UnitExists("raidN") у части слотов ещё false, и
+-- Ведущий просто не попадает в таблицу. Следующего события может не
+-- быть долго — состав-то больше не меняется, — и всё это время
+-- отказ выглядит окончательным, хотя он основан на пустоте.
+--
+-- ПЕРЕСТРАИВАЕМ ТОЛЬКО НА ОТКАЗЕ. Положительный ответ ничего не портит:
+-- если в кэше кто-то ошибочно числится Ведущим, живой состав это уже не
+-- исправит — правкой такого рода занимается само событие. Опасен здесь
+-- ровно ложный отказ, и перепроверяется только он.
+--
+-- И НЕ ЧАЩЕ РАЗА В СЕКУНДУ: перебор сорока юнитов на каждый чужой пакет
+-- превратил бы защиту от протухания в способ нагрузить клиент чужими
+-- руками.
+local lastRosterRefresh = 0
+local ROSTER_REFRESH_CD = 1.0
+
+--- Свежая запись состава для отправителя — с одной попыткой обновления.
+--- @return table|nil
+local function RosterInfoFresh(sender)
+    if not rosterCacheBuilt then RebuildRosterCache() end
+    local short = Ambiguate(sender or "", "none")
+    local info  = rosterCache[short]
+    if info and (info.isLeader or info.isAssist) then return info end
+
+    local now = GetTime and GetTime() or 0
+    if (now - lastRosterRefresh) >= ROSTER_REFRESH_CD then
+        lastRosterRefresh = now
+        RebuildRosterCache()
+        info = rosterCache[short]
+    end
+    return info
+end
+
 local function IsFromLeader(sender)
     if not IsInGroup() then
         return sender == UnitName("player")
     end
-    if not rosterCacheBuilt then RebuildRosterCache() end
-    local short = Ambiguate(sender or "", "none")
-    local info = rosterCache[short]
+    local info = RosterInfoFresh(sender)
     return info ~= nil and info.isLeader
 end
 
@@ -219,9 +259,7 @@ local function IsFromLeaderOrAssist(sender)
     if not IsInGroup() then
         return sender == UnitName("player")
     end
-    if not rosterCacheBuilt then RebuildRosterCache() end
-    local short = Ambiguate(sender or "", "none")
-    local info = rosterCache[short]
+    local info = RosterInfoFresh(sender)
     return info ~= nil and (info.isLeader or info.isAssist)
 end
 
