@@ -2972,7 +2972,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Знание зверя (Охотник, круг 3). Отщеплён от «eff_owl_wisdom».
+    -- Знание зверя (Охотник, заговор). Отщеплён от «eff_owl_wisdom».
     id   = "eff_owl_wisdom_beast_lore",
     name = "Знание зверя",
     icon = "Interface\\Icons\\Spell_nature_polymorph",
@@ -3367,7 +3367,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Избранность (Паладин, круг 2). Отщеплён от «eff_fortitude».
+    -- Избранность (Паладин, круг 1). Отщеплён от «eff_fortitude».
     id   = "eff_fortitude_seal_of_kings",
     name = "Избранность",
     icon = "Interface\\Icons\\Spell_magic_magearmor",
@@ -3580,7 +3580,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Воспламенение (Шаман, круг 1). Отщеплён от «eff_bleeding».
+    -- Воспламенение (Шаман, круг 0). Отщеплён от «eff_bleeding».
     id   = "eff_bleeding_ignition",
     name = "Воспламенение",
     damageType = "fire",
@@ -3673,7 +3673,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Пламенное клеймо (Шаман, круг 2). Отщеплён от «eff_weapon_enchant».
+    -- Пламенное клеймо (Шаман, круг 1). Отщеплён от «eff_weapon_enchant».
     id   = "eff_weapon_enchant_flame_weapon",
     name = "Пламенное клеймо",
     icon = "Interface\\Icons\\Spell_fire_flametounge",
@@ -3707,7 +3707,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Ледяная кайма (Шаман, круг 2). Отщеплён от «eff_weapon_enchant».
+    -- Ледяная кайма (Шаман, круг 1). Отщеплён от «eff_weapon_enchant».
     id   = "eff_weapon_enchant_ice_fringe",
     name = "Ледяная кайма",
     icon = "Interface\\Icons\\Inv_weapon_shortblade_37",
@@ -3741,7 +3741,7 @@ AddEffect({
 })
 
 AddEffect({
-    -- Каменная корка (Шаман, круг 2). Отщеплён от «eff_weapon_enchant».
+    -- Каменная корка (Шаман, круг 1). Отщеплён от «eff_weapon_enchant».
     id   = "eff_weapon_enchant_stone_crust",
     name = "Каменная корка",
     icon = "Interface\\Icons\\Spell_nature_rockbiter",
