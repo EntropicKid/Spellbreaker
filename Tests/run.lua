@@ -14993,27 +14993,59 @@ do
     local L = SB.Logic
 
     -- ── ЧТО ДАЁТ, А ЧТО НЕТ ────────────────────────────────
-    checkTrue("канал урона — вливать есть смысл",
-              L.CanUpcast({ scaling = { damage = { ["Сила"] = 1 } } }))
-    checkTrue("старый формат attributes читается тоже",
-              L.CanUpcast({ attributes = { damage = "Сила" } }))
-    checkTrue("эффект с конечным сроком растягивается",
-              L.CanUpcast({ container = "e", duration = 3 }))
+    --
+    -- Правило СЧИТАЕТ, а не рассуждает о признаках, и считает от текущего
+    -- персонажа: у одного Сила 3, и вливание ему даёт, у другого Сила 5 —
+    -- и не даёт. Поэтому характеристики здесь выставляются явно.
+    local savedAttrs = _G.SpellbreakerCharDB.attributes
+    ResetEffects()
 
-    check("бессрочный эффект не растянуть",
-          L.CanUpcast({ container = "e", duration = -1 }), false)
-    check("нулевой коэффициент — не канал",
-          L.CanUpcast({ scaling = { damage = { ["Сила"] = 0 } } }), false)
-    check("голое заклинание ничего не получает", L.CanUpcast({}), false)
     check("мусор на входе не роняет", L.CanUpcast(nil), false)
+    check("голое заклинание ничего не получает", L.CanUpcast({}), false)
 
-    -- ПО canCrit СУДИТЬ НЕЛЬЗЯ, и это главная ловушка правила: база урона
-    -- от вложенного не растёт (DamagePerMana = 0), она только множится
-    -- скейлингом. Уронное заклинание без канала damage получает ноль.
-    check("уронное без канала damage — ничего не получает",
-          L.CanUpcast({ canCrit = true }), false)
-    check("и лечащее тоже",
-          L.CanUpcast({ isHeal = true }), false)
+    -- СИЛА ИМЕННО 4, И ЭТО НЕ ПРОИЗВОЛ. При Силе 3 то же самое
+    -- заклинание вливанием НЕ усиливается: 2 очка сверх минимума дают
+    -- 1.0, а 1.0 x 1.45 = 1.45 — та же единица после усечения. При
+    -- Силе 4 выходит 1.5 и 2.175, то есть 1 и 2. Разница между этими
+    -- двумя строчками и есть причина, по которой правило считает, а не
+    -- рассуждает о признаках.
+    _G.SpellbreakerCharDB.attributes = { ["Сила"] = 4 }
+    SB.Data.Spells["t_up_dmg"] = { id = "t_up_dmg", name = "Проба урона",
+        class = "Воин", level = 0, canCrit = true,
+        scaling = { damage = { ["Сила"] = 1 } } }
+    checkTrue("канал урона на подходящей характеристике — даёт",
+              L.CanUpcast(SB.Data.Spells["t_up_dmg"]))
+
+    _G.SpellbreakerCharDB.attributes = { ["Сила"] = 3 }
+    check("а на соседнем значении — уже нет",
+          L.CanUpcast(SB.Data.Spells["t_up_dmg"]), false)
+
+    -- ТА ЖЕ САМАЯ ПРОБА, НО НА ДРУГОЙ СИЛЕ, — и ответ другой. Ровно из-за
+    -- этого правило и пришлось считать: угадать по признакам, переползёт
+    -- ли произведение через целое, нельзя.
+    _G.SpellbreakerCharDB.attributes = { ["Сила"] = 1 }
+    check("на невложенной характеристике — не даёт",
+          L.CanUpcast(SB.Data.Spells["t_up_dmg"]), false)
+    SB.Data.Spells["t_up_dmg"] = nil
+
+    -- Срок эффекта растягивается независимо от характеристик.
+    SB.Data.Spells["t_up_eff"] = { id = "t_up_eff", name = "Проба срока",
+        class = "Воин", level = 0, duration = 3, container = "eff_battle_stance" }
+    checkTrue("конечный срок растягивается", L.CanUpcast(SB.Data.Spells["t_up_eff"]))
+    SB.Data.Spells["t_up_eff"].duration = -1
+    check("бессрочный — нет", L.CanUpcast(SB.Data.Spells["t_up_eff"]), false)
+    SB.Data.Spells["t_up_eff"] = nil
+
+    -- ПО canCrit И isHeal СУДИТЬ НЕЛЬЗЯ: база урона и база лечения от
+    -- вложенного не растут (DamagePerMana = 0), они только множатся
+    -- скейлингом. Без канала damage получается ровно ноль.
+    SB.Data.Spells["t_up_bare"] = { id = "t_up_bare", name = "Проба пустая",
+        class = "Воин", level = 0, canCrit = true, isHeal = true }
+    check("уронное и лечащее без канала damage — ничего",
+          L.CanUpcast(SB.Data.Spells["t_up_bare"]), false)
+    SB.Data.Spells["t_up_bare"] = nil
+
+    _G.SpellbreakerCharDB.attributes = savedAttrs
 
     -- ── ЖИВЫЕ ДАННЫЕ ───────────────────────────────────────
     local stance = SB.Data.Spells["battle_stance"]
@@ -15021,14 +15053,81 @@ do
     check("вливать в неё нечего", L.CanUpcast(stance), false)
     check("потому что она бессрочна", stance.duration, -1)
 
-    local ball = SB.Data.Spells["fireball"] or SB.Data.Spells["frostbolt"]
-    if ball then checkTrue("а в уронное со скейлингом — есть", L.CanUpcast(ball)) end
+    -- Живые уронные заклинания здесь не проверяем поимённо: помогает им
+    -- вливание или нет, зависит от характеристик КОНКРЕТНОГО персонажа,
+    -- и прибитое ожидание тут врало бы через одно. Их всех разом
+    -- накрывает зеркальный инвариант ниже.
 
     -- И правило совпадает с самой арифметикой: у того, кому вливать
     -- нечего, числа на своём круге и на круге выше обязаны сойтись.
     local dur0 = L.GetEffectDuration("eff_battle_stance", stance, 0)
     local dur3 = L.GetEffectDuration("eff_battle_stance", stance, 3)
     check("срок от вливания не меняется", dur3, dur0)
+
+    -- ── РАССЕИВАНИЕ: ВЛОЖЕННОЕ — ВСЯ ЕГО ЦЕНА ──────────────
+    --
+    -- Каждая единица сверх круга снимает ещё один эффект, броска у
+    -- рассеивания нет вовсе. Эту зависимость правило сначала не знало, и
+    -- «Снятие проклятья» переставало предлагать вливание.
+    checkTrue("рассеиванию вливать есть смысл",
+              L.CanUpcast({ dispel = { "magic" }, level = 1 }))
+    local purge = SB.Data.Spells["remove_curse"] or SB.Data.Spells["cure_poison"]
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] and L.GetDispelSchools(sp) then purge = sp break end
+    end
+    if purge then
+        checkTrue("и живому рассеиванию тоже", L.CanUpcast(purge))
+        checkTrue("а число снимаемого и правда растёт",
+                  L.GetDispelCount(purge, (purge.level or 0) + 1)
+                  > L.GetDispelCount(purge, purge.level or 0))
+    end
+
+    -- ── ГЛАВНЫЙ ИНВАРИАНТ: ЗЕРКАЛО ПРАВИЛА ─────────────────
+    --
+    -- Считаем то же самое ЗДЕСЬ, независимо от CanUpcast, и требуем
+    -- совпадения на всей библиотеке. Проверка сторожит не число, а
+    -- ПОДХОД: вернись правило к рассуждению о признаках («есть канал
+    -- damage — значит поможет»), и она укажет на каждое заклинание, где
+    -- признак разошёлся с арифметикой. Именно так и нашлись рассеивание
+    -- (правило молчало) и «Засада» (правило обещало впустую: круг второй,
+    -- потолок реалма третий, и единственный шаг не меняет урон ни при
+    -- какой Ловкости).
+    --
+    -- Пять чисел — по одному на каждый известный рычаг. Появится шестой,
+    -- о котором CanUpcast узнает, а зеркало нет, — проверка сломается и
+    -- потребует дописать её тоже. Это дешевле тихого расхождения.
+    local topLvl = SB.Data.GetRealmMaxOrder and SB.Data.GetRealmMaxOrder() or 5
+    local function Mirror(sp, lvl)
+        local eff = sp.container or sp.buff or sp.debuff
+        return table.concat({
+            L.GetSpellScaling(sp, "damage", lvl),
+            eff and L.GetEffectDuration(eff, sp, lvl) or 0,
+            L.GetDispelSchools(sp) and L.GetDispelCount(sp, lvl) or 0,
+            L.GetSpellRepair(sp, lvl),
+            (sp.isHeal and L.GetHealPower or L.GetCastPower)(sp, lvl),
+        }, "/")
+    end
+
+    local wrong, checked = {}, 0
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] and not sp.isContainer and not sp.isItem and sp.class then
+            local lvl = tonumber(sp.level) or 0
+            checked = checked + 1
+            local changes = false
+            for up = lvl + 1, topLvl do
+                if Mirror(sp, up) ~= Mirror(sp, lvl) then changes = true break end
+            end
+            if changes ~= L.CanUpcast(sp) then
+                wrong[#wrong + 1] = (sp.name or id) ..
+                    (changes and " (числа меняются, а правило молчит)"
+                             or " (правило обещает, а числа те же)")
+            end
+        end
+    end
+    table.sort(wrong)
+    check("правило сходится с арифметикой на всей библиотеке",
+          table.concat(wrong, "; "), "")
+    checkTrue("и проверено на всей библиотеке, а не на горстке", checked > 300)
 
     -- ── ПИКЕР СПРАШИВАЕТ ЭТО ЖЕ ПРАВИЛО ────────────────────
     --
