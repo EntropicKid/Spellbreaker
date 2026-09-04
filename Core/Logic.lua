@@ -1026,6 +1026,16 @@ function SB.Logic.GetEffectDuration(effectID, sourceSpell, slotLevel, extraTurns
     -- ПОТОЛОК ВЫВЕДЕН, А НЕ НАЗНАЧЕН: больше, чем даёт полностью
     -- вложенный навык, «Воодушевление» не даёт и у себя. Максимум навыка
     -- равен максимуму его атрибута-родителя, минус невложенная единица.
+    -- ПРИБАВКА НЕ ПРИЕХАЛА — ЗНАЧИТ КАСТ СВОЙ, и навык читаем у себя.
+    --
+    -- Здесь, а не у пяти вызывающих: ровно этот же расчёт показывает
+    -- пикер круга ДО каста (см. UI/MainFrame.lua), и разойтись обещание
+    -- с исходом не должно. Чужой бафф сюда с nil прийти не может —
+    -- ApplyEffect для fromOther передаёт число всегда, даже ноль.
+    if extraTurns == nil then
+        extraTurns = SB.Logic.EncouragementFor(effectID)
+    end
+
     local cap = ((SB.Attributes and SB.Attributes.GetMaxValue
         and SB.Attributes.GetMaxValue()) or 5) - 1
     local extra = math.max(0, math.min(cap, math.floor(tonumber(extraTurns) or 0)))
@@ -1034,16 +1044,18 @@ function SB.Logic.GetEffectDuration(effectID, sourceSpell, slotLevel, extraTurns
         math.floor(turns * SB.Logic.GetUpcastMultiplier(sourceSpell, slotLevel)) + extra)
 end
 
---- Сколько ходов «Воодушевление» добавит ЭТОМУ эффекту у ЭТОЙ цели.
+--- Сколько ходов «Воодушевление» добавит ЭТОМУ эффекту.
 ---
---- ОДНО МЕСТО НА ВСЕ ОТПРАВКИ. Решение состоит из двух условий, и оба
---- легко забыть порознь: бафф ли это (дебафф продлевать было бы прямо
---- наоборот задуманному) и чужой ли получатель (на себя навык не
---- работает — в этом весь его размен).
---- @param onSelf boolean  эффект ложится на самого заклинателя
+--- ОДНО МЕСТО НА ВСЕ ПУТИ. Условие осталось одно: бафф ли это —
+--- продлевать дебафф было бы прямо наоборот задуманному.
+---
+--- НА СЕБЯ НАВЫК ТЕПЕРЬ РАБОТАЕТ ТОЖЕ. Прежде стойки, ауры и облики
+--- собственного каста навык не видели вовсе, и «Воодушевление»
+--- оказывалось умением, которое ничего не даёт тому, кто играет один
+--- или держит ауру на себе. Разменом это не было: класс просто платил
+--- за навык, которым не мог пользоваться половину сцены.
 --- @return number
-function SB.Logic.EncouragementFor(effectID, onSelf)
-    if onSelf then return 0 end
+function SB.Logic.EncouragementFor(effectID)
     if not (SB.Skills and SB.Skills.GetEncouragementBonus) then return 0 end
     local kind = SB.ActiveEffects and SB.ActiveEffects.GetKind
         and SB.ActiveEffects.GetKind(effectID) or "buff"
@@ -1492,6 +1504,12 @@ function SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, fromOther, extra
     local effectSpell = SB.Data.Spells[effectID]
     if not effectSpell then return end
 
+    -- ЧУЖОЙ БАФФ ВЕЗЁТ СВОЁ ЧИСЛО, И ОНО МОЖЕТ БЫТЬ НУЛЁМ. Ноль в
+    -- пакете не едет (лишнее поле ради навыка, которого у большинства
+    -- нет), поэтому подставляем его здесь — иначе GetEffectDuration
+    -- принял бы отсутствие прибавки за свой каст и добавил бы к чужому
+    -- баффу МОЙ навык.
+    if fromOther then extraTurns = tonumber(extraTurns) or 0 end
     local turns = SB.Logic.GetEffectDuration(effectID, sourceSpell, slotLevel, extraTurns)
 
     -- ── КОНЦЕНТРИРУЕТСЯ ТОТ, КТО КАСТОВАЛ ───────────────────

@@ -14493,30 +14493,43 @@ do
     check("вложенный — по ходу за очко сверх первого",
           SB.Skills.GetEncouragementBonus(), 3)
 
-    -- ── ТОЛЬКО НА ДРУГИХ И ТОЛЬКО НА БАФФЫ ─────────────────
+    -- ── ТОЛЬКО НА БАФФЫ — НО НА ЛЮБЫЕ ─────────────────────
     SB.Data.Spells["t_enc_buff"] = { id = "t_enc_buff", name = "Проба добра",
         class = "Эффект", level = 0, effect = { kind = "buff", mods = { attack = 1 } } }
     SB.Data.Spells["t_enc_debuff"] = { id = "t_enc_debuff", name = "Проба зла",
         class = "Эффект", level = 0, effect = { kind = "debuff", mods = { attack = -1 } } }
 
     check("на союзника бафф продлевается",
-          L.EncouragementFor("t_enc_buff", false), 3)
-    check("на себя — нет",
-          L.EncouragementFor("t_enc_buff", true), 0)
+          L.EncouragementFor("t_enc_buff"), 3)
+    -- НА СЕБЯ — ТОЖЕ. Прежде здесь стоял ноль, и стойки, ауры и облики
+    -- собственного каста навык не видели вовсе: «Воодушевление» ничего
+    -- не давало тому, кто держит ауру на себе.
+    check("на себя — тоже", L.EncouragementFor("t_enc_buff"), 3)
     check("дебафф не продлевается ВООБЩЕ",
-          L.EncouragementFor("t_enc_debuff", false), 0)
+          L.EncouragementFor("t_enc_debuff"), 0)
 
     -- ── И ЭТО ПРАВДА МЕНЯЕТ СРОК ───────────────────────────
     local src = { id = "t_enc_src", name = "Источник", class = "Жрец",
                   level = 1, duration = 3, buff = "t_enc_buff" }
-    check("без прибавки — свой срок",
-          L.GetEffectDuration("t_enc_buff", src, 1), 3)
+    -- БЕЗ ПРИБАВКИ — ЗНАЧИТ КАСТ СВОЙ, и навык читается у себя же:
+    -- три хода заклинания плюс три от вложенного «Воодушевления».
+    check("свой каст берёт навык сам",
+          L.GetEffectDuration("t_enc_buff", src, 1), 6)
+    -- ЯВНЫЙ НОЛЬ — ЭТО ЧУЖОЙ БАФФ БЕЗ НАВЫКА, и мой сюда попасть не
+    -- должен: иначе к присланному эффекту прибавился бы МОЙ навык.
+    check("явный ноль оставляет свой срок",
+          L.GetEffectDuration("t_enc_buff", src, 1, 0), 3)
     check("с прибавкой — длиннее ровно на неё",
           L.GetEffectDuration("t_enc_buff", src, 1, 3), 6)
+    -- И ДЕБАФФ СВОЙ СРОК НЕ МЕНЯЕТ, хотя каст тоже свой.
+    local dsrc = { id = "t_enc_dsrc", name = "Источник зла", class = "Жрец",
+                   level = 1, duration = 3, debuff = "t_enc_debuff" }
+    check("свой дебафф навыком не тянется",
+          L.GetEffectDuration("t_enc_debuff", dsrc, 1), 3)
 
     -- ПРИБАВКА НЕ УМНОЖАЕТСЯ ВЛОЖЕННЫМ РЕСУРСОМ. Иначе очко навыка
     -- стоило бы вчетверо больше на третьем круге, чем на первом.
-    local upcast = L.GetEffectDuration("t_enc_buff", src, 3)
+    local upcast = L.GetEffectDuration("t_enc_buff", src, 3, 0)
     check("вливание растягивает своё", upcast, 9)
     check("а навык кладётся сверху плоско",
           L.GetEffectDuration("t_enc_buff", src, 3, 3), upcast + 3)
@@ -14543,6 +14556,15 @@ do
               send and send:find("EncouragementFor", 1, true) ~= nil)
     checkTrue("от лица существа навык не считается",
               send and send:find("not npcName", 1, true) ~= nil)
+
+    -- ЧУЖОЙ БАФФ НЕ ЗАБИРАЕТ МОЙ НАВЫК. Ноль в пакете не едет, и без
+    -- явной подстановки в ApplyEffect отсутствие прибавки читалось бы
+    -- как «каст свой» — то есть присланный союзником бафф висел бы у
+    -- меня дольше ровно на МОЁ «Воодушевление».
+    local ae = ReadFile("Core/Logic.lua"):match("function SB%.Logic%.ApplyEffect%(.-\nend")
+    checkTrue("ApplyEffect найден", ae ~= nil)
+    checkTrue("и чужому баффу подставляет число всегда",
+              ae and ae:find("if fromOther then extraTurns", 1, true) ~= nil)
 end
 
 -- ============================================================

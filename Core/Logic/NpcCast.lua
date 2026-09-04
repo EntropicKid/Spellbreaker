@@ -331,7 +331,10 @@ function SB.NpcCast.Confirm()
         local effectID = spell.container or spell.buff
         local landed = false
         if effectID and SB.NPC.AddEffect then
-            local turns = SB.Logic.GetEffectDuration(effectID, spell, spell.level)
+            -- НОЛЬ ЯВНО: кастует СУЩЕСТВО, а Ведущий одалживает ему свои
+            -- руки, а не свой навык (то же правило, что в SB.Net.SendBuff).
+            -- Без числа GetEffectDuration принял бы это за свой каст.
+            local turns = SB.Logic.GetEffectDuration(effectID, spell, spell.level, 0)
             landed = SB.NPC.AddEffect(pending.unit, effectID, turns)
         end
         SB.Events.Fire(SB.E.BROADCAST_LOG,

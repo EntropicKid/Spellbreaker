@@ -1687,7 +1687,7 @@ function SB.Net.SendBuff(targetName, spellID, effectID, slot, npcName, roll, mod
     -- одалживает волку свои руки, а не свой навык (поле npc).
     local enc = 0
     if not npcName and SB.Logic and SB.Logic.EncouragementFor then
-        enc = SB.Logic.EncouragementFor(effectID, targetName == UnitName("player"))
+        enc = SB.Logic.EncouragementFor(effectID)
     end
 
     SendToPlayer({
