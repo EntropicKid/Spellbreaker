@@ -1332,10 +1332,26 @@ AddEffect({
 
 AddEffect({
     id   = "eff_stasis_trap",
-    name = "Стазисный тотем",
+    name = "Застигнут стазисом",
     icon = "Interface\\Icons\\Spell_nature_groundingtotem",
-    description = "Тотем в земле ждёт и держит наготове застывшее время.",
-    effect = { kind = "buff", mods = { attack = 12, defense = 4 } },
+    description = "Дождь искр ударил разом со всех сторон. Время идёт, ты — нет.",
+    -- Семейство «Оглушение» — как у всех прочих: два оглушения на одной
+    -- цели не складываются, и площадное не должно быть исключением.
+    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение",
+               mods = { attack = -18, defense = -8, movePct = -35 } },
+})
+AddEffect({
+    -- Святой гнев (Паладин, круг 3).
+    id   = "eff_holy_wrath_stun",
+    name = "Ослеплён Светом",
+    icon = "Interface\\Icons\\Spell_holy_blindingheal",
+    description = "Луч выжег всё перед глазами. Мир вернётся, но не сразу.",
+    -- САМЫЙ МЯГКИЙ ТАРИФ ОГЛУШЕНИЯ, и это не скидка: «Святой гнев»
+    -- накрывает ЛИНИЮ, то есть сразу нескольких, и берёт своё уроном.
+    -- Числа «Молота правосудия» (-80 к атаке) на площади означали бы,
+    -- что круг 3 в одиночку выключает бой.
+    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение",
+               mods = { attack = -18, defense = -8, movePct = -35 } },
 })
 
 AddEffect({
