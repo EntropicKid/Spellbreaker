@@ -1901,6 +1901,13 @@ AddEffect({
     description = "Цель лишена равновесия и возможности нормально защищаться после удара об щит.",
     effect = { kind = "debuff", resist = "Выносливость", mods = { defense = -12 }, stats = { ["Акробатика"] = -2 } },
 })
+AddEffect({
+    id   = "eff_shield_block",
+    name = "Блок щитом",
+    icon = "Interface\\Icons\\Ability_defend",
+    description = "Мерцающая преграда отводит слабые удары и сбивает прицел стрелкам.",
+    effect = { kind = "buff", mods = { armor = 20 }, stats = { ["Точность"] = -3 } },
+})
 
 AddEffect({
     id   = "eff_disarm",

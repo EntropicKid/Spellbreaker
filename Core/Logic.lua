@@ -2922,9 +2922,22 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
         -- решать, что в нём главное, всё равно придётся руками.
         --
         -- ДВА ИСХОДА, оба локальные:
-        --   resistable = false → порог 0, то есть автоуспех;
-        --   resistable = true  → постоянный порог (SB.Data.Config.ConjureDC).
-        local dc = (spell.resistable == false) and 0
+        -- ПОРОГ СПРАШИВАЕМ У ОБЩЕГО ПРАВИЛА, А НЕ ВЫВОДИМ ЗАНОВО.
+        --
+        -- Здесь стояло собственное «resistable == false → ноль, иначе
+        -- ConjureDC», и оно разошлось с SB.Logic.IsGuaranteed в тот
+        -- день, когда сотворению объявили автоуспех: правило поменяли в
+        -- одном месте, а ветка продолжала считать по-своему. Все шесть
+        -- мирных сотворений помечены resistable = true, так что каждое
+        -- по-прежнему бросало против шестидесяти.
+        --
+        -- НАРУЖУ ЭТО ВЫХОДИЛО МОЛЧА, и в этом вся беда. По провалу
+        -- GrantCreatedItems выходит на первой же строке (landed == false)
+        -- и не печатает НИЧЕГО — ни «некуда положить», ни «предел
+        -- пачки». В логе оставалось только «Провал.», ничем не связанное
+        -- с пустой сумкой, и со стороны это выглядело как «камень
+        -- здоровья просто не появляется».
+        local dc = SB.Logic.IsGuaranteed(spell) and 0
                    or (SB.Data.Config.ConjureDC or 0)
         SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel,
             slotLevel > (spell.level or 0))
