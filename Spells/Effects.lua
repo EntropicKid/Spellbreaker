@@ -197,7 +197,7 @@ AddEffect({
     effect = {
         kind   = "buff",
         school = "magic",
-        mods   = { armor = 50, damageHoly = 2 },
+        mods   = { armor = 30, damageHoly = 2 },
         stats  = { ["Религия"] = 4 },
         -- «ПОСЛЕ ПРИМЕНЕНИЯ МОЛИТВЫ ЭФФЕКТ ВНУТРЕННЕГО ОГНЯ ЗАВЕРШАЕТСЯ».
         --
@@ -389,7 +389,7 @@ AddEffect({
     name = "Осквернённая земля",
     icon = "Interface\\Icons\\Spell_shadow_deathanddecay",
     description = "Земля под ногами мертва и послушна рыцарю. Живым на ней тяжело дышать, ему — легко стоять.",
-    effect = { kind = "buff", mods = { armor = 10, attack = 25 } },
+    effect = { kind = "buff", mods = { armor = 20, attack = 25 } },
 })
 
 AddEffect({
@@ -497,7 +497,7 @@ AddEffect({
     name = "Длань жертвенности",
     icon = "Interface\\Icons\\Spell_holy_sealofsacrifice",
     description = "Клятва связала двоих: чужая боль уходит к паладину. Защищённому легко, поручителю тяжело.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 20, defense = 10 } },
+    effect = { kind = "buff", school = "magic", mods = { armor = 35, defense = 10 } },
 })
 
 AddEffect({
@@ -571,7 +571,7 @@ AddEffect({
     -- сковывает. Была точной копией ледяной ауры (armor 20, defense 3), и
     -- выбор между ними ничего не значил.
     effect = { kind = "buff", family = "Аура паладина", school = "magic",
-               mods = { armor = 20, resistFire = 1 },
+               mods = { armor = 25, resistFire = 1 },
                stats = { ["Ношение брони"] = 1 }, tick = { armor = 5 } },
 })
 
@@ -656,7 +656,7 @@ AddEffect({
     -- то есть меч, стрела и кулак ауру не будят вовсе, и уточнение
     -- magic здесь не украшение, а половина смысла способности.
     effect = { kind = "buff", school = "magic",
-               mods = { resistMagic = 1, armor = 50, defense = 20 },
+               mods = { resistMagic = 1, armor = 35, defense = 20 },
                onAction = { when = "damaged", magic = true,
                             toAttacker = "eff_feedback_burn" } },
 })
@@ -714,7 +714,7 @@ AddEffect({
     -- «Характер», а не «Харизма»: атрибут в системе называется так
     -- (см. SB.Data.Attributes). Неизвестный ключ не давал НИЧЕГО и молча —
     -- облик тьмы не усиливал ни одного заклинания, считающегося от него.
-    effect = { kind = "buff", family = "Облик", mods = { armor = 10 }, stats = { ["Религия"] = -4, ["Воля"] = -4, ["Характер"] = 5 } },
+    effect = { kind = "buff", family = "Облик", mods = { armor = 15 }, stats = { ["Религия"] = -4, ["Воля"] = -4, ["Характер"] = 5 } },
 })
 
 AddEffect({
@@ -873,7 +873,7 @@ AddEffect({
     -- Обещает защиту от ДВУХ стихий, но по описанию — от одной выбранной
     -- заранее. Спросить игрока аддону негде, поэтому даём обе, но по
     -- единице: в сумме та же двойка, что у оберега на одну школу.
-    effect = { kind = "buff", school = "magic", mods = { resistFire = 1, resistFrost = 1, armor = 10 } },
+    effect = { kind = "buff", school = "magic", mods = { resistFire = 1, resistFrost = 1, armor = 15 } },
 })
 
 AddEffect({
@@ -882,7 +882,7 @@ AddEffect({
     icon = "Interface\\Icons\\Ui_sigil_nightfae",
     description = "Порождения смерти и скверны подходят к цели неохотно и бьют вполсилы.",
     -- «Охраняет от атак существ доменов смерти, тьмы, скверны».
-    effect = { kind = "buff", school = "magic", mods = { resistShadow = 2, armor = 10, defense = 12 } },
+    effect = { kind = "buff", school = "magic", mods = { resistShadow = 2, armor = 15, defense = 12 } },
 })
 
 AddEffect({
@@ -1260,7 +1260,7 @@ AddEffect({
     name = "Водяная колыбель",
     icon = "Interface\\Icons\\Creatureportrait_bubble",
     description = "Вода держит смертельно раненного в состоянии, близком к стазису: он не умирает, но и не действует.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 30, attack = -24, movePct = -100 }, tick = { heal = 5 } },
+    effect = { kind = "buff", school = "magic", mods = { armor = 35, attack = -24, movePct = -100 }, tick = { heal = 5 } },
 })
 
 AddEffect({
@@ -1357,7 +1357,7 @@ AddEffect({
     name = "Стена ветров",
     icon = "Interface\\Icons\\Ability_skyreach_wind_wall",
     description = "Ветер стоит стеной и уводит в сторону всё, что летит.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 20, defense = 25 } },
+    effect = { kind = "buff", school = "magic", mods = { armor = 35, defense = 25 } },
 })
 
 AddEffect({
@@ -1588,7 +1588,10 @@ AddEffect({
     name = "Рой паразитов",
     icon = "Interface\\Icons\\Spell_nature_insect_swarm2",
     description = "Вокруг чернокнижника кружит мелкая демоническая мошкара. Она не живёт долго, но кусает больно.",
-    effect = { kind = "buff", school = "magic", mods = { attack = 8, damage = 1 } },
+    -- КАНАЛ МАГИИ, А НЕ ОБЩИЙ: мошкара кусает чарами, и прибавка не
+    -- должна доставаться удару посохом по темени. Общий damage её туда
+    -- и отдавал.
+    effect = { kind = "buff", school = "magic", mods = { attack = 8, damageMagic = 1 } },
 })
 
 AddEffect({
@@ -1619,8 +1622,11 @@ AddEffect({
     --
     -- Ушли «Исток» и «Ремесло» (бес не учит хозяина колдовать и мастерить)
     -- и range +9: дальность руками беса — это уже второй демон в одном.
+    -- ДАЛЬНОСТЬ ВОЗВРАЩЕНА: бес жжёт с расстояния, и это его вторая
+    -- половина — при упрощении демонов она выпала вместе с мелочами,
+    -- хотя мелочью не была.
     effect = { family = "Демон", kind = "buff",
-               mods = { damageFire = 1, defense = -12 } },
+               mods = { damageFire = 1, range = 9, defense = -12 } },
 })
 
 
@@ -1784,7 +1790,7 @@ AddEffect({
     name = "Беспощадная зима",
     icon = "Interface\\Icons\\Ability_deathknight_remorselesswinters2",
     description = "Метель кружит вокруг рыцаря и не стихает, пока он её держит. Живым в ней холодно, ему — привычно.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 10, attack = 25 } },
+    effect = { kind = "buff", school = "magic", mods = { armor = 20, attack = 25 } },
 })
 
 -- ==========================================================
@@ -1850,7 +1856,7 @@ AddEffect({
     name = "Ложный выпад",
     icon = "Interface\\Icons\\Ability_rogue_feint",
     description = "В результате обманного финта становится неуловим для вражеских атак.",
-    effect = { kind = "buff", mods = { defense = 15, armor = 10 } },
+    effect = { kind = "buff", mods = { defense = 15, armor = 15 } },
 })
 
 AddEffect({
@@ -1943,7 +1949,7 @@ AddEffect({
     -- оберег в библиотеке.
     effect = {
         kind  = "buff",
-        mods  = { armor = 10, defense = 10, resistMagic = 2 },
+        mods  = { armor = 20, defense = 10, resistMagic = 2 },
         -- «ЛЕТЯЩИЕ ЧАРЫ СКОЛЬЗЯТ ПО ЭТОЙ ПЛОТНОСТИ И УХОДЯТ В СТОРОНУ,
         -- НЕ НАХОДЯ, ЗА ЧТО ЗАЦЕПИТЬСЯ». Не сопротивление, а именно
         -- «не за что зацепиться»: чары не ослабевают, они не пристают.
@@ -2037,7 +2043,7 @@ AddEffect({
     -- «Весь получаемый урон уменьшается наполовину» — то есть защита не от
     -- школы, а от всего сразу. Двойка и есть половина обычного удара
     -- в 4 единицы. Два хода.
-    effect = { kind = "buff", school = "magic", mods = { resistAll = 2, armor = 60 } },
+    effect = { kind = "buff", school = "magic", mods = { resistAll = 2, armor = 25 } },
 })
 
 AddEffect({
@@ -2583,7 +2589,7 @@ AddEffect({
     name = "Шипы демона",
     icon = "Interface\\Icons\\Spell_nature_stoneskintotem",
     description = "Плоть покрыта камнем. Держит удар заметно лучше живой, но двигаться в такой шкуре тяжело.",
-    effect = { kind = "buff", mods = { armor = 20, attack = -18, defense = -9 } },
+    effect = { kind = "buff", mods = { armor = 35, attack = -18, defense = -9 } },
 })
 
 AddEffect({
@@ -2832,6 +2838,22 @@ AddEffect({
         tick = { damage = 1 },
 		stats = { ["Мощь"] = -2 },
     },
+})
+AddEffect({
+    -- Лунное пламя (Друид, круг 1). Имя и иконка взяты у заклинания-
+    -- родителя: горит именно оно, а не что-то своё.
+    id   = "eff_bleeding_lunar_flame",
+    name = "Лунное пламя",
+    -- ТИП УРОНА — НА САМОЙ ЗАПИСИ, а не внутри effect: его читает
+    -- SB.Data.GetDamageType, и внутри блока он не виден вовсе. Без него
+    -- сопротивление школе по капающему урону не сработало бы.
+    damageType = "arcane",
+    icon = "Interface\\Icons\\Spell_nature_starfall",
+    description = "Холодный свет въелся под кожу и продолжает жечь изнутри.",
+    -- ТАЙНАЯ МАГИЯ, как и у самого заклинания: «сгорают в холодном
+    -- ночном пламени» — это не огонь, и школа у родителя стоит arcane.
+    effect = { kind = "debuff", resist = "Выносливость", school = "magic",
+               tick = { damage = 1 } },
 })
 
 AddEffect({
@@ -3180,7 +3202,7 @@ AddEffect({
     name = "Укрепляющий отвар",
     icon = "Interface\\Icons\\Ability_monk_fortifyingale_new",
     description = "Плоть покрыта камнем. Держит удар заметно лучше живой, но двигаться в такой шкуре тяжело.",
-    effect = { kind = "buff", mods = { armor = 20, attack = -14, defense = -7 } },
+    effect = { kind = "buff", mods = { armor = 25, attack = -14, defense = -7 } },
 })
 
 AddEffect({
@@ -3256,7 +3278,7 @@ AddEffect({
     name = "Ослабление вреда",
     icon = "Interface\\Icons\\Ability_monk_dampenharm",
     description = "Тело укрыто слоем затвердевшей магии: удары теряют часть силы, но чары стесняют движения.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 30, attack = -11 } },
+    effect = { kind = "buff", school = "magic", mods = { armor = 50, attack = -11 } },
 })
 
 AddEffect({
@@ -3265,7 +3287,7 @@ AddEffect({
     name = "Благословение Нюцзао",
     icon = "Interface\\Icons\\Monk_stance_drunkenox",
     description = "Плоть покрыта камнем. Держит удар заметно лучше живой, но двигаться в такой шкуре тяжело.",
-    effect = { kind = "buff", mods = { armor = 30, attack = -26, defense = -13 } },
+    effect = { kind = "buff", mods = { armor = 60, attack = -26, defense = -13 } },
 })
 
 AddEffect({
@@ -3825,14 +3847,6 @@ AddEffect({
 })
 
 AddEffect({
-    id   = "eff_shield_block",
-    name = "Блок щитом",
-    icon = "Interface\\Icons\\Ability_defend",
-    description = "Мерцающая преграда отводит слабые удары и сбивает прицел стрелкам.",
-    effect = { kind = "buff", mods = { armor = 20 }, stats = { ["Точность"] = -3 } },
-})
-
-AddEffect({
     -- Подрезать сухожилия (Воин, круг 1). Из гнезда eff_slowed_*.
     id   = "eff_hamstring",
     name = "Подрезать сухожилия",
@@ -3888,7 +3902,7 @@ AddEffect({
     description = "Тело укрыто слоем затвердевшей магии: удары теряют часть силы, но чары стесняют движения.",
     effect = {
         kind  = "buff",
-        mods  = { armor = 10 },
+        mods  = { armor = 20 },
         -- «НЕ ЧТОБЫ ПОГЛОТИТЬ ЕГО, А ЧТОБЫ СБРОСИТЬ ОБРАТНО» — поэтому
         -- возмездие, а не подавление: заклинание доходит до воина
         -- полностью и уходит назад тем же весом.
