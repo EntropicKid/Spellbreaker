@@ -4071,7 +4071,7 @@ do
         class = "Маг", level = 1, canCrit = true, distance = 5,
         scaling = { hit = { ["Сила"] = 1 } } }
 
-    local weak = { level = 1, attributes = { ["Сила"] = 1 }, skills = {} }
+    local weak = { level = 1, attributes = { ["Сила"] = SB.Data.STAT_BASE }, skills = {} }
     local buff = { level = 1, attributes = { ["Сила"] = 5 }, skills = {} }
     local mWeak = SB.NPC.AttackModifier(weak, nil, SB.Data.Spells["t_npcatk"])
     local mBuff = SB.NPC.AttackModifier(buff, nil, SB.Data.Spells["t_npcatk"])
@@ -4085,7 +4085,7 @@ do
           mBuff - mWeak, asPlayer)
 
     -- Уровень существа тоже в модификаторе — как у игрока.
-    local high = { level = 25, attributes = { ["Сила"] = 1 }, skills = {} }
+    local high = { level = 25, attributes = { ["Сила"] = SB.Data.STAT_BASE }, skills = {} }
     checkTrue("существо выше уровнем бьёт точнее",
               SB.NPC.AttackModifier(high, nil, SB.Data.Spells["t_npcatk"]) > mWeak)
 
@@ -5747,10 +5747,10 @@ do
     local plain = PM.GetMaxPrepared()
 
     SB.Skills.Set("Эрудиция", 3)
-    check("и даёт по единице за очко сверх первого",
-          SB.Skills.GetEruditionPreparedBonus(), 2)
+    check("и даёт по единице за каждое вложенное очко",
+          SB.Skills.GetEruditionPreparedBonus(), 3)
     check("лимит вырос ровно на столько же",
-          PM.GetMaxPrepared(), math.min(hard, plain + 2))
+          PM.GetMaxPrepared(), math.min(hard, plain + 3))
 
     -- ПОТОЛОК ДЕРЖИТ, сколько бы слагаемых ни набралось. Проверяем его
     -- через саму настройку, а не через ранг заглушки: иначе проверка
@@ -5775,7 +5775,7 @@ do
 
     -- БАФФ НАВЫКА РАБОТАЕТ, как и у прочих пассивок: считается
     -- эффективное значение, а не вложенное.
-    SB.Skills.Set("Эрудиция", 1)
+    SB.Skills.Set("Эрудиция", SB.Data.STAT_BASE)
     SB.Data.Spells["t_eru_buff"] = { id = "t_eru_buff", name = "Проверочная начитанность",
         class = "Эффект", level = 0, isContainer = true,
         effect = { kind = "buff", stats = { ["Эрудиция"] = 2 } } }
@@ -8073,7 +8073,9 @@ do
     -- Шанс — модификатор навыка ПЯТИКРАТНО. Сам модификатор растёт по три
     -- за очко, и в чистом виде он не чувствуется: шесть процентов на
     -- половине вложенного навыка выглядят как выброшенное очко.
-    local CHANCE = { [1] = 0, [2] = 15, [3] = 30, [4] = 45, [5] = 60 }
+    -- С БАЗЫ В НОЛЬ: первое вложенное очко даёт свои пятнадцать, а
+    -- пятое доводит до семидесяти пяти (см. SB.Data.STAT_BASE).
+    local CHANCE = { [0] = 0, [1] = 15, [2] = 30, [3] = 45, [4] = 60, [5] = 75 }
     for sci, pct in pairs(CHANCE) do
         _G.SpellbreakerCharDB.skills = { ["Наука"] = sci, ["Ремесло"] = 1 }
         check("Наука " .. sci .. " → шанс", SB.Items.GetThriftChance(), pct)
@@ -8824,19 +8826,19 @@ do
     checkTrue("бафф — нет",      not SB.Logic.IsHarmful(S["t_sneak_buff"]))
 
     -- ── ШТРАФ СЧИТАЕТСЯ ОТ НЕОБУЧЕННОСТИ ────────────────────
-    -- Единица есть у КАЖДОГО без единого вложенного очка. Считай мы от
-    -- нуля — весь мир разом стал бы дальше, и это была бы не скрытность,
-    -- а сдвиг всех дальностей в библиотеке.
-    SB.Data.PlayersStatus["Ирина"] = { stealth = 1 }
+    -- База (SB.Data.STAT_BASE) есть у КАЖДОГО без единого вложенного
+    -- очка, и считать надо от неё: иначе весь мир разом стал бы дальше, и
+    -- это была бы не скрытность, а сдвиг всех дальностей в библиотеке.
+    SB.Data.PlayersStatus["Ирина"] = { stealth = SB.Data.STAT_BASE }
     check("необученная скрытность не даёт ничего",
           SB.Logic.GetStealthPenalty(S["t_sneak_hit"]), 0)
 
-    SB.Data.PlayersStatus["Ирина"] = { stealth = 3 }
-    local pen3 = SB.Logic.GetStealthPenalty(S["t_sneak_hit"])
-    checkTrue("обученная — даёт", pen3 > 0)
-    SB.Data.PlayersStatus["Ирина"] = { stealth = 5 }
-    check("и растёт ровно вдвое от 3 к 5",
-          SB.Logic.GetStealthPenalty(S["t_sneak_hit"]), pen3 * 2)
+    SB.Data.PlayersStatus["Ирина"] = { stealth = 2 }
+    local pen2 = SB.Logic.GetStealthPenalty(S["t_sneak_hit"])
+    checkTrue("обученная — даёт", pen2 > 0)
+    SB.Data.PlayersStatus["Ирина"] = { stealth = 4 }
+    check("и растёт ровно вдвое от 2 к 4",
+          SB.Logic.GetStealthPenalty(S["t_sneak_hit"]), pen2 * 2)
 
     -- В МИНУС НЕ УХОДИТ: дебафф уводит навык ниже единицы, но
     -- отрицательный штраф означал бы, что чужие заклинания бьют ДАЛЬШЕ
@@ -8880,7 +8882,7 @@ do
         stub.world.units["target"].pos = { 100, 100 + m / 0.9144, 1 }
     end
 
-    SB.Data.PlayersStatus["Ирина"] = { stealth = 1 }
+    SB.Data.PlayersStatus["Ирина"] = { stealth = SB.Data.STAT_BASE }
     PutAway(17)
     checkTrue("без скрытности 18-метровое достаёт с 17 м",
               SB.Logic.IsSpellInRange(S["t_sneak_hit"]))
@@ -10122,7 +10124,9 @@ do
     SB.Skills.Set("Внушение", 5)
     SB.Skills.Set("Воля", 5)
     local step  = (SB.Data.Config.SkillRollStep or 3)
-    local bonus = 4 * step
+    -- Пять вложенных очков — пять шагов: с базы в ноль работает каждое,
+    -- включая первое (см. SB.Data.STAT_BASE).
+    local bonus = 5 * step
 
     local debuffSpell = { id = "x", debuff = "t_pain" }
     local strikeSpell = { id = "x", debuff = "t_pain", canCrit = true }
@@ -10193,7 +10197,7 @@ do
     -- то есть вернулась бы прежняя Воля под другим именем.
     SB.Data.Spells["t_pain"].effect.resist = "Интеллект"
     local wasInt = _G.SpellbreakerCharDB.attributes["Интеллект"]
-    _G.SpellbreakerCharDB.attributes["Интеллект"] = 1
+    _G.SpellbreakerCharDB.attributes["Интеллект"] = SB.Data.STAT_BASE
     check("невложенный атрибут не держит", Hex(0), 1)
     _G.SpellbreakerCharDB.attributes["Интеллект"] = wasInt
     SB.Data.Spells["t_pain"].effect.resist = "Выносливость"
@@ -10336,7 +10340,7 @@ do
     -- Один и тот же бросок, одна и та же цель по уровню — разный исход
     -- ровно от того, что у неё в Силе. Если бы решение осталось у
     -- заклинателя, обе строки были бы одинаковыми: он этого числа не знает.
-    _G.SpellbreakerCharDB.attributes["Сила"] = 1
+    _G.SpellbreakerCharDB.attributes["Сила"] = SB.Data.STAT_BASE
     SB.ActiveEffects.Clear()
     answers = {}
     SB.Logic.HandleBuffReceived("Линдси", "t_bd", "t_bd_eff", 1, 85, 5, 90, "Линдси")
@@ -10354,18 +10358,18 @@ do
     checkTrue("и это тоже отчёт, а не молчание", answers[1] and answers[1].ok == false)
     checkTrue("порог у сильного выше", (answers[1] and answers[1].threshold or 0) > (weakThr or 0))
 
-    -- ДВОЙНАЯ ПРИБАВКА, а не одинарная: Сила 5 — это модификатор 12,
-    -- значит порог обязан подняться на 24, и «сильный» отбивается
+    -- ДВОЙНАЯ ПРИБАВКА, а не одинарная: Сила 5 — это модификатор 15,
+    -- значит порог обязан подняться на 30, и «сильный» отбивается
     -- именно поэтому, а не потому что где-то прибавилась единица.
     check("порог поднялся на удвоенный модификатор",
-          (answers[1] and answers[1].threshold or 0) - (weakThr or 0), 24)
+          (answers[1] and answers[1].threshold or 0) - (weakThr or 0), 30)
 
     -- ── СТОЙКОСТЬЮ МОЖЕТ БЫТЬ НАВЫК, А НЕ ТОЛЬКО АТРИБУТ ────
     -- Пока модификаторы ехали по сети, навыки были недоступны: везти
     -- пришлось бы весь их список. Считаем у себя — доступны оба.
     SB.Data.Spells["t_bd_eff"].effect.resist = "Воля"
     local savedWill = SB.Skills.Get("Воля")
-    SB.Skills.Set("Воля", 1)
+    SB.Skills.Set("Воля", SB.Data.STAT_BASE)
     SB.ActiveEffects.Clear()
     answers = {}
     SB.Logic.HandleBuffReceived("Линдси", "t_bd", "t_bd_eff", 1, 85, 5, 90, "Линдси")
@@ -10566,8 +10570,8 @@ do
     -- то, что возвращает GetWillDurationCut; разойдись они, подсказка
     -- врала бы в единственном месте, где игрок решает, куда вложиться.
     local savedWill = SB.Skills.Get("Воля")
-    SB.Skills.Set("Воля", 3)
-    check("два очка сверх первого — два хода",
+    SB.Skills.Set("Воля", 2)
+    check("два вложенных очка — два хода",
           SB.Skills.GetWillDurationCut(), 2)
     SB.Skills.Set("Воля", savedWill)
 
@@ -10603,20 +10607,20 @@ end
 -- самый момент, когда дебафф всё-таки лёг. Пять очков давали «иногда не
 -- попадут» — и ни одного хода разницы, если попали.
 --
--- Теперь каждое очко сверх первого срезает ход. Стойкость перестала
--- быть монеткой: дебафф ложится, но держится хуже.
+-- Теперь каждое вложенное очко срезает ход. Стойкость перестала быть
+-- монеткой: дебафф ложится, но держится хуже.
 -- ============================================================
 do
     ResetEffects()
     local wasWill = SB.Skills.Get("Воля")
 
-    SB.Skills.Set("Воля", 1)
+    SB.Skills.Set("Воля", SB.Data.STAT_BASE)
     check("без вложенной Воли срок не режется",
           SB.Skills.GetWillDurationCut(), 0)
 
     SB.Skills.Set("Воля", 5)
-    check("пять очков — минус четыре хода",
-          SB.Skills.GetWillDurationCut(), 4)
+    check("пять очков — минус пять ходов",
+          SB.Skills.GetWillDurationCut(), 5)
 
     -- СЕМЕЙСТВО ОБЯЗАТЕЛЬНО: Воля режет только вмешательство в волю
     -- (см. SB.Data.WillCutsDuration), и образец без семейства проверял
@@ -10632,9 +10636,9 @@ do
                string.char(92) .. "INV_Misc_QuestionMark",
         effect = { kind = "buff", mods = { attack = 5 } } }
 
-    -- «Усмирение разума» на десять ходов при Воле 5 держится шесть.
+    -- «Усмирение разума» на десять ходов при Воле 5 держится пять.
     SB.ActiveEffects.Add("t_will_deb", 10, false)
-    check("десять ходов стали шестью", UsesOf("t_will_deb"), 6)
+    check("десять ходов стали пятью", UsesOf("t_will_deb"), 5)
 
     -- «Удар по почкам» на два хода — один.
     ResetEffects()
@@ -10799,6 +10803,145 @@ do
     _G.SpellbreakerCharDB.attributes = savedAttrs
     _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
     ResetEffects()
+end
+
+-- ============================================================
+-- ХАРАКТЕРИСТИКИ ОТСЧИТЫВАЮТСЯ ОТ НУЛЯ
+--
+-- База была единицей, и единица была бесплатной: персонаж рождался со
+-- всеми характеристиками на ней, но она не давала ничего, а числа в
+-- листе врали на единицу («Сила 3» значила два очка). Теперь каждое
+-- вложенное очко — включая первое — работает.
+--
+-- Главное здесь не число, а три свойства: база одна на всех, первое
+-- очко даёт прибавку, и перевод старых сохранёнок не меняет того, что
+-- персонаж бросает и получает.
+-- ============================================================
+do
+    local BASE = SB.Data.STAT_BASE
+    check("база — ноль", BASE, 0)
+
+    -- ОДНА РУЧКА НА ВСЁ. Прежде база жила в шести местах по отдельности,
+    -- и забыть одно значило бы, что одно и то же число у игрока и у
+    -- волка значит разное.
+    check("навыки считают от неё", SB.Skills.MIN_SKILL, BASE)
+
+    local savedSkills = _G.SpellbreakerCharDB.skills
+    local savedAttrs  = _G.SpellbreakerCharDB.attributes
+    ResetEffects()
+    local step = SB.Data.Config.SkillRollStep or 3
+
+    -- ── ПЕРВОЕ ОЧКО РАБОТАЕТ ───────────────────────────────
+    _G.SpellbreakerCharDB.skills = { ["Акробатика"] = BASE }
+    check("невложенный навык не даёт ничего",
+          SB.Skills.GetAcrobaticsDefenseBonus(), 0)
+    _G.SpellbreakerCharDB.skills = { ["Акробатика"] = BASE + 1 }
+    check("первое вложенное очко даёт шаг",
+          SB.Skills.GetAcrobaticsDefenseBonus(), step)
+    _G.SpellbreakerCharDB.skills = { ["Акробатика"] = 5 }
+    check("пятёрка — пять шагов", SB.Skills.GetAcrobaticsDefenseBonus(), 5 * step)
+
+    _G.SpellbreakerCharDB.attributes = { ["Сила"] = BASE }
+    check("невложенный атрибут — ноль", SB.Attributes.GetModifier("Сила"), 0)
+    _G.SpellbreakerCharDB.attributes = { ["Сила"] = BASE + 1 }
+    checkTrue("первое очко атрибута даёт прибавку",
+              SB.Attributes.GetModifier("Сила") > 0)
+
+    -- ── СКЕЙЛИНГ ЗАКЛИНАНИЙ И СУЩЕСТВА — ОТ ТОЙ ЖЕ БАЗЫ ────
+    -- Здесь база стояла голой единицей мимо констант, и смена базы
+    -- прошла бы мимо них целиком.
+    local sp = { id = "t_base_sc", name = "Проба", class = "Маг", level = 1,
+                 scaling = { hit = { ["Сила"] = 1 } } }
+    local function HitAt(v)
+        return (SB.Logic.GetSpellScaling(sp, "hit", nil,
+            function(k) return (k == "Сила") and v or BASE end))
+    end
+    check("скейлинг: невложенное — ноль", HitAt(BASE), 0)
+    checkTrue("скейлинг: первое очко — уже прибавка", HitAt(BASE + 1) > 0)
+
+    local wolf0 = { level = 1, skills = { ["Акробатика"] = BASE } }
+    local wolf1 = { level = 1, skills = { ["Акробатика"] = BASE + 1 } }
+    check("существо: первое очко — тот же шаг, что у игрока",
+          (SB.NPC.DefenseModifier(wolf1)) - (SB.NPC.DefenseModifier(wolf0)), step)
+
+    -- ── ЛЕСТНИЦА БРОНИ СДВИНУТА ВМЕСТЕ С БАЗОЙ ─────────────
+    -- Ткань открывало первое вложенное очко и раньше (тогда — двойка);
+    -- осваивает тот же доспех то же вложение.
+    local T = SB.Data.ArmorTiers
+    check("ткань — с первого очка", T[1].needSkill, 1)
+    check("латы — с четвёртого",    T[4].needSkill, 4)
+
+    -- ── ИСХОДНИК: ГОЛЫХ ЕДИНИЦ МИМО БАЗЫ НЕ ОСТАЛОСЬ ───────
+    checkTrue("скейлинг читает базу",
+              ReadFile("Core/Logic.lua"):find("or base) - base", 1, true) ~= nil)
+    checkTrue("существа читают базу",
+              ReadFile("Core/NPC.lua"):find("math.max(0, v - base)", 1, true) ~= nil)
+    check("предупреждение о минусе не висит на нуле",
+          ReadFile("UI/Attributes.lua"):find("GetEffective(skillName) < 1", 1, true), nil)
+
+    _G.SpellbreakerCharDB.skills     = savedSkills
+    _G.SpellbreakerCharDB.attributes = savedAttrs
+end
+
+-- ============================================================
+-- МИГРАЦИЯ v12: СДВИГ БАЗЫ НЕ МЕНЯЕТ ТОГО, ЧТО ПЕРСОНАЖ ПОЛУЧАЕТ
+--
+-- Сохранённое значение — число из листа, а не «сколько вложено». Без
+-- перевода каждая характеристика разом прибавила бы по очку. Сдвиг на
+-- единицу сохраняет и вложенное, и прибавку: база сдвинулась на
+-- единицу, значение — на неё же, разница та же.
+-- ============================================================
+do
+    local function Run(char)
+        char.schemaVersion = 11
+        SB.Migrations.Run(char, { schemaVersion = 11 })
+        return char
+    end
+
+    local c = Run({ attributes = { ["Сила"] = 3, ["Дух"] = 1 },
+                    skills     = { ["Акробатика"] = 4, ["Воля"] = 1 } })
+    check("атрибут стал на единицу меньше",  c.attributes["Сила"], 2)
+    check("невложенный стал нулём",          c.attributes["Дух"], 0)
+    check("навык стал на единицу меньше",    c.skills["Акробатика"], 3)
+    check("и невложенный навык — нулём",     c.skills["Воля"], 0)
+    check("метка базы поставлена",           c.statsBase, 0)
+
+    -- ГЛАВНОЕ: ПРИБАВКА ТА ЖЕ. Старая «Акробатика 4» давала три шага
+    -- (очки сверх единицы); новая «3» даёт три шага от нуля.
+    local step = SB.Data.Config.SkillRollStep or 3
+    local saved = _G.SpellbreakerCharDB.skills
+    _G.SpellbreakerCharDB.skills = c.skills
+    check("прибавка после перевода та же, что была",
+          SB.Skills.GetAcrobaticsDefenseBonus(), 3 * step)
+    _G.SpellbreakerCharDB.skills = saved
+
+    -- ПОВТОРНЫЙ ПРОГОН НИЧЕГО НЕ ТРОГАЕТ. Сдвиг не идемпотентен по
+    -- природе — прогони дважды, снимет два, — и держит это метка, а не
+    -- номер версии: миграции обязаны переживать ручной откат версии.
+    c.schemaVersion = 11
+    SB.Migrations.Run(c, { schemaVersion = 11 })
+    check("второй прогон не сдвигает повторно", c.skills["Акробатика"], 3)
+
+    -- Ниже нуля не уходит: дебафф в сохранёнку не пишется, а мусорное
+    -- значение не должно превратиться в штраф.
+    c = Run({ skills = { ["Акробатика"] = 0 } })
+    check("ниже нуля перевод не уводит", c.skills["Акробатика"], 0)
+
+    -- ── СУЩЕСТВА: СВОЯ СОХРАНЁНКА, ТОТ ЖЕ СДВИГ ────────────
+    local db = { npcs = { [1] = { skills = { ["Воля"] = 3 },
+                                  attributes = { ["Сила"] = 2 } } },
+                 templates = { beast = { skills = { ["Выживание"] = 3 } } } }
+    SB.NPC.MigrateStatsBase(db)
+    check("навык существа сдвинут",   db.npcs[1].skills["Воля"], 2)
+    check("и атрибут тоже",           db.npcs[1].attributes["Сила"], 1)
+    check("и правка шаблона Ведущим", db.templates.beast.skills["Выживание"], 2)
+    check("метка поставлена",         db.statsBase, 0)
+    SB.NPC.MigrateStatsBase(db)
+    check("повторно не сдвигается",   db.npcs[1].skills["Воля"], 2)
+
+    local empty = {}
+    SB.NPC.MigrateStatsBase(empty)
+    check("пустая сохранёнка просто получает метку", empty.statsBase, 0)
 end
 
 -- ============================================================
@@ -11547,20 +11690,20 @@ do
         check("без навыков защита — один только уровень",
               (N.DefenseModifier(stats)), lvl1)
 
-        stats.skills["Акробатика"] = 4      -- три очка сверх минимума
+        stats.skills["Акробатика"] = 4      -- четыре вложенных очка
         check("акробатика идёт тем же шагом",
-              (N.DefenseModifier(stats)), lvl1 + 3 * step)
+              (N.DefenseModifier(stats)), lvl1 + 4 * step)
 
         stats.level = 25
         local withLvl = N.DefenseModifier(stats)
         check("уровень берётся из общей лестницы", withLvl,
-              3 * step + SB.PlayerModel.LevelModifierFor(
+              4 * step + SB.PlayerModel.LevelModifierFor(
                   SB.Data.ToReferenceLevel(25)))
 
         -- «Воля» существа поднимает порог дебаффа тем же шагом.
         check("воля существа без вложений — ноль", N.WillBonus({ skills = {} }), 0)
         check("и растёт тем же шагом",
-              N.WillBonus({ skills = { ["Воля"] = 3 } }), 2 * step)
+              N.WillBonus({ skills = { ["Воля"] = 3 } }), 3 * step)
 
         -- Броня: десять единиц на единицу урона, как у игрока.
         check("без навыка брони нет", N.DamageReduction({ skills = {} }), 0)
@@ -12901,17 +13044,17 @@ do
     SB.Skills.ClearPending()
 
     -- ПОТОЛОК НАВЫКА — ЕГО РОДИТЕЛЬСКИЙ АТРИБУТ (SB.Skills.GetCap), и
-    -- при единице в атрибуте вложить в навык нельзя вовсе. Поднимаем
+    -- при нуле в атрибуте вложить в навык нельзя вовсе. Поднимаем
     -- родителей напрямую: проверяем здесь замок, а не расход очков.
     SB.Attributes.Set("Ловкость", 5)
-    SB.Attributes.Set("Сила", 1)
+    SB.Attributes.Set("Сила", SB.Data.STAT_BASE)
 
     -- Закрепляем что-то, как это делает игрок на старте.
     checkTrue("есть что распределять", SB.Skills.GetUnspentPoints() > 0)
     checkTrue("очко потрачено",        (SB.Skills.Spend("Акробатика")))
     checkTrue("и подтверждено",        (SB.Skills.Commit()))
     local committed = SB.Skills.Get("Акробатика")
-    check("закреплённое значение", committed, 2)
+    check("закреплённое значение", committed, SB.Data.STAT_BASE + 1)
 
     -- ── ПОСЛЕ КАСТА ────────────────────────────────────────
     SB.PlayerModel.SetLocked(true)
@@ -12921,7 +13064,7 @@ do
     local before = SB.Skills.GetUnspentPoints()
     checkTrue("под замком очко всё равно тратится", (SB.Skills.Spend("Точность")))
     checkTrue("и закрепляется тоже",                (SB.Skills.Commit()))
-    check("закреплено именно оно",   SB.Skills.Get("Точность"), 2)
+    check("закреплено именно оно",   SB.Skills.Get("Точность"), SB.Data.STAT_BASE + 1)
     check("а свободных стало меньше", SB.Skills.GetUnspentPoints(), before - 1)
 
     -- А ВОТ ЗАКРЕПЛЁННОЕ НЕ ОТДАЁТСЯ, и держит это не замок, а правило
@@ -12935,7 +13078,7 @@ do
     -- Черновик при этом откатывается свободно: докинул не туда — верни.
     SB.Skills.Spend("Скрытность")
     checkTrue("черновик откатывается", (SB.Skills.Refund("Скрытность")))
-    check("и возвращается к закреплённому", SB.Skills.GetPending("Скрытность"), 1)
+    check("и возвращается к закреплённому", SB.Skills.GetPending("Скрытность"), SB.Data.STAT_BASE)
 
     -- ── ТО ЖЕ У АТРИБУТОВ ──────────────────────────────────
     local beforeA = SB.Attributes.GetUnspentPoints()
@@ -14166,14 +14309,14 @@ do
     local fine = SB.Logic.GetSpellScaling(SB.Data.Spells["t_aimed"], "damage", 0)
     check("без дебаффа скейлинга нет вовсе", fine, 0)
     -- ШТРАФ РОВНО ТОЙ ЖЕ ВЕЛИЧИНЫ, какой была бы прибавка. Считается всё
-    -- от единицы: при вложенной единице и «−6» очков выходит −6, при
-    -- вложенных семи без эффекта — ровно +6. Значит и скейлинг должен
-    -- совпасть по модулю.
-    _G.SpellbreakerCharDB.skills["Точность"] = 7
+    -- от нуля: при вложенной единице и «−6» выходит −5, при вложенных
+    -- пяти без эффекта — ровно +5. Значит и скейлинг должен совпасть по
+    -- модулю.
+    _G.SpellbreakerCharDB.skills["Точность"] = 5
     local up = SB.Logic.GetSpellScaling(SB.Data.Spells["t_aimed"], "damage", 0)
     _G.SpellbreakerCharDB.skills["Точность"] = 1
     SB.ActiveEffects.Add("t_crush", 5, false)
-    checkTrue("прибавка при семи очках есть", up > 0)
+    checkTrue("прибавка при пяти очках есть", up > 0)
     check("минус симметричен плюсу", -hurt, up)
 
     -- ── ШТРАФ К ПАССИВКЕ НАВЫКА ────────────────────────────
@@ -15298,15 +15441,17 @@ do
     end
     -- Версию ставим предыдущую: гоняем ИМЕННО v8, а не всю лестницу с нуля.
     local function RunOn(craft, count)
+        -- statsBase = 0: проверяем ИМЕННО v8, и сдвиг базы из v12 сюда
+        -- примешиваться не должен (см. ту же метку в миграции v12).
         local char = { schemaVersion = 7, skills = { ["Ремесло"] = craft },
-                       preparedItems = Bag(count) }
+                       preparedItems = Bag(count), statsBase = 0 }
         SB.Migrations.Run(char, { schemaVersion = 7 })
         return char
     end
 
     -- Число прибито НАМЕРЕННО: поднимать версию положено осознанно, вместе
     -- с новой миграцией, и молча уехать она не должна.
-    check("схема поднялась до одиннадцатой", SB.SCHEMA_VERSION, 11)
+    check("схема поднялась до двенадцатой", SB.SCHEMA_VERSION, 12)
 
     -- ── БЕЗ РЕМЕСЛА ОСТАЁТСЯ ОДНА ЯЧЕЙКА ───────────────────
     local c = RunOn(1, 5)
@@ -15333,7 +15478,7 @@ do
     -- Версия уже восьмая, значит шаг пройден. Повтори он себя — обрезал
     -- бы сумку, которую игрок успел разложить заново.
     local done = { schemaVersion = 8, skills = { ["Ремесло"] = 1 },
-                   preparedItems = Bag(3) }
+                   preparedItems = Bag(3), statsBase = 0 }
     SB.Migrations.Run(done, { schemaVersion = 8 })
     check("на готовой базе шаг не повторяется", #done.preparedItems, 3)
 end
@@ -15606,32 +15751,33 @@ do
         level = 1, scaling = { damage = { ["Дух"] = 0.5, ["Характер"] = 0.5 } } }
 
     --- Считает скейлинг при заданных характеристиках, минуя базу.
+    --- Числа — ВЛОЖЕННЫЕ ОЧКИ: база в ноль, и «Дух 4» — это четыре очка.
     local function At(spirit, charisma)
         return L.GetSpellScaling(half, "damage", nil, function(k)
             if k == "Дух" then return spirit end
             if k == "Характер" then return charisma end
-            return 1
+            return SB.Data.STAT_BASE
         end)
     end
 
     -- ── ТО, ЧТО РАБОТАЛО, РАБОТАЕТ ПО-ПРЕЖНЕМУ ─────────────
-    check("пять очков в одну — единица", At(5, 1), 1)
-    check("и в другую — тоже",          At(1, 5), 1)
-    check("нетронутые характеристики не дают ничего", At(1, 1), 0)
+    check("четыре очка в одну — единица", At(4, 0), 1)
+    check("и в другую — тоже",           At(0, 4), 1)
+    check("нетронутые характеристики не дают ничего", At(0, 0), 0)
 
     -- ── ТО, РАДИ ЧЕГО ПРАВКА ───────────────────────────────
     --
-    -- Четыре очка сверх минимума в ЛЮБОЙ разбивке дают одну единицу:
-    -- вклад решает сумма, а не то, в какой столбец игрок его положил.
-    check("4+2 — та же единица", At(4, 2), 1)
-    check("2+4 — тоже",          At(2, 4), 1)
-    check("3+3 — тоже",          At(3, 3), 1)
+    -- Четыре вложенных очка в ЛЮБОЙ разбивке дают одну единицу: вклад
+    -- решает сумма, а не то, в какой столбец игрок его положил.
+    check("3+1 — та же единица", At(3, 1), 1)
+    check("1+3 — тоже",          At(1, 3), 1)
+    check("2+2 — тоже",          At(2, 2), 1)
 
     -- А недобор так и остаётся недобором: правка про потерю дробей, а не
-    -- про щедрость. Три очка сверх минимума — это 0.75, и это ноль.
-    check("три очка сверх минимума — всё ещё ноль", At(3, 2), 0)
-    check("и два тоже",                             At(2, 2), 0)
-    check("восемь очков — две единицы",             At(5, 5), 2)
+    -- про щедрость. Три вложенных очка — это 0.75, и это ноль.
+    check("три вложенных очка — всё ещё ноль", At(2, 1), 0)
+    check("и два тоже",                        At(1, 1), 0)
+    check("восемь очков — две единицы",        At(4, 4), 2)
 
     -- ── ПОДПИСИ СХОДЯТСЯ С ИТОГОМ ──────────────────────────
     --
@@ -15675,7 +15821,7 @@ do
     local penalty = { id = "t_pen", name = "Проба штрафа", class = "Шаман",
         level = 1, scaling = { damage = { ["Дух"] = -1 } } }
     local neg = L.GetSpellScaling(penalty, "damage", nil,
-        function(k) return (k == "Дух") and 4 or 1 end)
+        function(k) return (k == "Дух") and 3 or SB.Data.STAT_BASE end)
     check("отрицательный скейлинг усекается к нулю", neg, -1)
 end
 
@@ -15696,9 +15842,8 @@ do
           SB.Data.GetClassProfile("Шаман").attrPoints, 2)
 
     -- ── ЛЕСТНИЦА ОЧКОВ ХАРАКТЕРИСТИК ───────────────────────
-    -- Два на старте и по одному каждые три уровня: 3/6/9/12/… Числа
-    -- на концах названы в правилах прямо — девятка к 21-му и десятка
-    -- к 24-му, — и держать их надо именно по ним.
+    -- Два на старте и по одному каждые два уровня: на 3-м, 5-м, 7-м и
+    -- дальше по нечётным — так это и названо в правилах.
     do
         local savedR = stub.world.race
         stub.world.race = "Human"          -- профиль без attrPoints
@@ -15708,10 +15853,21 @@ do
         check("на первом уровне два",   SB.Attributes.GetTotalPoints(1),  2)
         check("на втором всё ещё два",  SB.Attributes.GetTotalPoints(2),  2)
         check("третий даёт третье",     SB.Attributes.GetTotalPoints(3),  3)
-        check("шестой — четвёртое",     SB.Attributes.GetTotalPoints(6),  4)
-        check("двенадцатый — шестое",   SB.Attributes.GetTotalPoints(12), 6)
-        check("к 21-му девять",         SB.Attributes.GetTotalPoints(21), 9)
-        check("к 24-му десять",         SB.Attributes.GetTotalPoints(24), 10)
+        check("четвёртый — ничего",     SB.Attributes.GetTotalPoints(4),  3)
+        check("пятый — четвёртое",      SB.Attributes.GetTotalPoints(5),  4)
+        check("седьмой — пятое",        SB.Attributes.GetTotalPoints(7),  5)
+        check("к 21-му двенадцать",     SB.Attributes.GetTotalPoints(21), 12)
+        check("на капе четырнадцать",   SB.Attributes.GetTotalPoints(25), 14)
+        -- ОЧКО ПРИХОДИТ НА НЕЧЁТНОМ, и это единственное, что здесь легко
+        -- сломать: «уровень / 2» дал бы его на чётных.
+        checkTrue("каждое новое очко — на нечётном уровне", (function()
+            for lvl = 2, 25 do
+                local grew = SB.Attributes.GetTotalPoints(lvl)
+                             > SB.Attributes.GetTotalPoints(lvl - 1)
+                if grew ~= (lvl % 2 == 1) then return false end
+            end
+            return true
+        end)())
 
         stub.world.class, stub.world.classToken = savedC, savedT
         stub.world.race = savedR
@@ -15932,10 +16088,10 @@ do
     check("старого имени в данных не осталось", table.concat(stale, ", "), "")
 
     -- ── СКОЛЬКО ХОДОВ ДОБАВЛЯЕТ ────────────────────────────
-    _G.SpellbreakerCharDB.skills = { ["Воодушевление"] = 1 }
+    _G.SpellbreakerCharDB.skills = { ["Воодушевление"] = SB.Data.STAT_BASE }
     check("невложенный навык не добавляет ничего", SB.Skills.GetEncouragementBonus(), 0)
-    _G.SpellbreakerCharDB.skills = { ["Воодушевление"] = 4 }
-    check("вложенный — по ходу за очко сверх первого",
+    _G.SpellbreakerCharDB.skills = { ["Воодушевление"] = 3 }
+    check("вложенный — по ходу за каждое вложенное очко",
           SB.Skills.GetEncouragementBonus(), 3)
 
     -- ── ТОЛЬКО НА БАФФЫ — НО НА ЛЮБЫЕ ─────────────────────
@@ -16020,8 +16176,10 @@ end
 -- молча: незнакомый ключ просто никем не читается.
 -- ============================================================
 do
+    -- statsBase = 0: проверяем ИМЕННО переименование, и сдвиг базы из
+    -- v12 сюда примешиваться не должен.
     local function Run(skills)
-        local char = { schemaVersion = 8, skills = skills }
+        local char = { schemaVersion = 8, skills = skills, statsBase = 0 }
         SB.Migrations.Run(char, { schemaVersion = 8 })
         return char.skills
     end
@@ -16042,7 +16200,8 @@ do
     check("при споре побеждает большее", s["Воодушевление"], 5)
 
     -- Повторный прогон на готовой базе ничего не трогает.
-    local done = { schemaVersion = 9, skills = { ["Воодушевление"] = 3 } }
+    local done = { schemaVersion = 9, skills = { ["Воодушевление"] = 3 },
+                   statsBase = 0 }
     SB.Migrations.Run(done, { schemaVersion = 9 })
     check("на готовой базе шаг не повторяется", done.skills["Воодушевление"], 3)
 end
@@ -16110,17 +16269,21 @@ end
 -- ============================================================
 -- ЛИДЕРСТВО: РУЧЕЁК ВМЕСТО ОТДЫХА
 --
--- Единица ресурса каста раз в 4/3/2/1 хода по ВЛОЖЕННОМУ навыку.
--- Лестница частоты, а не размера — тем же приёмом, что у Фокуса
--- охотника: ровный ручеёк читается за столом, а «раз в четыре хода
--- четыре штуки» превращает планирование в ожидание.
+-- Единица ресурса каста раз в 3/2/1 хода по ВЛОЖЕННОМУ навыку, ступени
+-- на 1, 3 и 5. Лестница частоты, а не размера — тем же приёмом, что у
+-- Фокуса охотника: ровный ручеёк читается за столом, а «раз в четыре
+-- хода четыре штуки» превращает планирование в ожидание.
 -- ============================================================
 do
     local savedSkills = _G.SpellbreakerCharDB.skills
     ResetEffects()
 
-    local EXPECT = { [1] = nil, [2] = 4, [3] = 3, [4] = 2, [5] = 1 }
-    for v = 1, 5 do
+    -- МЕЖДУ СТУПЕНЯМИ — ПРЕЖНЯЯ СТУПЕНЬ, а не пусто. Ради этих двух
+    -- строк таблица и читается порогом: точный поиск отключал бы ручеёк
+    -- на втором и четвёртом очке, и вложенное очко отнимало бы то, что
+    -- дало предыдущее.
+    local EXPECT = { [0] = nil, [1] = 3, [2] = 3, [3] = 2, [4] = 2, [5] = 1 }
+    for v = 0, 5 do
         _G.SpellbreakerCharDB.skills = { ["Лидерство"] = v }
         check("Лидерство " .. v .. " → период",
               SB.Skills.GetLeadershipRegenPeriod(), EXPECT[v])
@@ -16207,8 +16370,11 @@ do
     -- сработает: персонаж с Лидерством 5 при Духе 2 остался бы с
     -- нелегальной пятёркой до первого касания панели, а там она молча
     -- упала бы до двойки. Молчаливая потеря хуже объявленной.
+    -- statsBase = 0: проверяем ИМЕННО подрезку по новому потолку, и
+    -- сдвиг базы из v12 сюда примешиваться не должен.
     local function Run(attrs, skills)
-        local char = { schemaVersion = 10, attributes = attrs, skills = skills }
+        local char = { schemaVersion = 10, attributes = attrs, skills = skills,
+                       statsBase = 0 }
         SB.Migrations.Run(char, { schemaVersion = 10 })
         return char.skills
     end
@@ -16584,20 +16750,20 @@ do
     check("мусор на входе не роняет", L.CanUpcast(nil), false)
     check("голое заклинание ничего не получает", L.CanUpcast({}), false)
 
-    -- СИЛА ИМЕННО 4, И ЭТО НЕ ПРОИЗВОЛ. При Силе 3 то же самое
-    -- заклинание вливанием НЕ усиливается: 2 очка сверх минимума дают
-    -- 1.0, а 1.0 x 1.45 = 1.45 — та же единица после усечения. При
-    -- Силе 4 выходит 1.5 и 2.175, то есть 1 и 2. Разница между этими
-    -- двумя строчками и есть причина, по которой правило считает, а не
+    -- СИЛА ИМЕННО 3, И ЭТО НЕ ПРОИЗВОЛ. При Силе 2 то же самое
+    -- заклинание вливанием НЕ усиливается: 2 вложенных очка дают 1.0, а
+    -- 1.0 x 1.45 = 1.45 — та же единица после усечения. При Силе 3
+    -- выходит 1.5 и 2.175, то есть 1 и 2. Разница между этими двумя
+    -- строчками и есть причина, по которой правило считает, а не
     -- рассуждает о признаках.
-    _G.SpellbreakerCharDB.attributes = { ["Сила"] = 4 }
+    _G.SpellbreakerCharDB.attributes = { ["Сила"] = 3 }
     SB.Data.Spells["t_up_dmg"] = { id = "t_up_dmg", name = "Проба урона",
         class = "Воин", level = 0, canCrit = true,
         scaling = { damage = { ["Сила"] = 1 } } }
     checkTrue("канал урона на подходящей характеристике — даёт",
               L.CanUpcast(SB.Data.Spells["t_up_dmg"]))
 
-    _G.SpellbreakerCharDB.attributes = { ["Сила"] = 3 }
+    _G.SpellbreakerCharDB.attributes = { ["Сила"] = 2 }
     check("а на соседнем значении — уже нет",
           L.CanUpcast(SB.Data.Spells["t_up_dmg"]), false)
 

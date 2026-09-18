@@ -568,7 +568,11 @@ function SB.Logic.GetSpellScaling(spell, channel, slotLevel, statFn)
             -- даёт ничего ни в плюс, ни в минус. GetEffective — чтобы
             -- бафф на характеристику усиливал и скейлинг заклинаний,
             -- а не только сами броски по ней.
-            local points = ((statFn or SB.Attributes.GetEffective)(statKey) or 1) - 1
+            -- От общей базы (SB.Data.STAT_BASE), а не от голой единицы:
+            -- здесь она была записана числом мимо констант, и смена базы
+            -- прошла бы мимо скейлинга заклинаний целиком.
+            local base   = SB.Data.STAT_BASE or 0
+            local points = ((statFn or SB.Attributes.GetEffective)(statKey) or base) - base
             local raw = points * perPoint * coeff * mult
             if raw ~= 0 then
                 exact[#exact + 1] = { key = statKey, label = statKey, raw = raw }
@@ -2311,7 +2315,7 @@ function SB.Logic.MaxPlausibleAttackMod(spell)
     -- одним слагаемым: их несколько, шаг у всех общий, а точность здесь
     -- и не нужна. ОДНА порция, а не две: сложенные вдвое, они и раздували
     -- потолок вчетверо против настоящего максимума.
-    local skills = step * (cap - 1)
+    local skills = step * (cap - (SB.Data.STAT_BASE or 0))
 
     -- Висящие эффекты канала attack. Конкретных чисел чужих баффов мы не
     -- знаем, но и десятикратного запаса им не надо.

@@ -310,11 +310,54 @@ function SB.NPC.CanKnowSpell(spell)
     return (tonumber(spell.level) or 0) <= SB.NPC.MAX_SPELL_ORDER
 end
 
+--- ПЕРЕВОД ЗАПИСЕЙ СУЩЕСТВ НА БАЗУ В НОЛЬ.
+---
+--- Тот же сдвиг и по той же причине, что у персонажа (см. миграцию v12
+--- в Core/Migrations.lua), но своими руками: сохранёнка существ
+--- отдельная, и общий механизм миграций обходит только персонажа и
+--- учётную запись. Не переведи её — каждое настроенное Ведущим существо
+--- разом прибавило бы по очку во всём, что у него записано.
+---
+--- ПО МЕТКЕ, как и у персонажа: сдвиг не идемпотентен, и повторный
+--- прогон обязан уходить, ничего не тронув. Пустая сохранёнка получает
+--- метку сразу — всё, что в неё запишут дальше, уже в новой базе.
+function SB.NPC.MigrateStatsBase(db)
+    if type(db) ~= "table" or tonumber(db.statsBase) == 0 then return 0 end
+
+    local shifted = 0
+    local function Shift(rec)
+        if type(rec) ~= "table" then return end
+        for _, field in ipairs({ "attributes", "skills" }) do
+            local t = rec[field]
+            if type(t) == "table" then
+                for k, v in pairs(t) do
+                    local n = tonumber(v)
+                    if n then
+                        -- Голая единица — база, в которой ЗАПИСАНО (см.
+                        -- ту же оговорку у миграции персонажа).
+                        t[k] = math.max(0, n - 1)
+                        shifted = shifted + 1
+                    end
+                end
+            end
+        end
+    end
+    for _, rec in pairs(db.npcs or {}) do Shift(rec) end
+    for _, rec in pairs(db.templates or {}) do Shift(rec) end
+
+    db.statsBase = 0
+    return shifted
+end
+
+-- ЧИСЛА ЗДЕСЬ — В БАЗЕ НОЛЬ (см. SB.Data.STAT_BASE), и каждое на единицу
+-- меньше, чем было до её смены. Шаблоны — данные в коде, миграция до них
+-- не дотягивается, поэтому сдвинуты вручную: волк с «Выживанием 2»
+-- уворачивается и выслеживает ровно так же, как прежний с тройкой.
 SB.NPC.Templates = {
     humanoid = {
         level = 10, maxHealth = 8, resourceName = "Мана", maxResource = 4,
-        attributes = { ["Характер"] = 2 },
-        skills     = { ["Ношение брони"] = 2 },
+        attributes = { ["Характер"] = 1 },
+        skills     = { ["Ношение брони"] = 1 },
         -- ПО ТРИ СПОСОБНОСТИ КАЖДОМУ ВИДУ, и подобраны они не по силе, а
         -- по повадке: удар, чем этот вид давит, и чем выкручивается.
         -- Шаблон — заготовка, а не баланс; Ведущий правит его в
@@ -325,57 +368,57 @@ SB.NPC.Templates = {
     },
     undead = {
         level = 12, maxHealth = 10, resourceName = "Мана", maxResource = 3,
-        attributes = { ["Выносливость"] = 3, ["Характер"] = 1 },
-        skills     = { ["Живучесть"] = 3, ["Воля"] = 3 },
+        attributes = { ["Выносливость"] = 2, ["Характер"] = 0 },
+        skills     = { ["Живучесть"] = 2, ["Воля"] = 2 },
         spells     = { "corruption", "burning_pain", "curse_of_weakness" },
         description = "Не чувствует боли и не бежит. Держится дольше живого, но неповоротлив.",
     },
     beast = {
         level = 8, maxHealth = 7, resourceName = "Ярость", maxResource = 4,
-        attributes = { ["Ловкость"] = 3, ["Интеллект"] = 1 },
-        skills     = { ["Точность"] = 2, ["Выживание"] = 3, ["Акробатика"] = 2 },
+        attributes = { ["Ловкость"] = 2, ["Интеллект"] = 0 },
+        skills     = { ["Точность"] = 1, ["Выживание"] = 2, ["Акробатика"] = 1 },
         spells     = { "rend", "charge", "hamstring" },
         description = "Быстрый и злой, но бесхитростный: бьёт, пока может, и уходит, когда ранен.",
     },
     demon = {
         level = 16, maxHealth = 12, resourceName = "Мана", maxResource = 6,
-        attributes = { ["Сила"] = 3, ["Дух"] = 3 },
-        skills     = { ["Запугивание"] = 3, ["Воля"] = 3 },
+        attributes = { ["Сила"] = 2, ["Дух"] = 2 },
+        skills     = { ["Запугивание"] = 2, ["Воля"] = 2 },
         spells     = { "demonic_swarm", "curse_of_darkness", "banishment" },
         description = "Чужая воля в чужом теле. Сопротивляется чарам и давит на разум.",
     },
     elemental = {
         level = 14, maxHealth = 10, resourceName = "Мана", maxResource = 5,
-        attributes = { ["Интеллект"] = 3 },
-        skills     = { ["Исток"] = 4, ["Концентрация"] = 2 },
+        attributes = { ["Интеллект"] = 2 },
+        skills     = { ["Исток"] = 3, ["Концентрация"] = 1 },
         spells     = { "flame_shock", "ice_spike", "chainlightning" },
         description = "Живая стихия: бьёт своей школой и почти не поддаётся ей же.",
     },
     dragon = {
         level = 20, maxHealth = 18, resourceName = "Мана", maxResource = 8,
-        attributes = { ["Сила"] = 4, ["Дух"] = 3, ["Характер"] = 3 },
-        skills     = { ["Живучесть"] = 4, ["Запугивание"] = 4, ["Воля"] = 3 },
+        attributes = { ["Сила"] = 3, ["Дух"] = 2, ["Характер"] = 2 },
+        skills     = { ["Живучесть"] = 3, ["Запугивание"] = 3, ["Воля"] = 2 },
         spells     = { "dragon_breath", "intimidating_shout", "mortal_strike" },
         description = "Древний и умный. Всё, что ниже него уровнем, для него добыча.",
     },
     giant = {
         level = 18, maxHealth = 16, resourceName = "Ярость", maxResource = 5,
-        attributes = { ["Сила"] = 4, ["Выносливость"] = 4, ["Ловкость"] = 1 },
-        skills     = { ["Мощь"] = 4, ["Живучесть"] = 4, ["Акробатика"] = 1 },
+        attributes = { ["Сила"] = 3, ["Выносливость"] = 3, ["Ловкость"] = 0 },
+        skills     = { ["Мощь"] = 3, ["Живучесть"] = 3, ["Акробатика"] = 0 },
         spells     = { "charge", "mortal_strike", "demoralizing_shout" },
         description = "Огромный и медленный. Достать его трудно, пережить его удар — ещё труднее.",
     },
     aberration = {
         level = 15, maxHealth = 11, resourceName = "Мана", maxResource = 6,
-        attributes = { ["Интеллект"] = 3, ["Дух"] = 4 },
-        skills     = { ["Воля"] = 4, ["Внушение"] = 3 },
+        attributes = { ["Интеллект"] = 2, ["Дух"] = 3 },
+        skills     = { ["Воля"] = 3, ["Внушение"] = 2 },
         spells     = { "mind_blast", "manaburn", "mind_flay" },
         description = "Тварь не из этого мира. Бьёт по рассудку раньше, чем по телу.",
     },
     mechanical = {
         level = 12, maxHealth = 12, resourceName = "Энергия", maxResource = 4,
-        attributes = { ["Выносливость"] = 3, ["Характер"] = 1 },
-        skills     = { ["Ношение брони"] = 4, ["Живучесть"] = 2 },
+        attributes = { ["Выносливость"] = 2, ["Характер"] = 0 },
+        skills     = { ["Ношение брони"] = 3, ["Живучесть"] = 1 },
         spells     = { "shield_block", "fire_bolt", "electric_shock" },
         description = "Не устаёт, не пугается, не думает. Ломается — и только.",
     },
@@ -426,6 +469,7 @@ end
 local function db()
     SpellbreakerNPCDB = SpellbreakerNPCDB or {}
     SpellbreakerNPCDB.npcs = SpellbreakerNPCDB.npcs or {}
+    SB.NPC.MigrateStatsBase(SpellbreakerNPCDB)
     -- Правки шаблонов видов: [id классификации] = поля поверх эталона.
     -- Рядом с существами, а не в общей сохранёнке: это данные Ведущего о
     -- бестиарии, и живут они там же, где сами существа.
@@ -1184,11 +1228,15 @@ end
 --- ослабление считалось бы по двум разным шкалам у игрока и у существа.
 --- @param unit string|nil  чьи эффекты учитывать; nil — только запись
 local function StatOver(stats, key, unit)
-    local v = tonumber((stats.skills or {})[key] or (stats.attributes or {})[key]) or 1
+    -- База — та же, что у игрока (SB.Data.STAT_BASE): здесь она стояла
+    -- голой единицей, и сменись база только у игроков — волк с «Акробатикой
+    -- 3» уворачивался бы на шаг хуже игрока с тем же числом.
+    local base = SB.Data.STAT_BASE or 0
+    local v = tonumber((stats.skills or {})[key] or (stats.attributes or {})[key]) or base
     if unit and SB.NPC.EffectStatMod then
         v = v + SB.NPC.EffectStatMod(unit, key)
     end
-    return math.max(0, v - 1)
+    return math.max(0, v - base)
 end
 
 --- Модификатор ЗАЩИТЫ существа.
