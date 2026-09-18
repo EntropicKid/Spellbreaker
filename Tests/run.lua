@@ -10078,8 +10078,12 @@ do
     -- автоуспехом (см. SB.Logic.MinPlausibleCritRoll).
     check("грань считается от потолка полосы",
           critRoll, 100 - SB.Data.Config.CritBandMaxPct + 1)
+    -- Грань сверки — от наименьшей честной верхней грани: подавленная
+    -- «Мощь» опускает кубик, а с ним и честный порог крита.
+    local floorCrit = SB.Logic.MinPlausibleCritRoll(SB.Logic.MinPlausibleRollMax())
+    checkTrue("сверка не мягче половины кубика", floorCrit > SB.Logic.ROLL_MAX / 2)
     check("крит на невозможном кубике не пробивает защиту",
-          CritAttack("t_unsure", critRoll - 1), 10)
+          CritAttack("t_unsure", floorCrit - 1), 10)
 
     -- Площадной эффект: порог у задетого свой, и гарантированный обязан
     -- лечь даже при итоге в единицу.
@@ -15577,7 +15581,7 @@ do
 
     -- Число прибито НАМЕРЕННО: поднимать версию положено осознанно, вместе
     -- с новой миграцией, и молча уехать она не должна.
-    check("схема поднялась до тринадцатой", SB.SCHEMA_VERSION, 13)
+    check("схема поднялась до четырнадцатой", SB.SCHEMA_VERSION, 14)
 
     -- ── СВЕРХ ТРЁХ РЕЖЕТСЯ, И НАВЫК НИ ПРИ ЧЁМ ──────────────
     -- Ячейки больше не зависят от навыка: три у всех, и ужатая старая
@@ -16593,6 +16597,44 @@ do
 end
 
 -- ============================================================
+-- ФАНТОМНЫЕ ЕДИНИЦЫ АТРИБУТОВ
+--
+-- Баг-репорт: «после /reload очков атрибутов на три меньше, чем должно;
+-- лечится сбросом». У атрибутов было умолчание 1 (база до 3.1.3). AceDB
+-- не пишет в файл совпадающее с умолчанием и подставляет его при входе,
+-- а сброс писал attributes = {} — и невложенное всплывало единицей.
+-- ============================================================
+do
+    local init = ReadFile("Core/Init.lua")
+    local defs = init:match("local CHAR_DEFAULTS = (%b{})") or ""
+    checkTrue("у атрибутов нет значений по умолчанию",
+              not defs:find('%["Сила"%]%s*=%s*1'))
+
+    -- Пустое место читается базой, а не единицей.
+    local saved = _G.SpellbreakerCharDB.attributes
+    _G.SpellbreakerCharDB.attributes = { ["Ловкость"] = 5 }
+    check("невложенный атрибут — ноль", SB.Attributes.Get("Сила"), SB.Data.STAT_BASE)
+    check("и в трату не идёт", SB.Attributes.GetSpentPoints(), 5)
+    _G.SpellbreakerCharDB.attributes = saved
+
+    -- v14 говорит о возвращённых очках, но нового персонажа не трогает.
+    local said = {}
+    local old = { schemaVersion = 13, statsBase = 0,
+                  attributes = { ["Ловкость"] = 5, ["Дух"] = 4, ["Характер"] = 4 } }
+    local realPrint = print
+    print = function(msg) said[#said + 1] = tostring(msg) end
+    SB.Migrations.Run(old, { schemaVersion = 13 })
+    local fresh = { schemaVersion = 13, statsBase = 0, attributes = {} }
+    local before = #said
+    SB.Migrations.Run(fresh, { schemaVersion = 13 })
+    print = realPrint
+    local text = table.concat(said, "\n", 1, before)
+    checkTrue("старому персонажу сказано, что вернулось", text:find("Сила", 1, true) ~= nil)
+    check("новому — ни слова", #said, before)
+    check("версия проставлена", old.schemaVersion, 14)
+end
+
+-- ============================================================
 -- «РЕМЕСЛО» СТАЛО «ИСКУСНОСТЬЮ» — И НИКТО НИЧЕГО НЕ ПОТЕРЯЛ
 --
 -- Имя навыка — ключ. Под старым ключом очки остались бы в сохранёнке, но
@@ -16645,6 +16687,76 @@ do
 end
 
 -- ============================================================
+-- «ТОЧНОСТЬ» И «МОЩЬ» ДВИГАЮТ ГРАНИ КУБИКА
+--
+-- +2 к нижней грани за очко «Точности», +2 к верхней за очко «Мощи».
+-- По действующему значению: эффекты двигают так же, и в минус тоже.
+-- Нижняя грань не ниже единицы ни при каком штрафе.
+-- ============================================================
+do
+    local L = SB.Logic
+    local savedRace, savedSkills = stub.world.race, _G.SpellbreakerCharDB.skills
+    stub.world.race = "Human"
+    stub.world.equipped = { [16] = { 2, 4 }, [17] = { 2, 4 } }   -- булавы: без черты
+    SB.Skills.ResetEquipCache()
+    ResetEffects()
+    local step = L.ROLL_FACE_PER_POINT
+    check("шаг грани — два", step, 2)
+
+    _G.SpellbreakerCharDB.skills = {}
+    local lo0, hi0 = L.GetRollRange()
+    check("без вложений кубик ровный: низ", lo0, 1)
+    check("без вложений кубик ровный: верх", hi0, L.ROLL_MAX)
+
+    _G.SpellbreakerCharDB.skills = { ["Точность"] = 3 }
+    check("«Точность» 3 — нижняя грань 6", (L.GetRollRange()), 3 * step)
+    _G.SpellbreakerCharDB.skills = { ["Мощь"] = 5 }
+    local _, hiP = L.GetRollRange()
+    check("«Мощь» 5 — верхняя грань +10", hiP, L.ROLL_MAX + 5 * step)
+    local _, _, rolledHi = L.Roll()
+    check("и бросок катится до неё", rolledHi, hiP)
+
+    -- Эффекты — в обе стороны.
+    _G.SpellbreakerCharDB.skills = {}
+    SB.Data.Spells["t_face_up"] = { id = "t_face_up", name = "Проба точности",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff", stats = { ["Точность"] = 4, ["Мощь"] = 4 } } }
+    SB.Data.Spells["t_face_down"] = { id = "t_face_down", name = "Проба слабости",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "debuff", stats = { ["Точность"] = -8, ["Мощь"] = -8 } } }
+    SB.ActiveEffects.Add("t_face_up", 5, false)
+    local loU, hiU = L.GetRollRange()
+    check("бафф поднял нижнюю грань", loU, 4 * step)
+    check("и верхнюю",                hiU, L.ROLL_MAX + 4 * step)
+    ResetEffects()
+    SB.ActiveEffects.Add("t_face_down", 5, false)
+    local loD, hiD = L.GetRollRange()
+    check("штраф не опускает нижнюю грань ниже единицы", loD, 1)
+    check("а верхнюю опускает",                         hiD, L.ROLL_MAX - 8 * step)
+    ResetEffects()
+
+    -- Кубик остаётся кубиком.
+    SB.Data.Spells["t_face_crush"] = { id = "t_face_crush", name = "Проба раздавленной мощи",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "debuff", stats = { ["Мощь"] = -100, ["Точность"] = 100 } } }
+    SB.ActiveEffects.Add("t_face_crush", 5, false)
+    local loC, hiC = L.GetRollRange()
+    check("верхняя грань не ниже половины сотни", hiC, L.MIN_ROLL_MAX)
+    checkTrue("нижняя не выше половины верхней", loC <= math.floor(hiC / 2))
+    ResetEffects()
+
+    -- Честный крит под подавленной «Мощью» проверка чужого броска не режет:
+    -- два штрафа по восемь — в пределах правдоподобного.
+    checkTrue("два крепких штрафа к «Мощи» — ещё честная грань",
+              L.ROLL_MAX - 16 * step >= L.MinPlausibleRollMax())
+
+    SB.Data.Spells["t_face_up"], SB.Data.Spells["t_face_down"] = nil, nil
+    SB.Data.Spells["t_face_crush"] = nil
+    _G.SpellbreakerCharDB.skills = savedSkills
+    stub.world.race = savedRace
+end
+
+-- ============================================================
 -- БОНУСЫ ОРУЖИЯ
 --
 -- У каждого класса оружия своя черта (SB.Data.WeaponBonuses): щит —
@@ -16680,8 +16792,10 @@ do
     Hands({ [16] = { 2, 13 } })
     check("кастет и пустая рука — вместе", (L.GetRollRange()), 10)
     -- Решено намеренно: двуручник левую руку не занимает.
+    -- Двуручный меч — ещё и меч: +2 «Точности», то есть +4 к нижней грани.
     Hands({ [16] = { 2, 8 } })
-    check("при двуручнике пустая левая — свободная рука", (L.GetRollRange()), 5)
+    check("при двуручнике пустая левая — свободная рука", (L.GetRollRange()),
+          5 + 2 * L.ROLL_FACE_PER_POINT)
     -- Слот дальнего боя рукой не считается.
     Hands({ [16] = MACE, [17] = MACE, [18] = nil })
     check("пустой слот дальнего боя пол не двигает", (L.GetRollRange()), 1)
@@ -16733,7 +16847,9 @@ do
 
     -- Проверка чужого каста не принимает кинжальный бросок за подделку,
     -- но выше двух кинжалов не пускает.
-    check("правдоподобный потолок — сотня и два кинжала", L.MaxPlausibleRoll(), L.ROLL_MAX + 10)
+    checkTrue("правдоподобный потолок пускает два кинжала и полную «Мощь»",
+              L.MaxPlausibleRoll() >= L.ROLL_MAX + 10
+                  + L.ROLL_FACE_PER_POINT * SB.Attributes.GetMaxValue())
 
     -- ── ГОЛЫЙ КУБИК СУЩЕСТВ ────────────────────────────────
     -- Оружие и раса Ведущего существам не достаются.

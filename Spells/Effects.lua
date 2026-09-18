@@ -3999,10 +3999,10 @@ AddEffect({
 
 AddEffect({
     id   = "eff_shadow_mend",
-    name = "Боль",
+    name = "Темное восстановление",
     damageType = "shadow",
     icon = "Interface\\Icons\\Spell_shadow_shadowmend",
-    description = "Мучительная мигрень мешает и сотворять заклинания, и просто держать строй.",
+    description = "Неминуемая плата за исцеление ран запретной техникой. Разум цели поражен мучительными образами.",
     effect = {
         kind = "debuff", resist = "Выносливость", school = "magic",
         tick = { damage = 1 },

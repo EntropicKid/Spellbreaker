@@ -421,7 +421,7 @@ Add({
     resistable = true,
 	duration = 300,
     isConcentration = false,
-	distance = 19,
+	distance = 2.5,
 	buff = "eff_fortitude_word_fortitude",
 	scaling = {
 		hit    = { ["Воля"] = 1.5, ["Религия"] = 0.5 },
@@ -440,7 +440,7 @@ Add({
     resistable = true,
 	duration = 10,
     isConcentration = false,
-	distance = 16,
+	distance = 2.5,
 	buff = "eff_bless",
 	scaling = {
 		hit    = { ["Воля"] = 1, ["Религия"] = 0.5 },
@@ -476,7 +476,7 @@ Add({
     description = "Это заклинание позволяет: прекратить действие текущих заклинаний, наложенных на существо или объект, временно подавить магический эффект волшебного предмета. Не все заклинания можно рассеять или отменить.\n\nМагические эффекты не имеющие длительности нельзя рассеять, ведь они действуют быстрее, чем вступает в эффект рассеивание магии, таким образом нельзя отменить магические повреждения от огненного шара или обратить каменного персонажа обратно в живого.\n\nВы можете выбирать применение рассеивания магии только против целевого заклинания, уже действующего на цель.\n\nЦелевое рассеивание: один объект, субъект или заклинание подвергаются воздействию рассеивания магии. Вы должны пройти проверку (с преимуществом или помехой) на каждое заклинание, которое пытаетесь рассеять, успех определяется задаваемым мастером порогом и фактом того, был ли волшебник наложивший его сильнее, или слабее вас.\n\nЕсли вы целитесь в объект или существо, которое воплощает собой эффект текущего заклинания (например, призванное заклинателем чудовище), вы проводите проверку рассеивания, чтобы окончить заклинание, которое создало объект или существо.\n\nЕсли ваш целевой объект — магический предмет, то вы проводите проверку рассеивания против уровня заклинателя, создавшего этот предмет. Если успешно, то магические способности такого предмета приглушаются на одну минуту, после чего предмет самостоятельно восстанавливается.\n\nФизические способности магического предмета остаются неизменными: приглушенный магический меч остается мечом (фактически превосходным мечом).\n\nВы автоматически успешно проходите проверку рассеивания против любого заклинания, которое наложили на себя.",
     isCantrip = false,
     resistable = true,
-	distance = 31,
+	distance = 10,
 	dispel = "magic",
 	scaling = {
 		hit    = { ["Воля"] = 1, ["Религия"] = 0.5 },
@@ -495,7 +495,7 @@ Add({
     resistable = true,
 	duration = 10,
     isConcentration = false,
-	distance = 10,
+	distance = 2.5,
     buff = "eff_fear_ward",
 	scaling = {
 		hit    = { ["Воля"] = 1, ["Религия"] = 0.5 },
@@ -514,7 +514,7 @@ Add({
     resistable = true,
 	duration = 3,
     isConcentration = false,
-	distance = 10,
+	distance = 30,
     debuff = "eff_shackle_undead",
 	scaling = {
 		hit    = { ["Воля"] = 1, ["Религия"] = 0.5 },
@@ -662,7 +662,7 @@ Add({
     resistable = true,
 	duration = 300,
     isConcentration = true,
-	distance = 14,
+	distance = 40,
     container = "eff_mindvision",
 	scaling = {
 		hit    = { ["Внушение"] = 1.5 },
@@ -683,7 +683,7 @@ Add({
     canCrit = true,
 	duration = 2,
     isConcentration = true,
-	distance = 19,
+	distance = 20,
     debuff = "eff_mind_flay",
 	channel = 2,
 	scaling = {
@@ -705,7 +705,7 @@ Add({
     resistable = true,
 	duration = 1,
     isConcentration = false,
-	distance = 8.5,
+	distance = 20,
     debuff = "eff_mind_blast",
 	scaling = {
 		hit    = { ["Внушение"] = 1 },
@@ -725,7 +725,7 @@ Add({
 	duration = 2,
     isConcentration = false,
 	debuff = "eff_priest_fear",
-	aoe = { radius = 7.5 },
+	aoe = { radius = 12 },
 	scaling = {
 		hit    = { ["Внушение"] = 1, ["Запугивание"] = 0.5 },
 	},
@@ -733,7 +733,6 @@ Add({
 Add({
     id = "shadow_mend",
     name = "Темное восстановление",
-    damageType = "shadow",
     key = "Слово Тьмы",
     icon = "Interface\\Icons\\Spell_shadow_shadowmend",
     level = 2,
@@ -804,7 +803,7 @@ Add({
 	duration = 600,
     isConcentration = false,
     buff = "eff_prayer_of_shadow_protection",
-	aoe = { radius = 30 },
+	aoe = { radius = 18 },
 	scaling = {
 		hit    = { ["Внушение"] = 1, ["Воля"] = 0.5 },
 	},
@@ -822,7 +821,7 @@ Add({
     resistable = true,
 	duration = 2,
     isConcentration = false,
-	distance = 10,
+	distance = 30,
     debuff = "eff_word_of_death",
 	scaling = {
 		hit    = { ["Внушение"] = 1 },
@@ -865,7 +864,7 @@ Add({
     resistable = true,
 	duration = 3,
     isConcentration = true,
-	distance = 10,
+	distance = 40,
 	debuff = "eff_broken_will",
 	scaling = {
 		hit    = { ["Внушение"] = 1, ["Воля"] = 0.5 },
@@ -884,7 +883,7 @@ Add({
     resistable = true,
 	duration = 5,
     isConcentration = false,
-	distance = 10,
+	distance = 30,
 	debuff = "eff_devouring_plague",
 	scaling = {
 		hit    = { ["Внушение"] = 1 },
@@ -981,7 +980,7 @@ Add({
 	resistable = true,
 	duration = 3,
     isConcentration = false,
-	distance = 19,
+	distance = 2.5,
 	buff = "eff_priest_spirit",
 	scaling = {
 		hit    = { ["Воля"] = 1 },
