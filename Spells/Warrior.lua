@@ -21,14 +21,16 @@ Add({
     duration = 3,
 	debuff = "eff_pummel",
 	scaling = {
-		hit    = { ["Атлетика"] = 1 },
+		hit    = { ["Атлетика"] = 1.5 },
 		crit   = { ["Точность"] = 1 },
+		damage = { ["Сила"] = 0.65 },
 	},
 })
 
 Add({
     id = "hamstring",
     name = "Подрезать сухожилия",
+	requirement = "melee",
     key = "Оружейный бой",
     icon = "Interface\\Icons\\Spell_holy_ashestoashes",
     level = 1,
@@ -43,14 +45,14 @@ Add({
     distance = 2.5,
     duration = 3,
 	scaling = {
-		hit    = { ["Мощь"] = 3 },
-		damage = { ["Сила"] = 0.5 },
+		hit    = { ["Мощь"] = 1.5 },
 	},
 })
 
 Add({
     id = "mortal_strike",
     name = "Смертельный удар",
+	requirement = "melee",
     key = "Оружейный бой",
     icon = "Interface\\Icons\\Ability_warrior_savageblow",
     level = 3,
@@ -68,17 +70,14 @@ Add({
 	scaling = {
 		hit    = { ["Мощь"] = 1 },
 		crit   = { ["Точность"] = 1 },
-		-- ДВОЙКА — ВЕРХ ТРЕТЬЕГО КРУГА, число из библиотеки: столько же у
-		-- «Промеж глаз» разбойника, финишера того же круга. Полторы
-		-- оставляли воина ниже всех соседей по ближнему бою при том, что
-		-- других рычагов — лечения, дальности, школ — у него нет.
-		damage = { ["Сила"] = 2 },
+		damage = { ["Сила"] = 1.5 },
 	},
 })
 
 Add({
     id = "shield_slam",
     name = "Удар щитом",
+    requirement = "shield",
     key = "Защита",
     icon = "Interface\\Icons\\Ability_warrior_shieldbash",
     level = 1,
@@ -90,30 +89,18 @@ Add({
     resistable = true,
     canCrit = true,
     distance = 2.5,
-    duration = 2,
-    debuff = "eff_shield_slam",
-    -- ЩИТ РАБОТАЕТ В ОБЕ СТОРОНЫ. «Используя массу собственного тела и
-    -- прочность щита, воин с силой врезается в противника» — тот же щит,
-    -- которым бьют, принимает на себя и встречный удар.
-    --
-    -- Доспех в этой системе — расходуемый запас на всю сцену (см.
-    -- SB.Skills.AbsorbDamage), и починка возвращает его посреди боя.
-    -- Двадцать: столько же, сколько держит «Блок щитом» стойкой, только
-    -- здесь это остаётся насовсем.
-    --
-    -- ПРИ ПРИМЕНЕНИИ, А НЕ ПРИ ПОПАДАНИИ: воин закрылся щитом в тот миг,
-    -- когда бросился вперёд, — промах этого не отменяет.
-    onCast = { armor = 20 },
+    onCast = { armor = 15 },
 	scaling = {
 		hit    = { ["Атлетика"] = 1.5 },
 		crit   = { ["Точность"] = 1 },
-		damage = { ["Сила"] = 0.75 },
+		damage = { ["Сила"] = 0.9 },
 	},
 })
 
 Add({
     id = "overpower",
     name = "Превосходство",
+	requirement = "melee",
     key = "Оружейный бой",
     icon = "Interface\\Icons\\Ability_meleedamage",
     level = 0,
@@ -127,13 +114,14 @@ Add({
     distance = 2.5,
 	scaling = {
 		hit    = { ["Мощь"] = 2 },
-		crit   = { ["Точность"] = 1 },
+		crit   = { ["Точность"] = 2 },
 	},
 })
 
 Add({
     id = "sweeping_strikes",
     name = "Размашистые удары",
+	requirement = "melee",
     key = "Оружейный бой",
     icon = "Interface\\Icons\\Ability_rogue_slicedice",
     level = 2,
@@ -148,9 +136,7 @@ Add({
     distance = 2.5,
 	scaling = {
 		hit    = { ["Мощь"] = 1 },
-		crit   = { ["Точность"] = 1 },
-		-- Полторы — тариф второго круга у соседей («Жнец души» Рыцаря
-		-- смерти). Единица здесь была уровнем ПЕРВОГО круга.
+		crit   = { ["Мощь"] = 1 },
 		damage = { ["Сила"] = 1 },
 	},
 })
@@ -158,6 +144,7 @@ Add({
 Add({
     id = "heroic_strike",
     name = "Героический удар",
+	requirement = "melee",
     key = "Оружейный бой",
     icon = "Interface\\Icons\\Ability_rogue_ambush",
     level = 0,
@@ -170,7 +157,7 @@ Add({
     canCrit = true,
     distance = 2.5,
 	scaling = {
-		hit    = { ["Мощь"] = 1 },
+		hit    = { ["Мощь"] = 0.5 },
 		damage = { ["Сила"] = 1 },
 	},
 })
@@ -183,6 +170,7 @@ Add({
 Add({
     id = "disarm",
     name = "Разоружение",
+	requirement = "melee",
     key = "Защита",
     icon = "Interface\\Icons\\Ability_warrior_disarm",
     level = 2,
@@ -278,8 +266,8 @@ Add({
     duration = 3,
 	scaling = {
 		hit    = { ["Запугивание"] = 1 },
-	    crit   = { ["Мощь"] = 0.5 },
-		damage = { ["Сила"] = 0.5 }
+	    crit   = { ["Мощь"] = 1 },
+		damage = { ["Сила"] = 1 }
 	},
 })
 
@@ -326,6 +314,7 @@ Add({
 Add({
     id = "shield_block",
     name = "Блок щитом",
+    requirement = "shield",
     key = "Защита",
     icon = "Interface\\Icons\\Ability_defend",
     level = 1,
@@ -345,6 +334,7 @@ Add({
 Add({
     id = "intervene",
     name = "Вмешательство",
+	requirement = "shield",
     key = "Защита",
     icon = "Interface\\Icons\\Ability_warrior_victoryrush",
     level = 2,
@@ -406,6 +396,7 @@ Add({
 Add({
     id = "rend",
     name = "Кровопускание",
+	requirement = "melee",
     key = "Оружейный бой",
     icon = "Interface\\Icons\\Ability_gouge",
     level = 0,
@@ -414,7 +405,7 @@ Add({
     isCantrip = true,
     resistable = true,
     distance = 2.5,
-    duration = 2,
+    duration = 3,
     debuff = "eff_bleeding_rend",
     scaling = {
     	hit    = { ["Мощь"] = 1, ["Точность"] = 1 },
@@ -460,6 +451,7 @@ Add({
 Add({
     id = "thunder_clap",
     name = "Громовая поступь",
+	requirement = "melee",
     key = "Оружейный бой",
     icon = "Interface\\Icons\\Ability_thunderclap",
     level = 1,
@@ -469,13 +461,12 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-    distance = 7,
     duration = 1,
     debuff = "eff_thunder_clap",
     aoe = { radius = 6 },
     scaling = {
-    	hit    = { ["Атлетика"] = 1 },
-    	damage = { ["Сила"] = 0.5 },
+    	hit    = { ["Мощь"] = 2 },
+		crit   = { ["Мощь"] = 1 },
     },
 })
 
@@ -502,6 +493,7 @@ Add({
 Add({
     id = "whirlwind",
     name = "Вихрь",
+	requirement = "melee",
     key = "Оружейный бой",
     icon = "Interface\\Icons\\Ability_whirlwind",
     level = 3,
@@ -516,13 +508,14 @@ Add({
     scaling = {
     	hit    = { ["Мощь"] = 1, ["Атлетика"] = 0.5 },
     	crit   = { ["Точность"] = 1 },
-    	damage = { ["Сила"] = 1.5 },
+    	damage = { ["Сила"] = 1.3 },
     },
 })
 
 Add({
     id = "shield_wall",
     name = "Стена щитов",
+    requirement = "shield",
     key = "Защита",
     icon = "Interface\\Icons\\Ability_warrior_shieldwall",
     level = 3,
@@ -541,6 +534,7 @@ Add({
 Add({
     id = "spell_reflection",
     name = "Отражение чар",
+	requirement = "shield",
     key = "Защита",
     icon = "Interface\\Icons\\Ability_warrior_shieldreflection",
     level = 3,
@@ -577,6 +571,7 @@ Add({
 Add({
     id = "bladestorm",
     name = "Вихрь клинков",
+	requirement = "melee",
     key = "Оружейный бой",
     icon = "Interface\\Icons\\Ability_warrior_bladestorm",
     level = 4,

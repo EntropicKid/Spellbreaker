@@ -348,6 +348,24 @@ function SB.Skills.GetAthleticsMoveBonus()
     return OverNonNegative("Атлетика") * 3
 end
 
+-- ── Эрудиция: +1 к лимиту подготовки за очко сверх 1 ────────
+--
+-- Навык был чистой отыгрышной проверкой («кто есть кто и что здесь
+-- было до нас») и не двигал ни одной цифры. Лимит подготовки — его
+-- законная половина: держать в голове больше формул разом — это ровно
+-- про книжное знание, а не про силу или ловкость.
+--
+-- ШТРАФ РАБОТАЕТ, как и у остальных пассивок: подавленная «Эрудиция»
+-- срезает лимит. Ниже единицы он всё равно не уйдёт — пол стоит в
+-- PM.GetMaxPrepared, и он же держит потолок.
+--
+-- УЖЕ ПОДГОТОВЛЕННОЕ ПРИ ПРОСАДКЕ НЕ ПРОПАДАЕТ: список подготовки —
+-- снимок, и вытесняет из него только собственное правило вытеснения
+-- (см. врезку в Core/PlayerModel.lua).
+function SB.Skills.GetEruditionPreparedBonus()
+    return Over("Эрудиция")
+end
+
 -- ── Исток: +1 максимума ресурса каста за очко сверх 1 ────────
 -- Только кастерам: у некастеров ресурс принципиально фиксирован
 -- (см. Config.MaxClassResource), и растить его навыком нельзя.
@@ -452,11 +470,51 @@ local MAINHAND_SLOT = 16
 local OFFHAND_SLOT  = 17
 local RANGED_SLOT   = 18
 
-local RANGED_SUBCLASS = {
-    [2]  = "лук",
-    [3]  = "ружьё",
-    [18] = "арбалет",
+-- ── ВИДЫ ОРУЖИЯ ──────────────────────────────────────────────
+--
+-- Подклассы — те же числа, что в самом клиенте (classID 2). Каждому:
+-- как он зовётся по-русски и к каким ВИДАМ относится.
+--
+-- ВИД — ЭТО ТО, ЧЕМ ЗАКЛИНАНИЕ МОЖЕТ СЕБЯ ОГРАНИЧИТЬ (см. поле
+-- requirement в Core/Database.lua). Категория и конкретное оружие здесь
+-- одно и то же понятие, и это не упрощение: «удар в спину требует
+-- кинжала» и «приём требует хоть какого-то оружия ближнего боя» — это
+-- один вопрос к экипировке, заданный с разной точностью. Раздели их на
+-- два механизма, и любое заклинание пришлось бы относить к одному из
+-- них заранее.
+--
+-- ДАЛЬНИЙ БОЙ — ЭТО ЛУК, РУЖЬЁ И АРБАЛЕТ, и только они. Метательное с
+-- жезлом сюда намеренно не входят: отказ и карточка говорят игроку
+-- ровно «лук, ружьё или арбалет», и втихую расширять этот список
+-- значило бы обещать в тексте одно, а проверять другое. Свои виды у них
+-- есть — thrown и wand, — и заклинание может спросить именно их.
+--
+-- ПОСОХ СЧИТАЕТСЯ БЛИЖНИМ БОЕМ. Кастеру он оружие не заменяет, но
+-- вопрос здесь не «чем ты бьёшь», а «что у тебя в руках»: приём,
+-- которому нужно древко, посохом исполняется.
+local WEAPON_SUBCLASS = {
+    [0]  = { name = "топор",              kinds = { "melee", "axe" } },
+    [1]  = { name = "двуручный топор",    kinds = { "melee", "axe", "twohand" } },
+    [2]  = { name = "лук",                kinds = { "ranged", "bow" } },
+    [3]  = { name = "ружьё",              kinds = { "ranged", "gun" } },
+    [4]  = { name = "булава",             kinds = { "melee", "mace" } },
+    [5]  = { name = "двуручная булава",   kinds = { "melee", "mace", "twohand" } },
+    [6]  = { name = "древковое оружие",   kinds = { "melee", "polearm", "twohand" } },
+    [7]  = { name = "меч",                kinds = { "melee", "sword" } },
+    [8]  = { name = "двуручный меч",      kinds = { "melee", "sword", "twohand" } },
+    [9]  = { name = "глефа",              kinds = { "melee", "glaive" } },
+    [10] = { name = "посох",              kinds = { "melee", "staff", "twohand" } },
+    [13] = { name = "кастет",             kinds = { "melee", "fist" } },
+    [15] = { name = "кинжал",             kinds = { "melee", "dagger" } },
+    [16] = { name = "метательное оружие", kinds = { "thrown" } },
+    [18] = { name = "арбалет",            kinds = { "ranged", "crossbow" } },
+    [19] = { name = "жезл",               kinds = { "wand" } },
 }
+
+-- Наружу — для проверок и на случай, если однажды понадобится показать
+-- список видов игроку. Таблица одна на весь аддон: второй список видов
+-- оружия разъехался бы с этим при первой же правке.
+SB.Data.WeaponSubclasses = WEAPON_SUBCLASS
 
 --- classID и subclassID предмета в слоте (или nil, если слот пуст).
 local function SlotItem(slot)
@@ -483,19 +541,32 @@ end
 local function EquipState()
     if equipCache then return equipCache end
 
-    local state = { shield = false, ranged = false, rangedName = nil }
+    -- kinds: вид → имя предмета, который его закрывает. Имя нужно
+    -- отказу («нужен кинжал, а у тебя меч» читается лучше, чем просто
+    -- «нужен кинжал»), а ключ — самой проверке.
+    local state = { shield = false, ranged = false, rangedName = nil, kinds = {} }
 
     local classID, subclassID = SlotItem(OFFHAND_SLOT)
     state.shield = (classID == ARMOR_CLASS_ID and subclassID == SHIELD_SUBCLASS)
 
-    for _, slot in ipairs({ MAINHAND_SLOT, RANGED_SLOT }) do
+    -- ВСЕ ТРИ СЛОТА, А НЕ ДВА. Левая рука сюда добавилась вместе с
+    -- видами: кинжал во второй руке — это кинжал, и «Удар в спину» им
+    -- исполняется ровно так же. Прежней проверке дальнего боя это
+    -- ничего не меняет — лук в левой руке не носят.
+    for _, slot in ipairs({ MAINHAND_SLOT, OFFHAND_SLOT, RANGED_SLOT }) do
         local cid, sid = SlotItem(slot)
-        if cid == WEAPON_CLASS_ID and RANGED_SUBCLASS[sid] then
-            state.ranged     = true
-            state.rangedName = RANGED_SUBCLASS[sid]
-            break
+        local def = (cid == WEAPON_CLASS_ID) and WEAPON_SUBCLASS[sid] or nil
+        if def then
+            for _, kind in ipairs(def.kinds) do
+                state.kinds[kind] = state.kinds[kind] or def.name
+            end
         end
     end
+
+    -- Прежние два поля остаются: их читают и подсказки, и проверка
+    -- «Стрельбы», и заводить им синоним незачем.
+    state.ranged     = state.kinds.ranged ~= nil
+    state.rangedName = state.kinds.ranged
 
     equipCache = state
     return state
@@ -531,8 +602,35 @@ end
 --- Экипировано ли оружие дальнего боя.
 --- @return boolean, string|nil  есть ли, и как оно называется по-русски
 function SB.Skills.HasRangedWeapon()
-    local state = EquipState()
-    return state.ranged, state.rangedName
+    return SB.Skills.HasWeaponKind("ranged")
+end
+
+--- Есть ли на персонаже оружие этого ВИДА — категории («melee»,
+--- «ranged») или конкретного («dagger», «staff»). Разницы между ними
+--- здесь нет по построению (см. врезку у WEAPON_SUBCLASS).
+--- @param kind string
+--- @return boolean, string|nil  есть ли, и как называется найденное
+function SB.Skills.HasWeaponKind(kind)
+    if not kind then return false, nil end
+    local name = EquipState().kinds[kind]
+    return name ~= nil, name
+end
+
+--- Чем персонаж вооружён прямо сейчас — списком названий, без повторов.
+--- Нужна отказу: «нужен кинжал» без упоминания того, что в руках,
+--- игрок читает как «аддон меня не видит».
+--- @return string|nil  «меч, щит» или nil, если руки пусты
+function SB.Skills.EquippedWeaponsText()
+    local seen, out = {}, {}
+    for _, name in pairs(EquipState().kinds) do
+        if not seen[name] then
+            seen[name] = true
+            out[#out + 1] = name
+        end
+    end
+    if #out == 0 then return nil end
+    table.sort(out)
+    return table.concat(out, ", ")
 end
 
 --- Разбивка экипированной брони по тирам: { [тир] = количество }.
@@ -553,11 +651,10 @@ function SB.Skills.GetEquippedArmorTiers()
     return tiers
 end
 
---- ПОЛНЫЙ запас брони: экипировка, навык «Ношение брони», щит, висящие
---- эффекты (канал "armor" — «Каменная кожа» и подобные добавляют брони,
---- не требуя доспеха) и профили расы/класса.
---- Сколько от него осталось прямо сейчас — SB.Skills.GetArmorPoints.
-function SB.Skills.GetArmorMax()
+--- НАДЕТЫЙ запас брони: экипировка, навык «Ношение брони», щит и
+--- профили расы/класса. БЕЗ эффектов — у них свой запас и свой счёт
+--- расхода (см. врезку о двух запасах ниже).
+function SB.Skills.GetArmorBase()
     local points = 0
 
     local skill = SB.Skills.GetEffective("Ношение брони")
@@ -575,13 +672,6 @@ function SB.Skills.GetArmorMax()
         points = points + SHIELD_ARMOR
     end
 
-    -- Броня от эффектов работает БЕЗ требования к навыку: она магическая,
-    -- а не надетая. Раньше вся функция выходила по return на первом же
-    -- условии, и бафф брони у тканевика без навыка не дал бы ничего.
-    if SB.ActiveEffects and SB.ActiveEffects.GetMod then
-        points = points + (SB.ActiveEffects.GetMod("armor"))
-    end
-
     -- Раса и класс: Дворф, Воин, Паладин, Рыцарь смерти носят железо
     -- лучше прочих. Тоже без требования к навыку.
     points = points + SB.Data.GetSoftBonus("armor")
@@ -589,7 +679,26 @@ function SB.Skills.GetArmorMax()
     return math.max(0, points)
 end
 
--- ── РАСХОД ЗАПАСА ────────────────────────────────────────────
+--- Броня ОТ ЭФФЕКТОВ, со знаком.
+---
+--- Работает БЕЗ требования к навыку: она магическая, а не надетая —
+--- «Каменная кожа» на тканевике держит столько же, сколько на латнике.
+--- МИНУС НЕ ПРИЖИМАЕТСЯ: «−20 брони» проклятия обязано просаживать
+--- максимум, и прижми мы его здесь, проклятие не делало бы ничего.
+function SB.Skills.GetArmorFromEffects()
+    if SB.ActiveEffects and SB.ActiveEffects.GetMod then
+        return (SB.ActiveEffects.GetMod("armor"))
+    end
+    return 0
+end
+
+--- ПОЛНЫЙ запас брони: надетое плюс висящие обереги.
+--- Сколько от него осталось прямо сейчас — SB.Skills.GetArmorPoints.
+function SB.Skills.GetArmorMax()
+    return math.max(0, SB.Skills.GetArmorBase() + SB.Skills.GetArmorFromEffects())
+end
+
+-- ── РАСХОД ЗАПАСА: ДВА СЧЁТА, А НЕ ОДИН ──────────────────────
 --
 -- Хранится ПОТРАЧЕННОЕ, а не оставшееся, и это важно. Оставшееся
 -- пришлось бы поджимать под меняющийся максимум, а максимум двигают
@@ -597,21 +706,48 @@ end
 -- обратно — и «текущее едет за максимумом» вернуло бы его целиком. То
 -- есть перезарядка брони одним переодеванием. От потраченного максимум
 -- просто вычитается: снятый и надетый доспех даёт ровно то, что от него
--- осталось, а бафф брони посреди боя честно добавляет свежий запас.
-local function SpentDB()
+-- осталось.
+--
+-- А ВОТ СЧЁТОВ ДВА, и это тоже не от любви к сложности.
+--
+--   НАДЕТОЕ    — d.armorSpent, возвращает только Долгий Отдых;
+--   ОБЕРЕГИ    — расход лежит в самом эффекте и спадает вместе с ним
+--                (см. врезку о запасе в Core/ActiveEffects.lua).
+--
+-- Пока счёт был один, повторное наложение щита не давало игроку ничего:
+-- максимум от него не двигался (эффект продлевается, а не складывается),
+-- а расход оставался прежним. Свести это в одно число нельзя — «пробили
+-- щит» и «пробили латы» из общей суммы не различить, и любая попытка
+-- вернуть щит из общего запаса чинила бы заодно и латы.
+local function BaseSpent()
     local d = db()
     if not d then return 0 end
-    return math.max(0, tonumber(d.armorSpent) or 0)
+    -- Прижато к НАДЕТОМУ, а не к полному запасу: иначе снятый бафф брони
+    -- оставлял бы лишний расход долгом, который всплывал бы обратно,
+    -- стоит бафф вернуть.
+    return math.min(math.max(0, tonumber(d.armorSpent) or 0), SB.Skills.GetArmorBase())
+end
+
+--- Сколько брони отдали обереги. Ноль, если модель ещё не загрузилась.
+local function EffectSpent()
+    if SB.ActiveEffects and SB.ActiveEffects.GetArmorUsed then
+        return SB.ActiveEffects.GetArmorUsed()
+    end
+    return 0
+end
+
+--- Сколько брони осталось прямо сейчас — оба запаса вместе.
+function SB.Skills.GetArmorPoints()
+    local base = SB.Skills.GetArmorBase() - BaseSpent()
+    local eff  = SB.Skills.GetArmorFromEffects() - EffectSpent()
+    return math.max(0, base + eff)
 end
 
 --- Сколько единиц брони уже израсходовано (до Долгого Отдыха).
+--- Считается как разница, а не хранится: слагаемых теперь два, и второе
+--- число рядом с ними разъехалось бы на первом же снятом обереге.
 function SB.Skills.GetArmorSpent()
-    return math.min(SpentDB(), SB.Skills.GetArmorMax())
-end
-
---- Сколько брони осталось прямо сейчас.
-function SB.Skills.GetArmorPoints()
-    return math.max(0, SB.Skills.GetArmorMax() - SpentDB())
+    return math.max(0, SB.Skills.GetArmorMax() - SB.Skills.GetArmorPoints())
 end
 
 --- Сколько единиц урона доспех способен поглотить прямо сейчас.
@@ -632,12 +768,25 @@ function SB.Skills.AbsorbDamage(dmg)
     local absorbed = math.min(dmg, SB.Skills.GetDamageReduction())
     if absorbed <= 0 then return 0 end
 
-    local d = db()
-    if d then
-        -- От УЖЕ ПРИЖАТОГО значения: если максимум за сцену просел
-        -- (снялся бафф брони), лишнее потраченное не должно всплыть
-        -- обратно долгом, когда бафф вернут.
-        d.armorSpent = SB.Skills.GetArmorSpent() + absorbed * ARMOR_PER_DR
+    -- СНАЧАЛА ТРАТЯТСЯ ОБЕРЕГИ, ПОТОМ НАДЕТОЕ, и порядок здесь такой же
+    -- рабочий, как порядок «резист, потом доспех» выше по файлу.
+    --
+    -- Латы возвращает только Долгий Отдых, оберег — повторный каст.
+    -- Пусти мы удар сперва по латам, и щит висел бы нетронутым ровно до
+    -- того мига, когда чинить уже нечего: игрок платил бы невозвратным
+    -- запасом, держа в руках возвратный.
+    local cost = absorbed * ARMOR_PER_DR
+    if SB.ActiveEffects and SB.ActiveEffects.SpendArmor then
+        cost = cost - SB.ActiveEffects.SpendArmor(cost)
+    end
+    if cost > 0 then
+        local d = db()
+        if d then
+            -- От УЖЕ ПРИЖАТОГО значения и с потолком по надетому: долг
+            -- сверх того, что на персонаже есть, всплыл бы обратно при
+            -- первом же переодевании.
+            d.armorSpent = math.min(SB.Skills.GetArmorBase(), BaseSpent() + cost)
+        end
     end
     FireChanged("Ношение брони")
     return absorbed
@@ -730,6 +879,10 @@ end
 function SB.Skills.ResetArmor()
     local d = db()
     if d then d.armorSpent = 0 end
+    -- И расход оберегов заодно: запасов два, а Долгий Отдых один.
+    if SB.ActiveEffects and SB.ActiveEffects.ResetArmorUsed then
+        SB.ActiveEffects.ResetArmorUsed()
+    end
     FireChanged("Ношение брони")
 end
 
@@ -751,20 +904,44 @@ function SB.Skills.AdjustArmor(delta)
     delta = math.floor(tonumber(delta) or 0)
     if delta == 0 then return 0 end
 
-    local d = db()
-    if not d then return 0 end
+    local before = SB.Skills.GetArmorPoints()
 
-    local maxPts = SB.Skills.GetArmorMax()
-    local spent  = SB.Skills.GetArmorSpent()
-    -- Потраченное не бывает ни отрицательным, ни больше полного запаса:
-    -- первое означало бы броню из воздуха, второе — вечный долг, который
-    -- всплыл бы при смене доспеха.
-    local newSpent = math.max(0, math.min(maxPts, spent - delta))
-    local moved    = spent - newSpent
-    if moved == 0 then return 0 end
+    if delta > 0 then
+        -- ЧИНИМ НАДЕТОЕ ПЕРВЫМ — зеркально расходу, который первым тратит
+        -- обереги. Молот паладина правит железо, а не чужие чары, и
+        -- починка обязана доставать до того запаса, который иначе ждёт
+        -- Долгого Отдыха.
+        local left = delta
+        local d    = db()
+        if d then
+            local spent = BaseSpent()
+            local back  = math.min(spent, left)
+            d.armorSpent = spent - back
+            left = left - back
+        end
+        if left > 0 and SB.ActiveEffects and SB.ActiveEffects.RestoreArmor then
+            SB.ActiveEffects.RestoreArmor(left)
+        end
+    else
+        -- МНЁМ В ТОМ ЖЕ ПОРЯДКЕ, В КОТОРОМ ТРАТИТ УДАР: сперва обереги.
+        local left = -delta
+        if SB.ActiveEffects and SB.ActiveEffects.SpendArmor then
+            left = left - SB.ActiveEffects.SpendArmor(left)
+        end
+        if left > 0 then
+            local d = db()
+            if d then
+                d.armorSpent = math.min(SB.Skills.GetArmorBase(), BaseSpent() + left)
+            end
+        end
+    end
 
-    d.armorSpent = newSpent
-    FireChanged("Ношение брони")
+    -- СЧИТАЕМ ФАКТ, А НЕ НАМЕРЕНИЕ (то же правило, что у здоровья в
+    -- SB.ActiveEffects.ApplyPayload): запасов два, каждый со своим полом
+    -- и потолком, и «починил 20» при потраченных 10 обязано отчитаться
+    -- десяткой — иначе лог обещает то, чего не случилось.
+    local moved = SB.Skills.GetArmorPoints() - before
+    if moved ~= 0 then FireChanged("Ношение брони") end
     return moved
 end
 
@@ -864,6 +1041,13 @@ end
 -- срезает срок чужого дебаффа на ход. Пять очков — минус четыре хода.
 -- Стойкость перестала быть монеткой и стала тем, чем называется:
 -- дебафф всё равно ложится, но держится на тебе хуже, чем на других.
+--
+-- РЕЖЕТ НЕ ВСЁ, а только вмешательство в волю: оглушение, контроль,
+-- ослепление, замедление. Что именно — решает не эта функция, а
+-- SB.Data.WillCutsDuration; здесь считается только величина среза.
+-- Развязано это намеренно: «сколько» — вопрос навыка, «чему» — вопрос
+-- библиотеки эффектов, и складывать их в одну функцию значило бы
+-- править арифметику всякий раз, когда в библиотеке заводят семейство.
 --
 -- НИЖЕ ОДНОГО ХОДА НЕ ОПУСКАЕТСЯ. Иначе Воля превращалась бы в полную
 -- невосприимчивость ко всему короткому — «Промеж глаз» с его одним
@@ -1003,6 +1187,9 @@ SB.Data.SkillEffects = {
     ["Живучесть"]      = "+1 к максимуму здоровья за каждое очко сверх 1.",
     ["Атлетика"]       = "+3 метра передвижения за ход за каждое очко сверх 1.",
     ["Исток"]          = "+1 к максимуму Маны за каждое очко сверх 1 (только кастеры).",
+    ["Эрудиция"]       = "+1 к лимиту ПОДГОТОВЛЕННЫХ заклинаний за каждое очко сверх 1. " ..
+                         "Общий потолок подготовки — 15, выше него не поднимает " ..
+                         "ничто. Уже подготовленное при просадке навыка не пропадает.",
     ["Ношение брони"]  = "Единицы брони за каждую экипированную часть: навык 2 осваивает " ..
                          "ткань (1 за часть), 3 — кожу (2), 4 — кольчугу (3), 5 — латы (4). " ..
                          "Освоенные ранее типы продолжают работать. Броня — ЗАПАС: она " ..

@@ -511,6 +511,252 @@ function SB.UI.CollapseTag(msg, now)
     return SB.UI.CHAT_CONT .. head .. rest
 end
 
+-- ============================================================
+-- ИМЕНА В СТРОКАХ БОЯ — ЦВЕТОМ КЛАССА
+--
+-- ЗАЧЕМ. Строка размена — это два имени, два броска и итог, и все пять
+-- набраны одним цветом. Взгляд ищет в ней «кто по кому», а находит
+-- сплошное золото. Цвет класса отвечает на это без единого лишнего
+-- слова: воин красный, жрец белый, маг голубой — и строка читается с
+-- первого взгляда, ещё до того, как прочитаны слова.
+--
+-- НИ БАЙТА ПО СЕТИ, и это главное требование к этой затее.
+--
+-- Класс сокомандника клиент знает сам — UnitClass по юнит-токену
+-- (см. Build ниже): состав группы игрок и так видит, и спрашивать о нём
+-- группу было бы странно. Для тех, кого в группе уже нет, класс берётся
+-- из фонового статуса, который и без нас приезжает в каждом STATUS
+-- (см. PM.GetStatusSnapshot — поле class там лежало с самого начала).
+-- То есть новых полей в пакетах нет, новых пакетов нет, и на канал эта
+-- правка не влияет вовсе.
+--
+-- КРАСИТСЯ ГОТОВАЯ СТРОКА, а не каждое место, где имя подставляется.
+-- Мест этих в аддоне под сотню — заголовки залпов, ответы задетых,
+-- тики, объявления очереди, речь существа, — и покрасить имя в каждом
+-- значило бы завести сотню точек, из которых половина забылась бы, а
+-- вторая половина разъехалась бы по оттенкам. Проход по итоговой строке
+-- ровно один и стоит он один раз на строку (см. врезку про порядок в
+-- SB.UI.CollapseTag — тот устроен так же и по той же причине).
+--
+-- ── ЧЕМ ЭТО СЛОЖНЕЕ, ЧЕМ КАЖЕТСЯ ────────────────────────────
+--
+-- ЦВЕТА В WoW НЕ ВКЛАДЫВАЮТСЯ, и с этим приходится считаться дважды.
+--
+-- Во-первых, «|r» закрывает не «последний открытый», а вообще всё:
+-- вставь мы «|cffC41F3BЛайка|r» внутрь золотой строки — и ВЕСЬ остаток
+-- строки потерял бы золото. Поэтому проход идёт слева направо и помнит,
+-- какой цвет открыт прямо сейчас: после своего «|r» он открывает его
+-- заново.
+--
+-- Во-вторых, чужой цвет СНАЧАЛА ЗАКРЫВАЕТСЯ, и только потом открывается
+-- свой: «…|r|cffC41F3BЛайка|r|cFFCFAFDA…». Написать «|c» прямо внутри
+-- уже открытого «|c» — значит положиться на то, как клиент разбирает
+-- вложение, которого в его разметке нет; так делать нельзя даже когда
+-- это случайно работает.
+--
+-- ГРАНИЦЫ СЛОВА СЧИТАЮТСЯ ПО БАЙТАМ. Шаблоны Lua побайтовые, и «%a»
+-- кириллицу не ловит вовсе — «%a» на «Лайка» не сработает ни разу.
+-- Поэтому границей считается «байт не буква и не цифра И не старше
+-- ASCII»: любой байт от 128 и выше — это середина кириллического слова,
+-- и имя, найденное там, именем не является. Без этого «Лай» красился бы
+-- внутри «Лайка», а «Ал» — внутри «Алхимия».
+--
+-- И ГРАНИЦА СЧИТАЕТСЯ ПО ТЕКСТУ, А НЕ ПО СЫРОЙ СТРОКЕ. Это стоило
+-- первой версии почти всей её работы: имя в строках аддона почти всегда
+-- стоит СРАЗУ за цветом («|cFFCFAFDAЛайка применяет»), а последний знак
+-- кода цвета — шестнадцатеричная цифра, то есть с точки зрения байтов
+-- «буква A». Проверка честно считала это серединой слова и имя
+-- пропускала. Со стороны выглядело ровно так: «работает только на белых
+-- сообщениях» — то есть на тех, где перед именем нет кода цвета.
+-- Поэтому помним последний ТЕКСТОВЫЙ байт, а управляющие
+-- последовательности границу обнуляют.
+--
+-- ССЫЛКИ ПЕРЕПРЫГИВАЕМ ЦЕЛИКОМ. Внутри «|H…|h[текст]|h» свой «|r» рвёт
+-- саму ссылку, а не только цвет: щёлкнуть по ней стало бы нельзя. Имя
+-- игрока внутри названия заклинания — случай редкий, но чинить его
+-- потом дороже, чем обойти сейчас. Так же и с иконками «|T…|t».
+--
+-- ДЛИННОЕ ИМЯ ВПЕРЁД. Два имени в группе могут начинаться одинаково
+-- («Лай» и «Лайка»), и проверять их в случайном порядке значит иногда
+-- красить половину второго. Внутри каждой корзины имена лежат по
+-- убыванию длины.
+-- ============================================================
+
+local nameColor  = {}       -- [имя] = "ffRRGGBB"
+local nameByByte = {}       -- [первый байт] = { имя, … } по убыванию длины
+local nameCacheOk = false
+
+--- Цвет класса строкой для «|c», или nil — токена не знаем.
+local function HexOfToken(token)
+    local c = token and RAID_CLASS_COLORS and RAID_CLASS_COLORS[token]
+    if not c then return nil end
+    -- Из r/g/b, а не из c.colorStr: поле есть не на всех сборках, а
+    -- три числа есть везде.
+    return string.format("ff%02x%02x%02x",
+        math.floor((tonumber(c.r) or 1) * 255 + 0.5),
+        math.floor((tonumber(c.g) or 1) * 255 + 0.5),
+        math.floor((tonumber(c.b) or 1) * 255 + 0.5))
+end
+
+--- Забыть, кто какого класса. Состав группы и статусы меняются, а
+--- перебирать сорок юнитов на каждую строку боя незачем.
+function SB.UI.InvalidateNameColors()
+    nameCacheOk = false
+end
+
+local function Build()
+    nameColor, nameByByte, nameCacheOk = {}, {}, true
+
+    local function Put(name, hex)
+        if not name or not hex then return end
+        name = (Ambiguate and Ambiguate(name, "none")) or name
+        if name == "" or nameColor[name] then return end
+        nameColor[name] = hex
+    end
+
+    -- ── 1. ГРУППА: класс спрашиваем у своего клиента ────────
+    if UnitClass then
+        local function Take(unit)
+            if UnitExists and not UnitExists(unit) then return end
+            if UnitIsPlayer and not UnitIsPlayer(unit) then return end
+            local _, token = UnitClass(unit)
+            Put(UnitName and UnitName(unit), HexOfToken(token))
+        end
+        -- «player» в party1..4 не входит (только в raid1..N) — отдельно.
+        Take("player")
+        if IsInGroup and IsInGroup() then
+            local raid   = IsInRaid and IsInRaid()
+            local prefix = raid and "raid" or "party"
+            local count  = raid and (MAX_RAID_MEMBERS or 40)
+                                or (MAX_PARTY_MEMBERS or 4)
+            for i = 1, count do Take(prefix .. i) end
+        end
+    end
+
+    -- ── 2. СТАТУСЫ: кто прислал о себе класс ───────────────
+    -- Вторым заходом, а не первым: у своего клиента класс точный, а в
+    -- статусе — то, что игрок о себе сообщил. Совпадают они всегда, но
+    -- правило «точное важнее присланного» здесь то же, что в сверке
+    -- чужого каста.
+    for name, st in pairs(SB.Data.PlayersStatus or {}) do
+        if type(st) == "table" and type(st.class) == "string" then
+            Put(name, HexOfToken(SB.Data.ClassColorTokens[st.class]))
+        end
+    end
+
+    for name in pairs(nameColor) do
+        local b = name:byte(1)
+        if b then
+            nameByByte[b] = nameByByte[b] or {}
+            table.insert(nameByByte[b], name)
+        end
+    end
+    for _, bucket in pairs(nameByByte) do
+        table.sort(bucket, function(a, b) return #a > #b end)
+    end
+end
+
+--- Байт, который не может стоять на границе имени: буква, цифра или
+--- любой байт UTF-8 выше ASCII (то есть середина слова).
+local function IsWordByte(b)
+    if not b then return false end
+    return (b >= 48 and b <= 57)
+        or (b >= 65 and b <= 90)
+        or (b >= 97 and b <= 122)
+        or b >= 128
+end
+
+--- Покрасить имена известных игроков в готовой строке.
+---
+--- Чистая функция от строки — ради прогона: сеть, кадры и фреймы сюда не
+--- заходят, и проверить её можно без игры.
+--- @param msg string  готовая строка со всеми своими цветами
+--- @return string
+function SB.UI.ColorNames(msg)
+    if type(msg) ~= "string" or msg == "" then return msg end
+    if not nameCacheOk then Build() end
+    if next(nameColor) == nil then return msg end
+
+    local out, i, n = {}, 1, #msg
+    local active    = nil      -- какой цвет открыт прямо сейчас
+    -- Последний ТЕКСТОВЫЙ байт: управляющая последовательность границу
+    -- слова обнуляет (см. врезку). Ноль на старте — начало строки тоже
+    -- граница.
+    local prev      = nil
+
+    while i <= n do
+        local two = msg:sub(i, i + 1)
+
+        if two == "|c" then
+            out[#out + 1] = msg:sub(i, i + 9)
+            active, prev  = msg:sub(i + 2, i + 9), nil
+            i = i + 10
+
+        elseif two == "|r" then
+            out[#out + 1] = two
+            active, prev  = nil, nil
+            i = i + 2
+
+        elseif two == "|H" then
+            -- Ссылка целиком: «|Hданные|hвидимый текст|h».
+            local mid  = msg:find("|h", i + 2, true)
+            local tail = mid and msg:find("|h", mid + 2, true)
+            local stop = (tail and tail + 1) or (mid and mid + 1) or n
+            out[#out + 1] = msg:sub(i, stop)
+            prev = nil
+            i = stop + 1
+
+        elseif two == "|T" then
+            local stop = msg:find("|t", i + 2, true)
+            stop = stop and (stop + 1) or n
+            out[#out + 1] = msg:sub(i, stop)
+            prev = nil
+            i = stop + 1
+
+        else
+            local hit
+            local bucket = nameByByte[msg:byte(i)]
+            if bucket and not IsWordByte(prev) then
+                for _, name in ipairs(bucket) do
+                    if msg:sub(i, i + #name - 1) == name
+                       and not IsWordByte(msg:byte(i + #name)) then
+                        hit = name
+                        break
+                    end
+                end
+            end
+
+            if hit then
+                -- Чужой цвет закрываем, свой открываем, чужой возвращаем:
+                -- вложенных «|c» в разметке клиента не бывает.
+                if active then out[#out + 1] = "|r" end
+                out[#out + 1] = "|c" .. nameColor[hit] .. hit .. "|r"
+                if active then out[#out + 1] = "|c" .. active end
+                prev = nil
+                i = i + #hit
+            else
+                out[#out + 1] = msg:sub(i, i)
+                prev = msg:byte(i)
+                i = i + 1
+            end
+        end
+    end
+
+    return table.concat(out)
+end
+
+-- Состав группы и фоновые статусы — два повода забыть кэш, и оба
+-- случаются на порядки реже, чем печатается строка боя.
+if CreateFrame then
+    local watcher = CreateFrame("Frame")
+    watcher:RegisterEvent("GROUP_ROSTER_UPDATE")
+    watcher:RegisterEvent("PLAYER_ENTERING_WORLD")
+    watcher:SetScript("OnEvent", SB.UI.InvalidateNameColors)
+end
+if SB.Events and SB.Events.On then
+    SB.Events.On("PLAYERS_STATUS_UPDATED", SB.UI.InvalidateNameColors)
+end
+
 --- Забыть текущий блок: следующая строка снова получит тег.
 --- Нужен прогону — там кадра нет, и без сброса весь бой слипся бы в
 --- один блок.

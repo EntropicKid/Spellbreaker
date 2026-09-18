@@ -98,7 +98,10 @@ SB.Logic.ModifierSources = SB.Logic.ModifierSources or {}
 --- Регистрирует источник модификатора броска.
 --- @param key    string    Уникальный ключ источника (для перезаписи/отладки)
 --- @param label  string    Человекочитаемое имя для тултипа
---- @param fn     function  fn(ctx) -> число. ctx может содержать { spell = ... }
+--- @param fn     function  fn(ctx) -> число. ctx может содержать
+---        { spell = ..., slotLevel = ..., versus = "<имя второй стороны>" }.
+---        versus читает только провокация (см. её источник ниже): всем
+---        прочим безразлично, по кому идёт бросок.
 --- @param scope  string|nil "attack" | "defense" | "both" (по умолчанию "both")
 function SB.Logic.RegisterModifierSource(key, label, fn, scope)
     SB.Logic.ModifierSources[key] = {
@@ -273,6 +276,27 @@ SB.Logic.RegisterModifierSource("effDef", "Эффекты", function()
     if not SB.ActiveEffects or not SB.ActiveEffects.GetMod then return 0 end
     return (SB.ActiveEffects.GetMod("defense"))
 end, "defense")
+
+-- ПРОВОКАЦИЯ — единственный источник в реестре, который зависит от
+-- ТОГО, ПО КОМУ идёт бросок (ctx.versus). Остальные считают персонажа
+-- самого по себе, и это не случайность: условный модификатор пришлось
+-- бы объяснять в каждой подсказке заново. Здесь без него нельзя —
+-- в условии вся механика (см. врезку «ПРОВОКАЦИЯ» в
+-- Core/ActiveEffects.lua).
+--
+-- "both": провокация мешает и бить, и уворачиваться. Второе не
+-- натяжка — приковано ВНИМАНИЕ, а не рука: тот, кто не сводит глаз с
+-- обидчика, хуже видит удар сбоку.
+--
+-- НЕТ ctx.versus — ЗНАЧИТ ШТРАФ ЕСТЬ. Броски без второй стороны в
+-- аддоне бывают (ручная атака по просьбе Ведущего, площадной залп,
+-- защита вне размена), и «не назвали цель» не повод отменять эффект.
+-- Зато штраф виден в разбивке бейджа отдельной строкой, так что за
+-- столом с ним всегда можно договориться.
+SB.Logic.RegisterModifierSource("taunt", "Провокация", function(ctx)
+    if not (SB.ActiveEffects and SB.ActiveEffects.GetTauntPenalty) then return 0 end
+    return (SB.ActiveEffects.GetTauntPenalty(ctx and ctx.versus))
+end, "both")
 
 SB.Logic.RegisterModifierSource("resource", "Вложенный ресурс", function(ctx)
     if not ctx or not ctx.spell then return 0 end
@@ -620,7 +644,14 @@ function SB.Logic.GetCritThreshold(critBonus, rollMax)
     -- есть каждый третий удар. Два таких упирались в потолок, и крит
     -- переставал быть событием — становился режимом.
     local capPct = tonumber(SB.Data.Config.CritBandMaxPct) or 25
-    band = math.max(1, math.min(band, math.floor(rollMax * capPct / 100)))
+    -- ПОЛ — НОЛЬ, А НЕ ЕДИНИЦА. Единица стояла, пока база была пятёркой:
+    -- она мешала дебаффу канала crit увести полосу в минус. С базой в
+    -- ноль тот же пол молча стал бы НОВОЙ базой — «крита нет вовсе»
+    -- превратилось бы в «крит на сотне у всех и даром», то есть ровно в
+    -- то, что убирали (см. Config.CritBand). Пустая полоса даёт порог
+    -- rollMax + 1, который не берёт ни один бросок, — и это честный
+    -- ответ «не критует».
+    band = math.max(0, math.min(band, math.floor(rollMax * capPct / 100)))
     return rollMax - band + 1
 end
 
@@ -1507,7 +1538,11 @@ end
 --- @param extraTurns number|nil  прибавка к сроку от ЗАКЛИНАТЕЛЯ
 ---        («Воодушевление»). Приезжает по сети вместе с эффектом: свой
 ---        клиент чужого навыка не видит (см. SB.Logic.GetEffectDuration).
-function SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, fromOther, extraTurns)
+--- @param source string|nil  кто наложил. Нужен только провокации
+---        (см. врезку «ПРОВОКАЦИЯ» в Core/ActiveEffects.lua), и потому
+---        передаётся лишь там, где имя и так на руках, — новых полей в
+---        пакетах это не стоит нигде.
+function SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, fromOther, extraTurns, source)
     if not effectID or not SB.ActiveEffects or not SB.ActiveEffects.Add then return end
     local effectSpell = SB.Data.Spells[effectID]
     if not effectSpell then return end
@@ -1545,7 +1580,7 @@ function SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, fromOther, extra
         if isConc == nil then isConc = sourceSpell and sourceSpell.isConcentration end
     end
 
-    SB.ActiveEffects.Add(effectID, turns, isConc or false)
+    SB.ActiveEffects.Add(effectID, turns, isConc or false, source)
 end
 
 -- ============================================================
@@ -1752,7 +1787,11 @@ function SB.Logic.HandleBuffReceived(casterName, spellID, effectID, slotLevel,
 
     if total == nil then
         -- fromOther: каст чужой, концентрацию держит заклинатель.
-        SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, true, extraTurns)
+        -- casterName, а не sender: провокацию мог наложить и НПС от лица
+        -- Ведущего, и цель приковано именно к существу, а не к тому, чей
+        -- клиент прислал пакет.
+        SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, true, extraTurns,
+                             casterName)
         print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. who)
         return
     end
@@ -1780,7 +1819,10 @@ function SB.Logic.HandleBuffReceived(casterName, spellID, effectID, slotLevel,
     -- сопротивления» проверяем сами, а не верим присланным числам.
     local ok = SB.Logic.IsGuaranteed(sourceSpell) or (total >= threshold)
 
-    if ok then SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, true, extraTurns) end
+    if ok then
+        SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, true, extraTurns,
+                             casterName)
+    end
 
     local G = SB.Theme.MSG_BODY
     print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. who .. G .. ": |r" ..
@@ -2276,6 +2318,23 @@ function SB.Logic.MaxPlausibleAttackMod(spell)
     local effects = step * 3
 
     return math.floor(rank + lvl + hit + skills + effects)
+end
+
+--- Самый низкий кубик, на котором крит МОЖЕТ случиться у кого угодно.
+---
+--- ЗАЧЕМ ОТДЕЛЬНАЯ ПРОВЕРКА. Крит теперь не только удваивает урон, но и
+--- пробивает защиту без броска (см. HandlePvpAttackReceived), а флаг
+--- крита считает АТАКУЮЩИЙ и присылает готовым: своего скейлинга канала
+--- crit он нам не показывает, и проверить число в лоб нечем. Зато есть
+--- потолок полосы (Config.CritBandMaxPct) — выше него полоса не растёт
+--- ни от чего, а значит крит на кубике ниже этой грани не бывает ни у
+--- кого. Тот же приём и тот же довод, что у MaxPlausibleAttackMod:
+--- ловим не ложь, а невозможное.
+--- @param rollMax number|nil  верхняя грань кубика (по умолчанию 100)
+function SB.Logic.MinPlausibleCritRoll(rollMax)
+    rollMax = tonumber(rollMax) or SB.Logic.ROLL_MAX or 100
+    local capPct = tonumber(SB.Data.Config.CritBandMaxPct) or 25
+    return rollMax - math.floor(rollMax * capPct / 100) + 1
 end
 
 --- Наибольший урон, какой заклинание может нанести честно.
@@ -3083,8 +3142,13 @@ function SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, totalScaling, turnS
     local spell   = SB.Data.Spells[spellID]
     -- slotLevel в контексте обязателен: от него зависит источник
     -- "resource" (прибавка к попаданию за вложенный ресурс).
+    --
+    -- versus — вторая сторона броска, и нужна она провокации: по своему
+    -- провокатору бьют без штрафа (см. её источник в реестре). Берём
+    -- ИМЯ ИЗ ТАРГЕТА, а не из заявки: заявка уходит Ведущему словами, а
+    -- штраф считается здесь и сейчас.
     local mod, modParts = SB.Logic.GetModifierBreakdown("attack",
-        { spell = spell, slotLevel = slotLevel })
+        { spell = spell, slotLevel = slotLevel, versus = UnitName("target") })
 
     -- Скейлинг от характеристик, объявленный самим заклинанием
     -- (spell.scaling / устаревшее spell.attributes) — см. GetSpellScaling.
@@ -3462,7 +3526,7 @@ function SB.Logic.InitiatePvpAttack(spellID, slotLevel)
 
     local targetName = UnitName("target")
     local mod, modParts = SB.Logic.GetModifierBreakdown("attack",
-        { spell = spell, slotLevel = slotLevel })
+        { spell = spell, slotLevel = slotLevel, versus = targetName })
 
     -- ПвП-размен начался: с этого момента лидер больше не может
     -- объявить Короткий Отдых всей группе (см. PM.IsPvpEngaged).
@@ -3819,6 +3883,22 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
         tamperNote = tamperNote and (tamperNote .. "; " .. dmgNote) or dmgNote
     end
 
+    -- КРИТ — ТОЖЕ СВЕРЯЕМ, и теперь это не роскошь. Он удваивает урон и
+    -- пробивает защиту без броска (строкой ниже), а приезжает готовым
+    -- флагом от атакующего. Полоса крита не бывает шире своего потолка
+    -- ни у кого, значит и кубик ниже этой грани критом быть не может
+    -- (см. SB.Logic.MinPlausibleCritRoll). Существу верим: его бросок
+    -- считает тот же Ведущий, что и всё остальное в сцене.
+    if atkCrit and not fromNpc then
+        local floorRoll = SB.Logic.MinPlausibleCritRoll(SB.Logic.ROLL_MAX)
+        if (tonumber(atkRoll) or 0) < floorRoll then
+            atkCrit = false
+            local note = string.format("крит на кубике %d при грани %d",
+                tonumber(atkRoll) or 0, floorRoll)
+            tamperNote = tamperNote and (tamperNote .. "; " .. note) or note
+        end
+    end
+
     -- «БЕЗ СОПРОТИВЛЕНИЯ» — ЗНАЧИТ БЕЗ ЗАЩИТНОГО БРОСКА (см.
     -- SB.Logic.IsGuaranteed). Бросок не просто игнорируется, а не
     -- катится вовсе: числа, которые ни на что не влияют, поехали бы в
@@ -3826,13 +3906,32 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
     -- не было.
     local guaranteed = SB.Logic.IsGuaranteed(spell)
 
+    -- ПРОТИВ КРИТА ЗАЩИТА НЕ БРОСАЕТСЯ — ровно до тех пор, пока её итогу
+    -- некуда примениться.
+    --
+    -- Крит попадает всегда (см. landed ниже), так что попадание бросок
+    -- уже не решает. Но ОДНО применение у него осталось: заклинание с
+    -- дебаффом меряет закрепление чар именно этим итогом, и «Стойкость»
+    -- с «Волей» против крита работают по-прежнему. Убери бросок совсем —
+    -- сравнивать стало бы не с чем, и дебафф крита ложился бы сам собой.
+    --
+    -- Поэтому развилка по самому заклинанию, а не по флагу: дебаффа нет —
+    -- итог не нужен никому, и катить его значит печатать в строку боя
+    -- числа, которые ни на что не влияют. Ровно тот же довод, по
+    -- которому не бросает «без сопротивления», и ровно та жалоба, с
+    -- которой правило и начали: «крит, а страж всё равно кидает куб».
+    local skipDefense = guaranteed or (atkCrit and not (spell and spell.debuff))
+
     -- Область "defense": ни Мастерство, ни Ловкость сюда не входят —
     -- только Акробатика, Концентрация, профиль класса и висящие эффекты.
     -- Все они обычные источники реестра, поэтому целиком видны в разбивке
     -- тултипа у обеих сторон размена.
     local defMod, defRoll, defTotal = 0, 0, 0
-    if not guaranteed then
-        defMod   = SB.Logic.GetModifierBreakdown("defense")
+    if not skipDefense then
+        -- versus — нападающий: провокация не мешает уворачиваться от
+        -- того, кто её и наложил (см. её источник в реестре).
+        defMod   = SB.Logic.GetModifierBreakdown("defense",
+            { spell = spell, versus = attackerName })
         defRoll  = SB.Logic.Roll()
         defTotal = defRoll + defMod
     end
@@ -3841,7 +3940,18 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
     -- этот флаг: иначе гарантированный удар пришлось бы дописывать в
     -- пять разных мест (урон, дебафф, текст исхода, ответ, onResolve), и
     -- одно из них обязательно бы забылось.
-    local landed = guaranteed or (atkTotal > defTotal)
+    --
+    -- КРИТ ПОПАДАЕТ ВСЕГДА. Отвести его нельзя ничем: это и есть смысл
+    -- критического удара, и полоса под него теперь целиком
+    -- зарабатывается (см. Config.CritBand) — даром он не достаётся
+    -- никому, так что и «автоуспех даром» отсюда не выходит.
+    --
+    -- ЗАЩИТА ПРИ ЭТОМ ВСЁ РАВНО БРОСАЕТСЯ, и это не противоречие. Её
+    -- итог перестал решать, попал ли удар, но остался нужен ниже —
+    -- дебафф от попадания меряется именно им (см. врезку о «Стойкости»
+    -- там же). Убери мы бросок совсем — сравнивать закрепление чар
+    -- стало бы не с чем, и любой дебафф крита ложился бы сам собой.
+    local landed = guaranteed or atkCrit or (atkTotal > defTotal)
 
     -- Броня работает ПОСЛЕ проверки попадания: увернуться она не
     -- помогает (это Акробатика), но гасит уже прошедший урон — и гасит
@@ -3925,16 +4035,27 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
     -- считает атакующий (свой навык он знает точно) и везёт в пакете —
     -- ровно как урон и базу; см. SB.Skills.GetPersuasionDebuffBonus.
     local debuffLanded, debuffResisted = false, false
+    -- ЧЕМ ИМЕННО ОТВЕЛИ — запоминаем для строки боя. Раньше там стояло
+    -- «Воля отвела дебафф», и это была неправда с тех пор, как Воля
+    -- перестала поднимать порог: отводит тот атрибут, который назван в
+    -- карточке самого дебаффа, а он у каждого свой (у «Смертельного
+    -- удара» — Выносливость). Строка обещала игроку вкладываться в Волю
+    -- там, где Воля ни при чём.
+    local resistStat
     if spell and spell.debuff and landed then
         -- СОПРОТИВЛЕНИЕ СЧИТАЕМ ЗДЕСЬ, у себя: этот путь исполняется на
         -- стороне цели, и свои характеристики она знает точно — везти их
         -- по сети незачем (см. SB.Logic.EffectThreshold о том, почему
         -- прибавка двойная).
-        local resistBonus = 2 * SB.Logic.OwnResistMod(
-            SB.Logic.DebuffResistStat(spell.debuff, spell))
+        resistStat = SB.Logic.DebuffResistStat(spell.debuff, spell)
+        local resistBonus = 2 * SB.Logic.OwnResistMod(resistStat)
         local persuade = math.max(0, tonumber(atkPersuade) or 0)
         if guaranteed or (atkTotal + persuade > defTotal + resistBonus) then
-            SB.Logic.ApplyEffect(spell.debuff, spell, atkSlot)
+            -- ИМЯ НАПАДАЮЩЕГО ЕДЕТ В ЭФФЕКТ: провокации нужен тот, кто
+            -- её наложил, а здесь он известен точно и бесплатно — это
+            -- довод в пользу самого этого пути (см. врезку
+            -- «ПРОВОКАЦИЯ» в Core/ActiveEffects.lua).
+            SB.Logic.ApplyEffect(spell.debuff, spell, atkSlot, nil, nil, attackerName)
             debuffLanded = true
         else
             debuffResisted = true
@@ -3964,7 +4085,7 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
     --
     -- Без неё сопротивление невидимо: игрок видит «Урон: 2», а было
     -- четыре, и понять, сработала ли раса, неоткуда. Тот же довод, по
-    -- которому в строке живёт «Воля отвела дебафф».
+    -- которому в строке живёт «дебафф отведён».
     --
     -- Школу называем ТОЛЬКО когда резист сработал: «Урон: 2 (огонь)» на
     -- каждом ударе — это подпись ради подписи, тип и так написан в
@@ -4000,12 +4121,28 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
             string.format(SB.Theme.MSG_BAD .. " ХП (%d/%d)|r", newHealth, maxHealth) ..
             guardTxt
     end
+
+    -- ПОЧЕМУ УДАР ПРОШЁЛ, ХОТЯ ЗАЩИТА ВЫИГРАЛА. Без этой приписки строка
+    -- читается как сбой счёта: «82 против 97» и урон следом. Пишем её
+    -- ровно тогда, когда крит и правда решил исход, — на выигранном
+    -- броске она была бы шумом.
+    if landed and atkCrit and not skipDefense and not (atkTotal > defTotal) then
+        outcomeTxt = outcomeTxt .. G .. " | |r" .. SB.Theme.MSG_BAD ..
+            "крит пробил защиту|r"
+    end
     if debuffLanded then
         outcomeTxt = outcomeTxt .. G .. " | |r" .. SB.Theme.MSG_BAD .. "дебафф наложен|r"
     elseif debuffResisted then
         -- Без этой строки «Воля» была бы невидимой: игрок получил урон,
         -- дебаффа нет, и почему — непонятно.
-        outcomeTxt = outcomeTxt .. G .. " | |r" .. SB.Theme.MSG_GOOD .. "Воля отвела дебафф|r"
+        -- АТРИБУТ НАЗЫВАЕМ, если он есть: это единственное число,
+        -- которое игрок может изменить заранее, и узнать его он должен
+        -- из той же строки, где увидел исход. Не назван — значит
+        -- отбиваться было нечем в принципе (метки и клейма, см.
+        -- SB.Logic.DebuffResistStat), и скобки пустыми не ставим.
+        outcomeTxt = outcomeTxt .. G .. " | |r" .. SB.Theme.MSG_GOOD ..
+            "дебафф отведён" ..
+            (resistStat and (" (" .. resistStat .. ")") or "") .. "|r"
     end
 
     -- Цифры атакующего не сошлись между собой. Пишем это в ту же строку,
@@ -4042,8 +4179,9 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
         -- тоже нет: «vs Защита: 0 + 0 (итог 0)» читалось бы как сбой
         -- расчёта. Та же формулировка, что у гарантированного эффекта
         -- (см. ResolveEffectCast).
-        local defTxt = guaranteed
-            and (G .. ", цель не сопротивляется")
+        local defTxt = skipDefense
+            and (G .. (guaranteed and ", цель не сопротивляется"
+                                   or  ", крит — защиты нет"))
             or  (G .. " vs |r" .. SB.UI.RollLine(defRoll, defMod, defTotal, G))
         -- «атакует X заклинанием [Y]» → «— [Y] по X»: два существительных
         -- из трёх пересказывали ссылку и стрелку, а третье («заклинанием»)
@@ -4119,7 +4257,12 @@ function SB.Logic.HandlePvpResultReceived(targetName, defRoll, defMod, defTotal,
     -- не было, см. HandlePvpAttackReceived), и сравнение с ними дало бы
     -- ложный промах — а от него зависят и вампиризм, и отпись, и
     -- классовые механики.
+    -- Крит и здесь попадает всегда — тем же правилом и по той же
+    -- причине, что у цели: разойдись эти две строки, и вампиризм с
+    -- классовыми механиками считали бы промах там, где цель уже
+    -- получила урон.
     local landed = SB.Logic.IsGuaranteed(spellID and SB.Data.Spells[spellID])
+        or (pending ~= nil and pending.isCrit == true)
         or ((pending ~= nil and pending.atkTotal ~= nil)
             and (pending.atkTotal > (tonumber(defTotal) or 0))
             or false)

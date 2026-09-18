@@ -1029,6 +1029,42 @@ function SB.UI.UpdateGMPlayers()
             -- заполнять кольцо так же плотно (см. SB.Theme.PortraitInset).
             row.portrait.classIcon = SB.Theme.PortraitInset(row.portrait)
 
+            -- ── ОТМЕТКА ХОДА ──────────────────────────────
+            --
+            -- Те же галочка, крестик и вопрос, что на рамках юнитов, и
+            -- та же картинка из проверки готовности (см.
+            -- SB.Theme.TURN_MARK): панель Ведущего — второе место, где
+            -- он смотрит на очередь, и читаться она обязана одинаково.
+            --
+            -- В УГЛУ ПОРТРЕТА, А НЕ В ЦЕНТРЕ. На рамке юнита значок
+            -- ложится по центру портрета, потому что там он единственный
+            -- и крупный. Здесь портрет заодно отвечает на «кто это» —
+            -- лицо и класс, — и накрывать его целиком значило бы
+            -- отобрать один ответ в пользу другого. Угол виден и не
+            -- мешает.
+            --
+            -- ТЕКСТУРА ЖИВЁТ НА САМОМ ПОРТРЕТЕ, а не на строке, и это не
+            -- мелочь оформления. Портрет — ОТДЕЛЬНАЯ РАМКА внутри строки
+            -- (см. SB.Theme.RoundPortrait), а дочерняя рамка рисуется
+            -- поверх ВСЕХ слоёв родителя, включая OVERLAY. Значок,
+            -- созданный на строке, честно вставал в её верхний слой — и
+            -- всё равно уезжал под портрет: из-под кольца торчал один
+            -- краешек. Внутри портрета порядок решает слой, и OVERLAY
+            -- гарантированно выше и картинки (BACKGROUND), и кольца
+            -- (ARTWORK), и иконки класса.
+            --
+            -- ПОДСЛОЙ ЯВНО: иконка класса тоже может оказаться в
+            -- OVERLAY, а внутри одного слоя порядок определяется
+            -- подслоем, а не тем, что создано позже. Семёрка — просто
+            -- «выше всего, что рисует сам портрет».
+            row.turnMark = row.portrait:CreateTexture(nil, "OVERLAY")
+            row.turnMark:SetDrawLayer("OVERLAY", 7)
+            row.turnMark:SetSize(22, 22)
+            -- Наружу за кольцо: у круглого портрета угол кадра пустой, и
+            -- значок, вписанный внутрь, наполовину лежал бы на лице.
+            row.turnMark:SetPoint("CENTER", row.portrait, "BOTTOMRIGHT", -4, 4)
+            row.turnMark:Hide()
+
             row.nameLabel = row:CreateFontString(nil, "OVERLAY", "SBFontNormal")
             row.nameLabel:SetPoint("TOPLEFT", row.portrait, "TOPRIGHT", 8, -2)
             row.nameLabel:SetJustifyH("LEFT")
@@ -1122,6 +1158,25 @@ function SB.UI.UpdateGMPlayers()
         row.friendLbl:SetShown(not isSelf)
         if not isSelf then
             row.friendChk:SetChecked(SB.Data.IsFriend(p.name))
+        end
+
+        -- ОТМЕТКА ХОДА. Правило одно на все рамки и лежит в самой
+        -- очереди (SB.TurnOrder.MarkFor): «у Ведущего галочка, а на
+        -- рамке крестик» — хуже, чем не показывать вовсе.
+        --
+        -- НАБОР «ЧЕЙ ХОД» СПРАШИВАЕМ БЕЗ ПОДГОТОВКИ: список
+        -- перезаполняется по событию, а не десять раз в секунду, и
+        -- экономить здесь нечего.
+        if row.turnMark then
+            local mark = SB.TurnOrder and SB.TurnOrder.MarkFor
+                         and SB.TurnOrder.MarkFor(p.name)
+            local tex  = mark and SB.Theme.TURN_MARK and SB.Theme.TURN_MARK[mark]
+            if tex then
+                row.turnMark:SetTexture(tex)
+                row.turnMark:Show()
+            else
+                row.turnMark:Hide()
+            end
         end
 
         -- Портрет (без изменений)

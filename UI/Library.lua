@@ -621,15 +621,18 @@ function SB.Library.ShowDetail(spell)
     if PM and not PM.IsOwnClassSpell(spell.class) then
         classStr = "|cFFFF8844" .. classStr .. "|r"
     end
-    -- Требование к снаряжению приписано к ДЕСКРИПТОРУ, а не отдельной
-    -- строкой: оно из него и следует («Стрельба» — значит нужен лук, см.
-    -- SB.Data.KeyRequirements), и своей строки на это не надо.
+    -- ТРЕБОВАНИЕ К СНАРЯЖЕНИЮ ЗДЕСЬ НЕ ПИШЕТСЯ, хотя раньше писалось
+    -- припиской «(нужно: оружие ближнего боя)». Приписка не влезала:
+    -- строка дескриптора стоит в верхней плашке рядом с классом и
+    -- порядком, ширина у той фиксированная, и длинная карточка
+    -- требования вылезала за рамку.
+    --
+    -- И НИЧЕМ НЕ КОМПЕНСИРУЕТСЯ — намеренно. Требование и так видно там,
+    -- где оно применяется: кнопка «Применить» гаснет, а подсказка на ней
+    -- называет причину словами (см. SB.Data.EquipRequirements.deny).
+    -- Второе место, где то же самое сказано короче и хуже, карточке не
+    -- нужно.
     local keyStr = spell.key or "—"
-    local need   = SB.Data.GetEquipRequirement and SB.Data.GetEquipRequirement(spell)
-    local req    = need and SB.Data.EquipRequirements[need]
-    if req then
-        keyStr = keyStr .. " |cFF9D9D9D(нужно: " .. req.card .. ")|r"
-    end
     -- ── ШАПКА ЭФФЕКТА — СВОЯ ─────────────────────────────
     --
     -- У заклинания шапка отвечает на «чьё оно, какого круга, чем
@@ -853,7 +856,10 @@ function SB.Library.ShowDetail(spell)
         local fsw = f.effectLine:GetFontString():GetStringWidth() or 0
         f.effectLine:SetWidth(math.max(80, fsw + 2))
         f.effectLine:ClearAllPoints()
-        f.effectLine:SetPoint("TOPLEFT", f.scalingText, "BOTTOMLEFT", 0, -8)
+        -- ВПЛОТНУЮ К БЛОКУ СКЕЙЛИНГА, а не через восемь пикселей: это
+        -- его четвёртая строка по смыслу, и межстрочный интервал у неё
+        -- должен быть тот же, что у трёх предыдущих (SetSpacing(2)).
+        f.effectLine:SetPoint("TOPLEFT", f.scalingText, "BOTTOMLEFT", 0, -2)
         f.effectLine:SetScript("OnClick", function()
             SB.Library.ShowDetail(effectSpell)
         end)
@@ -1460,8 +1466,13 @@ function SB.Library.BuildFrame()
     -- внутри EditBox с SetHyperlinksEnabled (так сделан журнал, см.
     -- UI/Logs.lua) — ради одной строки заводить здесь EditBox незачем.
     --
-    -- Шрифт нарочно ОБЫЧНЫЙ (ChatFontNormal), а не ...Small, как у
-    -- скейлинга: это не сноска к цифрам, а вход в другую карточку.
+    -- ШРИФТ ТОТ ЖЕ, ЧТО У СКЕЙЛИНГА (SBFontHighlightSmall). Раньше здесь
+    -- стоял обычный, крупнее — по доводу «это не сноска к цифрам, а вход
+    -- в другую карточку». Довод верный по смыслу и неверный по виду:
+    -- строка «Дебафф (Выносливость): [Отравленный клинок]» встаёт прямо
+    -- под блоком «Атака / Крит / Урон», читается как его четвёртая
+    -- строка — и выбивалась из него и кеглем, и высотой строки. Что это
+    -- ссылка, видно и так: цвет, подсветка при наведении, курсор.
     --
     -- FontString заводится ЯВНО и вешается через SetFontString. Кнопка,
     -- созданная без шаблона, своей строки не имеет вовсе: SetText ей
@@ -1469,11 +1480,14 @@ function SB.Library.BuildFrame()
     -- нему роняло всю BuildFrame на середине, из-за чего не создавались
     -- ни outcomeLabel, ни всё, что объявлено ниже.
     detailFrame.effectLine = CreateFrame("Button", nil, detailFrame)
-    detailFrame.effectLine:SetHeight(16)
-    local effectFS = detailFrame.effectLine:CreateFontString(nil, "OVERLAY", "SBFontChat")
+    local effectFS = detailFrame.effectLine:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
     effectFS:SetPoint("LEFT", detailFrame.effectLine, "LEFT", 0, 0)
     effectFS:SetJustifyH("LEFT")
     detailFrame.effectLine:SetFontString(effectFS)
+    -- ВЫСОТА — ПО САМОЙ СТРОКЕ, а не числом: кегль задаётся шрифтом, и
+    -- зашитая шестнадцатка разъехалась бы с ним при первой же правке
+    -- темы. Фолбэк на случай, если шрифт ещё не прогрелся.
+    detailFrame.effectLine:SetHeight(math.max(12, effectFS:GetLineHeight() or 0))
     -- Подсветка при наведении — текстурой слоя HIGHLIGHT, а не сменой
     -- цвета текста: в строке зашиты свои |cFF-коды, и SetTextColor их
     -- всё равно не переборет.

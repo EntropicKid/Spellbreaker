@@ -1374,8 +1374,9 @@ end
 -- своём месте.
 local ICON_SIZE_CLASSIC = 34
 local ICON_SIZE_COMPACT = 24
-local ICON_ACTED     = "Interface\\RaidFrame\\ReadyCheck-Ready"
-local ICON_SKIPPED   = "Interface\\RaidFrame\\ReadyCheck-NotReady"
+-- Картинки — общие с панелью Ведущего (см. SB.Theme.TURN_MARK):
+-- отметкам одного и того же состояния расходиться нельзя.
+local TURN_MARK = SB.Theme.TURN_MARK
 
 -- Сколько ещё молчать после проверки готовности: клиент держит её
 -- результат на рамках несколько секунд, и влезать в это время нельзя.
@@ -1384,13 +1385,93 @@ local readyCheckUntil = 0
 
 local turnIcons = nil   -- [рамка] = наш значок
 
---- Что показать по этому имени: "acted" | "skipped" | nil.
-local function TurnMarkFor(name)
-    local TO = SB.TurnOrder
-    if not name or not TO or not TO.IsActive() then return nil end
-    if TO.WasSkipped(name) then return "skipped" end
-    if TO.HasActed(name)   then return "acted"   end
-    return nil
+-- ============================================================
+-- КАКИЕ РАМКИ ПОМЕЧАТЬ: ПОИСКОМ, А НЕ ПО ИМЕНАМ
+--
+-- Здесь дважды перечисляли рамки по именам, и дважды этого не хватило.
+--
+-- Сначала стояли только «CompactRaidFrameN» — так рейдовые рамки зовутся
+-- лишь когда рейд показан ОДНИМ СПИСКОМ. Потом добавились
+-- «CompactRaidGroupNMemberM» для раскладки по группам. И всё равно мимо:
+-- у рейда раскладок больше двух, имена в них разные, а у сторонних
+-- рамок (ElvUI, Grid и родня) — какие угодно. Перечислять их — значит
+-- всегда отставать на одну раскладку.
+--
+-- ПОЭТОМУ РАМКИ ИЩУТСЯ, А НЕ УГАДЫВАЮТСЯ. Признак у них один и он
+-- надёжный: рамка юнита держит в себе юнит-токен (поле unit; у
+-- ванильных компактных рамок рядом лежит ещё displayedUnit — для
+-- питомцев и транспорта). По нему и отбираем, обходя дерево интерфейса.
+-- Это работает и на ванильных рамках в любой раскладке, и на
+-- аддоновских — никаких имён знать не надо.
+--
+-- ЦЕНА ОБХОДА — РАЗ В РОСТЕР, А НЕ РАЗ В КАДР. Полный обход дерева
+-- стоит дорого, поэтому найденное кэшируется, а кэш сбрасывается
+-- только когда состав или раскладка и правда могли поменяться
+-- (GROUP_ROSTER_UPDATE, вход в мир, включение пошагового режима). Между
+-- этими событиями рамки не появляются и не исчезают.
+--
+-- СВОЯ РАМКА И РАМКИ ГРУППЫ ОСТАЛИСЬ ИМЕНОВАННЫМИ, и это не
+-- непоследовательность: у них есть ПОРТРЕТ, и значок надо ставить на
+-- него, а не в центр рамки, где он лёг бы на полоски. Портрет по дереву
+-- не найти — его надо знать. Имена же этих трёх рамок неизменны с
+-- 2004 года.
+-- ============================================================
+
+local scanned   = nil    -- [рамка] = true, найденное обходом
+local scanDirty = true
+
+--- Сбросить найденное: состав или раскладка могли поменяться.
+local function InvalidateFrameScan()
+    scanDirty = true
+end
+
+--- Юнит-токен, по которому имеет смысл помечать рамку.
+--- ТОЛЬКО ИГРОКИ И ТОЛЬКО ПОШТУЧНО: «raidpet3» и «target» под шаблон не
+--- попадают — очередь ходов про них ничего не знает.
+local function IsPlayerUnitToken(u)
+    if type(u) ~= "string" then return false end
+    return u == "player"
+        or u:match("^party%d+$") ~= nil
+        or u:match("^raid%d+$")  ~= nil
+end
+
+-- Предохранители обхода. Дерево интерфейса с аддонами — это тысячи
+-- рамок, и уйти по нему вглубь на сотню уровней можно на любой
+-- рекурсивной вёрстке. Числа с большим запасом: своя рамка юнита не
+-- лежит глубже восьмого уровня ни в одном известном аддоне.
+local SCAN_MAX_DEPTH = 8
+local SCAN_MAX_NODES = 6000
+
+local function ScanUnitFrames()
+    local found, nodes = {}, 0
+
+    local function walk(frame, depth)
+        if depth > SCAN_MAX_DEPTH or nodes > SCAN_MAX_NODES then return end
+        if not frame.GetChildren then return end
+        for _, kid in ipairs({ frame:GetChildren() }) do
+            nodes = nodes + 1
+            if nodes > SCAN_MAX_NODES then return end
+            -- Свои значки в поиск не попадают: они сами висят на
+            -- UIParent, и найти их значило бы пометить отметку отметкой.
+            if not kid.__sbTurnIcon then
+                if IsPlayerUnitToken(kid.unit or kid.displayedUnit) then
+                    found[kid] = true
+                end
+                walk(kid, depth + 1)
+            end
+        end
+    end
+
+    if UIParent then walk(UIParent, 1) end
+    return found
+end
+
+local function ScannedFrames()
+    if scanDirty or not scanned then
+        scanned = ScanUnitFrames()
+        scanDirty = false
+    end
+    return scanned
 end
 
 --- Рамки, на которых имеет смысл рисовать отметку.
@@ -1407,25 +1488,92 @@ end
 ---        читается плохо, а на портрете он ровно там, где игрок и ищет
 ---        отметку готовности.
 local function EachUnitFrame(fn)
+    local seen = {}
+
+    local function Take(frame, unit, anchorTo, size)
+        if not frame or seen[frame] then return end
+        seen[frame] = true
+        fn(frame, unit, anchorTo or frame, size)
+    end
+
     if PlayerFrame then
-        fn(PlayerFrame, "player",
-           _G.PlayerPortrait or PlayerFrame.portrait or PlayerFrame, ICON_SIZE_CLASSIC)
+        Take(PlayerFrame, "player",
+             _G.PlayerPortrait or PlayerFrame.portrait or PlayerFrame,
+             ICON_SIZE_CLASSIC)
     end
     for i = 1, (MAX_PARTY_MEMBERS or 4) do
         local f = _G["PartyMemberFrame" .. i]
         if f then
-            fn(f, "party" .. i,
-               _G["PartyMemberFrame" .. i .. "Portrait"] or f.portrait or f,
-               ICON_SIZE_CLASSIC)
+            Take(f, "party" .. i,
+                 _G["PartyMemberFrame" .. i .. "Portrait"] or f.portrait or f,
+                 ICON_SIZE_CLASSIC)
         end
     end
-    for i = 1, 40 do
-        local f = _G["CompactRaidFrame" .. i]
-        if f then fn(f, f.unit, f, ICON_SIZE_COMPACT) end
+
+    -- ВСЁ ОСТАЛЬНОЕ — НАЙДЕННОЕ. Рейд в любой раскладке, компактная
+    -- группа, сторонние рамки: признак один — юнит-токен внутри рамки.
+    for frame in pairs(ScannedFrames()) do
+        -- РАЗМЕР ПО САМОЙ РАМКЕ: компактные бывают в полсотни пикселей,
+        -- а бывают и в двадцать — значок в 24 пикселя накрыл бы такую
+        -- целиком. Читаем высоту каждый раз: у рейдовых рамок она
+        -- меняется от числа участников.
+        local h    = (frame.GetHeight and frame:GetHeight()) or 0
+        local size = ICON_SIZE_COMPACT
+        if h > 0 and h - 4 < size then size = math.max(10, h - 4) end
+        Take(frame, frame.unit or frame.displayedUnit, frame, size)
     end
-    for i = 1, 5 do
-        local f = _G["CompactPartyFrameMember" .. i]
-        if f then fn(f, f.unit, f, ICON_SIZE_COMPACT) end
+end
+
+--- ЧТО НАШЁЛ ОБХОД — СПИСКОМ В ЧАТ.
+---
+--- Заведено не для отладки в чужом коде, а потому что чинить это
+--- иначе нельзя: рамки заводит клиент игрока со своим набором аддонов и
+--- своей раскладкой рейда, и «у меня не показывается» без этого ответа
+--- превращается в переписку из десяти писем. Команда отвечает разом на
+--- все вопросы, которые пришлось бы задавать: нашлась ли рамка, чей на
+--- ней юнит, что аддон собирается на ней показать и не спрятан ли
+--- значок за чужим слоем.
+---
+--- ИМЯ РАМКИ ПЕЧАТАЕМ, если оно есть: у ванильных оно говорящее
+--- («CompactRaidGroup1Member2»), у аддоновских часто нет вовсе — и это
+--- само по себе ответ, потому что показывает, что рамку нашли не по
+--- имени.
+function SB.Overlay.ReportTurnFrames()
+    local T, G = SB.Theme.MSG_TAG .. "[Spellbreaker]|r: ", SB.Theme.MSG_BODY
+    local TO   = SB.TurnOrder
+
+    InvalidateFrameScan()
+    local current = (TO and TO.CurrentNameSet) and TO.CurrentNameSet() or {}
+
+    print(T .. G .. "отметки хода: пошаговый режим — " ..
+        ((TO and TO.IsActive()) and "|r|cFF44FF44идёт|r" or "|r|cFFFF4444выключен|r") ..
+        G .. ", проверка готовности молчит до " ..
+        string.format("%.0f", math.max(0, readyCheckUntil - GetTime())) .. " с.|r")
+
+    local shown, total = 0, 0
+    EachUnitFrame(function(frame, unit, anchorTo, size)
+        total = total + 1
+        local name = (frame.GetName and frame:GetName()) or "без имени"
+        local vis  = frame.IsVisible and frame:IsVisible()
+        local mark = (unit and vis and UnitExists(unit) and UnitIsPlayer(unit)
+                      and TO and TO.MarkFor(UnitName(unit), current)) or nil
+        if mark then shown = shown + 1 end
+
+        -- Молча пропускаем то, на чём и показывать нечего: список из
+        -- сорока пустых рейдовых слотов утопил бы в себе ответ.
+        if not unit or not vis then return end
+
+        local lvl = (anchorTo and anchorTo.GetFrameLevel and anchorTo:GetFrameLevel()) or 0
+        local str = (anchorTo and anchorTo.GetFrameStrata and anchorTo:GetFrameStrata()) or "?"
+        print("   " .. G .. name .. " [" .. tostring(unit) .. "] " ..
+            (UnitName(unit) or "?") .. " — " .. (mark or "нечего") ..
+            ", слой " .. str .. "+" .. lvl .. ", значок " .. size .. "px|r")
+    end)
+
+    print(T .. G .. "рамок найдено: " .. total .. ", с отметкой: " .. shown .. ".|r")
+    if total == 0 then
+        print(T .. "|cFFFF4444ни одной рамки юнита не найдено. Пришлите это " ..
+            "сообщение вместе с названием аддона рамок.|r")
     end
 end
 
@@ -1437,6 +1585,9 @@ local function EnsureTurnIcon(frame, anchorTo, size)
     local icon = turnIcons[frame]
     if not icon then
         icon = CreateFrame("Frame", nil, UIParent)
+        -- Метка «это наш значок»: обход рамок ищет всё с юнит-токеном, а
+        -- значок висит на UIParent и попал бы в поиск сам (см. ScanUnitFrames).
+        icon.__sbTurnIcon = true
         icon.tex = icon:CreateTexture(nil, "OVERLAY")
         icon.tex:SetAllPoints()
         icon:Hide()
@@ -1453,15 +1604,21 @@ local function EnsureTurnIcon(frame, anchorTo, size)
     --
     -- Читать чужой слой безопасно: taint даёт запись в защищённую рамку,
     -- а не чтение из неё (свои значения мы ставим на СВОЙ фрейм).
-    -- Уровень с запасом: у рамки поверх портрета лежат ещё её
-    -- собственные слои, и +5 гарантированно выше них, оставаясь ниже
-    -- любого окна из старшего слоя.
+    --
+    -- ЗАПАС В ДЕСЯТЬ УРОВНЕЙ, а не в пять. Пятёрки хватало ванильным
+    -- рамкам: поверх портрета там лежат только её собственные слои.
+    -- Аддоновские рамки надстраивают над собой куда больше — полоски,
+    -- рамочки, иконки ролей и аур, каждая своим фреймом со своим
+    -- уровнем, — и пятёрка уже не гарантия. Десятка остаётся в том же
+    -- СЛОЕ (strata), то есть по-прежнему ниже любого окна старшего
+    -- слоя: именно за этим слой и читается у самой рамки, а не задаётся
+    -- константой.
     local host = anchorTo or frame
     if host.GetFrameStrata then
         icon:SetFrameStrata(host:GetFrameStrata() or "MEDIUM")
     end
     if host.GetFrameLevel then
-        icon:SetFrameLevel((host:GetFrameLevel() or 0) + 5)
+        icon:SetFrameLevel((host:GetFrameLevel() or 0) + 10)
     end
 
     -- Размер и привязку задаём каждый раз: якорь может появиться позже
@@ -1498,6 +1655,11 @@ local function RefreshTurnMarks()
         return
     end
 
+    -- Кто ходит ПРЯМО СЕЙЧАС — одним набором на весь проход: правило
+    -- отметки спрашивается на каждую рамку десять раз в секунду
+    -- (см. TO.MarkFor).
+    local current = SB.TurnOrder.CurrentNameSet and SB.TurnOrder.CurrentNameSet()
+
     EachUnitFrame(function(frame, unit, anchorTo, size)
         -- Значок висит на UIParent и о судьбе своей рамки сам не узнает,
         -- поэтому все причины «показывать нечего» проверяем здесь:
@@ -1508,7 +1670,7 @@ local function RefreshTurnMarks()
         if unit and frame:IsVisible() and UnitExists(unit) and UnitIsPlayer(unit) then
             -- Имя КОРОТКОЕ: очередь ходов ключуется тем же UnitName, что и
             -- список участников (см. Participants в Core/TurnOrder.lua).
-            mark = TurnMarkFor(UnitName(unit))
+            mark = SB.TurnOrder.MarkFor(UnitName(unit), current)
         end
 
         local existing = turnIcons and turnIcons[frame]
@@ -1518,7 +1680,7 @@ local function RefreshTurnMarks()
         end
 
         local icon = EnsureTurnIcon(frame, anchorTo, size)
-        icon.tex:SetTexture(mark == "skipped" and ICON_SKIPPED or ICON_ACTED)
+        icon.tex:SetTexture(TURN_MARK[mark] or TURN_MARK.acted)
         icon:Show()
     end)
 end
@@ -1550,6 +1712,23 @@ local function Refresh()
 end
 
 SB.Overlay.Refresh = Refresh
+
+-- ПОШАГОВЫЙ РЕЖИМ ВКЛЮЧИЛСЯ — ИЩЕМ РАМКИ ЗАНОВО. Между сценами игрок
+-- мог переключить раскладку рейда в настройках интерфейса, и события
+-- состава на это не приходит вовсе: состав тот же, рамки другие.
+--
+-- ПО ПЕРЕХОДУ, А НЕ ПО КАЖДОМУ СОБЫТИЮ ОЧЕРЕДИ. TURN_ORDER_CHANGED
+-- прилетает на каждый сдвиг очереди, то есть по нескольку раз за круг, а
+-- обход дерева интерфейса стоит дорого (см. врезку у ScanUnitFrames).
+-- Ищем ровно в тот миг, когда режим включился.
+if SB.Events and SB.Events.On then
+    local wasActive = false
+    SB.Events.On(SB.E.TURN_ORDER_CHANGED, function()
+        local now = (SB.TurnOrder and SB.TurnOrder.IsActive()) and true or false
+        if now and not wasActive then InvalidateFrameScan() end
+        wasActive = now
+    end)
+end
 
 -- ============================================================
 -- ДРАЙВЕР: тик 10 раз в секунду
@@ -1589,6 +1768,12 @@ pcall(driver.RegisterUnitEvent, driver, "UNIT_HEALTH_FREQUENT", "player")
 driver:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_ENTERING_WORLD" then
         lastHealth = UnitHealth("player")
+        -- Рамки после загрузочного экрана — новые, найденное до него
+        -- больше ни на что не указывает. И ЕЩЁ РАЗ ПОЗЖЕ: аддоны рамок
+        -- собирают своё на PLAYER_LOGIN и позже, и обход, сделанный в
+        -- этом событии, их не увидел бы вовсе.
+        InvalidateFrameScan()
+        C_Timer.After(5, InvalidateFrameScan)
         -- Загрузочный экран и телепорт сами по себе дёргают здоровье;
         -- даём клиенту устояться, прежде чем что-то подменять.
         SB.Overlay.Suppress(2)
@@ -1610,6 +1795,13 @@ driver:SetScript("OnEvent", function(_, event)
         -- привязанный к освободившейся рамке, окажется в пустоте.
         -- Гасим все разом: ближайший тик покажет заново то, что нужно.
         HideAllTurnIcons()
+        -- И ИЩЕМ РАМКИ ЗАНОВО. Переход «группа → рейд» пересобирает их
+        -- целиком и другими рамками (см. врезку у ScanUnitFrames): из
+        -- четырёх найденных до перехода после него не останется ни
+        -- одной. Не сразу, а следующим кадром: клиент создаёт рейдовые
+        -- рамки в этом же событии, и обход, начатый прямо сейчас, застал
+        -- бы половину.
+        C_Timer.After(0, InvalidateFrameScan)
         -- С задержкой: сначала пусть дойдут обычные рассылки STATUS
         -- (Network.lua шлёт их через 0.5-2с после того же события), и
         -- спрашивать останется только тех, кто действительно молчит.

@@ -48,7 +48,10 @@ SB.E = {
     PREPARED_ITEMS_CHANGED  = "PREPARED_ITEMS_CHANGED",  -- ()
     ATTRIBUTES_CHANGED      = "ATTRIBUTES_CHANGED",      -- ()
     SKILLS_CHANGED          = "SKILLS_CHANGED",          -- ()
-    HEALTH_CHANGED          = "HEALTH_CHANGED",          -- (newHP, oldHP, delta)
+    -- cause: "self" — персонаж заплатил своим здоровьем (усталость,
+    -- цена каста); nil — урон извне. Различие нужно правилу breakOn
+    -- (см. PM.GrantHealth).
+    HEALTH_CHANGED          = "HEALTH_CHANGED",          -- (newHP, oldHP, delta, cause)
     -- Уровень персонажа изменился И UnitLevel уже отдаёт новое значение.
     -- Именно поэтому событие своё, а не «подпишитесь на PLAYER_LEVEL_UP»:
     -- в момент этого клиентского события UnitLevel ещё СТАРЫЙ, и всё, что

@@ -1163,7 +1163,7 @@ end
 -- баланса. Поэтому источники берутся те же самые, только читаются из
 -- записи существа вместо модели игрока:
 --
---   уровень   — PM.LevelModifierFor, та же лестница ROLL_LEVEL_BONUS;
+--   уровень   — PM.LevelModifierFor, тот же пункт за уровень;
 --   Акробатика — тот же шаг навыка (Config.SkillRollStep), что даёт
 --                игроку SB.Skills.GetAcrobaticsDefenseBonus.
 --
@@ -1196,7 +1196,9 @@ end
 --- @param unit string|nil  юнит в мире — чтобы учесть висящие на нём
 ---        эффекты. Без него считается «чистое» существо по записи: так
 ---        зовут из подсказок и проверок, где юнита ещё нет.
-function SB.NPC.DefenseModifier(stats, unit)
+--- @param versus string|nil  кто бьёт. Нужен провокации: от того, кто
+---        её наложил, существо уворачивается как обычно.
+function SB.NPC.DefenseModifier(stats, unit, versus)
     if not stats then return 0, {} end
     local parts = {}
     local step  = (SB.Data.Config and SB.Data.Config.SkillRollStep) or 3
@@ -1221,7 +1223,18 @@ function SB.NPC.DefenseModifier(stats, unit)
         for _, p in ipairs(effParts or {}) do parts[#parts + 1] = p end
     end
 
-    return lvlBonus + acro + effMod, parts
+    -- ПРОВОКАЦИЯ — отдельным слагаемым, а не каналом defense: штраф
+    -- УСЛОВНЫЙ (см. SB.NPC.TauntPenaltyOf), а каналы складываются
+    -- безусловно и мешали бы уворачиваться от самого провокатора.
+    local taunt = 0
+    if unit and SB.NPC.TauntPenalty then
+        taunt = SB.NPC.TauntPenalty(unit, versus)
+        if taunt ~= 0 then
+            parts[#parts + 1] = { key = "taunt", label = "Провокация", value = taunt }
+        end
+    end
+
+    return lvlBonus + acro + effMod + taunt, parts
 end
 
 --- Чем мерить характеристику СУЩЕСТВА — для SB.Logic.GetSpellScaling.
@@ -1249,7 +1262,9 @@ end
 --- существа нет (см. врезку о способностях выше), поэтому прибавки за
 --- ранг здесь нет вовсе — и это единственное отличие от игрока.
 --- @return number total, table parts
-function SB.NPC.AttackModifier(stats, unit, spell)
+--- @param versus string|nil  по кому бьёт. Нужен провокации: своего
+---        провокатора существо бьёт без штрафа (см. SB.NPC.TauntPenaltyOf).
+function SB.NPC.AttackModifier(stats, unit, spell, versus)
     if not stats then return 0, {} end
     local parts = {}
 
@@ -1274,7 +1289,17 @@ function SB.NPC.AttackModifier(stats, unit, spell)
         for _, p in ipairs(effParts or {}) do parts[#parts + 1] = p end
     end
 
-    return lvlBonus + hit + effMod, parts
+    -- ПРОВОКАЦИЯ — отдельным слагаемым и по той же причине, что в
+    -- DefenseModifier: штраф условный, а каналы mods безусловны.
+    local taunt = 0
+    if unit and SB.NPC.TauntPenalty then
+        taunt = SB.NPC.TauntPenalty(unit, versus)
+        if taunt ~= 0 then
+            parts[#parts + 1] = { key = "taunt", label = "Провокация", value = taunt }
+        end
+    end
+
+    return lvlBonus + hit + effMod + taunt, parts
 end
 
 --- Порог, который надо взять, чтобы навесить на существо ДЕБАФФ.
@@ -1320,14 +1345,13 @@ end
 --- Без этой функции «сопротивления цели» просто не существовало, когда
 --- целью было существо: удар по нему гасился одним доспехом, и любой
 --- огнеупорный элементаль горел как все.
+--- СЧИТАЕТСЯ В ОДНОМ МЕСТЕ — SB.NPC.ResistanceOf (Core/NPCEffects.lua):
+--- у тика эффектов юнита на руках нет вовсе (он идёт по всей сцене), и
+--- пока сложение стояло здесь, тик до него просто не доходил.
 --- @return number  может быть отрицательным — это уязвимость
 function SB.NPC.Resistance(unit, damageType)
-    if not (unit and SB.NPC.EffectMod) then return 0 end
-    local total = 0
-    for _, key in ipairs(SB.Data.ResistKeysFor(damageType)) do
-        total = total + (SB.NPC.EffectMod(unit, key))
-    end
-    return total
+    if not (unit and SB.NPC.ResistanceOf) then return 0 end
+    return SB.NPC.ResistanceOf(SB.NPC.GetState(unit), damageType)
 end
 
 --- Полное гашение удара по существу: сначала сопротивление, потом

@@ -6,14 +6,13 @@ Add({
     name = "Шаг сквозь тень",
 	key = "Скрытность",
 	icon = "Interface\\Icons\\Ability_rogue_shadowstep",
-    level = 2,
+    level = 3,
     class = "Разбойник",
 	distance = 31,
 	-- caura = 84,
 	description = "Вы совершаете шаг и оказываетесь в ближайшем месте, где есть тень на ваш выбор. Вы должны видеть место, куда желаете попасть, если только в желаемом месте нету Исчадия Тьмы, появление рядом с ним возможно и в полностью освещенной зоне..",
     isCantrip = false,
 	resistable = true,
-	-- Срок был неявным (запасная единица), теперь записан: мгновенный шаг: эффект нужен ровно на этот ход.
 	duration = 1,
 	container = "eff_shadow_step",
 	scaling = {
@@ -27,6 +26,7 @@ Add({
 Add({
     id = "sinister_strike",
     name = "Коварный удар",
+	requirement = "melee",
     key = "Бойня",
     icon = "Interface\\Icons\\Spell_shadow_ritualofsacrifice",
     level = 0,
@@ -47,6 +47,7 @@ Add({
 Add({
     id = "backstab",
     name = "Удар в спину",
+    requirement = "melee",
     key = "Скрытность",
     icon = "Interface\\Icons\\Ability_backstab",
     level = 0,
@@ -68,6 +69,7 @@ Add({
 Add({
     id = "eviscerate",
     name = "Потрошение",
+	requirement = "melee",
     key = "Бойня",
     icon = "Interface\\Icons\\Ability_rogue_eviscerate",
     level = 3,
@@ -89,6 +91,7 @@ Add({
 Add({
     id = "garrote",
     name = "Гаррота",
+	requirement = "melee",
     key = "Скрытность",
     icon = "Interface\\Icons\\Ability_rogue_garrote",
     level = 0,
@@ -108,6 +111,7 @@ Add({
 Add({
     id = "shiv",
     name = "Отравляющий укол",
+	requirement = "dagger",
     key = "Ядоварение",
     icon = "Interface\\Icons\\INV_Potion_19",
     level = 1,
@@ -120,7 +124,7 @@ Add({
     canCrit = true,
 	debuff = "eff_shiv",
     distance = 2.5,
-    duration = 3,
+    duration = 5,
 	scaling = {
 		hit    = { ["Ремесло"] = 1.5 },
 		damage = { ["Ловкость"] = 0.5 },
@@ -185,7 +189,7 @@ Add({
     name = "Ослепление",
     key = "Бойня",
     icon = "Interface\\Icons\\Spell_shadow_mindsteal",
-    level = 1,
+    level = 2,
     class = "Разбойник",
     -- caura = 22,
     description = "Разбойник бросает в лицо противнику горсть специального порошка, золы, песка или алхимической смеси. Раздражение глаз и резкая боль вынуждают цель потерять ориентацию, давая разбойнику драгоценные мгновения для отхода или новой атаки.",
@@ -203,6 +207,7 @@ Add({
 Add({
     id = "sap",
     name = "Ошеломление",
+	requirement = "melee",
     key = "Скрытность",
     icon = "Interface\\Icons\\Ability_sap",
     level = 1,
@@ -366,6 +371,7 @@ Add({
 Add({
     id = "poisoned_blade",
     name = "Отравленный клинок",
+	requirement = "melee",
     key = "Ядоварение",
     icon = "Interface\\Icons\\Ability_rogue_dualweild",
     level = 2,
@@ -376,7 +382,7 @@ Add({
     resistable = true,
     canCrit = true,
     distance = 2.5,
-    duration = 2,
+    duration = 5,
     debuff = "eff_poisoned_blade",
     scaling = {
         hit    = { ["Ремесло"] = 1 },
@@ -388,6 +394,7 @@ Add({
 Add({
     id = "expose_armor",
     name = "Броня напоказ",
+	requirement = "melee",
     key = "Бойня",
     icon = "Interface\\Icons\\Ability_warrior_riposte",
     level = 1,
@@ -426,6 +433,7 @@ Add({
 Add({
     id = "blade_flurry",
     name = "Веер клинков",
+	requirement = "melee",
     key = "Бойня",
     icon = "Interface\\Icons\\Ability_rogue_fanofknives",
     level = 2,
@@ -435,11 +443,7 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-    distance = 4,
-    aoe = { radius = 3 },
-    -- Срок стоит у ЗАКЛИНАНИЯ, а не у эффекта: у эффектов своего срока
-    -- в системе нет вовсе (см. SB.Logic.GetEffectDuration). Два хода —
-    -- столько кровят поверхностные порезы.
+    aoe = { radius = 7.5 },
     duration = 2,
     debuff = "eff_bleeding_blade_flurry",
     scaling = {
@@ -472,7 +476,7 @@ Add({
     name = "Смертельный бросок",
     key = "Бойня",
     icon = "Interface\\Icons\\Inv_throwingknife_04",
-    level = 3,
+    level = 2,
     class = "Разбойник",
     damageType = "physical",
     description = "Метательный клинок уходит не в корпус, а под колено или в бедро — туда, где рана останавливает движение. Убегающий останавливается, догоняющий отстаёт. Вне боя тем же броском гасят свечу или сбивают верёвку на другом конце комнаты.",
@@ -546,6 +550,7 @@ Add({
 Add({
     id = "envenom",
     name = "Отрава",
+	requirement = "melee",
     key = "Ядоварение",
     icon = "Interface\\Icons\\Ability_rogue_disembowel",
     level = 3,
@@ -556,12 +561,12 @@ Add({
     resistable = true,
     canCrit = true,
     distance = 2.5,
-    duration = 4,
+    duration = 5,
     debuff = "eff_envenom",
     scaling = {
         hit    = { ["Ловкость"] = 1, ["Ремесло"] = 1 },
         crit   = { ["Точность"] = 1 },
-        damage = { ["Ремесло"] = 1 },
+        damage = { ["Ловкость"] = 1 },
     },
 })
 
@@ -627,6 +632,7 @@ Add({
 Add({
     id = "pistolshot",
     name = "Выстрел из пистоли",
+    requirement = "gun",
     key = "Бойня",
     icon = "Interface\\Icons\\Ability_rogue_pistolshot",
     level = 0,
@@ -647,6 +653,7 @@ Add({
 Add({
     id = "between_the_eyes",
     name = "Промеж глаз",
+    requirement = "gun",
     key = "Бойня",
     icon = "Interface\\Icons\\Inv_weapon_rifle_01",
     level = 3,

@@ -484,7 +484,11 @@ function SB.Movement.AddOverrun(meters)
 
     d.moveFatiguePaid = due
     local lost = owed * per
-    if PM and PM.GrantHealth then PM.GrantHealth(-lost) end
+    -- «self»: усталость — плата за свой же бег, а не чужой удар. Пока
+    -- она шла общим каналом урона, ею снимался любой эффект с
+    -- breakOn.damaged — полиморф стоил одной единицы здоровья и одного
+    -- шага за предел (см. врезку у PM.GrantHealth).
+    if PM and PM.GrantHealth then PM.GrantHealth(-lost, "self") end
 
     fatiguePending = fatiguePending + lost
     local now = GetTime()

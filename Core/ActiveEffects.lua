@@ -336,6 +336,15 @@ function SB.ActiveEffects.GetEffectLines(spellID)
         table.insert(lines, "|cFFFFD100Школа:|r " .. schoolLabel)
     end
 
+    -- ПРОВОКАЦИЯ — отдельной строкой и до параметров: это не поправка к
+    -- броску, а правило, по которому бросок вообще считается, и узнать о
+    -- нём игрок должен раньше, чем о минусе к защите.
+    if def.taunt == true then
+        table.insert(lines, "|cFFFFD100Провокация:|r " ..
+            tostring(tonumber(SB.Data.Config.TauntPenalty) or -50) ..
+            " к броскам по всем, кроме того, кто её наложил")
+    end
+
     -- Модификаторы — в порядке MOD_ORDER, а не pairs(): порядок pairs
     -- непредсказуем, и строки прыгали бы при каждом открытии карточки.
     if type(def.mods) == "table" then
@@ -560,6 +569,79 @@ function SB.ActiveEffects.GetStatMod(statKey)
     return total, parts
 end
 
+-- ============================================================
+-- ПРОВОКАЦИЯ
+--
+-- Эффект, объявивший `taunt = true`, приковывает внимание носителя к
+-- тому, кто его наложил: по всем ОСТАЛЬНЫМ броски идут со штрафом
+-- Config.TauntPenalty, а по самому провокатору — как обычно.
+--
+--   AddEffect({ id = "eff_taunt_challenge",
+--       effect = { kind = "debuff", family = "Контроль", taunt = true,
+--                  resist = "Воля", mods = { defense = -6 } } })
+--
+-- ── ПОЧЕМУ ЭТО НЕ КАНАЛ mods ────────────────────────────────
+--
+-- Соблазн был: «attack = -50, и дело с концом». Не выйдет — штраф
+-- УСЛОВНЫЙ, он зависит от того, по кому идёт бросок, а каналы mods
+-- складываются безусловно (см. GetMod). Провокация, выраженная каналом,
+-- мешала бы бить и самого провокатора, то есть делала бы ровно
+-- обратное тому, ради чего её накладывают.
+--
+-- ── ОТКУДА ИЗВЕСТНО, КТО ПРОВОЦИРОВАЛ ───────────────────────
+--
+-- Имя провокатора лежит в самой записи эффекта (поле src) и ставится
+-- при наложении. НИ ОДНОГО НОВОГО ПОЛЯ В ПАКЕТАХ это не стоит: на
+-- каждом пути, которым чужой дебафф доезжает до носителя, имя
+-- накладывающего УЖЕ известно — оно либо стоит в самом пакете (удар
+-- ПвП, площадь, бафф), либо это отправитель, которого называет AceComm,
+-- либо это существо, чьё имя едет в том же ударе.
+--
+-- НЕИЗВЕСТНЫЙ ИСТОЧНИК ШТРАФ НЕ СНИМАЕТ. Провокация без имени — это
+-- выдача Ведущим «ты в ярости, бей куда попало»: эффект висит, значит
+-- внимание приковано, а исключения нет просто потому, что не названо к
+-- кому. Обратное решение («нет имени — нет и штрафа») делало бы такую
+-- выдачу пустышкой, а молчаливую пустышку в сцене не отличить от сбоя.
+--
+-- ШТРАФ НЕ СКЛАДЫВАЕТСЯ. Две провокации от двух разных — это всё та же
+-- невозможность сосредоточиться, а не двойная: −100 на кубике в сотню
+-- означало бы, что второй провокатор отнял у цели действия вообще.
+-- Берётся один штраф, если хоть одна висящая провокация пришла НЕ от
+-- того, по кому сейчас бросок.
+-- ============================================================
+
+--- Объявляет ли эффект себя провокацией.
+function SB.ActiveEffects.IsTaunt(spellID)
+    local sp  = SB.Data.Spells[spellID]
+    local def = sp and sp.effect
+    return (type(def) == "table" and def.taunt == true) or false
+end
+
+--- Штраф к броску, который дают висящие провокации.
+--- @param versus string|nil  по кому идёт бросок; nil — неизвестно
+--- @return number  0 или Config.TauntPenalty, number|nil  имя провокатора
+function SB.ActiveEffects.GetTauntPenalty(versus)
+    for _, eff in ipairs(effects) do
+        if SB.ActiveEffects.IsTaunt(eff.spellID) then
+            -- Своего провокатора бьём без штрафа — в этом вся механика.
+            if not (versus and eff.src and eff.src == versus) then
+                return (tonumber(SB.Data.Config.TauntPenalty) or -50), eff.src
+            end
+        end
+    end
+    return 0, nil
+end
+
+--- Кто наложил этот висящий эффект (или nil — неизвестно).
+--- Нужна подсказке на иконке: «провокация от Лайки» объясняет штраф,
+--- которого игрок иначе не понял бы вовсе.
+function SB.ActiveEffects.SourceOf(spellID)
+    for _, eff in ipairs(effects) do
+        if eff.spellID == spellID then return eff.src end
+    end
+    return nil
+end
+
 --- "buff" | "debuff". Эффект без объявленных mods считается баффом:
 --- почти все контейнеры в аддоне — это «состояние на себе».
 function SB.ActiveEffects.GetKind(spellID)
@@ -612,6 +694,110 @@ function SB.ActiveEffects.GetMod(key)
     return total, parts
 end
  
+-- ============================================================
+-- ЗАПАС МАГИЧЕСКОЙ БРОНИ: СВОЙ СЧЁТ У КАЖДОГО ОБЕРЕГА
+--
+-- ЗАЧЕМ ЭТО ЗДЕСЬ. Броня — расходуемый запас, и до сих пор расход у неё
+-- был ОДИН на все источники: одно число armorSpent на надетое железо и
+-- на все висящие обереги разом. Пока обереги только появлялись, это
+-- работало — новый эффект поднимал максимум, и прибавка приходила
+-- свежей. Ломалось всё на ПОВТОРНОМ наложении, а «Щит» на то и щит,
+-- чтобы вешать его снова, когда прежний пробили:
+--
+--   щит пробит, висит          максимум не двигается, расход прежний —
+--                              повторный каст не давал РОВНО НИЧЕГО;
+--   щит пробит и успел спасть  максимум поднимался с нуля до тридцати,
+--                              а расход в тридцать всплывал обратно
+--                              долгом — то есть росла только верхняя
+--                              цифра, а защиты игрок опять не получал.
+--
+-- ПОЧЕМУ НЕ ОДНИМ ЧИСЛОМ. Соблазн был: «при наложении вернуть в общий
+-- запас столько, сколько даёт оберег». Это дыра — повесив щит на
+-- помятые латы и тут же обновив его, игрок чинил бы латы, которые
+-- чинятся только Долгим Отдыхом. Отличить «пробили щит» от «пробили
+-- латы» одним числом нельзя, поэтому расход оберега и лежит в самом
+-- обереге: спал он — и расход спал вместе с ним, а не остался долгом.
+--
+-- ТРАТИТСЯ ОБЕРЕГ ПЕРВЫМ (см. SB.Skills.AbsorbDamage), и это не
+-- мелочь: латы возвращает только Долгий Отдых, а оберег — повторный
+-- каст. Порядок бережёт то, что дороже восстановить.
+-- ============================================================
+
+--- Сколько единиц брони даёт именно этот эффект. Минус сюда не идёт:
+--- «−20 брони» проклятия — это просадка максимума, а не запас, который
+--- можно истратить (см. SB.Skills.GetArmorFromEffects).
+local function ArmorOf(spellID)
+    local def = SB.ActiveEffects.GetEffectDef(spellID)
+    local v   = def and def.mods and def.mods.armor
+    return math.max(0, tonumber(v) or 0)
+end
+
+--- Сколько единиц брони этот эффект уже отдал. Прижато к его же
+--- прибавке: определение эффекта могли и поправить между сессиями.
+local function ArmorUsedOf(eff)
+    return math.min(math.max(0, tonumber(eff.armorUsed) or 0), ArmorOf(eff.spellID))
+end
+
+--- Сколько магической брони истрачено всеми оберегами разом.
+function SB.ActiveEffects.GetArmorUsed()
+    local used = 0
+    for _, eff in ipairs(effects) do used = used + ArmorUsedOf(eff) end
+    return used
+end
+
+--- Истратить units единиц магической брони. Идёт по списку сверху вниз;
+--- какой именно оберег просядет первым, не важно — видна только сумма.
+--- @return number  сколько реально истрачено (меньше units — запас кончился)
+function SB.ActiveEffects.SpendArmor(units)
+    units = math.floor(tonumber(units) or 0)
+    if units <= 0 then return 0 end
+
+    local spent = 0
+    for _, eff in ipairs(effects) do
+        if spent >= units then break end
+        local used = ArmorUsedOf(eff)
+        local take = math.min(ArmorOf(eff.spellID) - used, units - spent)
+        if take > 0 then
+            eff.armorUsed = used + take
+            spent = spent + take
+        end
+    end
+    if spent > 0 then SaveEffects() end
+    return spent
+end
+
+--- Вернуть units единиц магической брони (починка). В ОБРАТНОМ порядке:
+--- чинится сначала то, что истратилось последним.
+--- @return number  сколько реально возвращено
+function SB.ActiveEffects.RestoreArmor(units)
+    units = math.floor(tonumber(units) or 0)
+    if units <= 0 then return 0 end
+
+    local back = 0
+    for i = #effects, 1, -1 do
+        if back >= units then break end
+        local eff  = effects[i]
+        local used = ArmorUsedOf(eff)
+        local give = math.min(used, units - back)
+        if give > 0 then
+            eff.armorUsed = used - give
+            back = back + give
+        end
+    end
+    if back > 0 then SaveEffects() end
+    return back
+end
+
+--- Забыть весь расход оберегов. Долгий Отдых, и только он — вместе с
+--- запасом надетого (см. SB.Skills.ResetArmor).
+function SB.ActiveEffects.ResetArmorUsed()
+    local any = false
+    for _, eff in ipairs(effects) do
+        if (tonumber(eff.armorUsed) or 0) ~= 0 then eff.armorUsed, any = 0, true end
+    end
+    if any then SaveEffects() end
+end
+
 -- ============================================================
 -- ПРИБАВКА К УРОНУ С УЧЁТОМ ШКОЛЫ
 --
@@ -1271,7 +1457,11 @@ local function DropSuppressed(containerSpellID)
     return dropped, table.concat(names, ", ")
 end
 
-function SB.ActiveEffects.Add(containerSpellID, duration, isConc)
+--- @param source string|nil  кто наложил. Нужен ТОЛЬКО провокации
+---        (см. врезку «ПРОВОКАЦИЯ» выше) — прочим эффектам всё равно, от
+---        кого они пришли, и требовать имя на каждом из тринадцати путей
+---        наложения было бы платой без покупки.
+function SB.ActiveEffects.Add(containerSpellID, duration, isConc, source)
     if not containerSpellID then return end
     if not SB.Data.Spells[containerSpellID] then return end
 
@@ -1285,12 +1475,19 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc)
     -- ТОЛЬКО ДЕБАФФ: сопротивляются чужому вмешательству, а не помощи
     -- союзника — иначе развитая Воля укорачивала бы собственные баффы.
     --
+    -- И ТОЛЬКО ВМЕШАТЕЛЬСТВО В ВОЛЮ — оглушение, контроль, ослепление,
+    -- замедление (см. SB.Data.WillCutsDuration). Прежде Воля резала срок
+    -- ЛЮБОМУ дебаффу, то есть один навык защищал от всей вредной половины
+    -- библиотеки разом: и от яда, и от кровотечения, и от проклятия, у
+    -- которых для этого есть свои ответы.
+    --
     -- НИЖЕ ОДНОГО ХОДА НЕ ОПУСКАЕТСЯ, и бессрочное не трогается вовсе:
     -- срезать «до конца сцены» на четыре хода не значит ничего, а
     -- испортить сентинел (-1) значит превратить его в отрицательный срок.
     local turns = duration
     if turns and turns ~= INFINITE and (tonumber(turns) or 0) > 0
        and SB.ActiveEffects.GetKind(containerSpellID) == "debuff"
+       and SB.Data.WillCutsDuration and SB.Data.WillCutsDuration(containerSpellID)
        and SB.Skills and SB.Skills.GetWillDurationCut then
         local cut = SB.Skills.GetWillDurationCut()
         if cut > 0 then
@@ -1343,6 +1540,17 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc)
         if eff.spellID == containerSpellID then
             eff.uses   = duration or 1
             eff.isConc = isConc or false
+            -- ИСТОЧНИК ПЕРЕПИСЫВАЕТСЯ, а не сохраняется: провокацию
+            -- перебивает тот, кто провоцировал последним. Иначе первый
+            -- провокатор держал бы цель до конца срока, а второй тратил
+            -- бы ход на то, чтобы продлить внимание к сопернику.
+            eff.src    = source or eff.src
+            -- ПОВТОРНОЕ НАЛОЖЕНИЕ ОБНОВЛЯЕТ И САМ ОБЕРЕГ, а не только
+            -- его срок: пробитый «Щит» на то и перекладывают, чтобы он
+            -- снова держал. Пока расход оберега жил в общем числе
+            -- armorSpent, этой строке было негде стоять, и повторный
+            -- каст щита не давал ничего (см. врезку о запасе выше).
+            eff.armorUsed = 0
             Redraw(); FireChanged()
             if breaksConc then SB.ActiveEffects.BreakOn("controlled") end
             return
@@ -1355,9 +1563,13 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc)
     end
 
     table.insert(effects, {
-        spellID = containerSpellID,
-        uses    = duration or 1,
-        isConc  = isConc or false,
+        spellID   = containerSpellID,
+        uses      = duration or 1,
+        isConc    = isConc or false,
+        src       = source,
+        -- Ноль явно: свежий оберег ничего ещё не отдал, а поле читается
+        -- сложением (см. SB.ActiveEffects.GetArmorUsed).
+        armorUsed = 0,
     })
 
     -- ПОДАВИТЕЛЬ ЧИСТИТ ЗА СОБОЙ. После вставки, а не до: «Свобода
@@ -1682,7 +1894,13 @@ function SB.ActiveEffects.ApplyPayload(spellID, def, source)
     -- PM.GrantHealth и PM.Heal, и повторять его условия снаружи значило
     -- бы завести вторую копию правила.
     local hpBefore = PM.GetHealth()
-    if dmg > 0 then PM.GrantHealth(-dmg) end
+    -- ПЛАТА ЗА СВОЙ КАСТ — «self», тик чужих чар — урон извне. Тот же
+    -- водораздел, что у сопротивления парой десятков строк выше: «Жизнеотвод»
+    -- платит своей кровью, и ни сопротивляться ей, ни срывать ею полиморф
+    -- нельзя (см. врезку у PM.GrantHealth).
+    if dmg > 0 then
+        PM.GrantHealth(-dmg, (source ~= "tick") and "self" or nil)
+    end
     if heal > 0 then PM.Heal(heal) end
     local hpMoved = PM.GetHealth() - hpBefore
 
@@ -2421,10 +2639,21 @@ function SB.ActiveEffects.BreakOn(trigger)
     breaking = false
 end
 
-SB.Events.On(SB.E.HEALTH_CHANGED, function(_, _, delta)
+SB.Events.On(SB.E.HEALTH_CHANGED, function(_, _, delta, cause)
     delta = tonumber(delta) or 0
     if delta < 0 then
-        SB.ActiveEffects.BreakOn("damaged")
+        -- СВОЯ ПЛАТА УРОНОМ НЕ СЧИТАЕТСЯ. Усталость от бега и цена
+        -- собственного каста — это не «тебя задели», и держать на них
+        -- breakOn значило бы отдавать любой контроль за одну единицу
+        -- здоровья: вышел за предел передвижения — полиморф снят
+        -- (см. врезку у PM.GrantHealth).
+        --
+        -- ТИК ЧУЖИХ ЧАР — УРОН, и он срывает как раньше: кровотечение и
+        -- яд бьют по-настоящему, а то, что удар пришёл не в этот миг, а
+        -- три хода назад, полиморфу безразлично.
+        if cause ~= "self" then
+            SB.ActiveEffects.BreakOn("damaged")
+        end
     elseif delta > 0 then
         -- ЛЮБОЕ исцеление, а не только заклинание лекаря: отдых, тик
         -- регенерации, правка Ведущего — рана закрыта, и чем именно, для
@@ -2460,6 +2689,13 @@ function SaveEffects()
             spellID = eff.spellID,
             uses    = eff.uses,
             isConc  = eff.isConc,
+            -- Расход оберега переживает перезаход в игру ровно так же,
+            -- как расход надетого доспеха: и то и другое возвращает
+            -- Долгий Отдых, а не /reload.
+            armorUsed = eff.armorUsed,
+            -- И провокатор тоже: /reload посреди сцены не должен
+            -- превращать адресную провокацию в безадресную.
+            src       = eff.src,
         })
     end
     SpellbreakerCharDB.activeEffects = t
@@ -2473,9 +2709,11 @@ function SB.ActiveEffects.LoadFromDB()
         -- Проверяем что заклинание ещё существует
         if SB.Data.Spells[entry.spellID] then
             table.insert(effects, {
-                spellID = entry.spellID,
-                uses    = entry.uses or 1,
-                isConc  = entry.isConc or false,
+                spellID   = entry.spellID,
+                uses      = entry.uses or 1,
+                isConc    = entry.isConc or false,
+                armorUsed = tonumber(entry.armorUsed) or 0,
+                src       = (type(entry.src) == "string") and entry.src or nil,
             })
         end
     end
