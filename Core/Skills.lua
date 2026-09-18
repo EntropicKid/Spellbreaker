@@ -89,13 +89,18 @@ end
 
 --- Сколько всего очков навыков положено персонажу на его уровне.
 --- 3 базовых + 1 за каждый уровень персонажа.
+-- Очки навыков на старте — до прибавки за уровень. Отдельной ручкой, а
+-- не числом в формуле, по той же причине, что у очков характеристик:
+-- это число двигают при балансировке.
+local SKILL_POINTS_START = 4
+
 function SB.Skills.GetTotalPoints(level)
     level = level or UnitLevel("player") or 1
     -- Тот же стретч, что и у очков атрибутов (см. Core/Attributes.lua) —
     -- floor обязателен: ToReferenceLevel может вернуть дробное число.
     -- Раса и класс могут дать лишние очки навыков (Ночной эльф,
     -- Разбойник) — см. SB.Data.RaceProfiles / ClassProfiles.
-    return 3 + math.floor(SB.Data.ToReferenceLevel(level))
+    return SKILL_POINTS_START + math.floor(SB.Data.ToReferenceLevel(level))
         + SB.Data.GetSoftBonus("skillPoints")
 end
 
@@ -150,6 +155,12 @@ function SB.Skills.GetEffective(skillName)
     local base = SB.Skills.Get(skillName)
     if SB.ActiveEffects and SB.ActiveEffects.GetStatMod then
         base = base + (SB.ActiveEffects.GetStatMod(skillName))
+    end
+    -- ОРУЖИЕ — тем же слагаемым, что эффекты: «Меч +2 к Точности»
+    -- двигает само значение навыка, а через него — и всё, что от навыка
+    -- считается (см. SB.Skills.GetWeaponStatBonus).
+    if SB.Skills.GetWeaponStatBonus then
+        base = base + (SB.Skills.GetWeaponStatBonus(skillName))
     end
     return base
 end
@@ -331,22 +342,26 @@ function SB.Skills.GetVitalityBonus()
     return Over("Живучесть")
 end
 
--- ── Атлетика: +3 метра передвижения за ход за вложенное очко ─
+-- ── Атлетика: метр передвижения за ход за вложенное очко ───────
 -- Единственный навык, который двигает не бросок, а сам ход (см.
--- Core/Movement.lua). Шаг тут крупный НАМЕРЕННО: при базе в 12 метров
--- прибавка в метр-другой не изменила бы ничего, а +3 за очко означает,
--- что вложенная Атлетика 5 удваивает ход — то есть навык «бегает
--- быстрее всех» действительно бегает быстрее всех.
---- ШТРАФА ЗДЕСЬ НЕТ, И ЭТО ЕДИНСТВЕННОЕ ИСКЛЮЧЕНИЕ.
+-- Core/Movement.lua).
+--
+-- МЕТР, А НЕ ТРИ. Три метра за очко стояли, пока база была двенадцать:
+-- вложенная пятёрка тогда удваивала ход, и «Атлетика» перекрывала всё
+-- остальное, что двигает передвижение. Теперь база сама пятнадцать, и
+-- навык — надбавка к ней, а не второй ход поверх первого.
+--
+--- ШТРАФ ТЕПЕРЬ ЕСТЬ — в ту же единицу, что и прибавка.
 ---
---- Все прочие пассивки работают в обе стороны, но передвижение —
---- особый случай: предел за ход и так невелик, и подавленная «Атлетика»
---- срезала бы его до нуля. Персонаж, который не может СДВИНУТЬСЯ, не
---- ослаблен — он выключен из сцены, а это уже не штраф, а лишение хода.
---- Дебафф на скорость по-прежнему возможен, но идёт отдельным каналом
---- movePct, где у него свой предел (см. SB.Movement.GetCap).
+--- Прежде он был единственным исключением среди пассивок: при трёх
+--- метрах за очко подавленная «Атлетика» срезала бы предел до нуля, а
+--- персонаж, который не может сдвинуться, не ослаблен — он выключен из
+--- сцены. При метре за очко и базе в пятнадцать тот же довод больше не
+--- держит: дебафф в минус три отнимает три шага из пятнадцати. А на
+--- самый крайний случай снизу стоит тот же пол, что держит замедление
+--- (Config.MoveCapMin, см. SB.Movement.GetDefaultCap).
 function SB.Skills.GetAthleticsMoveBonus()
-    return OverNonNegative("Атлетика") * 3
+    return Over("Атлетика")
 end
 
 -- ── Эрудиция: +1 к лимиту подготовки за вложенное очко ──────
@@ -473,6 +488,7 @@ local ARMOR_SLOTS = {
 -- ============================================================
 local WEAPON_CLASS_ID = 2         -- LE_ITEM_CLASS_WEAPON
 local SHIELD_SUBCLASS = 6         -- Броня → Щит
+local OFFHAND_ITEM_SUBCLASS = 0   -- Броня → Разное: в левой руке это «предмет в левой руке»
 
 -- Слоты: 16 — правая рука, 17 — левая, 18 — «дальний бой». Слота 18 в
 -- 9.2.7 уже нет — луки переехали в правую руку ещё в Legion, — но стоит
@@ -556,10 +572,31 @@ local function EquipState()
     -- kinds: вид → имя предмета, который его закрывает. Имя нужно
     -- отказу («нужен кинжал, а у тебя меч» читается лучше, чем просто
     -- «нужен кинжал»), а ключ — самой проверке.
-    local state = { shield = false, ranged = false, rangedName = nil, kinds = {} }
+    --
+    -- counts: вид → СКОЛЬКО таких в руках. Нужен бонусам оружия
+    -- (см. SB.Data.WeaponBonuses): два кинжала дают вдвое, и одного
+    -- «есть кинжал» для этого мало.
+    local state = { shield = false, ranged = false, rangedName = nil,
+                    kinds = {}, counts = {} }
+    local function Count(kind) state.counts[kind] = (state.counts[kind] or 0) + 1 end
 
     local classID, subclassID = SlotItem(OFFHAND_SLOT)
     state.shield = (classID == ARMOR_CLASS_ID and subclassID == SHIELD_SUBCLASS)
+    if state.shield then Count("shield") end
+    -- ПРЕДМЕТ В ЛЕВОЙ РУКЕ — том, сфера, фонарь: в клиенте это броня
+    -- без подкласса (classID 4, subclassID 0), и в левом слоте ничем
+    -- другим она быть не может.
+    if classID == ARMOR_CLASS_ID and subclassID == OFFHAND_ITEM_SUBCLASS then
+        Count("offhand")
+    end
+
+    -- СВОБОДНАЯ РУКА — ПУСТОЙ СЛОТ, и только в двух слотах рук. Слот
+    -- дальнего боя (18) рукой не был никогда, и пустым он стоит у всех.
+    -- Двуручник при этом левую руку не занимает: пустой слот и есть
+    -- свободная рука (см. врезку у SB.Data.WeaponBonuses).
+    for _, slot in ipairs({ MAINHAND_SLOT, OFFHAND_SLOT }) do
+        if not SlotItem(slot) then Count("unarmed") end
+    end
 
     -- ВСЕ ТРИ СЛОТА, А НЕ ДВА. Левая рука сюда добавилась вместе с
     -- видами: кинжал во второй руке — это кинжал, и «Удар в спину» им
@@ -571,6 +608,7 @@ local function EquipState()
         if def then
             for _, kind in ipairs(def.kinds) do
                 state.kinds[kind] = state.kinds[kind] or def.name
+                Count(kind)
             end
         end
     end
@@ -595,6 +633,14 @@ if CreateFrame then
         -- следующего действия.
         if SB.UI and SB.UI.RefreshCastButtons then SB.UI.RefreshCastButtons() end
         if SB.SpellBar and SB.SpellBar.RefreshState then SB.SpellBar.RefreshState() end
+        -- Оружие двигает цифры листа (см. SB.Data.WeaponBonuses): потолок
+        -- ресурса, лимит подготовки, навыки, броню. Модель освежает свои
+        -- потолки по этому событию, а статус с новым maxZeal уходит
+        -- группе — по нему сверяют наш вложенный ресурс.
+        if SB.Events and SB.E and SpellbreakerCharDB then
+            SB.Events.Fire(SB.E.PLAYER_MODEL_CHANGED)
+            SB.Events.Fire(SB.E.STATUS_CHANGED)
+        end
     end)
 end
 
@@ -603,12 +649,120 @@ end
 -- кто угодно — а кому это по классу можно, решает сам клиент (надеть
 -- щит магу он не даст). Если однажды понадобится гейт по навыку —
 -- это одна строка здесь, рядом с латами.
-local SHIELD_ARMOR = 10
-SB.Data.ShieldArmor = SHIELD_ARMOR
+-- ЧИСЛО ЖИВЁТ В ТАБЛИЦЕ БОНУСОВ ОРУЖИЯ (SB.Data.WeaponBonuses.shield),
+-- а не здесь: щит — один из видов оружия со своей чертой, и держать его
+-- число отдельно от остальных значило бы завести второй источник правды.
+-- Наружу — для подсказок, которые называют число словами.
+SB.Data.ShieldArmor = (SB.Data.WeaponBonuses and SB.Data.WeaponBonuses.shield
+                       and SB.Data.WeaponBonuses.shield.value) or 15
 
 --- Экипирован ли щит (левая рука).
 function SB.Skills.HasShield()
     return EquipState().shield
+end
+
+--- СКОЛЬКО ПРЕДМЕТОВ КАЖДОГО ВИДА В РУКАХ — копией, для подсказок.
+--- @return table  { [вид] = число }
+function SB.Skills.GetWeaponCounts()
+    local out = {}
+    for k, v in pairs(EquipState().counts) do out[k] = v end
+    return out
+end
+
+--- Сколько раз засчитать бонус этого вида: столько, сколько предметов
+--- в руках, если он складывается, и один, если нет.
+local function TimesFor(key, def)
+    local n = EquipState().counts[key] or 0
+    if n <= 0 then return 0 end
+    if not def.stacks then return 1 end
+    return n
+end
+
+--- Одна строка разбивки: «Кинжал ×2» — число предметов видно сразу, и
+--- удвоенная прибавка не выглядит опечаткой.
+local function PartOf(key, def, times, value)
+    return { key = "weapon_" .. key,
+             label = def.label .. ((times > 1) and (" ×" .. times) or ""),
+             value = value }
+end
+
+--- БОНУС ОРУЖИЯ В КАНАЛЕ — сумма и разбивка по видам.
+---
+--- Таблица бонусов — в SB.Data.WeaponBonuses; здесь только правило
+--- счёта. Разбивка отсортирована по подписи: pairs() даёт каждый раз
+--- новый порядок, а строки в подсказке прыгать не должны.
+--- @param channel string  канал из таблицы (armor, rollFloor, …)
+--- @return number total, table parts
+function SB.Skills.GetWeaponBonus(channel)
+    local total, parts = 0, {}
+    for key, def in pairs(SB.Data.WeaponBonuses or {}) do
+        if def.channel == channel then
+            local times = TimesFor(key, def)
+            if times > 0 then
+                local v = (tonumber(def.value) or 0) * times
+                total = total + v
+                parts[#parts + 1] = PartOf(key, def, times, v)
+            end
+        end
+    end
+    table.sort(parts, function(a, b) return a.label < b.label end)
+    return total, parts
+end
+
+--- БОНУС ОРУЖИЯ К ЗНАЧЕНИЮ НАВЫКА ИЛИ АТРИБУТА.
+--- @param statKey string  имя навыка или атрибута
+--- @return number total, table parts
+function SB.Skills.GetWeaponStatBonus(statKey)
+    local total, parts = 0, {}
+    if not statKey then return 0, parts end
+    for key, def in pairs(SB.Data.WeaponBonuses or {}) do
+        if def.stat == statKey then
+            local times = TimesFor(key, def)
+            if times > 0 then
+                local v = (tonumber(def.value) or 0) * times
+                total = total + v
+                parts[#parts + 1] = PartOf(key, def, times, v)
+            end
+        end
+    end
+    table.sort(parts, function(a, b) return a.label < b.label end)
+    return total, parts
+end
+
+-- Как назвать прибавку канала словами. Без записи тут строка вышла бы
+-- голым ключом — и это видно сразу, а не молча.
+local WEAPON_CHANNEL_TEXT = {
+    armor           = "%s брони",
+    maxCastResource = "%s к максимуму ресурса",
+    rollFloor       = "%s к нижней грани кубика",
+    rollCeil        = "%s к верхней грани кубика",
+    prepared        = "%s к лимиту подготовки",
+    meleeRange      = "%s м к дальности ближнего боя",
+    rangedRange     = "%s м к дальности дальнего боя",
+}
+SB.Data.WeaponChannelText = WEAPON_CHANNEL_TEXT
+
+--- ЧТО СЕЙЧАС ДАЁТ ТО, ЧТО В РУКАХ — строками для подсказки портрета.
+--- Порядок — по подписи, как и у разбивок.
+--- @return table  { { label = "Кинжал ×2", text = "+10 к верхней грани кубика" }, … }
+function SB.Skills.DescribeWeaponBonuses()
+    local rows = {}
+    for key, def in pairs(SB.Data.WeaponBonuses or {}) do
+        local times = TimesFor(key, def)
+        if times > 0 then
+            local v   = (tonumber(def.value) or 0) * times
+            local num = ((v > 0) and "+" or "") .. string.format("%g", v)
+            local text
+            if def.stat then
+                text = string.format("%s к «%s»", num, def.stat)
+            else
+                text = string.format(WEAPON_CHANNEL_TEXT[def.channel] or ("%s " .. tostring(def.channel)), num)
+            end
+            rows[#rows + 1] = { label = PartOf(key, def, times, v).label, text = text }
+        end
+    end
+    table.sort(rows, function(a, b) return a.label < b.label end)
+    return rows
 end
 
 --- Экипировано ли оружие дальнего боя.
@@ -679,10 +833,11 @@ function SB.Skills.GetArmorBase()
         end
     end
 
-    -- Щит — плоские единицы поверх надетого (см. SHIELD_ARMOR).
-    if SB.Skills.HasShield() then
-        points = points + SHIELD_ARMOR
-    end
+    -- Щит и всё прочее, что в руках даёт броню, — из таблицы бонусов
+    -- оружия (см. SB.Skills.GetWeaponBonus). В НАДЕТЫЙ запас, как щит
+    -- шёл всегда: это вещь в руках, а не чары, и возвращает её расход
+    -- Долгий Отдых, а не повторный каст.
+    points = points + (SB.Skills.GetWeaponBonus("armor"))
 
     -- Раса и класс: Дворф, Воин, Паладин, Рыцарь смерти носят железо
     -- лучше прочих. Тоже без требования к навыку.
@@ -1225,7 +1380,8 @@ SB.Data.SkillDescriptions = {
 -- ============================================================
 SB.Data.SkillEffects = {
     ["Живучесть"]      = "+1 к максимуму здоровья за каждое вложенное очко.",
-    ["Атлетика"]       = "+3 метра передвижения за ход за каждое вложенное очко.",
+    ["Атлетика"]       = "+1 метр передвижения за ход за каждое вложенное очко; " ..
+                         "подавленная — столько же отнимает.",
     ["Исток"]          = "+1 к максимуму Маны за каждое вложенное очко (только кастеры).",
     ["Эрудиция"]       = "+1 к лимиту ПОДГОТОВЛЕННЫХ заклинаний за каждое вложенное очко. " ..
                          "Общий потолок подготовки — 15, выше него не поднимает " ..

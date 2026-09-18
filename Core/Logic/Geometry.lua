@@ -59,6 +59,14 @@ function SB.Logic.GetSpellRange(spell)
     if base <= 0 then return 0 end
     local mod = (SB.ActiveEffects and SB.ActiveEffects.GetMod
                  and SB.ActiveEffects.GetMod("range")) or 0
+    -- ОРУЖИЕ — ПО ВИДУ ПРИЁМА, А НЕ ПО ВИДУ ОРУЖИЯ. Древковое удлиняет
+    -- только ближний бой (2.5 → 4 м), арбалет — только то, что и так
+    -- бьёт дальше вытянутой руки. Вид приёма решает записанная
+    -- дальность: эффект «удлинить руки» ближний бой дальним не делает.
+    if SB.Skills and SB.Skills.GetWeaponBonus then
+        local channel = (base <= MELEE_RANGE) and "meleeRange" or "rangedRange"
+        mod = mod + ((SB.Skills.GetWeaponBonus(channel)) or 0)
+    end
     if mod == 0 then return base end
     return math.max(MELEE_RANGE, base + mod)
 end

@@ -576,6 +576,11 @@ function PM.GetMaxPrepared()
     if SB.Skills and SB.Skills.GetEruditionPreparedBonus then
         total = total + SB.Skills.GetEruditionPreparedBonus()
     end
+    -- Предмет в левой руке (том, сфера) — под тем же потолком, что и всё
+    -- остальное: оружие не пробивает Config.MaxPreparedHard.
+    if SB.Skills and SB.Skills.GetWeaponBonus then
+        total = total + (SB.Skills.GetWeaponBonus("prepared"))
+    end
     local hard = tonumber(SB.Data.Config.MaxPreparedHard) or 15
     return math.max(1, math.min(hard, total))
 end
@@ -630,6 +635,11 @@ function PM.GetMaxZeal()
         base = base + (SB.ActiveEffects.GetMod("maxMana"))
                     + (SB.ActiveEffects.GetMod("maxCastResource"))
     end
+    -- Посох — в общий «ресурс каста», как и эффекты этого канала: мана
+    -- у кастера, свой ресурс у некастера (см. SB.Data.WeaponBonuses).
+    if SB.Skills and SB.Skills.GetWeaponBonus then
+        base = base + (SB.Skills.GetWeaponBonus("maxCastResource"))
+    end
     -- Раса И класс разом: GetSoftBonus складывает оба профиля (см.
     -- SB.Data.GetSoftBonus). Здесь раньше стояло ещё и отдельное
     -- слагаемое GetClassProfile().resource — классовый сдвиг попадал
@@ -681,6 +691,11 @@ function PM.GetMaxClassResource()
     if SB.ActiveEffects and SB.ActiveEffects.GetMod then
         base = base + (SB.ActiveEffects.GetMod("maxResource"))
                     + (SB.ActiveEffects.GetMod("maxCastResource"))
+    end
+    -- Посох — в общий «ресурс каста», как и эффекты этого канала: мана
+    -- у кастера, свой ресурс у некастера (см. SB.Data.WeaponBonuses).
+    if SB.Skills and SB.Skills.GetWeaponBonus then
+        base = base + (SB.Skills.GetWeaponBonus("maxCastResource"))
     end
     -- Раса + класс одним слагаемым (см. комментарий в PM.GetMaxZeal).
     base = base + SB.Data.GetSoftBonus("resource")
@@ -1223,6 +1238,16 @@ end
 -- игру лечил бы игрока на величину его же собственных сохранённых баффов.
 -- ============================================================
 local lastMaxHealth, lastMaxResource
+-- Доля потолка ресурса, которую даёт оружие (посох). Отдельно — см.
+-- ветку «оружие двигает потолок, но не наливает» в PM.SyncToMaximums.
+local lastWeaponResource
+
+local function WeaponResource()
+    if SB.Skills and SB.Skills.GetWeaponBonus then
+        return (SB.Skills.GetWeaponBonus("maxCastResource")) or 0
+    end
+    return 0
+end
 
 --- Одна и та же арифметика для здоровья и для ресурса.
 --- @return number|nil newValue  nil, если менять нечего
@@ -1292,6 +1317,28 @@ function PM.SyncToMaximums()
             end
         end
     end
+
+    -- ОРУЖИЕ ДВИГАЕТ ПОТОЛОК, НО НЕ НАЛИВАЕТ. Бафф на максимум даёт и
+    -- запас — он стоит каста и снимается рассеиванием. Посох снимается и
+    -- надевается бесплатно, и поступи он так же, каждая пара «снял —
+    -- надел» приносила бы единицу маны: при 2/6 снять (2/5), надеть (3/6)
+    -- — и так до полного. Поэтому сдвиг от оружия переносит опорную точку
+    -- молча: надетый посох даёт место под ману, а саму ману — отдых.
+    -- Снятый срезает лишнее тем же правилом, что и любой спад потолка.
+    local wRes = WeaponResource()
+    if lastMaxResource and lastWeaponResource and wRes ~= lastWeaponResource then
+        local shift = wRes - lastWeaponResource
+        if shift < 0 then
+            local cur = d[resKey] or lastMaxResource
+            local newRes = FollowMax(cur, lastMaxResource, lastMaxResource + shift)
+            if newRes then
+                d[resKey] = math.max(0, newRes)
+                changed = true
+            end
+        end
+        lastMaxResource = lastMaxResource + shift
+    end
+    lastWeaponResource = wRes
 
     if lastMaxResource and maxRes ~= lastMaxResource then
         local newRes = FollowMax(d[resKey] or lastMaxResource, lastMaxResource, maxRes)

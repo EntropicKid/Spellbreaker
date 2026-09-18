@@ -572,6 +572,18 @@ local function BuildSkillRow(parent, attrKey, skillName, yOff)
         -- этого ответа в подсказку и заглядывают.
         if SB.ActiveEffects and SB.ActiveEffects.GetStatMod then
             local delta, parts = SB.ActiveEffects.GetStatMod(skillName)
+            -- Оружие — строками той же разбивки («Меч ×2 +4»): игрок
+            -- должен видеть, откуда в значении прибавка, которую он не
+            -- вкладывал (см. SB.Skills.GetWeaponStatBonus).
+            if SB.Skills.GetWeaponStatBonus then
+                local wDelta, wParts = SB.Skills.GetWeaponStatBonus(skillName)
+                if wDelta ~= 0 then
+                    local merged = {}
+                    for _, p in ipairs(parts or {}) do merged[#merged + 1] = p end
+                    for _, p in ipairs(wParts) do merged[#merged + 1] = p end
+                    delta, parts = delta + wDelta, merged
+                end
+            end
             if delta ~= 0 then
                 GameTooltip:AddLine(" ")
                 GameTooltip:AddLine("|cFFFFD100Что на него влияет:|r", 1, 0.82, 0)

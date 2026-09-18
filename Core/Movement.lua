@@ -176,13 +176,18 @@ end
 --- Кап «по умолчанию» — конфиг, навык и профили, без персональной
 --- правки Ведущего и без висящих эффектов.
 function SB.Movement.GetDefaultCap()
-    local base = tonumber(SB.Data.Config and SB.Data.Config.MoveCap) or 12
-    -- «Атлетика» — +3 метра за очко сверх 1 (см. Core/Skills.lua).
+    local base = tonumber(SB.Data.Config and SB.Data.Config.MoveCap) or 15
+    -- «Атлетика» — метр за вложенное очко, в обе стороны (см. Core/Skills.lua).
     if SB.Skills and SB.Skills.GetAthleticsMoveBonus then
         base = base + SB.Skills.GetAthleticsMoveBonus()
     end
     base = base + (SB.Data.GetSoftBonus and SB.Data.GetSoftBonus("moveCap") or 0)
-    return math.max(0, base)
+    -- ПОДАВЛЕННАЯ «АТЛЕТИКА» НЕ ОБЕЗДВИЖИВАЕТ — тот же пол, что держит
+    -- замедление (Config.MoveCapMin, см. SB.Movement.GetCap). Штраф навыка
+    -- появился вместе с метром за очко, и без пола достаточно тяжёлый
+    -- дебафф на навык снова выключал бы персонажа из сцены.
+    local floor = tonumber(SB.Data.Config and SB.Data.Config.MoveCapMin) or 3
+    return math.max(floor, base)
 end
 
 --- Сколько метров ещё можно пройти до упора (0, если уже упёрся).

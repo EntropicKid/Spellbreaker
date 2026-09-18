@@ -64,9 +64,9 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
     mod = mod + hitBonus
     for _, p in ipairs(hitParts) do table.insert(modParts, p) end
 
-    local roll   = SB.Logic.Roll()
+    local roll, _, rollMax = SB.Logic.Roll()
     local total  = roll + mod
-    local isCrit = roll >= SB.Logic.GetCritThreshold(critBonus, 100)
+    local isCrit = roll >= SB.Logic.GetCritThreshold(critBonus, rollMax)
 
     -- ── Бросок защиты существа ────────────────────────────
     -- «Без сопротивления» действует и здесь: заклинание, которому нельзя
@@ -88,7 +88,7 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
         -- versus — мы сами: провокация на существе не мешает ему
         -- уворачиваться от того, кто её и наложил.
         defMod, defParts = SB.NPC.DefenseModifier(stats, "target", UnitName("player"))
-        defRoll  = SB.Logic.Roll()
+        defRoll  = SB.Logic.RollPlain()
         defTotal = defRoll + defMod
     end
     -- КРИТ ПОПАДАЕТ ВСЕГДА — то же правило, что в ПвП.

@@ -246,6 +246,12 @@ function SB.Attributes.GetEffective(key)
     if SB.ActiveEffects and SB.ActiveEffects.GetStatMod then
         val = val + (SB.ActiveEffects.GetStatMod(key))
     end
+    -- Оружие — тем же слагаемым, что и у навыков (см.
+    -- SB.Skills.GetWeaponStatBonus): сейчас в таблице бонусов только
+    -- навыки, но строка «Молот: +1 к Силе» не должна требовать правки кода.
+    if SB.Skills and SB.Skills.GetWeaponStatBonus then
+        val = val + (SB.Skills.GetWeaponStatBonus(key))
+    end
     return val
 end
 

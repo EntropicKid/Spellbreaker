@@ -578,6 +578,19 @@ local function BuildMainFrame()
             ProfileBlock(UnitRace("player") .. " — расовые особенности:", raceProf)
         end
 
+        -- ОРУЖИЕ — третьим блоком, рядом с кровью и классом: это тоже
+        -- «откуда у меня эта цифра», только снимается оно одной кнопкой
+        -- (см. SB.Data.WeaponBonuses). Пусто — блока нет.
+        local weaponRows = SB.Skills.DescribeWeaponBonuses and SB.Skills.DescribeWeaponBonuses() or {}
+        if #weaponRows > 0 then
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine("Оружие в руках:", 1, 0.82, 0)
+            for _, row in ipairs(weaponRows) do
+                GameTooltip:AddDoubleLine("  " .. row.label, row.text,
+                    0.9, 0.9, 0.9, 0.4, 1, 0.4)
+            end
+        end
+
         GameTooltip:AddLine(" ")
         GameTooltip:AddLine("Классы и расы намеренно не равны друг другу: сильная сторона " ..
             "одного всегда оплачена слабой стороной в другом месте.", 0.6, 0.6, 0.6, true)
@@ -665,6 +678,15 @@ local function BuildMainFrame()
         GameTooltip:AddLine(" ")
         local totalSign = (total >= 0) and "+" or ""
         GameTooltip:AddDoubleLine("Итого", totalSign .. total, 1, 0.82, 0, 1, 0.82, 0)
+        -- БРОНЯ — ОДНОЙ СТРОКОЙ У ЗАЩИТЫ. К броску она не прибавляется
+        -- (уворот — это Акробатика), но отвечает на соседний вопрос — «что
+        -- будет, если всё-таки попадут», — и своей плашки в шапке главного
+        -- окна у неё нет. Подробности — в подсказке «Ношения брони».
+        if scope == "defense" and SB.Skills and SB.Skills.GetArmorPoints then
+            GameTooltip:AddDoubleLine("Броня",
+                SB.Skills.GetArmorPoints() .. "/" .. SB.Skills.GetArmorMax(),
+                0.9, 0.9, 0.9, 1, 1, 1)
+        end
         if scope == "attack" then
             GameTooltip:AddLine(" ")
             -- МАСТЕРСТВО ШКОЛЫ ЗДЕСЬ ЖЕ, среди условных слагаемых: с

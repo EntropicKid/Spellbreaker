@@ -5540,8 +5540,13 @@ do
 
     -- Пол урона тот же, что в резолве: «0 урона» карточка обещать не
     -- должна (см. Config.MinDamageOnHit).
+    -- Коды цвета снимаем: строка урона окрашена типом (а у урона без
+    -- типа подписана «— Чистый»), и число в ней стоит не первым знаком.
+    -- Проверяется число, а не оформление.
+    local dmgLine = (LineFor("t_lines_atk", "Урон") or "")
+        :gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
     checkTrue("урон не опускается ниже единицы",
-        tonumber((LineFor("t_lines_atk", "Урон") or ""):match("^(%d+)"))
+        (tonumber(dmgLine:match("^(%d+)")) or 0)
             >= (SB.Data.Config.MinDamageOnHit or 1))
 
     -- Бафф без урона строку урона не получает вовсе.
@@ -5672,10 +5677,14 @@ do
     checkTrue("число урона на месте",
               colored ~= nil and colored:find("|c" .. DT.shadow.color .. "%d") ~= nil)
 
+    -- УРОН БЕЗ ТИПА — ЧИСТЫЙ, И ОБ ЭТОМ СКАЗАНО В КАРТОЧКЕ. Прежде
+    -- строка оставалась без подписи, а резист «ко всему» такой удар
+    -- молча гасил. Теперь у отсутствия типа есть имя и своё правило, и
+    -- игрок узнаёт его до того, как положится на свой резист.
     local plain = DamageLine("t_dmgplain")
     checkTrue("у заклинания без типа строка урона тоже есть", plain ~= nil)
-    checkTrue("но без цвета типа и без подписи",
-              plain ~= nil and plain:find(" — ", 1, true) == nil)
+    checkTrue("и она подписана «Чистый»",
+              plain ~= nil and plain:find(SB.Data.PURE_DAMAGE.name, 1, true) ~= nil)
 
     -- ЛЕЧЕНИЕ ТИПА НЕ ПОЛУЧАЕТ. Тип урона у лечения — это оксюморон, и
     -- покрасить строку «Лечение» значило бы объявить, каким уроном оно
@@ -5864,7 +5873,9 @@ do
     stub.world.equipped[17] = { 4, 6 }
     SB.Skills.ResetEquipCache()
     checkTrue("щит найден", SB.Skills.HasShield())
-    check("щит даёт +10 брони", SB.Skills.GetArmorPoints() - bare, 10)
+    check("щит даёт +15 брони", SB.Skills.GetArmorPoints() - bare, 15)
+    check("и число берётся из таблицы бонусов оружия",
+          SB.Data.ShieldArmor, SB.Data.WeaponBonuses.shield.value)
 
     -- Щит — только левая рука и только щит: меч в той же руке брони не
     -- даёт, а щит «в правой руке» клиент и надеть не позволит.
@@ -5873,7 +5884,7 @@ do
     checkTrue("меч в левой руке — не щит", not SB.Skills.HasShield())
     check("и брони не добавляет", SB.Skills.GetArmorPoints() - bare, 0)
 
-    -- Десять единиц — это ровно один вычет из каждого прошедшего удара.
+    -- Пятнадцать единиц — это один вычет из каждого прошедшего удара.
     stub.world.equipped = { [17] = { 4, 6 } }
     SB.Skills.ResetEquipCache()
     local withShield = SB.Skills.GetDamageReduction()
@@ -9017,11 +9028,19 @@ do
     checkTrue("и свой, теневой",      sh["resistShadow"])
     check("ровно три ключа", #SB.Data.ResistKeysFor("shadow"), 3)
 
-    -- НЕИЗВЕСТНАЯ ШКОЛА ЗАЩИЩЕНА ОБЩИМ, а не оставлена голой: тип урона
-    -- у своего заклинания игрок не пишет, и «нет школы — нет защиты»
-    -- означало бы, что от самоделок не спасает ничто.
-    check("у заклинания без школы работает общий резист",
-          #SB.Data.ResistKeysFor(nil), 1)
+    -- БЕЗ ШКОЛЫ — ЧИСТЫЙ, И НЕ ГАСИТ ЕГО НИЧТО, даже общий резист.
+    -- Прежде общий работал — «оставить голым хуже», — но это было
+    -- правило, которого игрок не видел: в карточке не стояло ни слова.
+    -- Теперь правило названо, и оно одно (см. SB.Data.PURE_DAMAGE).
+    check("чистый урон не гасит ни один резист",
+          #SB.Data.ResistKeysFor(nil), 0)
+    check("и опечатка в школе — тоже чистый",
+          #SB.Data.ResistKeysFor("огонь-опечатка"), 0)
+    check("тип без поля — «Чистый»",
+          SB.Data.GetDamageType({ id = "x" }), SB.Data.PURE_DAMAGE)
+    -- В реестре школ чистого нет: ключ сопротивления ему не нужен, и из
+    -- реестра строятся резисты и прибавки.
+    check("в реестре школ чистого нет", SB.Data.DamageTypes.pure, nil)
 
     -- ── РАСОВЫЕ РЕЗИСТЫ ─────────────────────────────────────
     -- Живыми данными: профили правятся руками, и опечатка в ключе
@@ -9370,7 +9389,7 @@ do
     local perDR = SB.Data.ArmorPerDR
 
     SB.TurnOrder.Stop()
-    -- Латы целиком плюс щит: 8 частей по 4 единицы и 10 за щит.
+    -- Латы целиком плюс щит: 8 частей по 4 единицы и 15 за щит.
     _G.SpellbreakerCharDB.attributes["Выносливость"] = 5
     SB.Skills.Set("Ношение брони", 5)
     stub.world.equipped = { [17] = { 4, 6 } }
@@ -9381,7 +9400,7 @@ do
     SB.Skills.ResetArmor()
 
     local max = SB.Skills.GetArmorMax()
-    check("латы и щит дают полный запас", max, 8 * 4 + 10)
+    check("латы и щит дают полный запас", max, 8 * 4 + 15)
     check("запас цел",           SB.Skills.GetArmorPoints(), max)
     check("поглотит 4 урона",    SB.Skills.GetDamageReduction(), math.floor(max / perDR))
 
@@ -12172,8 +12191,11 @@ do
 
         TargetWolf()
         N.GetState("target")
-        local realRoll2 = SB.Logic.Roll
+        local realRoll2, realPlain2 = SB.Logic.Roll, SB.Logic.RollPlain
         SB.Logic.Roll = function() return 50, 1, 100 end
+        -- Защита существа катится ГОЛЫМ кубиком (см. SB.Logic.RollPlain):
+        -- расовый пол и оружие Ведущего ей не достаются.
+        SB.Logic.RollPlain = SB.Logic.Roll
 
         caught = nil
         SB.Logic.ResolveNpcAttack("t_npc_jab", 1)
@@ -12183,7 +12205,7 @@ do
         caught = nil
         SB.Logic.ResolveNpcAttack("t_npc_jab", 1)
         local defNimble = tonumber(caught and caught:match("vs Защита:.-%(итог (%d+)%)"))
-        SB.Logic.Roll = realRoll2
+        SB.Logic.Roll, SB.Logic.RollPlain = realRoll2, realPlain2
 
         checkTrue("строка боя называет защиту существа", defBare ~= nil)
         -- Кубик подменён на постоянные 50, значит вся разница между
@@ -14437,17 +14459,17 @@ do
     checkTrue("подавленная живучесть отнимает здоровье",
               SB.Skills.GetVitalityBonus() < 0)
 
-    -- ── АТЛЕТИКА — ИСКЛЮЧЕНИЕ ──────────────────────────────
-    -- Предел передвижения и так невелик, и подавленная «Атлетика»
-    -- срезала бы его до нуля. Персонаж, который не может сдвинуться,
-    -- не ослаблен — он выключен из сцены, а это уже не штраф.
-    check("подавленная атлетика не отнимает передвижение",
-          SB.Skills.GetAthleticsMoveBonus(), 0)
-    checkTrue("хотя само значение у неё в минусе",
+    -- ── АТЛЕТИКА ШТРАФУЕТ — МЕТР В МЕТР ────────────────────
+    -- Прежде она была исключением: при трёх метрах за очко подавленная
+    -- «Атлетика» срезала бы предел до нуля. При метре за очко и базе в
+    -- пятнадцать минус стоит столько же, сколько плюс, а от выпадения
+    -- из сцены держит тот же пол, что держит замедление.
+    check("подавленная атлетика отнимает метр за очко",
+          SB.Skills.GetAthleticsMoveBonus(), SB.Skills.GetEffective("Атлетика"))
+    checkTrue("и значение у неё в минусе",
               SB.Skills.GetEffective("Атлетика") < 0)
-
-    -- И предел передвижения при этом остаётся положительным.
-    checkTrue("предел передвижения не обнулился", SB.Movement.GetCap() > 0)
+    checkTrue("но предел не ниже пола замедления",
+              SB.Movement.GetCap() >= (SB.Data.Config.MoveCapMin or 3))
 
     -- ── ПОЛЫ ТАМ, ГДЕ МИНУС БЕССМЫСЛЕН ─────────────────────
     -- Здоровье и ресурс просаживаются, но не в ноль и не в минус: с
@@ -16556,6 +16578,187 @@ do
 end
 
 -- ============================================================
+-- БОНУСЫ ОРУЖИЯ
+--
+-- У каждого класса оружия своя черта (SB.Data.WeaponBonuses): щит —
+-- броня, посох — ресурс, кинжал — потолок кубика, пустая рука и
+-- кистевое — пол, и так далее. Одни складываются (два кинжала — вдвое),
+-- другие нет (два посоха — всё равно один). Проверяется здесь правило
+-- счёта и то, что каждое число дошло до своего потребителя.
+-- ============================================================
+do
+    local L  = SB.Logic
+    local PM = SB.PlayerModel
+    local savedRace = stub.world.race
+    stub.world.race = "Human"
+    ResetEffects()
+    local MACE = { 2, 4 }
+    local function Hands(t)
+        stub.world.equipped = t
+        SB.Skills.ResetEquipCache()
+    end
+
+    Hands({ [16] = MACE, [17] = MACE })
+    local lo0, hi0 = L.GetRollRange()
+    check("булавы кубик не двигают: пол", lo0, 1)
+    check("булавы кубик не двигают: потолок", hi0, L.ROLL_MAX)
+
+    -- ── СВОБОДНАЯ РУКА И КИСТЕВОЕ: ПОЛ ────────────────────
+    Hands({ [16] = MACE })
+    check("свободная левая рука — пол +5", (L.GetRollRange()), 5)
+    Hands({})
+    check("две свободные руки складываются", (L.GetRollRange()), 10)
+    Hands({ [16] = { 2, 13 }, [17] = { 2, 13 } })
+    check("два кастета — тоже", (L.GetRollRange()), 10)
+    Hands({ [16] = { 2, 13 } })
+    check("кастет и пустая рука — вместе", (L.GetRollRange()), 10)
+    -- Решено намеренно: двуручник левую руку не занимает.
+    Hands({ [16] = { 2, 8 } })
+    check("при двуручнике пустая левая — свободная рука", (L.GetRollRange()), 5)
+    -- Слот дальнего боя рукой не считается.
+    Hands({ [16] = MACE, [17] = MACE, [18] = nil })
+    check("пустой слот дальнего боя пол не двигает", (L.GetRollRange()), 1)
+
+    -- Пример из запроса: Орк (25) с пустыми руками (10) под
+    -- «Благословением» (15) — ровно половина кубика, и выше не пускает
+    -- тот же зажим, что держит диапазон.
+    stub.world.race = "Orc"
+    Hands({})
+    SB.ActiveEffects.Add("eff_bless", 5, false)
+    check("Орк с пустыми руками под «Благословением» — пол 50", (L.GetRollRange()), 50)
+    ResetEffects()
+    stub.world.race = "Human"
+
+    -- ── КИНЖАЛ: ПОТОЛОК ────────────────────────────────────
+    Hands({ [16] = { 2, 15 }, [17] = MACE })
+    local _, hi1 = L.GetRollRange()
+    check("кинжал поднимает потолок на 5", hi1, L.ROLL_MAX + 5)
+    Hands({ [16] = { 2, 15 }, [17] = { 2, 15 } })
+    local _, hi2 = L.GetRollRange()
+    check("два кинжала — на 10", hi2, L.ROLL_MAX + 10)
+    local _, _, rolledMax = L.Roll()
+    check("Roll отдаёт ту же верхнюю грань", rolledMax, hi2)
+    local _, parts = SB.Skills.GetWeaponBonus("rollCeil")
+    check("в разбивке видно число кинжалов", parts[1] and parts[1].label, "Кинжал ×2")
+    local rows = SB.Skills.DescribeWeaponBonuses()
+    check("подсказка портрета: одна строка на вид", #rows, 1)
+    check("и она говорит словами", rows[1] and rows[1].text, "+10 к верхней грани кубика")
+    -- У каждого канала из таблицы есть слова: иначе в подсказке встал бы
+    -- голый ключ.
+    for key, def in pairs(SB.Data.WeaponBonuses) do
+        checkTrue("у бонуса «" .. key .. "» есть канал или навык, и он назван",
+                  (def.stat ~= nil) or (SB.Data.WeaponChannelText[def.channel] ~= nil))
+    end
+
+    -- Крит считается от СВОЕЙ верхней грани: при литерале 100 любой
+    -- бросок 101-110 критовал бы всегда.
+    for _, path in ipairs({ "Core/Logic.lua", "Core/Logic/Aoe.lua",
+                            "Core/Logic/NPC.lua", "Core/Logic/NpcCast.lua" }) do
+        checkTrue(path .. ": крит не считается от сотни литералом",
+                  not ReadFile(path):find("GetCritThreshold(critBonus, 100)", 1, true))
+    end
+    check("пустая полоса крита не берёт и 110",
+          L.GetCritThreshold(-100, hi2), hi2 + 1)
+
+    -- Проверка чужого каста не принимает кинжальный бросок за подделку,
+    -- но выше двух кинжалов не пускает.
+    check("правдоподобный потолок — сотня и два кинжала", L.MaxPlausibleRoll(), L.ROLL_MAX + 10)
+
+    -- ── ГОЛЫЙ КУБИК СУЩЕСТВ ────────────────────────────────
+    -- Оружие и раса Ведущего существам не достаются.
+    stub.world.race = "Orc"
+    local plainOk = true
+    for _ = 1, 200 do
+        local r, lo, hi = L.RollPlain()
+        if lo ~= 1 or hi ~= L.ROLL_MAX or r < 1 or r > L.ROLL_MAX then plainOk = false end
+    end
+    checkTrue("голый кубик — всегда 1-100, при любых руках и расе", plainOk)
+    stub.world.race = "Human"
+    checkTrue("защита существа катится голым кубиком",
+              ReadFile("Core/Logic/NPC.lua"):find("defRoll  = SB.Logic.RollPlain()", 1, true) ~= nil)
+    checkTrue("атака существа — тоже",
+              ReadFile("Core/Logic/NpcCast.lua"):find("local roll, _, rollMax = SB.Logic.RollPlain()", 1, true) ~= nil)
+    checkTrue("и защита существа от существа",
+              ReadFile("Core/Logic/NpcCast.lua"):find("local defRoll = skipDef and 0 or SB.Logic.RollPlain()", 1, true) ~= nil)
+
+    -- ── ПОСОХ: РЕСУРС КАСТА, НЕ СКЛАДЫВАЕТСЯ ───────────────
+    Hands({ [16] = MACE, [17] = MACE })
+    local z0, c0 = PM.GetMaxZeal(), PM.GetMaxClassResource()
+    Hands({ [16] = { 2, 10 } })
+    check("посох: +1 к мане",              PM.GetMaxZeal() - z0, 1)
+    check("и к ресурсу некастера",          PM.GetMaxClassResource() - c0, 1)
+    Hands({ [16] = { 2, 10 }, [17] = { 2, 10 } })
+    check("два посоха — всё равно +1",      PM.GetMaxZeal() - z0, 1)
+
+    -- ПОСОХ ДАЁТ МЕСТО, А НЕ МАНУ. Иначе «снял — надел» наливало бы по
+    -- единице за пару: при 2/6 снять (2/5), надеть (3/6) — и до полного.
+    Hands({ [16] = MACE, [17] = MACE })
+    PM.SyncToMaximums()
+    PM.SetZeal(2)
+    PM.SyncToMaximums()
+    for _ = 1, 3 do
+        Hands({ [16] = { 2, 10 } }); PM.SyncToMaximums()
+        Hands({ [16] = MACE, [17] = MACE }); PM.SyncToMaximums()
+    end
+    check("перекладывание посоха маны не наливает", PM.GetZeal(), 2)
+    -- Полный запас со снятым посохом срезается, как при любом спаде.
+    Hands({ [16] = { 2, 10 } }); PM.SyncToMaximums()
+    PM.SetZeal(PM.GetMaxZeal()); PM.SyncToMaximums()
+    Hands({ [16] = MACE, [17] = MACE }); PM.SyncToMaximums()
+    check("снятый посох срезает лишнее", PM.GetZeal(), PM.GetMaxZeal())
+    -- А обычный бафф на максимум по-прежнему даёт и запас.
+    PM.SetZeal(2); PM.SyncToMaximums()
+    Hands({ [16] = { 2, 10 } }); PM.SyncToMaximums()
+    check("надетый посох — место под ману, а не ману", PM.GetZeal(), 2)
+    Hands({ [16] = MACE, [17] = MACE }); PM.SyncToMaximums()
+
+    -- ── ЩИТ НЕ СКЛАДЫВАЕТСЯ ─────────────────────────────────
+    Hands({ [16] = MACE, [17] = MACE })
+    local a0 = SB.Skills.GetArmorPoints()
+    Hands({ [16] = { 4, 6 }, [17] = { 4, 6 } })
+    check("два щита — одна прибавка", SB.Skills.GetArmorPoints() - a0,
+          SB.Data.WeaponBonuses.shield.value)
+
+    -- ── ПРЕДМЕТ В ЛЕВОЙ РУКЕ: ПОДГОТОВКА ПОД ПОТОЛКОМ ──────
+    Hands({ [16] = MACE, [17] = MACE })
+    local p0   = PM.GetMaxPrepared()
+    local hard = SB.Data.Config.MaxPreparedHard or 15
+    Hands({ [16] = MACE, [17] = { 4, 0 } })
+    check("предмет в левой руке: +1 к подготовке, но не выше потолка",
+          PM.GetMaxPrepared() - p0, math.min(1, hard - p0))
+    Hands({ [16] = MACE, [17] = { 4, 6 } })
+    check("щит — не «предмет в левой руке»", PM.GetMaxPrepared(), p0)
+
+    -- ── ДРЕВКОВОЕ И АРБАЛЕТ: ДАЛЬНОСТЬ ПО ВИДУ ПРИЁМА ──────
+    local melee  = { distance = L.MELEE_RANGE }
+    local ranged = { distance = 30 }
+    local self_  = { distance = 0 }
+    Hands({ [16] = { 2, 6 } })
+    check("древковое: ближний бой до 4 м", L.GetSpellRange(melee), 4)
+    check("а дальнему — ничего",           L.GetSpellRange(ranged), 30)
+    check("и «на себя» не двигает",        L.GetSpellRange(self_), 0)
+    Hands({ [16] = MACE, [18] = { 2, 18 } })
+    check("арбалет: дальнему +6",          L.GetSpellRange(ranged), 36)
+    check("а ближнему — ничего",           L.GetSpellRange(melee), L.MELEE_RANGE)
+
+    -- ── МЕЧ И ЖЕЗЛ: НАВЫКИ, СКЛАДЫВАЮТСЯ ───────────────────
+    Hands({ [16] = MACE, [17] = MACE })
+    local acc0, zeal0 = SB.Skills.GetEffective("Точность"), SB.Skills.GetEffective("Рвение")
+    Hands({ [16] = { 2, 7 }, [17] = MACE })
+    check("меч: +2 к Точности",        SB.Skills.GetEffective("Точность") - acc0, 2)
+    Hands({ [16] = { 2, 7 }, [17] = { 2, 7 } })
+    check("два меча — +4",             SB.Skills.GetEffective("Точность") - acc0, 4)
+    check("а вложенное не тронуто",    SB.Skills.Get("Точность"), acc0)
+    Hands({ [16] = { 2, 19 }, [17] = MACE })
+    check("жезл: +2 к Рвению",         SB.Skills.GetEffective("Рвение") - zeal0, 2)
+
+    -- Всё вернуть: следующие разделы ждут нейтральные руки.
+    Hands({ [16] = MACE, [17] = MACE })
+    ResetEffects()
+    stub.world.race = savedRace
+end
+
+-- ============================================================
 -- ПОЛ КУБИКА ДВИГАЮТ И ЭФФЕКТЫ
 --
 -- Раньше rollFloor читался только из профиля расы и класса — то есть был
@@ -16568,6 +16771,10 @@ do
     local savedRace = stub.world.race
     stub.world.race = "Human"          -- у людей своего пола кубика нет
     ResetEffects()
+    -- Булавы в обеих руках: пустая рука сама двигает пол (см. бонусы
+    -- оружия ниже), а здесь проверяются одни эффекты.
+    stub.world.equipped = { [16] = { 2, 4 }, [17] = { 2, 4 } }
+    SB.Skills.ResetEquipCache()
 
     local lo0, hi0 = L.GetRollRange()
     check("без эффектов кубик с единицы", lo0, 1)

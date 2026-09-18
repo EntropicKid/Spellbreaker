@@ -295,9 +295,9 @@ function SB.NpcCast.RollFor(stats, unit, spell, versus)
         dmgBonus = dmgBonus + (SB.ActiveEffects.GetNpcDamageMod(unit, spell))
     end
 
-    local roll   = SB.Logic.Roll()
+    local roll, _, rollMax = SB.Logic.RollPlain()
     local total  = roll + mod
-    local isCrit = roll >= SB.Logic.GetCritThreshold(critBonus, 100)
+    local isCrit = roll >= SB.Logic.GetCritThreshold(critBonus, rollMax)
 
     -- База — по кругу самого заклинания. Вливать ресурс существу некуда:
     -- ресурс у него есть, но тратит его Ведущий вручную, а «во сколько
@@ -631,7 +631,7 @@ function SB.NpcCast.Confirm()
                 -- versus — бьющее существо: от своего провокатора цель
                 -- уворачивается как обычно.
                 local defMod  = SB.NPC.DefenseModifier(nstats, unit, pending.npcName)
-                local defRoll = skipDef and 0 or SB.Logic.Roll()
+                local defRoll = skipDef and 0 or SB.Logic.RollPlain()
                 local defTot  = skipDef and 0 or (defRoll + defMod)
                 -- Крит попадает всегда — то же правило, что у игрока
                 -- (см. врезку у landed в HandlePvpAttackReceived).

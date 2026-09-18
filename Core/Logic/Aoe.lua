@@ -399,9 +399,9 @@ function SB.Logic.InitiateAoeAttack(spellID, slotLevel)
     mod = mod + hitBonus
     for _, p in ipairs(hitParts) do table.insert(modParts, p) end
 
-    local roll   = SB.Logic.Roll()
+    local roll, _, rollMax = SB.Logic.Roll()
     local total  = roll + mod
-    local isCrit = roll >= SB.Logic.GetCritThreshold(critBonus, 100)
+    local isCrit = roll >= SB.Logic.GetCritThreshold(critBonus, rollMax)
 
     -- Бросок атаки ОДИН на всю площадь, а бросок защиты у каждого свой:
     -- это и делает площадное заклинание площадным, а не пачкой отдельных

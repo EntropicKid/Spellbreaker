@@ -2166,9 +2166,9 @@ function SB.Logic.GetSpellScalingLines(spell)
         -- числом снимает вопрос целиком, а цвет остаётся тем, ради чего
         -- он и нужен, — по нему тип видно, не читая.
         --
-        -- Нет типа — строка остаётся ровно такой, какой была: своё
-        -- заклинание игрок пишет сам, и поля damageType в нём нет
-        -- (см. врезку у SB.Data.GetDamageType).
+        -- НЕТ ТИПА — «ЧИСТЫЙ», а не пустое место: такой урон не гасит
+        -- ни одно сопротивление, и узнать об этом игрок должен здесь, до
+        -- того, как положится на свой резист (см. SB.Data.PURE_DAMAGE).
         local dt = SB.Data.GetDamageType and SB.Data.GetDamageType(spell)
         if dt then
             shown = SB.Data.ColorByDamageType(dt, shown .. " — " .. dt.name)
@@ -2429,7 +2429,7 @@ function SB.Logic.VerifyIncomingCast(attacker, spellID, roll, mod, total, slot, 
     -- атакующего мог быть расовый пол (Орк бросает 6-100), и его
     -- значение нам не известно — а вот выйти за сотню или уйти ниже
     -- единицы честный бросок не может никак.
-    if roll < 1 or roll > SB.Logic.ROLL_MAX then
+    if roll < 1 or roll > SB.Logic.MaxPlausibleRoll() then
         return roll + mod, string.format("бросок вне кубика (%d)", roll)
     end
 
@@ -2535,8 +2535,19 @@ function SB.Logic.VerifyIncomingCast(attacker, spellID, roll, mod, total, slot, 
     return total, nil
 end
 
+--- Прибавка оружия к грани кубика (rollFloor / rollCeil).
+local function WeaponRoll(channel)
+    if SB.Skills and SB.Skills.GetWeaponBonus then
+        return (SB.Skills.GetWeaponBonus(channel)) or 0
+    end
+    return 0
+end
+
 function SB.Logic.GetRollRange()
-    local rollMax = SB.Logic.ROLL_MAX
+    -- ПОТОЛОК ДВИГАЕТ ОРУЖИЕ: кинжал поднимает верхнюю грань (1-105, с
+    -- двумя — 1-110). Всё, что считает крит, берёт границу из Roll(), а
+    -- не сотню литералом — иначе 101+ критовал бы всегда.
+    local rollMax = SB.Logic.ROLL_MAX + WeaponRoll("rollCeil")
     local rollMin = 1
 
     -- ПОЛ ДВИГАЮТ И ЭФФЕКТЫ, А НЕ ТОЛЬКО ПРОИСХОЖДЕНИЕ. Раньше здесь
@@ -2549,9 +2560,13 @@ function SB.Logic.GetRollRange()
     -- местах значило бы завести два ответа. Гном под «Благословением»
     -- получает сумму, а не большее из двух, и это верно: и кровь, и чары
     -- работают в одну сторону.
+    -- Оружие — третьим слагаемым того же канала: кистевое и свободная
+    -- рука по +5 каждая (Орк с двумя пустыми руками под «Благословением»
+    -- — 25 + 15 + 10 = 50, ровно половина кубика).
     local floor = SB.Data.GetSoftBonus("rollFloor")
         + ((SB.ActiveEffects and SB.ActiveEffects.GetMod)
             and (SB.ActiveEffects.GetMod("rollFloor")) or 0)
+        + WeaponRoll("rollFloor")
     if floor > rollMin then rollMin = floor end
     -- Пол не должен схлопнуть диапазон: оставляем хотя бы половину граней.
     if rollMin > math.floor(rollMax / 2) then rollMin = math.floor(rollMax / 2) end
@@ -2567,6 +2582,32 @@ end
 function SB.Logic.Roll()
     local lo, hi = SB.Logic.GetRollRange()
     return math.random(lo, hi), lo, hi
+end
+
+--- ГОЛЫЙ КУБИК 1-100 — для бросков, которые делает НЕ персонаж.
+---
+--- Защита НПС и атака НПС катятся на машине Ведущего, и Roll() отдавал
+--- им ЕГО диапазон: расовый пол Орка-Ведущего доставался каждому
+--- стражнику, а с бонусами оружия туда же ушли бы и кинжалы Ведущего.
+--- У НПС нет ни расы игрока, ни его рук — у него ровный кубик.
+--- @return number roll, number rollMin, number rollMax
+function SB.Logic.RollPlain()
+    local hi = SB.Logic.ROLL_MAX
+    return math.random(1, hi), 1, hi
+end
+
+--- Наибольший бросок, какой бывает честно: сотня плюс кинжалы в обеих
+--- руках. Точного оружия атакующего мы не знаем, и проверка ловит не
+--- ложь, а невозможное — как MaxPlausibleAttackMod.
+function SB.Logic.MaxPlausibleRoll()
+    local extra = 0
+    for _, def in pairs(SB.Data.WeaponBonuses or {}) do
+        if def.channel == "rollCeil" then
+            local v = (tonumber(def.value) or 0) * (def.stacks and 2 or 1)
+            if v > 0 then extra = extra + v end
+        end
+    end
+    return SB.Logic.ROLL_MAX + extra
 end
 
 
@@ -3578,10 +3619,10 @@ function SB.Logic.InitiatePvpAttack(spellID, slotLevel)
     mod = mod + hitBonus
     for _, p in ipairs(hitParts) do table.insert(modParts, p) end
 
-    local roll   = SB.Logic.Roll()
+    local roll, _, rollMax = SB.Logic.Roll()
     local total  = roll + mod
     -- Крит — по чистому кубику, как и в ПвЕ (см. GetCritThreshold).
-    local isCrit = roll >= SB.Logic.GetCritThreshold(critBonus, 100)
+    local isCrit = roll >= SB.Logic.GetCritThreshold(critBonus, rollMax)
 
     -- atkTotal запоминаем, чтобы по ответу защищающегося отличить
     -- ПРОМАХ от попадания, которое полностью съела броня: в обоих
