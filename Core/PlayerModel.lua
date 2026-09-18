@@ -635,10 +635,11 @@ function PM.GetMaxZeal()
         base = base + (SB.ActiveEffects.GetMod("maxMana"))
                     + (SB.ActiveEffects.GetMod("maxCastResource"))
     end
-    -- Посох — в общий «ресурс каста», как и эффекты этого канала: мана
-    -- у кастера, свой ресурс у некастера (см. SB.Data.WeaponBonuses).
+    -- Оружие — теми же двумя каналами, что и эффекты: адресным маны
+    -- (посох) и общим «ресурсом каста» (см. SB.Data.WeaponBonuses).
     if SB.Skills and SB.Skills.GetWeaponBonus then
-        base = base + (SB.Skills.GetWeaponBonus("maxCastResource"))
+        base = base + (SB.Skills.GetWeaponBonus("maxMana"))
+                    + (SB.Skills.GetWeaponBonus("maxCastResource"))
     end
     -- Раса И класс разом: GetSoftBonus складывает оба профиля (см.
     -- SB.Data.GetSoftBonus). Здесь раньше стояло ещё и отдельное
@@ -692,10 +693,11 @@ function PM.GetMaxClassResource()
         base = base + (SB.ActiveEffects.GetMod("maxResource"))
                     + (SB.ActiveEffects.GetMod("maxCastResource"))
     end
-    -- Посох — в общий «ресурс каста», как и эффекты этого канала: мана
-    -- у кастера, свой ресурс у некастера (см. SB.Data.WeaponBonuses).
+    -- Оружие — адресным каналом ресурса класса и общим «ресурсом каста».
+    -- Посоха здесь нет: он даёт ману, а не Ярость или Энергию.
     if SB.Skills and SB.Skills.GetWeaponBonus then
-        base = base + (SB.Skills.GetWeaponBonus("maxCastResource"))
+        base = base + (SB.Skills.GetWeaponBonus("maxResource"))
+                    + (SB.Skills.GetWeaponBonus("maxCastResource"))
     end
     -- Раса + класс одним слагаемым (см. комментарий в PM.GetMaxZeal).
     base = base + SB.Data.GetSoftBonus("resource")
@@ -1244,7 +1246,11 @@ local lastWeaponResource
 
 local function WeaponResource()
     if SB.Skills and SB.Skills.GetWeaponBonus then
-        return (SB.Skills.GetWeaponBonus("maxCastResource")) or 0
+        -- Та же сумма, что у потолка текущего пула (см. GetMaxZeal и
+        -- GetMaxClassResource): у кастера — мана, у некастера — свой.
+        local own = PM.IsCaster() and "maxMana" or "maxResource"
+        return ((SB.Skills.GetWeaponBonus(own)) or 0)
+             + ((SB.Skills.GetWeaponBonus("maxCastResource")) or 0)
     end
     return 0
 end

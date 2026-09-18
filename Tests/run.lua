@@ -5094,6 +5094,17 @@ do
     SB.Items.Unprepare("t_potion")
     check("выложена целиком", SB.Items.CountOf("t_potion"), 0)
 
+    -- ── ВЫКИНУТЬ МОЖНО И В БОЮ, ПОЛОЖИТЬ — НЕТ ────────────
+    -- Замок стережёт пересбор; брошенная пачка ничего не даёт взамен:
+    -- ячейка до отдыха остаётся пустой.
+    SB.Items.Prepare("t_potion")
+    _G.SpellbreakerCharDB.configLocked = true
+    checkTrue("под замком выкинуть можно", (SB.Items.Unprepare("t_potion")))
+    checkTrue("и пачки в сумке нет", not SB.Items.IsPrepared("t_potion"))
+    local okBack, whyBack = SB.Items.Prepare("t_potion")
+    checkTrue("а положить обратно — нет", not okBack and whyBack == "locked")
+    _G.SpellbreakerCharDB.configLocked = false
+
     -- ── СТАРАЯ ЗАПИСЬ В СОХРАНЁНКЕ ЧИТАЕТСЯ ────────────────
     -- До пачек в сумке лежали голые id. Обнулять чужую сумку ради нового
     -- формата нельзя — она уже набрана.
@@ -7001,7 +7012,6 @@ do
         { "eff_sealwisdom",            "hit",      20,  "payload"    },
         { "eff_shield_flame_shield",   "damaged",  nil, "toAttacker" },
         { "eff_shield_lightningshield","damaged",  nil, "toAttacker" },
-        { "eff_fire_cape",             "damaged",  nil, "toAttacker" },
         { "eff_auraoflight",           "damaged",  nil, "toAttacker" },
         { "eff_shield_water_shield",   "damaged",  nil, "effect"     },
         { "eff_shaman_fury",           "hit",      nil, "payload"    },
@@ -7096,7 +7106,6 @@ do
         eff_auraoflight            = "holy",
         eff_shield_lightningshield = "nature",
         eff_shield_flame_shield    = "fire",
-        eff_fire_cape              = "fire",
     }
     for id, school in pairs(SCHOOL) do
         local ret
@@ -9255,8 +9264,6 @@ do
         { "eff_aura_against_dark",             "resistShadow",  1 },
         { "eff_aura_against_frost",            "resistFrost",   1 },
         { "eff_aura_against_fire",             "resistFire",    1 },
-        { "eff_mage_resistance",               "resistArcane",  2 },
-        { "eff_protect_from_evil",             "resistShadow",  2 },
         { "eff_protection_from_dark_forces",   "resistShadow",  2 },
         { "eff_shield_dark_amulet",            "resistShadow",  2 },
         { "eff_armor_magic_frost_armor_mage",  "resistFire",    2 },
@@ -9272,10 +9279,6 @@ do
         { "eff_cloak_of_shadows",              "resistMagic",   2 },
         { "eff_divine_protection",             "resistAll",     2 },
         { "eff_divineshield",                  "resistAll",     3 },
-        -- «Оберег от стихий» защищает от ДВУХ школ, поэтому по единице:
-        -- в сумме та же двойка, что у оберега на одну.
-        { "eff_frostfire_amulet",              "resistFire",    1 },
-        { "eff_frostfire_amulet",              "resistFrost",   1 },
     }
     for _, row in ipairs(GUARDS) do
         local id, key, want = row[1], row[2], row[3]
@@ -15557,7 +15560,7 @@ do
             single[#single + 1] = id
         end
     end
-    check("одиночных уронных со своим контейнером", #single, 5)
+    check("одиночных уронных со своим контейнером", #single, 4)
 end
 
 -- ============================================================
@@ -15666,8 +15669,8 @@ do
 
     -- ── ПАЧКУ ВЫНИМАЕТ САМА ЖЕРТВА ─────────────────────────
     --
-    -- Не Unprepare: тот отбивает при замке набора, а кража происходит
-    -- ровно посреди сцены, когда замок уже стоит.
+    -- Не Unprepare: тот выкладывает пачку по выбору владельца, а кража
+    -- вынимает случайную — и посреди сцены, когда замок уже стоит.
     local savedBag  = _G.SpellbreakerCharDB.preparedItems
     local savedLock = _G.SpellbreakerCharDB.configLocked
 
@@ -16578,6 +16581,33 @@ do
 end
 
 -- ============================================================
+-- СТАРТОВЫЙ НАБОР ССЫЛАЕТСЯ НА ЖИВЫЕ ЗАКЛИНАНИЯ
+--
+-- Библиотеку чистят руками, а стартовый набор пишется в preparedSpells
+-- напрямую, мимо всех проверок: удалённое заклинание молча досталось бы
+-- каждому новому персонажу пустой строкой. Так и вышло с «Призрачным
+-- звуком» мага. Круг — не выше первого (врезка у STARTER_SPELLS).
+-- ============================================================
+do
+    local src   = ReadFile("Core/Init.lua")
+    local body  = src:match("local STARTER_SPELLS = (%b{})")
+    checkTrue("стартовый набор найден", body ~= nil)
+    local bad, n = {}, 0
+    for id in (body or ""):gmatch('"([%w_]+)"') do
+        local sp = SB.Data.Spells[id]
+        if sp then
+            n = n + 1
+            if (tonumber(sp.level) or 0) > 1 then bad[#bad + 1] = id .. " (круг " .. sp.level .. ")" end
+        elseif not SB.Data.IsRealClass or not SB.Data.IsRealClass(id) then
+            bad[#bad + 1] = id
+        end
+    end
+    checkTrue("в стартовом наборе есть заклинания", n > 0)
+    check("стартовых заклинаний, которых нет или выше первого круга", #bad, 0)
+    if #bad > 0 then print("          " .. table.concat(bad, ", ")) end
+end
+
+-- ============================================================
 -- БОНУСЫ ОРУЖИЯ
 --
 -- У каждого класса оружия своя черта (SB.Data.WeaponBonuses): щит —
@@ -16686,7 +16716,7 @@ do
     local z0, c0 = PM.GetMaxZeal(), PM.GetMaxClassResource()
     Hands({ [16] = { 2, 10 } })
     check("посох: +1 к мане",              PM.GetMaxZeal() - z0, 1)
-    check("и к ресурсу некастера",          PM.GetMaxClassResource() - c0, 1)
+    check("но не к ресурсу некастера",      PM.GetMaxClassResource() - c0, 0)
     Hands({ [16] = { 2, 10 }, [17] = { 2, 10 } })
     check("два посоха — всё равно +1",      PM.GetMaxZeal() - z0, 1)
 

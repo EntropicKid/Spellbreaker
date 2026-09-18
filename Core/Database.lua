@@ -1331,6 +1331,8 @@ end
 --
 -- КАНАЛЫ (channel) — куда идёт число:
 --   armor           единицы брони (в надетый запас, как щит всегда шёл)
+--   maxMana         максимум маны (только у кастеров)
+--   maxResource     максимум ресурса класса (Ярость, Энергия, …)
 --   maxCastResource максимум ресурса каста (мана или ресурс класса)
 --   rollFloor       нижняя грань кубика
 --   rollCeil        верхняя грань кубика
@@ -1343,7 +1345,7 @@ end
 -- строку не нужно — если канал уже есть.
 -- ============================================================
 SB.Data.WeaponBonuses = {
-    staff    = { label = "Посох",           channel = "maxCastResource", value = 1,   stacks = false },
+    staff    = { label = "Посох",           channel = "maxMana",         value = 1,   stacks = false },
     shield   = { label = "Щит",             channel = "armor",           value = 15,  stacks = false },
     fist     = { label = "Кистевое оружие", channel = "rollFloor",       value = 5,   stacks = true  },
     unarmed  = { label = "Свободная рука",  channel = "rollFloor",       value = 5,   stacks = true  },

@@ -798,107 +798,11 @@ AddEffect({
 -- ==========================================================
 
 AddEffect({
-    id   = "eff_mage_resistance",
-    name = "Сопротивление аркане",
-    icon = "Interface\\Icons\\Sha_ability_rogue_sturdyrecuperate_nightborne",
-    description = "Внутренние резервы цели укреплены. Чужие чары находят её труднее.",
-    -- То же, что у аур паладина: броня была подпоркой вместо резиста,
-    -- которого не существовало. Заклинание называется «Сопротивление
-    -- аркане» — теперь оно им и является.
-    --
-    -- ДВОЙКА, а не единица, как у аур: те накрывают всю группу и висят
-    -- сотни ходов, а это — один союзник на десять ходов. Ширина и срок
-    -- платят за величину (см. лестницу в Core/DamageTypes.lua).
-    effect = { kind = "buff", school = "magic",
-               mods = { armor = 10, resistArcane = 2 } },
-})
-
-AddEffect({
-    id   = "eff_mage_waterforming",
-    name = "Формирование воды",
-    icon = "Interface\\Icons\\Ability_shawaterelemental_reform",
-    description = "Выбранная вода держит форму, которую придал ей маг, и не растекается.",
-})
-
-AddEffect({
-    id   = "eff_flee_hand",
-    name = "Свободная рука",
-    icon = "Interface\\Icons\\Ability_mage_incantersabsorbtion",
-    description = "Рука ведёт линию идеально ровно и держит угол без инструмента.",
-    effect = { kind = "buff", school = "magic", stats = { ["Ремесло"] = 1 } },
-})
-
-AddEffect({
-    id   = "eff_mage_prop",
-    name = "Подпорка",
-    icon = "Interface\\Icons\\Inv_10_jewelcrafting_bg_titan",
-    description = "Светящиеся распорки держат камень над головой. Пока они стоят, потолок не осыпается.",
-})
-
-AddEffect({
-    id   = "eff_ghost_sound",
-    name = "Призрачный звук",
-    icon = "Interface\\Icons\\Ability_mage_netherwindpresence",
-    description = "Звук идёт оттуда, откуда маг захочет: шаги за углом, голос из пустой комнаты.",
-})
-
-AddEffect({
-    id   = "eff_dancing_lights",
-    name = "Танцующие огни",
-    icon = "Interface\\Icons\\Ability_evoker_innatemagic",
-    description = "Несколько огоньков висят рядом и идут за магом, освещая путь.",
-	effect = { kind = "buff", school = "magic", stats = { ["Точность"] = 1 } },
-})
-
-
-AddEffect({
-    id   = "eff_mage_seal",
-    name = "Печать",
-    icon = "Interface\\Icons\\Inv_ability_mage_radiantspark",
-    description = "Створка держится намертво: ни ветром, ни рукой её не открыть.",
-})
-
-AddEffect({
-    id   = "eff_frostfire_amulet",
-    name = "Оберег от стихий",
-    icon = "Interface\\Icons\\Spell_frostfire orb",
-    description = "Тонкая пелена гасит и жар, и холод, не дожидаясь, пока они дойдут до кожи.",
-    -- Обещает защиту от ДВУХ стихий, но по описанию — от одной выбранной
-    -- заранее. Спросить игрока аддону негде, поэтому даём обе, но по
-    -- единице: в сумме та же двойка, что у оберега на одну школу.
-    effect = { kind = "buff", school = "magic", mods = { resistFire = 1, resistFrost = 1, armor = 15 } },
-})
-
-AddEffect({
-    id   = "eff_protect_from_evil",
-    name = "Защита от тёмных сил",
-    icon = "Interface\\Icons\\Ui_sigil_nightfae",
-    description = "Порождения смерти и скверны подходят к цели неохотно и бьют вполсилы.",
-    -- «Охраняет от атак существ доменов смерти, тьмы, скверны».
-    effect = { kind = "buff", school = "magic", mods = { resistShadow = 2, armor = 15, defense = 12 } },
-})
-
-AddEffect({
-    id   = "eff_anxiety",
-    name = "Тревожный триггер",
-    icon = "Interface\\Icons\\Ui_embercourt-emoji-uncomfortable",
-    description = "На месте оставлен незримый порог. Маг узнает, когда его пересекут.",
-    effect = { kind = "buff", school = "magic", stats = { ["Интуиция"] = 1 } },
-})
-
-AddEffect({
     id   = "eff_mage_featherfall",
     name = "Падение перышком",
     icon = "Interface\\Icons\\Spell_magic_featherfall",
     description = "Вес почти исчез: падение стало медленным и безопасным.",
     effect = { kind = "buff", school = "magic", mods = { defense = 12 } },
-})
-
-AddEffect({
-    id   = "eff_message",
-    name = "Послание",
-    icon = "Interface\\Icons\\Spell_mage_presenceofmind",
-    description = "Маг говорит на ухо тому, кого видит, не размыкая губ.",
 })
 
 AddEffect({
@@ -914,14 +818,6 @@ AddEffect({
     -- Двойка — тот же тариф, что у сферы (damageFire = 2): одинаковые
     -- по смыслу призывы не должны отличаться числом.
     effect = { kind = "buff", school = "magic", mods = { damageFrost = 2 } },
-})
-
-AddEffect({
-    id   = "eff_silent_image",
-    name = "Безмолвный образ",
-    icon = "Interface\\Icons\\Ability_mage_potentspirit",
-    description = "Иллюзия стоит там, куда её поставили. Она беззвучна и не отбрасывает тени.",
-    effect = { kind = "buff", school = "magic", stats = { ["Внушение"] = 1 } },
 })
 
 AddEffect({
@@ -941,64 +837,11 @@ AddEffect({
 })
 
 AddEffect({
-    id   = "eff_flaming_sphere",
-    name = "Пылающая сфера",
-    icon = "Interface\\Icons\\Inv_misc_orb_05",
-    description = "Шар огня катится рядом и идёт туда, куда укажет маг.",
-    -- ЖЖЁТ, И БОЛЬШЕ НИЧЕГО: «поверхность сферы пористая и упругая,
-    -- поэтому она не наносит иных повреждений, не может сбить существ с
-    -- ног или разрушить преграды». Прежняя прибавка к БРОСКУ АТАКИ (+18)
-    -- не следовала из описания ничем — катящийся шар не помогает магу
-    -- целиться.
-    effect = { kind = "buff", school = "magic", mods = { damageFire = 2 } },
-})
-
-AddEffect({
-    id   = "eff_gust_of_wind",
-    name = "Порыв ветра",
-    icon = "Interface\\Icons\\Ability_skyreach_wind",
-    description = "Впереди стоит стена движущегося воздуха: лёгкое сносит, стрелы уводит в сторону.",
-    effect = { kind = "buff", school = "magic", mods = { defense = 18 } },
-})
-
-AddEffect({
-    id   = "eff_long_flame",
-    name = "Неугасающее пламя",
-    icon = "Interface\\Icons\\Spell_fire_bluefire",
-    description = "Предмет светит как факел и не гаснет — ни от воды, ни от ветра, ни без воздуха.",
-})
-
-AddEffect({
-    id   = "eff_arrow_protection",
-    name = "Оберег от стрел",
-    icon = "Interface\\Icons\\Ability_racial_magicalresistance",
-    description = "Древко теряет силу на подлёте и уходит вбок. Против клинка оберег бесполезен.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 20 } },
-})
-
-AddEffect({
-    id   = "eff_magic_lock",
-    name = "Волшебный замок",
-    icon = "Interface\\Icons\\Inv_legion_cache_kirintor",
-    description = "Створка заперта чарами: обычный ключ и обычная сила бессильны.",
-})
-
-AddEffect({
     id   = "eff_dark_vision",
     name = "Тёмное зрение",
     icon = "Interface\\Icons\\Inv_12_trinket_raid_voidspire_int1_voiddragoneye",
     description = "Полная темнота стала серой и различимой. Цвета в ней пропали.",
     effect = { kind = "buff", school = "magic", stats = { ["Интуиция"] = 1, ["Скрытность"] = 1 } },
-})
-
-
-
-AddEffect({
-    id   = "eff_mage_fun",
-    name = "Веселье",
-    icon = "Interface\\Icons\\Inv_offhand_1h_ardenweald_d_01",
-    description = "Только цель слышит музыку — красивую настолько, что трудно думать о другом.",
-    effect = { kind = "buff", school = "magic", stats = { ["Воодушевление"] = 1 } },
 })
 
 AddEffect({
@@ -1007,14 +850,6 @@ AddEffect({
     icon = "Interface\\Icons\\Ability_racial_dispelillusions",
     description = "Лицо, одежда и снаряжение выглядят иначе. На ощупь всё осталось прежним.",
     effect = { kind = "buff", school = "magic", stats = { ["Внушение"] = 2, ["Скрытность"] = 1 } },
-})
-
-AddEffect({
-    id   = "eff_gaze",
-    name = "Пристальный взгляд",
-    icon = "Interface\\Icons\\Spell_shadow_manafeed",
-    description = "Предмет виден насквозь: слои, швы, тайники, следы починки.",
-    effect = { kind = "buff", school = "magic", stats = { ["Анализ"] = 2 } },
 })
 
 AddEffect({
@@ -1034,26 +869,11 @@ AddEffect({
 })
 
 AddEffect({
-    id   = "eff_explosive_rune",
-    name = "Взрывные руны",
-    icon = "Interface\\Icons\\Inv_misc_profession_book_inscription",
-    description = "На страницах лежат руны, ждущие чужого взгляда. Маг читает их безопасно.",
-})
-
-AddEffect({
     id   = "eff_mana_burst",
     name = "Чародейская вспышка",
     icon = "Interface\\Icons\\Ability_argus_soulburst",
     description = "Вокруг мага пространство идёт волнами. Чужая магия рядом становится нестабильной.",
     effect = { kind = "buff", school = "magic", mods = { attack = 25, damage = 1 } },
-})
-
-AddEffect({
-    id   = "eff_protective_round_mage",
-    name = "Круг защиты от тьмы",
-    icon = "Interface\\Icons\\Ability_warlock_voidzone",
-    description = "Кварцевая черта на полу. Порождения Тьмы и Скверны не переступают её, пока круг цел.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 20, defense = 25 } },
 })
 
 AddEffect({
@@ -1065,67 +885,11 @@ AddEffect({
 })
 
 AddEffect({
-    id   = "eff_fire_cape",
-    name = "Огненный плащ",
-    icon = "Interface\\Icons\\Inv_fabric_spellfire",
-    description = "Огонь по плечам не защищает, но всякий, кто подойдёт вплотную, обожжётся.",
-
-    -- «Поджигающий любого, кто осмелится напасть на волшебника». Сам плащ
-    -- «не защищает от какого-либо урона» — и не защищает: числа его
-    -- остались прежними, добавился ровно ответ.
-    effect = { kind = "buff", school = "magic", mods = { attack = 25, damage = 1 },
-               onAction = { when = "damaged", toAttacker = "eff_burn" } },
-})
-
-AddEffect({
-    id   = "eff_summon_trap",
-    name = "Призванная ловушка",
-    icon = "Interface\\Icons\\Ability_racial_arcaneaffinity",
-    description = "В земле сидит кристалл, который ждёт первого неосторожного шага.",
-    -- ЖДЁТ, ПОКА ПОДОЙДУТ. «Ловушка остаётся на месте, пока в пределах
-    -- 10 футов от неё не окажется существо, не являющееся союзником» —
-    -- это возмездие, а не прибавка к атаке: у ловушки нет цели, пока к
-    -- ней не подошли. Прежние +25 к броску атаки делали её просто самым
-    -- крупным из трёх одинаковых баффов.
-    --
-    -- ОЖОГ БЕРЁТСЯ ОБЩИЙ, тот же eff_burn, что у «Огненного плаща» и
-    -- «Опаляющего»: горит одинаково, от чего бы ни занялось.
-    --
-    -- ТОЛЬКО БЛИЖНИЙ БОЙ — это и есть «оказалось в пределах 10 футов».
-    effect = { kind = "buff", school = "magic",
-               onAction = { when = "damaged", melee = true, toAttacker = "eff_burn" } },
-})
-
-AddEffect({
     id   = "eff_image",
     name = "Образ",
     icon = "Interface\\Icons\\Inv_112_raidtrinkets_netheroverlaymatrix",
     description = "Иллюзия говорит, пахнет и греет. Отличить её от настоящего можно только на ощупь.",
     effect = { kind = "buff", school = "magic", stats = { ["Внушение"] = 2 } },
-})
-
-AddEffect({
-    id   = "eff_ordnance",
-    name = "Озорство",
-    icon = "Interface\\Icons\\Achievement_halloween_smiley_01",
-    description = "Куб пространства заполнен обманом: шум, силуэты, ложные проходы.",
-    effect = { kind = "buff", school = "magic", mods = { defense = 25 }, stats = { ["Внушение"] = 2 } },
-})
-
-AddEffect({
-    id   = "eff_clairvoyance",
-    name = "Ясновидение",
-    icon = "Interface\\Icons\\Spell_druid_momentofclarity",
-    description = "Маг видит и слышит далёкое место так, будто стоит там. Здесь он в это время почти отсутствует.",
-    effect = { kind = "buff", school = "magic", mods = { defense = -15 }, stats = { ["Анализ"] = 2 } },
-})
-
-AddEffect({
-    id   = "eff_languages",
-    name = "Языки",
-    icon = "Interface\\Icons\\Ability_mage_studentofthemind",
-    description = "Любая речь стала понятной, и своя звучит на языке собеседника.",
-    effect = { kind = "buff", school = "magic", stats = { ["Воодушевление"] = 1, ["Эрудиция"] = 2 } },
 })
 
 -- ==========================================================
@@ -3011,24 +2775,6 @@ AddEffect({
 })
 
 AddEffect({
-    -- Уменьшение гуманоида (Маг, круг 1). Из гнезда eff_cat_grace_*.
-    id   = "eff_cat_grace_decrease_humanoid",
-    name = "Уменьшение гуманоида",
-    icon = "Interface\\Icons\\Ability_druid_catform",
-    description = "Тело становится легче и точнее. Там, где раньше приходилось перелезать, теперь перепрыгиваешь.",
-    effect = { kind = "buff", school = "magic", stats = { ["Ловкость"] = 1, ["Акробатика"] = 2 } },
-})
-
-AddEffect({
-    -- Увеличение гуманоида (Маг, круг 1). Из гнезда eff_giant_strength_*.
-    id   = "eff_giant_strength_increase_humanoid",
-    name = "Увеличение гуманоида",
-    icon = "Interface\\Icons\\Spell_nature_strength",
-    description = "Мышцы наливаются чужой, слишком большой для этого тела мощью. Поднять получается то, что поднимать не следовало.",
-    effect = { kind = "buff", school = "magic", stats = { ["Сила"] = 1, ["Мощь"] = 2 } },
-})
-
-AddEffect({
     -- Ослабление магии (Маг, круг 1). Из гнезда eff_weakness_*.
     id   = "eff_abonish_magic",
     name = "Ослабление магии",
@@ -3080,19 +2826,6 @@ AddEffect({
         school = "magic",
         mods = { crit = 7, defense = 18 },
         stats = { ["Скрытность"] = 3 },
-    },
-})
-
-AddEffect({
-    id   = "eff_blinded_night_blindness",
-    name = "Ночная слепота",
-    icon = "Interface\\Icons\\Spell_shadow_mindsteal",
-    description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
-    effect = {
-        kind  = "debuff", resist = "Выносливость",
-        school = "magic",
-        mods = { attack = -33, defense = -33, range = -18 },
-        stats = { ["Точность"] = -4 },
     },
 })
 

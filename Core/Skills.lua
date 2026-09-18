@@ -733,6 +733,8 @@ end
 -- голым ключом — и это видно сразу, а не молча.
 local WEAPON_CHANNEL_TEXT = {
     armor           = "%s брони",
+    maxMana         = "%s к максимуму маны",
+    maxResource     = "%s к максимуму ресурса класса",
     maxCastResource = "%s к максимуму ресурса",
     rollFloor       = "%s к нижней грани кубика",
     rollCeil        = "%s к верхней грани кубика",
