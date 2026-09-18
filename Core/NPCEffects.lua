@@ -74,7 +74,7 @@ function SB.NPC.GetEffects(unit)
     local st = SB.NPC.GetState(unit)
     local out = {}
     for _, e in ipairs(ListOf(st) or {}) do
-        out[#out + 1] = { spellID = e.spellID, uses = e.uses }
+        out[#out + 1] = { spellID = e.spellID, uses = e.uses, src = e.src }
     end
     return out
 end
@@ -99,6 +99,9 @@ end
 --   maxHealth  → максимум здоровья (Restat ниже)
 --   maxMana / maxResource / maxCastResource → максимум его пула
 --   healTaken  → входящее лечение (SB.Logic.ResolveNpcHeal)
+--   resist*    → и входящий УДАР (SB.NPC.MitigateDamage), и тик висящего
+--                эффекта (ApplyPayload ниже). Второе долго не работало,
+--                и канал со стороны выглядел мёртвым целиком
 --   stats      → значения навыков, а через них и оба броска выше:
 --                «−3 к Акробатике» садит защиту тем же шагом, каким её
 --                поднял бы сам навык
@@ -111,15 +114,20 @@ end
 -- SB.NPC.EffectMod.
 -- ============================================================
 
---- Суммарный сдвиг канала key от всех эффектов особи.
+--- Суммарный сдвиг канала key по списку ГОТОВОГО состояния.
+---
+--- Отдельно от EffectMod(unit, key), потому что тик идёт по всей сцене
+--- разом и особи в цели нет: спросить у юнита состояние там не у кого
+--- (см. SB.NPC.EachState). Считают обе функции одно и то же и одним
+--- кодом — второй копии правила сложения быть не должно.
 --- @return number total, table parts  разбивка — для подсказки в логе
-function SB.NPC.EffectMod(unit, key)
+function SB.NPC.EffectModOf(st, key)
     local total, parts = 0, {}
     if not key then return 0, parts end
     local AE = SB.ActiveEffects
     if not (AE and AE.GetEffectDef) then return 0, parts end
 
-    for _, e in ipairs(ListOf(SB.NPC.GetState(unit)) or {}) do
+    for _, e in ipairs(ListOf(st) or {}) do
         local def = AE.GetEffectDef(e.spellID)
         local v   = def and def.mods and def.mods[key]
         if v and v ~= 0 then
@@ -133,6 +141,50 @@ function SB.NPC.EffectMod(unit, key)
         end
     end
     return total, parts
+end
+
+--- Суммарный сдвиг канала key от всех эффектов особи.
+--- @return number total, table parts  разбивка — для подсказки в логе
+function SB.NPC.EffectMod(unit, key)
+    return SB.NPC.EffectModOf(SB.NPC.GetState(unit), key)
+end
+
+--- СОПРОТИВЛЕНИЕ ПО ГОТОВОМУ СОСТОЯНИЮ — двойник SB.NPC.Resistance для
+--- тика, которому юнит недоступен по той же причине, что и EffectModOf.
+--- Ключи берёт тот же реестр школ, что у игрока (ResistKeysFor).
+--- @return number  может быть отрицательным — это уязвимость
+function SB.NPC.ResistanceOf(st, damageType)
+    local total = 0
+    for _, key in ipairs(SB.Data.ResistKeysFor(damageType)) do
+        total = total + (SB.NPC.EffectModOf(st, key))
+    end
+    return total
+end
+
+--- ПРОВОКАЦИЯ НА СУЩЕСТВЕ — то же правило и та же величина, что у
+--- игрока (см. врезку «ПРОВОКАЦИЯ» в Core/ActiveEffects.lua): по всем,
+--- кроме провокатора, бросок идёт со штрафом Config.TauntPenalty.
+---
+--- ЗАЧЕМ ОНО ЗДЕСЬ ВООБЩЕ. Провоцируют чаще всего именно существ — это
+--- и есть классический ход бойца, забирающего чудовище на себя. Сделай
+--- мы провокацию только для игроков, работала бы редкая половина
+--- механики (существо провоцирует игрока), а частая — нет.
+--- @param versus string|nil  по кому идёт бросок
+--- @return number  0 или Config.TauntPenalty
+function SB.NPC.TauntPenaltyOf(st, versus)
+    local AE = SB.ActiveEffects
+    if not (AE and AE.IsTaunt) then return 0 end
+    for _, e in ipairs(ListOf(st) or {}) do
+        if AE.IsTaunt(e.spellID) and not (versus and e.src and e.src == versus) then
+            return (tonumber(SB.Data.Config.TauntPenalty) or -50)
+        end
+    end
+    return 0
+end
+
+--- То же по юниту.
+function SB.NPC.TauntPenalty(unit, versus)
+    return SB.NPC.TauntPenaltyOf(SB.NPC.GetState(unit), versus)
 end
 
 --- Сдвиг ЗНАЧЕНИЯ навыка или атрибута — тот же канал stats, что у игрока.
@@ -268,8 +320,11 @@ end
 
 --- Навесить эффект на особь.
 --- @param turns number|nil  длительность в ходах; -1 — бессрочно
+--- @param source string|nil  кто наложил. Нужен ТОЛЬКО провокации
+---        (см. SB.NPC.TauntPenaltyOf ниже): по провокатору существо бьёт
+---        без штрафа, и без имени исключение назвать нечем.
 --- @return boolean ok
-function SB.NPC.AddEffect(unit, effectID, turns)
+function SB.NPC.AddEffect(unit, effectID, turns, source)
     if not effectID or not SB.Data.Spells[effectID] then return false end
     local st = SB.NPC.GetState(unit)
     if not st then return false end
@@ -284,9 +339,12 @@ function SB.NPC.AddEffect(unit, effectID, turns)
     end
     if found then
         found.uses = turns or 1
+        -- Провокацию перебивает тот, кто провоцировал последним — то же
+        -- правило, что у игрока (см. SB.ActiveEffects.Add).
+        found.src  = source or found.src
     else
         if #list >= MAX_EFFECTS then return false end
-        list[#list + 1] = { spellID = effectID, uses = turns or 1 }
+        list[#list + 1] = { spellID = effectID, uses = turns or 1, src = source }
     end
 
     SB.NPC.RestatEffects(st, unit)
@@ -367,12 +425,34 @@ end
 
 --- Применить блок { damage, heal, mana, resource, castResource } к особи.
 --- Урон и лечение идут в здоровье, всё остальное — в её единственный пул.
+--- @param sp     table|nil  заклинание-эффект: у него берётся школа урона
+--- @param source string|nil "tick" — урон ПРИШЁЛ ИЗВНЕ и гасится
+---        сопротивлением школе. Правило и довод те же, что у игрока
+---        (см. врезку в SB.ActiveEffects.ApplyPayload).
 --- @return number hpDelta, number resDelta
-local function ApplyPayload(st, def)
+local function ApplyPayload(st, def, sp, source)
     if type(def) ~= "table" then return 0, 0 end
 
     local dmg  = tonumber(def.damage) or 0
     local heal = tonumber(def.heal)   or 0
+
+    -- СОПРОТИВЛЕНИЕ ПРИМЕНЯЕТСЯ И ЗДЕСЬ, и это не добавка, а починка:
+    -- у игрока тик через резист проходил с самого начала, а у существа
+    -- шёл мимо. Наружу это выглядело так, что каналы resist* на существе
+    -- «не работают»: огнеупорный элементаль держал огненный УДАР, но
+    -- горел от «Поджога» ровно как все, а любая «Боль» снимала с него
+    -- свою единицу, сколько сопротивления тьме на него ни повесь.
+    --
+    -- ШКОЛА БЕРЁТСЯ У САМОГО ЭФФЕКТА (поле damageType контейнера) — тот
+    -- же источник, что у игрока: заклинание, которое эффект повесило,
+    -- через полчаса после каста спрашивать не у кого.
+    --
+    -- ГАСИТ ДО НУЛЯ и принимает минус: отрицательный резист — это
+    -- уязвимость, и тик она усиливает (см. SB.Skills.ApplyResistance).
+    if source == "tick" and dmg > 0 then
+        local resisted = math.min(SB.NPC.ResistanceOf(st, sp and sp.damageType), dmg)
+        dmg = dmg - resisted
+    end
 
     -- ВХОДЯЩЕЕ ЛЕЧЕНИЕ ДВИГАЕТСЯ КАНАЛОМ healTaken так же, как у игрока
     -- (см. PM.Heal): «раны почти не закрываются» обязано работать и на
@@ -427,13 +507,15 @@ local function TickOne(st)
             if e.uses <= 0 then gone = true end
         end
 
-        local h, r = ApplyPayload(st, sp and sp.effect and sp.effect.tick)
+        local h, r = ApplyPayload(st, sp and sp.effect and sp.effect.tick, sp, "tick")
         hp, res = hp + h, res + r
 
         if gone then
             -- Прощальный расчёт — ПОСЛЕ тика: последний ход эффект ещё
-            -- отработал, и только потом спал.
-            local h2, r2 = ApplyPayload(st, sp and sp.effect and sp.effect.onRemove)
+            -- отработал, и только потом спал. Сопротивление к нему НЕ
+            -- применяется, как и у игрока: прощальный удар — это цена
+            -- самого эффекта, а не чужой удар по школе.
+            local h2, r2 = ApplyPayload(st, sp and sp.effect and sp.effect.onRemove, sp)
             hp, res = hp + h2, res + r2
             table.remove(list, i)
             expired = expired or {}
@@ -514,13 +596,30 @@ end
 --
 -- Формат: "eff_a:3;eff_b:-1". Разделители выбраны из тех, которых не
 -- бывает в идентификаторах эффектов.
+--
+-- ТРЕТЬЕ ПОЛЕ — ПРОВОКАТОР, и оно появляется ТОЛЬКО у провокации:
+-- "eff_taunt:3:Лайка". Имя в канале стоит дорого (десяток-полтора байт
+-- при бюджете порядка восьмисот в секунду на клиента), и платить их за
+-- каждый яд на каждом волке было бы не за что — прочим эффектам
+-- безразлично, от кого они пришли. Провокации без имени нельзя: в нём
+-- всё её исключение (см. SB.NPC.TauntPenaltyOf).
+--
+-- То есть пакет растёт ровно в тех сценах, где провокация и правда
+-- висит, — и ровно на одно имя.
 -- ============================================================
 
 function SB.NPC.PackEffects(list)
     if type(list) ~= "table" or #list == 0 then return nil end
+    local AE  = SB.ActiveEffects
     local out = {}
     for _, e in ipairs(list) do
-        out[#out + 1] = tostring(e.spellID) .. ":" .. tostring(math.floor(tonumber(e.uses) or 1))
+        local chunk = tostring(e.spellID) .. ":" ..
+                      tostring(math.floor(tonumber(e.uses) or 1))
+        -- Имя кладём только провокации и только если оно есть.
+        if e.src and AE and AE.IsTaunt and AE.IsTaunt(e.spellID) then
+            chunk = chunk .. ":" .. tostring(e.src)
+        end
+        out[#out + 1] = chunk
     end
     return table.concat(out, ";")
 end
@@ -529,13 +628,19 @@ function SB.NPC.UnpackEffects(str)
     local out = {}
     if type(str) ~= "string" or str == "" then return out end
     for chunk in str:gmatch("[^;]+") do
-        local id, uses = chunk:match("^(.-):(-?%d+)$")
+        -- Имя может содержать что угодно, кроме разделителей, поэтому
+        -- разбираем ОТ КОНЦА: сначала отрезаем необязательное имя, потом
+        -- срок, а всё, что осталось слева, — идентификатор.
+        local id, uses, src = chunk:match("^(.-):(-?%d+):(.+)$")
+        if not id then
+            id, uses = chunk:match("^(.-):(-?%d+)$")
+        end
         -- НЕИЗВЕСТНЫЙ ЭФФЕКТ ОТБРАСЫВАЕМ. У приславшего может стоять
         -- версия новее или свой кастомный контейнер, которого у нас нет:
         -- держать его в списке значило бы показывать пустую рамку и
         -- считать по ней ноль модификаторов.
         if id and SB.Data.Spells[id] then
-            out[#out + 1] = { spellID = id, uses = tonumber(uses) or 1 }
+            out[#out + 1] = { spellID = id, uses = tonumber(uses) or 1, src = src }
         end
     end
     return out

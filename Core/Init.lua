@@ -402,6 +402,18 @@ initFrame:SetScript("OnEvent", function(self, event, loadedAddon)
             return
         end
 
+        -- «/sb marks» — что аддон нашёл под отметки хода и что на этих
+        -- рамках собирается показать. Нужна не для отладки, а потому
+        -- что иначе это не починить: рамки заводит клиент игрока со
+        -- своими аддонами и своей раскладкой рейда, и увидеть их
+        -- отсюда нельзя (см. SB.Overlay.ReportTurnFrames).
+        if cmd == "marks" or cmd == "turn" then
+            if SB.Overlay and SB.Overlay.ReportTurnFrames then
+                SB.Overlay.ReportTurnFrames()
+            end
+            return
+        end
+
         -- «/sb bar» — компактный ряд иконок вместо колонки карточек
         -- (см. UI/SpellBar.lua). Командой, а не только галочкой в
         -- настройках: панель прячут и достают посреди сцены, а лезть за

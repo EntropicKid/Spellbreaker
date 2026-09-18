@@ -84,7 +84,13 @@ local function FormatAttackEntries(entries)
             if e.debuff then
                 tag = tag .. " | дебафф"
             elseif e.resisted then
-                tag = tag .. " | Воля отвела"
+                -- Не «Воля отвела»: отводит атрибут из карточки самого
+                -- дебаффа, и у каждого он свой (см. ту же правку в
+                -- HandlePvpAttackReceived). В сводке залпа атрибут не
+                -- называем — тег здесь ещё и ключ группировки, и
+                -- удлинять его ради того, что написано в карточке
+                -- заклинания из шапки этого же залпа, незачем.
+                tag = tag .. " | дебафф отведён"
             end
         end
         local b = buckets[tag]
@@ -617,7 +623,8 @@ function SB.Logic.HandleAoeEffectReceived(casterName, spellID, effectID, radius,
 
     if success then
         -- fromOther: залп чужой, концентрацию держит заклинатель.
-        SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, true)
+        -- casterName — он же и провокатор, если залп провоцирует.
+        SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, true, nil, casterName)
     end
 
     -- Своё сообщение в чат НЕ печатаем (в отличие от HandleBuffReceived):

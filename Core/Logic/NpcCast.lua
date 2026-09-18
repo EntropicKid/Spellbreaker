@@ -277,8 +277,13 @@ end
 --- Вынесен отдельно, чтобы окно подтверждения могло показать цифры до
 --- отправки, не повторяя расчёт у себя.
 --- @return number roll, number mod, number total, boolean isCrit, number dmgBonus, number baseDmg
-function SB.NpcCast.RollFor(stats, unit, spell)
-    local mod = SB.NPC.AttackModifier(stats, unit, spell)
+--- @param versus string|nil  по кому идёт залп, если цель ровно одна.
+---        Нужен провокации: по своему провокатору существо бьёт без
+---        штрафа. Целей несколько — имени нет, и штраф применяется:
+---        бросок ОДИН на всех (см. врезку в начале файла), и «замах
+---        по пятерым, среди которых обидчик» сосредоточенным не бывает.
+function SB.NpcCast.RollFor(stats, unit, spell, versus)
+    local mod = SB.NPC.AttackModifier(stats, unit, spell, versus)
 
     local statFn    = SB.NPC.StatReader(stats, unit)
     local critBonus = SB.Logic.GetSpellScaling(spell, "crit", nil, statFn)
@@ -483,8 +488,15 @@ function SB.NpcCast.Confirm()
 
     PayCost()
 
+    -- ИМЯ ЦЕЛИ — ТОЛЬКО КОГДА ОНА ОДНА. Провокация на существе снимается
+    -- ударом по провокатору, а залп по пятерым — это не удар по одному
+    -- из них (см. RollFor).
+    local lone = nil
+    if (#names + #npcs) == 1 then
+        lone = names[1] or (npcs[1] and npcs[1].name)
+    end
     local roll, mod, total, isCrit, dmgBonus, baseDmg =
-        SB.NpcCast.RollFor(pending.stats, pending.unit, spell)
+        SB.NpcCast.RollFor(pending.stats, pending.unit, spell, lone)
 
     local me         = UnitName("player")
     local guaranteed = SB.Logic.IsGuaranteed(spell)
@@ -542,7 +554,10 @@ function SB.NpcCast.Confirm()
                     -- fromOther: держит существо, а не Ведущий за него.
                     -- Способность существа с концентрацией иначе занимала
                     -- бы слот того, кто ей всего лишь управляет.
-                    SB.Logic.ApplyEffect(effectID, spell, spell.level, true)
+                    -- Имя существа — оно и провокатор: цель приковано к
+                    -- тушке, а не к Ведущему, который ей управляет.
+                    SB.Logic.ApplyEffect(effectID, spell, spell.level, true,
+                                         nil, pending.npcName)
                 end
                 Say(threshold, ok)
             elseif (not guaranteed) and SB.Net and SB.Net.SendBuff then
@@ -610,10 +625,17 @@ function SB.NpcCast.Confirm()
         -- Особь могла исчезнуть между отметкой и подтверждением.
         if st and nstats then
             if kind == "attack" then
-                local defMod  = SB.NPC.DefenseModifier(nstats, unit)
-                local defRoll = guaranteed and 0 or SB.Logic.Roll()
-                local defTot  = guaranteed and 0 or (defRoll + defMod)
-                local landed  = guaranteed or (total > defTot)
+                -- Против крита не бросаем — пока итогу некуда
+                -- примениться (см. skipDefense в Core/Logic/NPC.lua).
+                local skipDef = guaranteed or (isCrit and not spell.debuff)
+                -- versus — бьющее существо: от своего провокатора цель
+                -- уворачивается как обычно.
+                local defMod  = SB.NPC.DefenseModifier(nstats, unit, pending.npcName)
+                local defRoll = skipDef and 0 or SB.Logic.Roll()
+                local defTot  = skipDef and 0 or (defRoll + defMod)
+                -- Крит попадает всегда — то же правило, что у игрока
+                -- (см. врезку у landed в HandlePvpAttackReceived).
+                local landed  = guaranteed or isCrit or (total > defTot)
                 local dmg, resisted, reduction = 0, 0, 0
                 if landed then
                     -- Тот же пол, что везде: попавший удар не может
@@ -632,7 +654,7 @@ function SB.NpcCast.Confirm()
                 if landed and spell.debuff then
                     local turns = SB.Logic.GetEffectDuration(spell.debuff, spell,
                                                              spell.level)
-                    SB.NPC.AddEffect(unit, spell.debuff, turns)
+                    SB.NPC.AddEffect(unit, spell.debuff, turns, pending.npcName)
                 end
                 local after = SB.NPC.GetState(unit)
                 local guard = {}
@@ -677,7 +699,7 @@ function SB.NpcCast.Confirm()
                 local ok = guaranteed or (not isDebuff) or (total >= threshold)
                 if ok then
                     local turns = SB.Logic.GetEffectDuration(effectID, spell, spell.level)
-                    ok = SB.NPC.AddEffect(unit, effectID, turns)
+                    ok = SB.NPC.AddEffect(unit, effectID, turns, pending.npcName)
                     if ok then landedOn = landedOn + 1 end
                 end
                 SB.Events.Fire(SB.E.BROADCAST_LOG,

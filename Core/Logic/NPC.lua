@@ -50,8 +50,11 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
     local npcName = UnitName("target") or (stats.name or "Существо")
 
     -- ── Бросок атакующего: ровно как в ПвП ────────────────
+    -- versus — имя существа: провокация не мешает бить того, кто её
+    -- наложил, а существа провоцируют чаще всех (см. её источник в
+    -- реестре модификаторов).
     local mod, modParts = SB.Logic.GetModifierBreakdown("attack",
-        { spell = spell, slotLevel = slotLevel })
+        { spell = spell, slotLevel = slotLevel, versus = UnitName("target") })
     local hitBonus, hitParts = SB.Logic.GetSpellScaling(spell, "hit")
     local critBonus          = SB.Logic.GetSpellScaling(spell, "crit")
     local dmgBonus           = SB.Logic.GetSpellScaling(spell, "damage", slotLevel)
@@ -73,14 +76,23 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
     -- ослеплённый волк обязан уворачиваться хуже, и считается это тем же
     -- каналом defense, что у игрока (см. Core/NPCEffects.lua).
     local guaranteed = SB.Logic.IsGuaranteed(spell)
+    -- ПРОТИВ КРИТА СУЩЕСТВО НЕ БРОСАЕТ — ровно до тех пор, пока итогу
+    -- броска некуда примениться. Правило и довод целиком те же, что в
+    -- ПвП (см. skipDefense в HandlePvpAttackReceived): попадание крит
+    -- решил сам, а нужен итог только заклинанию с дебаффом — им меряется
+    -- закрепление чар. Нет дебаффа — нет и смысла катить куб.
+    local skipDefense = guaranteed or (isCrit and not spell.debuff)
     local defMod, defParts = 0, {}
     local defRoll, defTotal = 0, 0
-    if not guaranteed then
-        defMod, defParts = SB.NPC.DefenseModifier(stats, "target")
+    if not skipDefense then
+        -- versus — мы сами: провокация на существе не мешает ему
+        -- уворачиваться от того, кто её и наложил.
+        defMod, defParts = SB.NPC.DefenseModifier(stats, "target", UnitName("player"))
         defRoll  = SB.Logic.Roll()
         defTotal = defRoll + defMod
     end
-    local landed = guaranteed or (total > defTotal)
+    -- КРИТ ПОПАДАЕТ ВСЕГДА — то же правило, что в ПвП.
+    local landed = guaranteed or isCrit or (total > defTotal)
 
     -- ── Урон ──────────────────────────────────────────────
     local dmg, reduction, resisted = 0, 0, 0
@@ -131,7 +143,10 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
         local will = SB.NPC.WillBonus(stats, "target")
         if guaranteed or (total + persuade > defTotal + will) then
             local turns = SB.Logic.GetEffectDuration(spell.debuff, spell, slotLevel)
-            debuffLanded = SB.NPC.AddEffect("target", spell.debuff, turns)
+            -- Своё имя в эффект: если дебафф провоцирует, приковано
+            -- существо именно к нам (см. SB.NPC.TauntPenaltyOf).
+            debuffLanded = SB.NPC.AddEffect("target", spell.debuff, turns,
+                                            UnitName("player"))
         else
             debuffResisted = true
         end
@@ -171,8 +186,9 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
     -- ── Строка боя ────────────────────────────────────────
     local link    = SB.UI.MakeSpellLink(spell)
     local critTxt = isCrit and (" " .. SB.Theme.MSG_BAD .. "(КРИТ!)|r") or ""
-    local defTxt  = guaranteed
-        and (G .. " (существо не сопротивляется)")
+    local defTxt  = skipDefense
+        and (G .. (guaranteed and " (существо не сопротивляется)"
+                               or  " (крит — защиты нет)"))
         or  (G .. " vs Защита: |r" .. SB.UI.RollText(defRoll) .. G .. " + |r" ..
              SB.UI.ModText(defMod) .. G .. " (итог " .. defTotal .. ")")
 
@@ -208,6 +224,12 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
             outcome = outcome .. SB.Theme.MSG_BAD .. " ХП|r"
         end
         outcome = outcome .. guardTxt
+    end
+
+    -- ПОЧЕМУ УДАР ПРОШЁЛ, ХОТЯ ЗАЩИТА ВЫИГРАЛА — та же приписка и тот же
+    -- довод, что в ПвП: без неё строка читается как сбой счёта.
+    if landed and isCrit and not skipDefense and not (total > defTotal) then
+        outcome = outcome .. G .. " | |r" .. SB.Theme.MSG_BAD .. "крит пробил защиту|r"
     end
 
     -- ИМЯ ЭФФЕКТА В СТРОКУ НЕ ИДЁТ, только факт — ровно как в ПвП:
@@ -435,7 +457,7 @@ function SB.Logic.ResolveNpcEffect(spellID, slotLevel)
 
     if success then
         local turns = SB.Logic.GetEffectDuration(effectID, spell, slotLevel)
-        success = SB.NPC.AddEffect("target", effectID, turns)
+        success = SB.NPC.AddEffect("target", effectID, turns, UnitName("player"))
     end
 
     SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID))

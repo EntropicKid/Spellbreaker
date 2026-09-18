@@ -3,9 +3,9 @@ local Add = SB.Database.AddSpell -- Короткая ссылка
 
 Add({
     id = "mage_shield",
-    name = "Щит",
+    name = "Магический доспех",
     key = "Отречение",
-    icon = "Interface\\Icons\\Spell_arcane_arcaneresilience",
+    icon = "Interface\\Icons\\Spell_magearmor",
     level = 1,
     class = "Маг",
     description = "Щит создаёт вокруг мага кратковременный арканный барьер, снижающий получаемый физический урон. Барьер также полностью отклоняет физические и магические атаки, от которых обычно нельзя уклониться.",
@@ -62,23 +62,6 @@ Add({
 	},
 })
 Add({
-    id = "fire_mastery",
-    name = "Власть над огнём",
-    key = "Воплощение",
-    icon = "Interface\\Icons\\Spell_fire_fire",
-    level = 0,
-    class = "Маг",
-    caura = 199,
-    description = "Маг подчиняет себе ближайшее обычное пламя, мгновенно усиливая или гася его. Подконтрольному огню можно изменить яркость и цвет либо придать ему простую движущуюся форму.",
-    isCantrip = true,
-    resistable = true,
-    canCrit = false,
-	distance = 19,
-	scaling = {
-		hit    = { ["Наука"] = 1, ["Эрудиция"] = 1 },
-	},
-})
-Add({
     id = "electric_shock",
     name = "Электрошок",
     key = "Воплощение",
@@ -103,7 +86,7 @@ Add({
     name = "Морозный луч",
     key = "Воплощение",
     icon = "Interface\\Icons\\Ability_mage_rayoffrost",
-    level = 0,
+    level = 2,
     class = "Маг",
     damageType = "frost",
     caura = 87,
@@ -112,9 +95,8 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 19,
-	-- Срок был неявным (запасная единица), теперь записан: «на короткое время замедляется».
 	duration = 1,
-	debuff = "eff_frozen",
+	debuff = "eff_chilling",
 	scaling = {
 		hit    = { ["Наука"] = 1, ["Эрудиция"] = 1 },
 		crit   = { ["Точность"] = 1.5 },
@@ -135,7 +117,7 @@ Add({
     canCrit = true,
 	distance = 19,
 	debuff = "eff_burn",
-	duration = 1,
+	duration = 2,
 	scaling = {
 		hit    = { ["Наука"] = 1, ["Эрудиция"] = 1 },
 		crit   = { ["Точность"] = 1 },
@@ -155,7 +137,7 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 19,
-	debuff = "eff_frozen",
+	debuff = "eff_chilling",
     duration = 3,
 	scaling = {
 		hit    = { ["Наука"] = 1 },
@@ -201,28 +183,11 @@ Add({
 	},
 })
 Add({
-    id = "mage_whirlpool",
-    name = "Водоворот",
-    key = "Воплощение",
-    icon = "Interface\\Icons\\Spell_shadow_soulleech_2",
-    level = 3,
-    class = "Маг",
-    caura = 1145,
-    description = "Влага иссушается из окружения, в следствии чего формируются огромные и мощные водные потоки, хаотично циркулирующие в разные стороны, формирующие хаотичный водоворот вокруг цели, в который могут попасть и ближайшие противники/союзники. При воссоздании заклинания реагент в виде ракушки будет использоваться как катализатор, брошенный в цель. Цель, что находится в водовороте испытывает ошеломление и дизориентацию, чтобы противиться мощным водным потокам нужно иметь недюженую силу, ведь выпрыгнуть или же выплыть из водоворота - задача не для маленьких и слабых! Отличный проводник для стихийных заклинаний холода, молнии.",
-    isCantrip = false,
-    resistable = true,
-    canCrit = false,
-	distance = 10,
-	scaling = {
-		hit    = { ["Наука"] = 1, ["Эрудиция"] = 0.5 },
-	},
-})
-Add({
     id = "frost_glacier",
     name = "Конус холода",
     key = "Воплощение",
     icon = "Interface\\Icons\\Spell_frost_glacier",
-    level = 1,
+    level = 3,
     class = "Маг",
     damageType = "frost",
     caura = 651,
@@ -231,12 +196,12 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 6,
-	debuff = "eff_frozen",
+	debuff = "eff_chilling",
     duration = 3,
 	scaling = {
 		hit    = { ["Наука"] = 1, ["Эрудиция"] = 0.5 },
 		crit   = { ["Рвение"] = 2 },
-		damage = { ["Интеллект"] = 0.5 },
+		damage = { ["Интеллект"] = 1.15 },
 	},
 })
 Add({
@@ -454,7 +419,7 @@ Add({
     name = "Кольцо льда",
     key = "Воплощение",
     icon = "Interface\\Icons\\Spell_frost_freezingbreath",
-    level = 3,
+    level = 1,
     class = "Маг",
     damageType = "frost",
     caura = 577,
@@ -464,7 +429,7 @@ Add({
     canCrit = true,
 	aoe = { radius = 9 },
 	duration = 3,
-	debuff = "eff_frozen",
+	debuff = "eff_chilling",
 	scaling = {
 		hit    = { ["Наука"] = 1 },
 		crit   = { ["Рвение"] = 1.5 },
@@ -636,10 +601,10 @@ Add({
     description = "Заклинание создаёт ауру вокруг цели, которая ослабляет часть эффектов всех исцеляющих и наносящих урон заклинаний на 1 круг.",
     isCantrip = false,
     resistable = true,
-	duration = 20,
+	duration = 150,
     isConcentration = false,
 	distance = 2.5,
-	debuff = "eff_weakness_abonish_magic",
+	buff = "eff_abonish_magic",
 	scaling = {
 		hit    = { ["Наука"] = 1, ["Концентрация"] = 0.5 },
 	},
@@ -1000,7 +965,7 @@ Add({
     name = "Создание воды маны",
     key = "Воплощение",
     icon = "Interface\\Icons\\Inv_12_profession_enchanting_manaoil_blue",
-    level = 2,
+    level = 1,
     class = "Маг",
     caura = 961,
     description = "Это заклинание наполняет пустой флакон прозрачной водой. Если заклинатель выпивает эту воду, он восстанавливает одну ячейку заклинания до 3-го уровня (по выбору пьющего). ",
@@ -1014,10 +979,10 @@ Add({
 })
 Add({
     id = "mana_food",
-    name = "Создание целебной пищи",
+    name = "Сотворение пищи",
     key = "Воплощение",
     icon = "Interface\\Icons\\Inv_misc_food_73cinnamonroll",
-    level = 2,
+    level = 1,
     class = "Маг",
     caura = 961,
     description = "Это заклинание создаёт четыре буханки кислого хлеба. Съев одну буханку (что занимает 5 последовательных и непрерываемых раундов), существо восстанавливает здоровье.\n\nПо окончании действия заклинания все несъеденные буханки исчезают.",

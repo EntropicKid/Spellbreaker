@@ -642,7 +642,7 @@ AddEffect({
     icon = "Interface\\Icons\\Inv_ability_lightsmithpaladin_sacredweapon",
     description = "Клинок отзывается теплом и находит нечистую плоть охотнее живой.",
     -- «Атаки, совершаемые ОСВЯЩЁННЫМ ОРУЖИЕМ» — сказано прямо.
-    effect = { kind = "buff", school = "magic", mods = { attack = 15, damagePhysical = 2 } },
+    effect = { kind = "buff", school = "magic", mods = { damagePhysical = 2 } },
 })
 
 AddEffect({
@@ -666,7 +666,7 @@ AddEffect({
     name = "Внутреннее зрение",
     icon = "Interface\\Icons\\Spell_holy_mindvision",
     description = "Жрец смотрит чужими глазами. Своими в это время он не видит почти ничего.",
-    effect = { kind = "buff", school = "magic", mods = { defense = -5, movePct = -30 }, stats = { ["Акробатика"] = -3, ["Внушение"] = 4 }, breakOn = { damaged = true } },
+    effect = { kind = "buff", school = "magic", mods = { movePct = -30 }, stats = { ["Акробатика"] = -3, ["Внушение"] = 10 } },
 })
 
 AddEffect({
@@ -811,13 +811,6 @@ AddEffect({
     -- платят за величину (см. лестницу в Core/DamageTypes.lua).
     effect = { kind = "buff", school = "magic",
                mods = { armor = 10, resistArcane = 2 } },
-})
-
-AddEffect({
-    id   = "eff_chilling",
-    name = "Охлаждение",
-    icon = "Interface\\Icons\\Ability_mage_wintersgrasp",
-    description = "Предмет не нагревается, что бы с ним ни делали. Лёд на нём не тает, вода не закипает.",
 })
 
 AddEffect({
@@ -1824,7 +1817,7 @@ AddEffect({
     damageType = "nature",
     icon = "Interface\\Icons\\INV_Potion_19",
     description = "В голове разорвалось что-то чужое. Мысли не собираются, руки не слушаются.",
-    effect = { kind = "debuff", resist = "Выносливость", school = "poison", stats = { ["Мощь"] = -2 }, tick = { damage = 1 }, mods = { maxCastResource = -1 } },
+    effect = { kind = "debuff", resist = "Выносливость", school = "poison", stats = { ["Мощь"] = -2 }, tick = { damage = 1, resource = -1 } },
 })
 
 AddEffect({
@@ -1848,7 +1841,7 @@ AddEffect({
     name = "Исчезновение",
     icon = "Interface\\Icons\\Ability_vanish",
     description = "Растворен на ближайшие секунды в дымке густого тумана. Врагам тяжело увидеть цель и, следовательно, попасть по ней.",
-    effect = { kind = "buff", mods = { defense = 65, crit = 6 } },
+    effect = { kind = "buff", mods = { defense = 45 }, stats = { ["Скрытность"] = 5 } },
 })
 
 AddEffect({
@@ -1939,7 +1932,7 @@ AddEffect({
     damageType = "nature",
     icon = "Interface\\Icons\\Ability_rogue_disembowel",
     description = "Тело цели сворачивается в режущих судорогах под действием этого яда.",
-    effect = { kind = "debuff", resist = "Выносливость", school = "poison", mods = { damage = -2 }, tick = { damage = 2 } },
+    effect = { kind = "debuff", resist = "Выносливость", school = "poison", mods = { damage = -2 }, tick = { damage = 3 } },
 })
 
 AddEffect({
@@ -2036,9 +2029,6 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_holy_mindsooth",
     description = "Тело хочет бежать, а не драться. Разум занят чужими кошмарами.",
     effect = {
-        -- «На неё не действуют заклинания, вызывающие страх». Это
-        -- дебаф, и подавление здесь — не подарок цели, а причина, по
-        -- которой умиротворённого не запугать: он уже спокоен.
         suppress = { "Страх" }, kind = "debuff", resist = "Дух", school = "magic", mods = { defense = -50, range = -12 }, stats = { ["Воля"] = -3, }, breakOn = { damaged = true } },
 })
 
@@ -3011,12 +3001,12 @@ AddEffect({
     effect = {
         kind   = "buff",
         school = "magic",
-        mods   = { resistFire = 2, armor = 10, attack = -5 },
+        mods   = { armor = 20 },
         -- «УДАРЯЕТ ЦЕЛЬ СВОИМ ТЕЛОМ ИЛИ РУКОПАШНЫМ ОРУЖИЕМ...
         -- ПОДВЕРГАЕТСЯ ОХЛАЖДЕНИЮ». Оговорку про копья описание делает
         -- само — melee и есть эта оговорка.
         onAction = { when = "damaged", melee = true,
-                     toAttacker = "eff_frost_armor_chill" },
+                     toAttacker = "eff_chilling" },
     },
 })
 
@@ -3039,31 +3029,15 @@ AddEffect({
 })
 
 AddEffect({
-    id   = "eff_frozen",
-    name = "Ледяная стрела",
-    icon = "Interface\\Icons\\Spell_nature_slow",
-    description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
-    -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { kind = "debuff", resist = "Выносливость", school = "magic", mods = { movePct = -40 } },
-})
-
-AddEffect({
     -- Ослабление магии (Маг, круг 1). Из гнезда eff_weakness_*.
-    id   = "eff_weakness_abonish_magic",
+    id   = "eff_abonish_magic",
     name = "Ослабление магии",
-    icon = "Interface\\Icons\\Spell_shadow_curseofmannoroth",
+    icon = "Interface\\Icons\\Spell_magic_managain",
     description = "Доспех тяжелеет, оружие держится без уверенности. Удары выходят вялыми.",
-    -- «Ослабляет часть эффектов ВСЕХ исцеляющих и наносящих урон
-    -- ЗАКЛИНАНИЙ» — то есть магию, а не сталь в руках цели.
     effect = {
-        -- ДУХ, А НЕ ВЫНОСЛИВОСТЬ, хотя родитель («Слабость») спрашивает
-        -- выносливость: здесь school = "magic", и отводят такое волей, а
-        -- не крепостью тела — как проклятия стихий и тьмы. Строки resist
-        -- не было вовсе, и аура ложилась без броска.
-        kind  = "debuff", resist = "Дух",
+        kind  = "buff", resist = "Дух",
         school = "magic",
-        mods = { attack = -16, damageMagic = -1 },
-        stats = { ["Мощь"] = -2, ["Атлетика"] = -1 },
+        mods = { resistMagic = 1, healTaken = -2 },
     },
 })
 
@@ -3378,10 +3352,10 @@ AddEffect({
 
 AddEffect({
     id   = "eff_shield_priest_shield",
-    name = "Щит",
-    icon = "Interface\\Icons\\Spell_holy_powerwordshield",
+    name = "Магический доспех",
+    icon = "Interface\\Icons\\Spell_magearmor",
     description = "Мерцающая преграда отводит слабые удары и сбивает прицел стрелкам.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 30 } },
+    effect = { kind = "buff", school = "magic", mods = { resistMagic = 1 }, stats = { ["Лидерство"] = 3 }},
 })
 
 AddEffect({
@@ -3392,8 +3366,7 @@ AddEffect({
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
         kind = "debuff", resist = "Выносливость", school = "bleed",
-        tick = { damage = 1 },
-		stats = { ["Мощь"] = -2 },
+        tick = { damage = 2 },
     },
 })
 
@@ -3407,9 +3380,6 @@ AddEffect({
 })
 
 AddEffect({
-    -- Веер клинков (Разбойник, круг 2). Порезы поверхностные — тик на
-    -- единицу, ровно как обещает описание заклинания: «каждый отдельный
-    -- порез поверхностный, но их много и сразу».
     id   = "eff_bleeding_blade_flurry",
     name = "Веер клинков",
     damageType = "physical",
@@ -3417,22 +3387,16 @@ AddEffect({
     description = "Мелкие порезы по всему телу. Каждый пустяк, но кровь идёт отовсюду разом.",
     effect = {
         kind = "debuff", resist = "Выносливость", school = "bleed",
-        tick = { damage = 1 },
+        tick = { damage = 2 },
     },
 })
 
 AddEffect({
-    -- Священный огонь (Жрец, круг 2). Имя и иконка ВЗЯТЫ У РОДИТЕЛЯ:
-    -- это не отдельное явление, а то же пламя, которое продолжает гореть
-    -- на цели после попадания.
     id   = "eff_holy_fire",
     name = "Священный огонь",
     damageType = "holy",
     icon = "Interface\\Icons\\Spell_holy_searinglight",
     description = "Пламя въелось в плоть и не гаснет: оно горит не по законам огня, а по воле того, кто его послал.",
-    -- Сопротивляются Выносливостью, как всякому продолжающемуся урону.
-    -- Школа holy, а не fire, и это прямо оговорено в описании
-    -- заклинания: «не может использовать сопротивление к обычному огню».
     effect = {
         kind = "debuff", resist = "Выносливость", school = "magic",
         tick = { damage = 1 },
@@ -3839,10 +3803,12 @@ AddEffect({
 
 AddEffect({
     id   = "eff_taunt",
-    name = "Насмешка",
+    name = "Провокация",
     icon = "Interface\\Icons\\Ability_warrior_commandingshout",
-    description = "Решимость сменилась сомнением. Рука делает то, что велено, но без веры в исход.",
-    effect = { kind = "debuff", resist = "Характер", stats = { ["Концентрация"] = -3, ["Точность"] = -3 } },
+    description = "Всё внимание на обидчика. Прочие цели будто отступили за край зрения: " ..
+        "по ним рука идёт наугад.",
+    effect = { kind = "debuff", resist = "Характер", taunt = true,
+               stats = { ["Концентрация"] = -3 } },
 })
 
 AddEffect({
@@ -3918,7 +3884,7 @@ AddEffect({
         -- площадных чар угол выставить попросту некогда». Отличить
         -- мгновенные чары от долгих аддону нечем, а половина случаев —
         -- честный перевод оговорки в число.
-        onAction = { when = "damaged", magic = true, chance = 50,
+        onAction = { when = "damaged", magic = true, chance = 100,
                      toAttacker = "eff_spell_rebound" },
     },
 })
@@ -3928,7 +3894,7 @@ AddEffect({
     name = "Последний рубеж",
     icon = "Interface\\Icons\\Spell_nature_focusedmind",
     description = "Тело помнит, что умеет терпеть больше, чем кажется.",
-    effect = { kind = "buff", stats = { ["Живучесть"] = 8 } },
+    effect = { kind = "debuff", stats = { ["Живучесть"] = 8 } },
 })
 
 AddEffect({
@@ -4299,15 +4265,12 @@ AddEffect({
 })
 
 AddEffect({
-    id   = "eff_frost_armor_chill",
+    id   = "eff_chilling",
     name = "Охлаждение",
     icon = "Interface\\Icons\\Spell_frost_frostarmor02",
     description = "Руки коченеют от чужого доспеха. Движения стали короче.",
-    -- «Наносит обычный урон, но одновременно подвергается охлаждению»:
-    -- урона в ответ описание не обещает — только замедление.
     effect = { kind = "debuff", resist = "Сила", school = "magic", family = "Замедление",
-               mods = { movePct = -25 } },
-    damageType = "frost",
+               mods = { movePct = -65, resistFrost = -1 } },
 })
 
 AddEffect({
@@ -4317,6 +4280,6 @@ AddEffect({
     description = "Собственное заклинание вернулось с чужого щита.",
     -- Двойка, а не единица: чары вернулись целиком, а не задели краем.
     -- Платой за это стоит шанс — угол успевает выставить не каждый.
-    effect = { kind = "debuff", resist = "Дух", school = "magic", tick = { damage = 2 } },
+    effect = { kind = "debuff", resist = "Дух", school = "magic", tick = { damage = 10 } },
     damageType = "arcane",
 })
