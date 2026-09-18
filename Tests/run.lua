@@ -10806,6 +10806,119 @@ do
 end
 
 -- ============================================================
+-- ПОПЫТКИ ПОБЕГА: СЧЁТНЫЕ, ДО ДОЛГОГО ОТДЫХА
+--
+-- Без лимита побег был кнопкой «выйти из неудобной сцены»: провал стоил
+-- хода, и только, — кто жал её каждый круг, в конце концов уходил.
+-- Проверяем четыре вещи: сколько положено, что тратит любой исход, что
+-- без попыток кнопка отказывает БЕЗ траты хода и что Долгий Отдых
+-- возвращает всё.
+-- ============================================================
+do
+    local PM   = SB.PlayerModel
+    local me   = stub.world.playerName
+    local BASE = SB.Data.STAT_BASE
+    local savedSkills = _G.SpellbreakerCharDB.skills
+    ResetEffects()
+    SB.TurnOrder.Stop()
+
+    -- ── СКОЛЬКО ПОЛОЖЕНО: ОДНА И СТУПЕНИ «ВЫЖИВАНИЯ» ───────
+    -- Ступени — на 1, 3 и 5 вложенных очках, тем же шагом «через одно»,
+    -- что у «Лидерства».
+    local EXPECT = { [0] = 1, [1] = 2, [2] = 2, [3] = 3, [4] = 3, [5] = 4 }
+    for v = BASE, 5 do
+        _G.SpellbreakerCharDB.skills = { ["Выживание"] = v }
+        check("Выживание " .. v .. " → попыток", SB.Skills.GetFleeAttempts(), EXPECT[v])
+    end
+
+    -- ВЛОЖЕННОЕ, А НЕ ДЕЙСТВУЮЩЕЕ: дебафф на навык не отнимает выход
+    -- из боя.
+    _G.SpellbreakerCharDB.skills = { ["Выживание"] = 3 }
+    SB.Data.Spells["t_flee_down"] = { id = "t_flee_down", name = "Проба ловушки",
+        class = "Эффект", level = 0, isContainer = true,
+        icon = "Interface" .. string.char(92) .. "Icons" ..
+               string.char(92) .. "INV_Misc_QuestionMark",
+        effect = { kind = "debuff", stats = { ["Выживание"] = -9 } } }
+    SB.ActiveEffects.Add("t_flee_down", 5, false)
+    check("дебафф на Выживание попыток не отнимает", SB.Skills.GetFleeAttempts(), 3)
+    ResetEffects()
+
+    -- ── ЛЮБОЙ ИСХОД ТРАТИТ ПОПЫТКУ ─────────────────────────
+    _G.SpellbreakerCharDB.skills   = { ["Выживание"] = 1 }   -- две попытки
+    _G.SpellbreakerCharDB.fleeUsed = nil
+    PM.SetFled(false)
+    local left, max = PM.GetFleeAttempts()
+    check("на свежей сцене все попытки целы", left, 2)
+    check("из двух",                          max, 2)
+
+    local realRoll = SB.Logic.Roll
+    local function Try(face)
+        SB.Logic.Roll = function() return face, 1, 100 end
+        PM.SetLocked(false)
+        SB.Cooldowns.Start(SB.Cooldowns.TURN)
+        stub.world.time = stub.world.time + 10
+        SB.Logic.Flee()
+    end
+
+    -- Провал тоже стоит попытки — иначе лимит обходился бы провалами.
+    Try(1)
+    check("проваленная попытка потрачена", (PM.GetFleeAttempts()), 1)
+    check("из боя провал не вывел",        PM.HasFled(), false)
+
+    -- ── БЕЗ ПОПЫТОК — ОТКАЗ, И ХОД ЦЕЛ ─────────────────────
+    Try(1)
+    check("потрачена и вторая", (PM.GetFleeAttempts()), 0)
+
+    -- Кнопку жмут ещё раз: бросок не катится, ход не тратится. Взять
+    -- ход за нажатие того, что заведомо не может сработать, нечестно.
+    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = 1,
+        index = 1, slots = { { me } }, acted = {}, session = 41 })
+    local rolled = false
+    SB.Logic.Roll = function() rolled = true; return 100, 1, 100 end
+    PM.SetLocked(false)
+    SB.Cooldowns.Start(SB.Cooldowns.TURN)
+    stub.world.time = stub.world.time + 10
+    SB.Logic.Flee()
+    check("без попыток бросок не катится", rolled, false)
+    check("и ход не потрачен",             SB.TurnOrder.HasActed(me), false)
+    check("и из боя не выводит",           PM.HasFled(), false)
+    check("счёт ниже нуля не уходит",      (PM.GetFleeAttempts()), 0)
+    SB.TurnOrder.Stop()
+    SB.Logic.Roll = realRoll
+
+    -- ── НОВАЯ СЦЕНА ПОПЫТОК НЕ ВОЗВРАЩАЕТ ──────────────────
+    -- Возвращает их Долгий Отдых, и только он: запуск режима — это новый
+    -- бой, а не отдых после старого.
+    SB.TurnOrder.Start()
+    check("новый запуск режима попыток не вернул", (PM.GetFleeAttempts()), 0)
+    SB.TurnOrder.Stop()
+
+    -- ── ДОЛГИЙ ОТДЫХ ВОЗВРАЩАЕТ ВСЁ ────────────────────────
+    PM.FullReset()
+    check("после Долгого Отдыха все попытки целы", (PM.GetFleeAttempts()), 2)
+    check("и поле в сохранёнке вычищено", _G.SpellbreakerCharDB.fleeUsed, nil)
+
+    -- ── ПОДРОСШЕЕ «ВЫЖИВАНИЕ» ДАЁТ СВЕЖУЮ ПОПЫТКУ ──────────
+    -- Хранится истраченное, а не остаток: новая ступень посреди сцены
+    -- приходит одной свежей попыткой, а не полным комплектом.
+    _G.SpellbreakerCharDB.fleeUsed = 2
+    check("всё истрачено", (PM.GetFleeAttempts()), 0)
+    _G.SpellbreakerCharDB.skills = { ["Выживание"] = 3 }     -- три попытки
+    check("новая ступень — ровно одна свежая попытка", (PM.GetFleeAttempts()), 1)
+
+    -- ── ИСХОДНИК: СЧЁТЧИК ВИДЕН ТАМ, ГДЕ РЕШАЮТ ────────────
+    local mf = ReadFile("UI/MainFrame.lua")
+    checkTrue("на кнопке побега — остаток из положенного",
+              mf:find('"Побег из боя (%d/%d)"', 1, true) ~= nil)
+    checkTrue("и строка в подсказке передвижения",
+              mf:find('"Попыток побега"', 1, true) ~= nil)
+
+    _G.SpellbreakerCharDB.fleeUsed = nil
+    _G.SpellbreakerCharDB.skills   = savedSkills
+    PM.SetFled(false)
+end
+
+-- ============================================================
 -- ХАРАКТЕРИСТИКИ ОТСЧИТЫВАЮТСЯ ОТ НУЛЯ
 --
 -- База была единицей, и единица была бесплатной: персонаж рождался со
@@ -14755,6 +14868,10 @@ do
     SB.Logic.Flee()
     check("проваленный побег из боя не выводит", PM.HasFled(), false)
 
+    -- Счёт попыток обнуляем: проверка здесь про ИСХОД броска, а лимит
+    -- попыток проверяется своим блоком ниже. Без обнуления вторая
+    -- попытка упёрлась бы в лимит и проверяла бы не то.
+    _G.SpellbreakerCharDB.fleeUsed = nil
     SB.Logic.Roll = function() return 100, 1, 100 end
     PM.SetLocked(false)
     SB.Cooldowns.Start(SB.Cooldowns.TURN)
@@ -15842,7 +15959,7 @@ do
           SB.Data.GetClassProfile("Шаман").attrPoints, 2)
 
     -- ── ЛЕСТНИЦА ОЧКОВ ХАРАКТЕРИСТИК ───────────────────────
-    -- Два на старте и по одному каждые два уровня: на 3-м, 5-м, 7-м и
+    -- Три на старте и по одному каждые два уровня: на 3-м, 5-м, 7-м и
     -- дальше по нечётным — так это и названо в правилах.
     do
         local savedR = stub.world.race
@@ -15850,14 +15967,14 @@ do
         local savedC, savedT = stub.world.class, stub.world.classToken
         stub.world.class, stub.world.classToken = "Маг", "MAGE"
 
-        check("на первом уровне два",   SB.Attributes.GetTotalPoints(1),  2)
-        check("на втором всё ещё два",  SB.Attributes.GetTotalPoints(2),  2)
-        check("третий даёт третье",     SB.Attributes.GetTotalPoints(3),  3)
-        check("четвёртый — ничего",     SB.Attributes.GetTotalPoints(4),  3)
-        check("пятый — четвёртое",      SB.Attributes.GetTotalPoints(5),  4)
-        check("седьмой — пятое",        SB.Attributes.GetTotalPoints(7),  5)
-        check("к 21-му двенадцать",     SB.Attributes.GetTotalPoints(21), 12)
-        check("на капе четырнадцать",   SB.Attributes.GetTotalPoints(25), 14)
+        check("на первом уровне три",   SB.Attributes.GetTotalPoints(1),  3)
+        check("на втором всё ещё три",  SB.Attributes.GetTotalPoints(2),  3)
+        check("третий даёт четвёртое",  SB.Attributes.GetTotalPoints(3),  4)
+        check("четвёртый — ничего",     SB.Attributes.GetTotalPoints(4),  4)
+        check("пятый — пятое",          SB.Attributes.GetTotalPoints(5),  5)
+        check("седьмой — шестое",       SB.Attributes.GetTotalPoints(7),  6)
+        check("к 21-му тринадцать",     SB.Attributes.GetTotalPoints(21), 13)
+        check("на капе пятнадцать",     SB.Attributes.GetTotalPoints(25), 15)
         -- ОЧКО ПРИХОДИТ НА НЕЧЁТНОМ, и это единственное, что здесь легко
         -- сломать: «уровень / 2» дал бы его на чётных.
         checkTrue("каждое новое очко — на нечётном уровне", (function()
@@ -15887,7 +16004,7 @@ do
     -- ДВОЙКА НА СТАРТЕ, а не пятёрка: лист персонажа больше не
     -- собирается почти целиком на первом уровне, шаг — три уровня
     -- (см. SB.Attributes.GetTotalPoints).
-    checkTrue("а у прочих классов запас прежний", plain == 2)
+    checkTrue("а у прочих классов запас прежний", plain == 3)
 
     stub.world.class, stub.world.classToken = savedClass, savedToken
     stub.world.race = savedRace

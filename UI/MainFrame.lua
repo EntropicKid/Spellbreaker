@@ -785,6 +785,12 @@ local function BuildMainFrame()
         else
             GameTooltip:AddDoubleLine("Предел", "снят Ведущим", 0.9,0.9,0.9, 1, 0.82, 0)
         end
+        -- Одной строкой, в том же столбце, что метры: побег — тоже про
+        -- ноги, и искать его рядом с запасом хода естественно. Подробности
+        -- — в подсказке самой кнопки побега.
+        local fleeLeft, fleeMax = SB.PlayerModel.GetFleeAttempts()
+        GameTooltip:AddDoubleLine("Попыток побега", fleeLeft .. "/" .. fleeMax,
+            0.9,0.9,0.9, 1,1,1)
         GameTooltip:AddLine(" ")
         if SB.Movement.BlocksAction() then
             GameTooltip:AddLine("Предел выбран — применить способность нельзя.", 1, 0.4, 0.4, true)
@@ -918,14 +924,21 @@ local function BuildMainFrame()
     -- Доступность считается при КАЖДОМ раскрытии, а не на обновлении
     -- окна: меню закрыто почти всегда, и трогать его кнопки незачем.
     local function RefreshSpecialMenu()
-        local fled = SB.PlayerModel.HasFled and SB.PlayerModel.HasFled()
+        local PM   = SB.PlayerModel
+        local fled = PM.HasFled and PM.HasFled()
         if fled then
             fleeItem:Disable()
             fleeItem:SetText("Вы вне боя")
-        else
-            fleeItem:Enable()
-            fleeItem:SetText("Побег из боя")
+            return
         end
+        -- СЧЁТЧИК ПРЯМО НА КНОПКЕ: решение «бежать или нет» принимается
+        -- ровно здесь, и узнать, сколько попыток осталось, надо до
+        -- нажатия, а не из отказа после него.
+        local left, max = PM.GetFleeAttempts()
+        fleeItem:SetText(string.format("Побег из боя (%d/%d)", left, max))
+        -- Кончились — кнопка гаснет, но счётчик остаётся: «0/2» говорит,
+        -- почему нельзя, а пустая серая кнопка — нет.
+        if left > 0 then fleeItem:Enable() else fleeItem:Disable() end
     end
 
     shortRestBtn:SetScript("OnClick", function()
