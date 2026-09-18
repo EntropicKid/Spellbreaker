@@ -104,14 +104,14 @@ Add({
     distance = 2.5,
     duration = 2,
 	scaling = {
-		hit    = { ["Скрытность"] = 1, ["Ремесло"] = 1 },
+		hit    = { ["Скрытность"] = 1, ["Искусность"] = 1 },
 	},
 })
 
 Add({
     id = "shiv",
     name = "Отравляющий укол",
-	requirement = "dagger",
+	requirement = "melee",
     key = "Ядоварение",
     icon = "Interface\\Icons\\INV_Potion_19",
     level = 1,
@@ -126,7 +126,7 @@ Add({
     distance = 2.5,
     duration = 5,
 	scaling = {
-		hit    = { ["Ремесло"] = 1.5 },
+		hit    = { ["Искусность"] = 1.5 },
 		damage = { ["Ловкость"] = 0.5 },
 	},
 })
@@ -322,7 +322,7 @@ Add({
     resistable = true,
     distance = 2.5,
 	scaling = {
-		hit    = { ["Ремесло"] = 0.5, ["Ловкость рук"] = 1 },
+		hit    = { ["Искусность"] = 0.5, ["Ловкость рук"] = 1 },
 	},
 })
 
@@ -330,7 +330,7 @@ Add({
     id = "feint",
     name = "Ложный выпад",
     key = "Бойня",
-    icon = "Interface\\Icons\\Ability_rogue_feint",
+    icon = "Interface\\Icons\\Ability_rogue_cheatdeath",
     level = 1,
     class = "Разбойник",
     -- caura = 22,
@@ -385,7 +385,7 @@ Add({
     duration = 5,
     debuff = "eff_poisoned_blade",
     scaling = {
-        hit    = { ["Ремесло"] = 1 },
+        hit    = { ["Искусность"] = 1 },
         crit = { ["Точность"] = 0.5 },
         damage = { ["Ловкость"] = 1 },
     },
@@ -475,7 +475,7 @@ Add({
     id = "deadly_throw",
     name = "Смертельный бросок",
     key = "Бойня",
-    icon = "Interface\\Icons\\Inv_throwingknife_04",
+    icon = "Interface\\Icons\\Inv_throwingknife_06",
     level = 2,
     class = "Разбойник",
     damageType = "physical",
@@ -564,7 +564,7 @@ Add({
     duration = 5,
     debuff = "eff_envenom",
     scaling = {
-        hit    = { ["Ловкость"] = 1, ["Ремесло"] = 1 },
+        hit    = { ["Ловкость"] = 1, ["Искусность"] = 1 },
         crit   = { ["Точность"] = 1 },
         damage = { ["Ловкость"] = 1 },
     },
@@ -585,7 +585,7 @@ Add({
     debuff = "eff_blinded_smoke_bomb",
     aoe = { radius = 6 },
     scaling = {
-        hit    = { ["Ремесло"] = 1, ["Ловкость рук"] = 0.5 },
+        hit    = { ["Искусность"] = 1, ["Ловкость рук"] = 0.5 },
     },
 })
 

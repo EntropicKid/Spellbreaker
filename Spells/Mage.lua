@@ -499,7 +499,8 @@ Add({
     description = "Окутавшись серебристым туманом, вы телепортируетесь на расстояние до 30 футов в свободное пространство, видимое вами.",
     isCantrip = false,
     resistable = true,
-	distance = 11,
+    duration = 1,
+	container = "eff_blink",
 	scaling = {
 		hit    = { ["Наука"] = 1 },
 	},

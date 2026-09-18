@@ -560,24 +560,35 @@ function SB.Library.RefreshDetailButtons()
     -- ПОДПИСЬ ПО СУЩЕСТВУ ДЕЙСТВИЯ. «Подготовить» — про заклинание,
     -- которое держат в голове; склянку кладут в сумку, и называть это
     -- подготовкой значит смешивать две разные ячейки в одном слове.
-    if canPrepare then
-        local isItem = SB.Items.IsItem(spell)
-        f.prepareBtn:SetText(isItem and "В сумку" or "Подготовить")
-        f.unlearnBtn:SetText(isItem and "Выложить" or "Разучить")
-    end
-
     -- «Разучить» — ровно у того, что сейчас в пуле. У неподготовленного
     -- она была бы кнопкой без действия.
     -- У предмета своя сумка, и «Разучить» на нём значит «убрать из
     -- сумки» — кнопка та же, список другой.
+    local isItem = SB.Items.IsItem(spell)
     local prepared
-    if SB.Items.IsItem(spell) then
+    if isItem then
         prepared = SB.Items.IsPrepared(spell.id)
     else
         prepared = canPrepare and SB.PlayerModel.IsPrepared
                    and SB.PlayerModel.IsPrepared(spell.id)
     end
-    f.unlearnBtn:SetShown(prepared and true or false)
+    prepared = prepared and true or false
+    f.unlearnBtn:SetShown(prepared)
+
+    -- ПОДГОТОВЛЕННОЕ ПРИМЕНЯЮТ, А НЕ ГОТОВЯТ ВТОРОЙ РАЗ. Прежде на уже
+    -- подготовленном стояла «Подготовить», и нажатие отвечало только
+    -- «уже подготовлено» — кнопка без действия на самом видном месте.
+    -- Теперь та же кнопка делает то, ради чего открыли карточку: то же,
+    -- что ЛКМ по карточке в колонке (выбор круга) или по ячейке сумки.
+    f._castMode = prepared
+    if canPrepare then
+        if prepared then
+            f.prepareBtn:SetText("Применить")
+        else
+            f.prepareBtn:SetText(isItem and "В сумку" or "Подготовить")
+        end
+        f.unlearnBtn:SetText(isItem and "Выложить" or "Разучить")
+    end
 
     f.editBtn:SetShown(spell.isCustom and true or false)
 
@@ -907,7 +918,21 @@ function SB.Library.ShowDetail(spell)
         f.outcomeBox.editBox:SetText(SB.SpellOutcomes.Get(spell.id) or "")
     end
 
-    f.prepareBtn:SetScript("OnClick", function()
+    f.prepareBtn:SetScript("OnClick", function(self)
+        -- Подготовленное — применить (см. врезку у RefreshDetailButtons).
+        if f._castMode then
+            if SB.Items.IsItem(spell) then
+                -- Меню выпадает от самой кнопки, поэтому карточку не
+                -- закрываем: якорь должен остаться на месте.
+                SB.UI.ShowItemUseMenu(self, spell)
+            elseif SB.UI.ShowSlotPicker then
+                -- Карточка своё отработала, а окно выбора круга не должно
+                -- оказаться под ней.
+                f:Hide()
+                SB.UI.ShowSlotPicker(spell.id)
+            end
+            return
+        end
         -- ПРЕДМЕТ КЛАДЁТСЯ В СУМКУ, а не в ячейки заклинаний: у него свои
         -- три места и свой потолок (см. Core/Items.lua). Кнопка одна и та
         -- же — разница только в том, куда кладём.

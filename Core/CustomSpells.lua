@@ -102,6 +102,9 @@ end
 
 local function InjectSpell(sp)
     if not sp or not sp.id then return end
+    -- Своё заклинание могло быть собрано до переименования навыка — у
+    -- себя или у того, кто прислал его по сети (см. SB.Data.SkillRenames).
+    SB.Data.RenameSpellSkills(sp)
     if sp.id:match("^custom_") then
         sp.isCustom = true
     end
@@ -1274,6 +1277,7 @@ function SB.CustomSpells.Init()
         SpellbreakerCustomDB.spells = {}
     end
     for id, sp in pairs(SpellbreakerCustomDB.spells) do
+        SB.Data.RenameSpellSkills(sp)
         sp.resistable = sp.resistable == nil and true or sp.resistable
         sp.isCustom = true
         SB.Data.Spells[id] = sp

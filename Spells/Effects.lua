@@ -272,7 +272,6 @@ AddEffect({
     -- Так же помечены и все отщеплённые копии «eff_mana_burn_*» ниже.
     id   = "eff_mana_burn",
     name = "Выжженный источник",
-    damageType = "shadow",
     icon = "Interface\\Icons\\Spell_shadow_manaburn",
     description = "Внутренний источник обожжён. Черпать из него больно и почти нечего.",
     effect = { kind = "debuff", resist = "Выносливость", school = "magic", tick = { mana = -1, damage = 1 } },
@@ -321,7 +320,7 @@ AddEffect({
     name = "Заслонил союзника",
     icon = "Interface\\Icons\\Ability_warrior_victoryrush",
     description = "Воин стоит между союзником и опасностью. Чужие удары приходят по нему, и уйти от них он уже не может.",
-    effect = { kind = "buff", mods = { armor = 25 }, stats = { ["Атлетика"] = 4 } },
+    effect = { kind = "buff", mods = { armor = 25, movePct = 60 } },
 })
 
 -- ==========================================================
@@ -621,14 +620,6 @@ AddEffect({
 })
 
 AddEffect({
-    id   = "eff_priest_consecration",
-    name = "Освящённая земля",
-    icon = "Interface\\Icons\\Spell_holy_innerfire",
-    description = "Круг под ногами наполнен живым Светом. Нежить входит в него с трудом и неохотой.",
-    effect = { kind = "buff", school = "magic", mods = { attack = 3, defense = 2 } },
-})
-
-AddEffect({
     id   = "eff_priest_cure_disease",
     name = "Очищенная кровь",
     icon = "Interface\\Icons\\Spell_nature_nullifydisease",
@@ -730,10 +721,9 @@ AddEffect({
 AddEffect({
     id   = "eff_word_of_death",
     name = "Слово Силы: Смерть",
-    damageType = "shadow",
     icon = "Interface\\Icons\\Spell_shadow_demonicfortitude",
     description = "Слово сказано и уже не отменяется. Тело слабеет, понимая, что приговорено.",
-    effect = { kind = "debuff", resist = "Выносливость", school = "magic", mods = { attack = -6, defense = -4 }, tick = { damage = 3 } },
+    effect = { kind = "debuff", resist = "Выносливость", school = "magic", tick = { damage = 4 } },
 })
 
 AddEffect({
@@ -1377,7 +1367,7 @@ AddEffect({
     -- это и в описании, и в том, чем он занят. Цена — он вертится и
     -- отвлекает.
     --
-    -- Ушли «Исток» и «Ремесло» (бес не учит хозяина колдовать и мастерить)
+    -- Ушли «Исток» и «Искусность» (бес не учит хозяина колдовать и мастерить)
     -- и range +9: дальность руками беса — это уже второй демон в одном.
     -- ДАЛЬНОСТЬ ВОЗВРАЩЕНА: бес жжёт с расстояния, и это его вторая
     -- половина — при упрощении демонов она выпала вместе с мелочами,
@@ -1462,16 +1452,8 @@ AddEffect({
     name = "Гончая Скверны",
     icon = "Interface\\Icons\\Spell_shadow_summonfelhunter",
     description = "Гончая чует магию и рвёт её на подлёте. Рядом с ней чужие чары работают хуже, а бежать за ней приходится быстро.",
-    -- Отвечает на «в нас летят чары»: resistMagic, а не одна школа —
-    -- гончая жрёт ЛЮБЫЕ. «Атлетика» рядом: пёс не ходит шагом, за ним
-    -- приходится поспевать. Цена — она ест хозяйский ресурс каждый ход.
-    --
-    -- Ушли броня, «Выживание» и «Воля»: к погоне за чарами они отношения
-    -- не имеют и только размывали ответ.
     effect = { family = "Демон", kind = "buff",
-               mods  = { resistMagic = 1 },
-               stats = { ["Атлетика"] = 1 },
-               tick  = { castResource = -1 } },
+               mods  = { resistMagic = 1, movePct = 30 } },
 })
 
 AddEffect({
@@ -1508,12 +1490,8 @@ AddEffect({
     name = "Конь Скверны",
     icon = "Interface\\Icons\\Inv_warlockmount",
     description = "Демонический скакун несёт быстрее любой лошади и не боится ни огня, ни высоты.",
-    -- Отвечает на «надо успеть»: «Атлетика», и больше ничего. Стояла ещё
-    -- защита +32 — самая большая цифра среди всех демонов, — и означала
-    -- она, что верхом на коне драться безопаснее, чем стоять за тушей из
-    -- Пустоты. Скакун про дорогу, а не про размен.
     effect = { family = "Демон", kind = "buff",
-               stats = { ["Атлетика"] = 2 } },
+               mods = { movePct = 60 } },
 })
 
 
@@ -1572,7 +1550,7 @@ AddEffect({
     damageType = "shadow",
     icon = "Interface\\Icons\\Spell_shadow_unholyfrenzy",
     description = "В голове разорвалось что-то чужое. Мысли не собираются, руки не слушаются.",
-    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение", school = "magic", mods = { attack = -80, movePct = -35 }, tick = { damage = 4 } },
+    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение", school = "magic", mods = { attack = -80, movePct = -35 }, tick = { damage = 5 } },
 })
 
 AddEffect({
@@ -1611,7 +1589,7 @@ AddEffect({
 AddEffect({
     id   = "eff_feint",
     name = "Ложный выпад",
-    icon = "Interface\\Icons\\Ability_rogue_feint",
+    icon = "Interface\\Icons\\Ability_rogue_cheatdeath",
     description = "В результате обманного финта становится неуловим для вражеских атак.",
     effect = { kind = "buff", mods = { defense = 15, armor = 15 } },
 })
@@ -1621,9 +1599,7 @@ AddEffect({
     name = "Спринт",
     icon = "Interface\\Icons\\Ability_rogue_sprint",
     description = "Сорвался с места с удивительной легкостью и проворством. Как его теперь догнать то?",
-    -- +12 м — ровно база хода: «Спринт» удваивает передвижение, иначе
-    -- заклинание с таким названием не делало бы того, что обещает.
-    effect = { kind = "buff", stats = { ["Атлетика"] = 4 } },
+    effect = { kind = "buff", mods = { movePct = 50 } },
 })
 
 AddEffect({
@@ -2080,8 +2056,8 @@ AddEffect({
     -- бьёт по телу, а не по чарам.
     effect = {
         kind  = "debuff", resist = "Выносливость", school = "disease",
-        mods = { attack = -16, damagePhysical = -1 },
-        stats = { ["Мощь"] = -2, ["Атлетика"] = -1 },
+        mods = { damagePhysical = -1, movePct = -30 },
+        stats = { ["Мощь"] = -2 },
     },
 })
 
@@ -2553,7 +2529,8 @@ AddEffect({
     -- что под ним: и «Живучесть», и саму «Атлетику». Гепард — про бег,
     -- который не кончается, а не только про скорость первого рывка.
     effect = { kind = "buff",
-               stats = { ["Атлетика"] = 2, ["Выносливость"] = 2 } },
+               mods = { movePct = 25 },
+               stats = { ["Выносливость"] = 2 } },
 })
 
 AddEffect({
@@ -2562,7 +2539,7 @@ AddEffect({
     name = "Отскок",
     icon = "Interface\\Icons\\Ability_rogue_feint",
     description = "Тело движется раньше, чем разум успевает испугаться: удары проходят мимо.",
-    effect = { kind = "buff", mods = { defense = 12 }, stats = { ["Атлетика"] = 2 } },
+    effect = { kind = "buff", mods = { defense = 12, movePct = 40 } },
 })
 
 AddEffect({
@@ -2858,12 +2835,11 @@ AddEffect({
 })
 
 AddEffect({
-    -- Перекат (Монах, круг 0). Из гнезда eff_evasion_*.
     id   = "eff_evasion_monk_roll",
     name = "Перекат",
     icon = "Interface\\Icons\\Ability_monk_roll",
     description = "Тело движется раньше, чем разум успевает испугаться: удары проходят мимо.",
-    effect = { kind = "buff", stats = { ["Атлетика"] = 2, ["Акробатика"] = 2 } },
+    effect = { kind = "buff", mods = { movePct = 40 }, stats = { ["Акробатика"] = 2 } },
 })
 
 AddEffect({
@@ -3010,7 +2986,7 @@ AddEffect({
     name = "Аура рыцаря",
     icon = "Interface\\Icons\\Spell_holy_crusaderaura",
     description = "Тело движется раньше, чем разум успевает испугаться: удары проходят мимо.",
-    effect = { kind = "buff", family = "Аура паладина", stats = { ["Атлетика"] = 1, ["Лидерство"] = 2 } },
+    effect = { kind = "buff", family = "Аура паладина", mods = { movePct = 15 }, stats = { ["Лидерство"] = 2 } },
 })
 
 AddEffect({
@@ -3692,7 +3668,7 @@ AddEffect({
     name = "Рывок",
     icon = "Interface\\Icons\\Ability_warrior_charge",
     description = "Совершает рывок в сторону цели, полный решимости и воле к победе!",
-    effect = { kind = "buff", stats = { ["Атлетика"] = 2, ["Воля"] = 1, ["Лидерство"] = 1 } },
+    effect = { kind = "buff", mods = { movePct = 40 }, stats = { ["Лидерство"] = 2 } },
 })
 
 AddEffect({
@@ -3794,7 +3770,7 @@ AddEffect({
     name = "Ритуальные практики",
     icon = "Interface\\Icons\\Spell_shaman_totemrecall",
     description = "Духи четырёх стихий слушают вполуха, но малую просьбу исполняют без спора.",
-    effect = { kind = "buff", stats = { ["Ремесло"] = 1 } },
+    effect = { kind = "buff", stats = { ["Искусность"] = 1 } },
 })
 
 AddEffect({
@@ -3991,8 +3967,6 @@ AddEffect({
     name = "Укол шипов",
     icon = "Interface\\Icons\\Spell_nature_thorns",
     description = "Колючка вошла глубоко и обломилась. Кровь идёт не переставая.",
-    -- «Претерпевают колющие ранения и могут начать обильно истекать
-    -- кровью» — школа bleed, а урон физический: шип есть шип.
     effect = { kind = "debuff", resist = "Выносливость", school = "bleed", tick = { damage = 1 } },
     damageType = "physical",
 })
@@ -4011,8 +3985,26 @@ AddEffect({
     name = "Отражённые чары",
     icon = "Interface\\Icons\\Ability_warrior_shieldreflection",
     description = "Собственное заклинание вернулось с чужого щита.",
-    -- Двойка, а не единица: чары вернулись целиком, а не задели краем.
-    -- Платой за это стоит шанс — угол успевает выставить не каждый.
     effect = { kind = "debuff", resist = "Дух", school = "magic", tick = { damage = 10 } },
     damageType = "arcane",
+})
+
+AddEffect({
+    id   = "eff_blink",
+    name = "Скачок",
+    icon = "Interface\\Icons\\Spell_arcane_blink",
+    description = "Во мгновении ока маг переносится примерно на десять метров вперед по заданному направлению.",
+    effect = { kind = "buff", mods = { movePct = 66 }, suppress = { "Оглушение" } },
+})
+
+AddEffect({
+    id   = "eff_shadow_mend",
+    name = "Боль",
+    damageType = "shadow",
+    icon = "Interface\\Icons\\Spell_shadow_shadowmend",
+    description = "Мучительная мигрень мешает и сотворять заклинания, и просто держать строй.",
+    effect = {
+        kind = "debuff", resist = "Выносливость", school = "magic",
+        tick = { damage = 1 },
+    },
 })

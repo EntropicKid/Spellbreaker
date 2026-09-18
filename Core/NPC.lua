@@ -349,6 +349,21 @@ function SB.NPC.MigrateStatsBase(db)
     return shifted
 end
 
+--- ПЕРЕИМЕНОВАННЫЕ НАВЫКИ у существ и в правках шаблонов (см.
+--- SB.Data.SkillRenames). Метка не нужна: перевод идемпотентен, второй
+--- прогон не находит старых ключей и ничего не трогает.
+--- @return number  сколько ключей переведено
+function SB.NPC.MigrateSkillRenames(db)
+    if type(db) ~= "table" then return 0 end
+    local n = 0
+    for _, bucket in ipairs({ db.npcs or {}, db.templates or {} }) do
+        for _, rec in pairs(bucket) do
+            if type(rec) == "table" then n = n + SB.Data.RenameSkillKeys(rec.skills) end
+        end
+    end
+    return n
+end
+
 -- ЧИСЛА ЗДЕСЬ — В БАЗЕ НОЛЬ (см. SB.Data.STAT_BASE), и каждое на единицу
 -- меньше, чем было до её смены. Шаблоны — данные в коде, миграция до них
 -- не дотягивается, поэтому сдвинуты вручную: волк с «Выживанием 2»
@@ -470,6 +485,7 @@ local function db()
     SpellbreakerNPCDB = SpellbreakerNPCDB or {}
     SpellbreakerNPCDB.npcs = SpellbreakerNPCDB.npcs or {}
     SB.NPC.MigrateStatsBase(SpellbreakerNPCDB)
+    SB.NPC.MigrateSkillRenames(SpellbreakerNPCDB)
     -- Правки шаблонов видов: [id классификации] = поля поверх эталона.
     -- Рядом с существами, а не в общей сохранёнке: это данные Ведущего о
     -- бестиарии, и живут они там же, где сами существа.

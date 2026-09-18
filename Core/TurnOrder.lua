@@ -165,9 +165,9 @@ end
 -- /reload очередь — это не событие, а обстановка.
 -- ============================================================
 local lastActive, lastMyTurn = nil, nil
--- Под каким кругом уже обнуляли путь. Через номер, а не через «пришёл
--- пакет»: состояние рассылается и внутри круга тоже.
-local lastRound = nil
+-- «Сцена:круг» на прошлом расчёте — чтобы заметить смену круга. Через
+-- номер, а не через «пришёл пакет»: состояние рассылается и внутри круга.
+local lastRoundKey = nil
 
 local function NotifyTransitions()
     local active = state.active
@@ -178,24 +178,30 @@ local function NotifyTransitions()
     end
     -- Именно false, а не «не true»: nil означает «первый расчёт за
     -- сессию», и объявлять по нему нечего.
-    -- ПУТЬ ОБНУЛЯЕТСЯ НА НОВОМ КРУГЕ, А НЕ В НАЧАЛЕ СВОЕГО ХОДА.
+    -- ПУТЬ ОБНУЛЯЕТСЯ, КОГДА ЗАКРЫВАЕТСЯ СВОЙ ХОД, А НЕ НА НОВОМ КРУГЕ.
     --
-    -- Предел передвижения — запас на ВЕСЬ КРУГ, и тратит его игрок
-    -- когда угодно: до своего хода, во время и после. Пока сброс стоял
-    -- на начале собственного хода, метры делились на «до» и «после»
-    -- бесплатной чертой — отбежал после своего действия, и к своему
-    -- следующему ходу счётчик уже чист. То есть половина круга не
-    -- стоила ничего, и чем дальше игрок стоял в очереди, тем больше он
-    -- мог пройти даром.
+    -- Сброс у всех разом на новом круге ставил игроков в неравное
+    -- положение по месту в очереди. Первый в круге бегал после своего
+    -- хода даром: круг кончался и стирал его метры до того, как доходил
+    -- его черёд. Последний платил за всё, что пробежал в чужой ход до
+    -- своего, — и пропускал ход. Теперь черта у каждого своя — конец
+    -- своего хода (см. SB.Movement.NoteTurnClosed), и место в очереди
+    -- ничего не решает.
     --
-    -- Круг один на всех, и обнуляется он у всех разом: у Ведущего —
-    -- своим NewRound, у остальных — этим же местом по номеру круга из
-    -- его пакета.
-    if active and lastRound ~= state.round then
-        lastRound = state.round
-        if SB.Movement then SB.Movement.ResetDistance() end
+    -- «Закрылся» — это отметка acted: её ставит и своё действие, и
+    -- пропуск, и передача очереди Ведущим (пропущенные тоже «походили»,
+    -- см. TO.Advance).
+    if active and SB.Movement and SB.Movement.NoteTurnClosed then
+        local key = (state.session or 0) .. ":" .. (state.round or 0)
+        if lastRoundKey and lastRoundKey ~= key then
+            SB.Movement.NoteRoundPassed(lastRoundKey)
+        end
+        lastRoundKey = key
+        if state.acted[UnitName("player")] then
+            SB.Movement.NoteTurnClosed(key)
+        end
     elseif not active then
-        lastRound = nil
+        lastRoundKey = nil
     end
 
     if myTurn and lastMyTurn == false then
@@ -1267,9 +1273,8 @@ function TO.Start()
     if SB.PlayerModel and SB.PlayerModel.SetFled then
         SB.PlayerModel.SetFled(false)
     end
-    -- Своего обнуления пути здесь больше нет: путь сбрасывается по
-    -- СМЕНЕ НОМЕРА КРУГА (см. NotifyTransitions), а TO.NewRound ниже
-    -- этот номер и двигает — одинаково у Ведущего и у остальных.
+    -- Своего обнуления пути здесь больше нет: путь сбрасывается, когда
+    -- закрывается свой ход (см. NotifyTransitions).
     Announce("Пошаговый режим включён (" .. TO.ModeLabel() .. ").")
     TO.NewRound(true)
 end

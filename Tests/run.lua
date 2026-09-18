@@ -859,27 +859,55 @@ do
 end
 
 -- ============================================================
--- ПУТЬ ОБНУЛЯЕТСЯ НОВЫМ КРУГОМ, А НЕ ДЕЙСТВИЕМ
+-- ПУТЬ ОБНУЛЯЕТСЯ КОНЦОМ СВОЕГО ХОДА, А НЕ НОВЫМ КРУГОМ
 --
--- Сначала счётчик обнуляло само действие, и метры, пройденные ПОСЛЕ
--- него, съедали следующий ход. Потом — начало собственного хода, и
--- половина круга (всё, что после своего действия) стала бесплатной.
--- Теперь предел — запас на ВЕСЬ КРУГ, и обнуляется он с кругом.
+-- Баг-репорт: «Кей ходит первым, Юра вторым. Кей в ход Юры пробежит хоть
+-- 30 метров сверх лимита — его ход не скипнется. Юра в ход Кея убежит
+-- сверх лимита — скипнется». Сброс на новом круге стирал метры первого
+-- раньше, чем доходил его черёд, а метры последнего — нет. Черта у
+-- каждого своя: конец своего хода.
 -- ============================================================
 do
-    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = 1,
-        index = 1, slots = { { stub.world.playerName } }, acted = {} })
-    _G.SpellbreakerCharDB.moveDistance = 7
+    local me   = stub.world.playerName
+    local function State(round, acted, index)
+        SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = round,
+            session = 7, index = index or 1, slots = { { me }, { "Юра" } },
+            acted = acted or {} })
+    end
     _G.SpellbreakerCharDB.health = 10
 
-    -- Действие путь не трогает.
-    SB.Logic.SpendTurn()
-    check("действие не обнуляет путь", SB.Movement.GetDistance(), 7)
+    -- ── КЕЙ: ПЕРВЫЙ В ОЧЕРЕДИ ───────────────────────────────
+    State(1)
+    _G.SpellbreakerCharDB.moveDistance = 7
+    State(1, { [me] = true }, 2)                -- походил
+    check("свой ход закрылся — путь обнулён", SB.Movement.GetDistance(), 0)
 
-    -- А новый круг — обнуляет.
-    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = 2,
-        index = 1, slots = { { stub.world.playerName } }, acted = {} })
-    check("новый круг обнуляет путь", SB.Movement.GetDistance(), 0)
+    -- Бежит в ход Юры — это уже запас на свой следующий ход.
+    _G.SpellbreakerCharDB.moveDistance = 9
+    State(1, { [me] = true }, 2)                -- повторный пакет того же круга
+    check("повторная отметка того же хода путь не трогает", SB.Movement.GetDistance(), 9)
+    State(2)                                    -- новый круг
+    check("новый круг НЕ стирает пройденное после своего хода",
+          SB.Movement.GetDistance(), 9)
+
+    -- ── ЮРА: ПОСЛЕДНИЙ — ТО ЖЕ ПРАВИЛО ──────────────────────
+    -- Метры, пройденные в чужой ход до своего, тоже идут в свой запас:
+    -- правило одно для любого места в очереди.
+    State(2, { [me] = true }, 2)
+    check("и снова обнуляет только закрытие своего хода", SB.Movement.GetDistance(), 0)
+
+    -- ── /RELOAD ПОСЛЕ СВОЕГО ХОДА ЧЕРТУ НЕ ПЕРЕНОСИТ ────────
+    _G.SpellbreakerCharDB.moveDistance = 5
+    State(2, { [me] = true }, 2)
+    check("восстановленная отметка не стирает путь повторно", SB.Movement.GetDistance(), 5)
+
+    -- ── НЕ СТОЯЛ В ОЧЕРЕДИ — ЧЕРТА НА КОНЦЕ КРУГА ──────────
+    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 3,
+        session = 7, index = 1, slots = { { "Юра" } }, acted = {} })
+    _G.SpellbreakerCharDB.moveDistance = 6
+    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 4,
+        session = 7, index = 1, slots = { { "Юра" } }, acted = {} })
+    check("круг без своего хода закрывается концом круга", SB.Movement.GetDistance(), 0)
 
     SB.TurnOrder.ApplyRemoteState({ active = false, mode = "all", round = 0,
         index = 0, slots = {}, acted = {} })
@@ -1389,7 +1417,7 @@ do
     -- одна ячейка, вторую открывает «Ремесло» на трёх очках, поэтому
     -- навык здесь ставим явно. Иначе покупное просто не влезло бы, и
     -- проверка про «долито Отдыхом» молчала бы не о том.
-    SpellbreakerCharDB.skills = { ["Ремесло"] = 5 }
+    SpellbreakerCharDB.skills = { ["Искусность"] = 5 }
     SpellbreakerCharDB.preparedItems = {}
     SB.Logic.GrantCreatedItems(food)
     SB.Items.Prepare("custom_abcdef34567123456789a23de9abcdef")
@@ -4961,9 +4989,7 @@ do
 
     -- ── ЯЧЕЕК СТОЛЬКО, СКОЛЬКО ОТКРЫТО, И НИ ОДНОЙ СВЕРХ ───
     --
-    -- Ранг тут ни при чём (носить склянки умеет кто угодно), а вот
-    -- «Ремесло» — при чём: оно и решает, сколько ячеек. Ставим полный
-    -- навык, чтобы проверять ПРАВИЛО, а не конкретный потолок.
+    -- Ни ранг, ни навык тут ни при чём: ячеек три у всех.
     --
     -- ЧИСЛА НЕ ПРИБИТЫ НАМЕРЕННО. Потолок сумки — вопрос баланса, и он
     -- уже менялся (было до шести, стало до трёх). Проверка, прибитая к
@@ -4971,7 +4997,7 @@ do
     -- проверяя: важно, что Prepare пускает ровно GetMaxPrepared и
     -- отбивает следующее с внятной причиной.
     _G.SpellbreakerCharDB.configLocked = false
-    _G.SpellbreakerCharDB.skills = { ["Ремесло"] = 5 }
+    _G.SpellbreakerCharDB.skills = {}
     SB.Items.ClearPrepared()
 
     local FILL = { "t_potion", "t_potion2", "t_potion3", "t_potion4" }
@@ -4984,8 +5010,6 @@ do
     local ok, why = SB.Items.Prepare(FILL[cap + 1])
     checkTrue("сверх потолка не влезло", not ok)
     check("и причина названа", why, "full")
-    -- Геттер, а не константа: MAX_PREPARED — потолок вообще,
-    -- а ячеек у персонажа столько, сколько открыло «Ремесло».
     check("в сумке ровно столько, сколько открыто",
           SB.Items.CountPrepared(), SB.Items.GetMaxPrepared())
 
@@ -4994,38 +5018,34 @@ do
     checkTrue("повтор отклонён", not ok2)
     check("и это сказано", why2, "already")
 
-    -- ── СБРОСИЛ «РЕМЕСЛО» — ЛИШНЕЕ ВЫКЛАДЫВАЕТСЯ ───────────
-    --
-    -- Сумка — снимок прошлого, как и пул заклинаний: пачки легли в
-    -- ячейки тогда, когда навык их открывал. Без выкладывания правило
-    -- превращалось в «нужно Ремесло НА МОМЕНТ сбора» — вложил, разложил
-    -- три пачки, вернул очки в другой навык, и всё осталось твоим.
-    --
-    -- И ЛИШНЕЕ НЕ ПРОПАДАЛО, А ПРЯТАЛОСЬ: интерфейс рисует ровно
-    -- GetMaxPrepared ячеек, поэтому третья пачка переставала
-    -- показываться, оставаясь в сохранёнке — применить её игрок мог, а
-    -- увидеть уже нет.
+    -- ── НАВЫК ЯЧЕЕК НЕ ДВИГАЕТ ─────────────────────────────
+    -- Прежде их открывало «Ремесло» (ныне «Искусность»). Сброс навыка
+    -- теперь ничего не выкладывает.
     local fullCap = SB.Items.CountPrepared()
-    checkTrue("на полном «Ремесле» ячеек больше одной", fullCap > 1)
+    check("ячеек три", fullCap, 3)
+    SB.Skills.Set("Искусность", 0)
+    check("сброс «Искусности» сумку не трогает", SB.Items.CountPrepared(), fullCap)
 
-    SB.Skills.Set("Ремесло", 1)
-    check("ячеек стало меньше", SB.Items.GetMaxPrepared() < fullCap, true)
-    check("и в сумке ровно столько же",
+    -- ── ПЕРЕПОЛНЕННАЯ СОХРАНЁНКА — ЛИШНЕЕ ВЫКЛАДЫВАЕТСЯ ─────
+    -- Сумка могла прийти из времён, когда ячеек было больше. Лишнее не
+    -- прячется, а выкладывается — и с конца: порядок ячеек — это
+    -- порядок, в котором игрок их раскладывал.
+    local function Overfill()
+        local list = {}
+        for i = 1, #FILL do list[i] = { id = FILL[i], n = 1 } end
+        _G.SpellbreakerCharDB.preparedItems = list
+    end
+    Overfill()
+    SB.Items.EvictOverflow()
+    check("и в сумке ровно столько, сколько ячеек",
           SB.Items.CountPrepared(), SB.Items.GetMaxPrepared())
-
-    -- ОСТАЛОСЬ ПЕРВОЕ ПОЛОЖЕННОЕ: порядок ячеек — это порядок, в
-    -- котором игрок их раскладывал, и выбрасывать надо последнее, а не
-    -- то, что он счёл главным.
     checkTrue("осталась первая пачка", SB.Items.IsPrepared(FILL[1]))
-    checkTrue("а последняя выложена",  not SB.Items.IsPrepared(FILL[fullCap]))
+    checkTrue("а последняя выложена",  not SB.Items.IsPrepared(FILL[#FILL]))
 
-    -- ЗАМОК НАБОРА НЕ СПАСАЕТ. Иначе обход был бы механическим:
-    -- применить что угодно, сбросить навык — и до отдыха всё твоё.
-    SB.Skills.Set("Ремесло", 5)
-    SB.Items.ClearPrepared()
-    for i = 1, fullCap do SB.Items.Prepare(FILL[i]) end
+    -- ЗАМОК НАБОРА НЕ СПАСАЕТ: это снятие того, на что нет права.
+    Overfill()
     _G.SpellbreakerCharDB.configLocked = true
-    SB.Skills.Set("Ремесло", 1)
+    SB.Items.EvictOverflow()
     check("под замком лишнее тоже выкладывается",
           SB.Items.CountPrepared(), SB.Items.GetMaxPrepared())
     _G.SpellbreakerCharDB.configLocked = false
@@ -5036,8 +5056,6 @@ do
     check("повторный проход ничего не выкладывает", SB.Items.EvictOverflow(), 0)
     check("и состав цел", SB.Items.CountPrepared(), left)
 
-    -- Возвращаем полный навык: проверки ниже считают ячейки от него.
-    SB.Skills.Set("Ремесло", 5)
     SB.Items.ClearPrepared()
     for i = 1, cap do SB.Items.Prepare(FILL[i]) end
 
@@ -6478,11 +6496,10 @@ do
 end
 
 -- ============================================================
--- ПЕРЕДВИЖЕНИЕ — ЗАПАС НА КРУГ
+-- ПЕРЕДВИЖЕНИЕ — ЗАПАС ОТ КОНЦА СВОЕГО ХОДА ДО КОНЦА СЛЕДУЮЩЕГО
 --
--- Раньше сброс стоял на начале собственного хода, и метры делились
--- бесплатной чертой на «до» и «после»: отбежал после своего действия — к
--- следующему ходу счётчик уже чист. Половина круга не стоила ничего.
+-- Черта — закрытие своего хода, а не новый круг (см. блок про Кея и
+-- Юру выше): место в очереди не должно решать, что бесплатно.
 -- ============================================================
 do
     local me = stub.world.playerName
@@ -6507,7 +6524,9 @@ do
           SB.Movement.GetDistance(), 7)
 
     Round(2)
-    check("новый круг обнуляет", SB.Movement.GetDistance(), 0)
+    check("новый круг сам по себе путь не трогает", SB.Movement.GetDistance(), 7)
+    Round(2, { [me] = true })
+    check("закрытие своего хода обнуляет", SB.Movement.GetDistance(), 0)
 
     -- ── ЗАПАС КОНЧИЛСЯ — ХОД ПРОПУЩЕН ───────────────────────
     Round(3)
@@ -8028,48 +8047,19 @@ do
     ResetEffects()
     _G.SpellbreakerCharDB.attributes = { ["Сила"] = 5, ["Интеллект"] = 5 }
 
-    -- ── РЕМЕСЛО ОТКРЫВАЕТ ЯЧЕЙКИ: 3 и 5 ─────────────────────
-    --
-    -- Одна базовая и по одной на каждый достигнутый порог. Числа здесь
-    -- прибиты НАМЕРЕННО, в отличие от блока про Prepare выше: это и есть
-    -- та самая лестница, ради которой навык берут, и молча уехать она не
-    -- должна. Меняешь пороги — меняй и эту таблицу, причём осознанно.
-    local EXPECT = { [1] = 1, [2] = 1, [3] = 2, [4] = 2, [5] = 3 }
-    for craft, slots in pairs(EXPECT) do
-        _G.SpellbreakerCharDB.skills = { ["Ремесло"] = craft }
-        check("Ремесло " .. craft .. " → ячеек", SB.Items.GetMaxPrepared(), slots)
+    -- ── ЯЧЕЕК ВСЕГДА ТРИ ────────────────────────────────────
+    -- Число прибито НАМЕРЕННО: это правило, а не следствие формулы.
+    for craft = 0, 5 do
+        _G.SpellbreakerCharDB.skills = { ["Искусность"] = craft }
+        check("«Искусность» " .. craft .. " → ячеек", SB.Items.GetMaxPrepared(), 3)
     end
-
-    -- ПОТОЛОК СХОДИТСЯ С ПОРОГАМИ. Интерфейс заводит кнопки по нему, и
-    -- разойдись они — шестая ячейка открылась бы в модели и не
-    -- нарисовалась бы на экране.
-    check("потолок ячеек", SB.Items.MAX_PREPARED,
-          SB.Items.BASE_PREPARED + #SB.Items.SLOT_STEPS)
-    _G.SpellbreakerCharDB.skills = { ["Ремесло"] = 5 }
-    check("и на полном навыке он достигнут",
-          SB.Items.GetMaxPrepared(), SB.Items.MAX_PREPARED)
-
-    -- ── БАФФЫ ЯЧЕЕК НЕ ДВИГАЮТ ──────────────────────────────
-    --
-    -- Ячейка — это форма сумки, а не сила эффекта. Появись она от зелья
-    -- и исчезни от проклятия, игрок с шестью склянками гадал бы, куда
-    -- денется шестая, когда на него что-нибудь навесят.
-    _G.SpellbreakerCharDB.skills = { ["Ремесло"] = 3 }
-    SB.Data.Spells["t_craft_up"] = { id = "t_craft_up", name = "Проба ремесла",
-        class = "Эффект", level = 0, isContainer = true,
-        effect = { kind = "buff", stats = { ["Ремесло"] = 2 } } }
-    local before = SB.Items.GetMaxPrepared()
-    SB.ActiveEffects.Add("t_craft_up", 5, false)
-    checkTrue("бафф поднял действующий навык",
-              SB.Skills.GetEffective("Ремесло") > 3)
-    check("а ячеек столько же", SB.Items.GetMaxPrepared(), before)
-    ResetEffects()
+    check("потолок ячеек", SB.Items.MAX_PREPARED, 3)
 
     -- ── ЯЧЕЙКИ И ПРАВДА ИСПОЛЬЗУЮТСЯ ────────────────────────
     -- Геттер мог бы врать: важно, что Prepare пускает ровно столько.
     do
         _G.SpellbreakerCharDB.configLocked = false
-        _G.SpellbreakerCharDB.skills = { ["Ремесло"] = 5 }
+        _G.SpellbreakerCharDB.skills = {}
         SB.Items.ClearPrepared()
         local taken = 0
         for _, sp in ipairs(SB.Items.ListByProfession("alchemy")) do
@@ -8077,14 +8067,6 @@ do
         end
         check("в сумку влезло ровно столько, сколько открыто",
               taken, SB.Items.GetMaxPrepared())
-
-        _G.SpellbreakerCharDB.skills = { ["Ремесло"] = 1 }
-        SB.Items.ClearPrepared()
-        taken = 0
-        for _, sp in ipairs(SB.Items.ListByProfession("alchemy")) do
-            if SB.Items.Prepare(sp.id) then taken = taken + 1 end
-        end
-        check("без Ремесла — только базовая", taken, SB.Items.BASE_PREPARED)
         SB.Items.ClearPrepared()
     end
 
@@ -8097,12 +8079,12 @@ do
     -- пятое доводит до семидесяти пяти (см. SB.Data.STAT_BASE).
     local CHANCE = { [0] = 0, [1] = 15, [2] = 30, [3] = 45, [4] = 60, [5] = 75 }
     for sci, pct in pairs(CHANCE) do
-        _G.SpellbreakerCharDB.skills = { ["Наука"] = sci, ["Ремесло"] = 1 }
+        _G.SpellbreakerCharDB.skills = { ["Наука"] = sci, ["Искусность"] = 1 }
         check("Наука " .. sci .. " → шанс", SB.Items.GetThriftChance(), pct)
     end
 
     -- И ровно впятеро от модификатора — а не «по три», как всё остальное.
-    _G.SpellbreakerCharDB.skills = { ["Наука"] = 4, ["Ремесло"] = 1 }
+    _G.SpellbreakerCharDB.skills = { ["Наука"] = 4, ["Искусность"] = 1 }
     check("шанс — модификатор впятеро",
           SB.Items.GetThriftChance(), SB.Attributes.GetModifier("Наука") * 5)
 
@@ -8128,14 +8110,14 @@ do
             name = "Проба не-зелья", class = "Предмет", level = 0,
             isItem = true, profession = "alchemy", distance = 2.5,
             resistable = false, stack = 5, key = "Яд" }
-        _G.SpellbreakerCharDB.skills = { ["Наука"] = 5, ["Ремесло"] = 1 }
+        _G.SpellbreakerCharDB.skills = { ["Наука"] = 5, ["Искусность"] = 1 }
         SB.Items.ClearPrepared()
         SB.Items.Prepare("t_thrift_any")
         checkTrue("шанс работает и на не-зелье", SB.Items.GetThriftChance() > 0)
         SB.Items.ClearPrepared()
 
         -- Шанс НОЛЬ — тратится всегда.
-        _G.SpellbreakerCharDB.skills = { ["Наука"] = 1, ["Ремесло"] = 1 }
+        _G.SpellbreakerCharDB.skills = { ["Наука"] = 1, ["Искусность"] = 1 }
         SB.Items.ClearPrepared()
         SB.Items.Prepare("t_thrift")
         SB.Items.NoteUsed("t_thrift")
@@ -8153,9 +8135,11 @@ do
         SB.Items.ClearPrepared()
     end
 
-    -- ── ОБА НАВЫКА ОБЪЯСНЕНЫ ИГРОКУ ─────────────────────────
+    -- ── НАВЫК ОБЪЯСНЁН ИГРОКУ ───────────────────────────────
     -- Механика, о которой нигде не написано, не существует для игрока.
-    for _, name in ipairs({ "Наука", "Ремесло" }) do
+    -- «Искусности» здесь больше нет: ячеек она не открывает, и строки
+    -- «Эффект» у неё нет, как у любого навыка без своей механики.
+    for _, name in ipairs({ "Наука" }) do
         local tip = SB.Data.SkillEffects[name]
         checkTrue("у «" .. name .. "» есть описание эффекта",
                   type(tip) == "string" and #tip > 0)
@@ -15585,7 +15569,7 @@ do
     local function RunOn(craft, count)
         -- statsBase = 0: проверяем ИМЕННО v8, и сдвиг базы из v12 сюда
         -- примешиваться не должен (см. ту же метку в миграции v12).
-        local char = { schemaVersion = 7, skills = { ["Ремесло"] = craft },
+        local char = { schemaVersion = 7, skills = { ["Искусность"] = craft },
                        preparedItems = Bag(count), statsBase = 0 }
         SB.Migrations.Run(char, { schemaVersion = 7 })
         return char
@@ -15593,17 +15577,18 @@ do
 
     -- Число прибито НАМЕРЕННО: поднимать версию положено осознанно, вместе
     -- с новой миграцией, и молча уехать она не должна.
-    check("схема поднялась до двенадцатой", SB.SCHEMA_VERSION, 12)
+    check("схема поднялась до тринадцатой", SB.SCHEMA_VERSION, 13)
 
-    -- ── БЕЗ РЕМЕСЛА ОСТАЁТСЯ ОДНА ЯЧЕЙКА ───────────────────
-    local c = RunOn(1, 5)
-    check("из пяти пачек осталась одна", #c.preparedItems, 1)
+    -- ── СВЕРХ ТРЁХ РЕЖЕТСЯ, И НАВЫК НИ ПРИ ЧЁМ ──────────────
+    -- Ячейки больше не зависят от навыка: три у всех, и ужатая старая
+    -- сумка режется до тех же трёх при любом «Ремесле».
+    local c = RunOn(0, 5)
+    check("из пяти пачек осталось три", #c.preparedItems, 3)
     check("и это ПЕРВАЯ положенная", c.preparedItems[1].id, "t_mig_item1")
     check("версия проставлена", c.schemaVersion, SB.SCHEMA_VERSION)
 
-    -- ── ПОЛНОЕ РЕМЕСЛО ОСТАВЛЯЕТ ТРИ ───────────────────────
     c = RunOn(5, 6)
-    check("на полном навыке осталось три", #c.preparedItems, 3)
+    check("и на полном навыке тоже три", #c.preparedItems, 3)
     check("и порядок не переехал", c.preparedItems[3].id, "t_mig_item3")
 
     -- ── ЧТО ВЛЕЗАЕТ — НЕ ТРОГАЕМ ВОВСЕ ─────────────────────
@@ -15619,7 +15604,7 @@ do
     --
     -- Версия уже восьмая, значит шаг пройден. Повтори он себя — обрезал
     -- бы сумку, которую игрок успел разложить заново.
-    local done = { schemaVersion = 8, skills = { ["Ремесло"] = 1 },
+    local done = { schemaVersion = 8, skills = { ["Искусность"] = 1 },
                    preparedItems = Bag(3), statsBase = 0 }
     SB.Migrations.Run(done, { schemaVersion = 8 })
     check("на готовой базе шаг не повторяется", #done.preparedItems, 3)
@@ -16608,6 +16593,58 @@ do
 end
 
 -- ============================================================
+-- «РЕМЕСЛО» СТАЛО «ИСКУСНОСТЬЮ» — И НИКТО НИЧЕГО НЕ ПОТЕРЯЛ
+--
+-- Имя навыка — ключ. Под старым ключом очки остались бы в сохранёнке, но
+-- их больше никто не читал бы: персонаж, существо и своё заклинание
+-- Ведущего молча лишились бы вложенного.
+-- ============================================================
+do
+    -- Персонаж: миграция v13. statsBase = 0 — сдвиг базы из v12 сюда
+    -- примешиваться не должен.
+    local char = { schemaVersion = 12, statsBase = 0,
+                   skills = { ["Ремесло"] = 4, ["Наука"] = 2 } }
+    SB.Migrations.Run(char, { schemaVersion = 12 })
+    check("очки переехали под новое имя", char.skills["Искусность"], 4)
+    check("старого ключа нет",            char.skills["Ремесло"], nil)
+    check("соседей не тронуло",           char.skills["Наука"], 2)
+    SB.Migrations.Run(char, { schemaVersion = 12 })
+    check("повторный прогон ничего не меняет", char.skills["Искусность"], 4)
+
+    -- Существа и правки шаблонов у Ведущего.
+    local npcdb = { npcs = { [1] = { skills = { ["Ремесло"] = 2 } } },
+                    templates = { beast = { skills = { ["Ремесло"] = 1 } } } }
+    check("у существ переведено два ключа", SB.NPC.MigrateSkillRenames(npcdb), 2)
+    check("существо",  npcdb.npcs[1].skills["Искусность"], 2)
+    check("шаблон",    npcdb.templates.beast.skills["Искусность"], 1)
+
+    -- Своё заклинание: скейлинг и прибавки эффекта.
+    local sp = { id = "custom_rename", scaling = { hit = { ["Ремесло"] = 1, ["Сила"] = 1 } },
+                 effect = { stats = { ["Дипломатия"] = 2 } } }
+    SB.Data.RenameSpellSkills(sp)
+    check("скейлинг переведён", sp.scaling.hit["Искусность"], 1)
+    check("и сила на месте",    sp.scaling.hit["Сила"], 1)
+    check("и старое имя «Дипломатии» тоже", sp.effect.stats["Воодушевление"], 2)
+
+    -- В данных и в листе старого имени не осталось.
+    local stale = {}
+    for id, s2 in pairs(SB.Data.Spells) do
+        for _, map in pairs(s2.scaling or {}) do
+            if type(map) == "table" and map["Ремесло"] then stale[#stale + 1] = id end
+        end
+        if s2.effect and type(s2.effect.stats) == "table" and s2.effect.stats["Ремесло"] then
+            stale[#stale + 1] = id
+        end
+    end
+    check("заклинаний со старым именем навыка", #stale, 0)
+    local listed = false
+    for _, a in ipairs(SB.Data.Attributes) do
+        for _, k in ipairs(a.skills) do if k == "Искусность" then listed = true end end
+    end
+    checkTrue("«Искусность» стоит в листе под Силой", listed)
+end
+
+-- ============================================================
 -- БОНУСЫ ОРУЖИЯ
 --
 -- У каждого класса оружия своя черта (SB.Data.WeaponBonuses): щит —
@@ -16649,13 +16686,17 @@ do
     Hands({ [16] = MACE, [17] = MACE, [18] = nil })
     check("пустой слот дальнего боя пол не двигает", (L.GetRollRange()), 1)
 
-    -- Пример из запроса: Орк (25) с пустыми руками (10) под
-    -- «Благословением» (15) — ровно половина кубика, и выше не пускает
-    -- тот же зажим, что держит диапазон.
+    -- Пример из запроса: Орк с пустыми руками (10) под «Благословением».
+    -- Числа крови и чар — данные, их правят руками, поэтому ожидание
+    -- считается от них: руки добавляют ровно 10, а выше половины кубика
+    -- не пускает тот же зажим, что держит диапазон.
     stub.world.race = "Orc"
-    Hands({})
+    Hands({ [16] = MACE, [17] = MACE })
     SB.ActiveEffects.Add("eff_bless", 5, false)
-    check("Орк с пустыми руками под «Благословением» — пол 50", (L.GetRollRange()), 50)
+    local orcBless = (L.GetRollRange())
+    Hands({})
+    check("Орк с пустыми руками под «Благословением» — +10, не выше половины",
+          (L.GetRollRange()), math.min(orcBless + 10, math.floor(L.ROLL_MAX / 2)))
     ResetEffects()
     stub.world.race = "Human"
 
@@ -16888,13 +16929,16 @@ do
 
     local fh = S["eff_summon_felhunter"]
     check("Гончая даёт резист всей магии", fh.effect.mods.resistMagic, 1)
-    checkTrue("и Атлетику",                (fh.effect.stats["Атлетика"] or 0) > 0)
+    -- Скорость — «Атлетикой» или прямо каналом movePct: ручная правка
+    -- данных перевела призывы на второй, и оба значат «за ней не угнаться».
+    checkTrue("и скорость", ((fh.effect.stats or {})["Атлетика"] or 0) > 0
+                            or (fh.effect.mods.movePct or 0) > 0)
     -- БРОНИ У НЕЁ БОЛЬШЕ НЕТ, и это не потеря, а упрощение призыва:
     -- броня гасит СТАЛЬ, а гончая занята чарами. Проверка стояла здесь
     -- как сторож «не потеряй при добавлении» и честно поймала снятие —
     -- но снятие было осознанным, и ожидание переписано под него.
     check("а брони — нет, она не про сталь", fh.effect.mods.armor, nil)
-    check("и её кормят каждый ход",          fh.effect.tick.castResource, -1)
+    check("и её кормят каждый ход",          (fh.effect.tick or {}).castResource, -1)
 
     -- ── ЧАСТИЦА СВЕТА ЛЕЧИТСЯ, А НЕ ЛЕЧИТ ──────────────────
     --
@@ -16910,7 +16954,7 @@ do
     local bl = S["eff_bless"].effect
     checkTrue("оно срезает неудачные грани", (bl.mods.rollFloor or 0) > 0)
     check("плоской прибавки к атаке больше нет", bl.mods.attack, nil)
-    checkTrue("и держит «Волю» против страха", (bl.stats["Воля"] or 0) > 0)
+    checkTrue("и держит «Волю» против страха", ((bl.stats or {})["Воля"] or 0) > 0)
 end
 
 -- ============================================================
@@ -17401,10 +17445,12 @@ do
     checkTrue("туша держит удар",      (void.mods.defense or 0) > 0)
     check("и усиливает тьму",          void.mods.damageShadow, 1)
     check("гончая держит любые чары",  hunt.mods.resistMagic, 1)
-    checkTrue("и за ней поспевают",    (hunt.stats["Атлетика"] or 0) > 0)
-    checkTrue("суккуб про уговор",     (succ.stats["Внушение"] or 0) > 0)
+    checkTrue("и за ней поспевают",    ((hunt.stats or {})["Атлетика"] or 0) > 0
+                                    or ((hunt.mods or {}).movePct or 0) > 0)
+    checkTrue("суккуб про уговор",     ((succ.stats or {})["Внушение"] or 0) > 0)
     check("а не про урон",             succ.mods and succ.mods.damage, nil)
-    checkTrue("конь про дорогу",       (mount.stats["Атлетика"] or 0) > 0)
+    checkTrue("конь про дорогу",       ((mount.stats or {})["Атлетика"] or 0) > 0
+                                    or ((mount.mods or {}).movePct or 0) > 0)
     check("и не про размен",           mount.mods and mount.mods.defense, nil)
 end
 
@@ -17455,7 +17501,7 @@ do
         class = "Воин", level = 0, canCrit = true, creates = "item_soul_shard" }
     local savedBag = _G.SpellbreakerCharDB.preparedItems
     _G.SpellbreakerCharDB.preparedItems = {}
-    _G.SpellbreakerCharDB.skills = { ["Ремесло"] = 5 }
+    _G.SpellbreakerCharDB.skills = { ["Искусность"] = 5 }
 
     check("на промахе не кладём ничего",
           L.GrantCreatedItems(SB.Data.Spells["t_make"], false), 0)
