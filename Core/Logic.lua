@@ -1198,6 +1198,56 @@ end)
 ---        Ведущим всей группе). Эффекты тикают и путь обнуляется как
 ---        обычно, но в очереди ходов такой ход не засчитывается: иначе
 ---        одно объявление отдыха закрывало бы круг всему рейду разом.
+-- ============================================================
+-- ХОД ТРАТИТСЯ, КОГДА ПРИШЁЛ ИТОГ
+--
+-- Удар по игроку разрешается у ЦЕЛИ: она бросает защиту, считает урон и
+-- рассылает строку боя. Пока ход тратился в момент отправки, очередь
+-- успевала сдвинуться раньше, чем приходил итог, и лог читался задом
+-- наперёд: «Ходит: Натан» — и только потом удар, после которого он
+-- ходит. У Ведущего так было всегда: его ход закрывается у него же,
+-- без сети, мгновенно.
+--
+-- Теперь порядок причинный: удар → итог (и вампиризм, и отпись) → тики
+-- эффектов → сдвиг очереди. Ход держится до ответа цели (одиночный
+-- удар) или до печати блока залпа (площадь), а если ответа нет —
+-- цель вышла, у неё нет аддона — тратится сам по истечении срока.
+--
+-- Вне пошагового режима ждать нечего: очереди нет, ход тратится сразу.
+-- ============================================================
+local heldTurn = nil
+local HOLD_SINGLE = 4    -- секунд на ответ цели
+local HOLD_AOE    = 7    -- дольше потолка окна залпа (REPORT_MAX = 6)
+
+--- Отложить трату хода до итога.
+--- @param skip   any          то, что ушло бы в SpendTurn первым доводом
+--- @param isAoe  boolean|nil  площадь: ждём блок залпа, а не один ответ
+function SB.Logic.HoldTurnUntilResult(skip, isAoe)
+    if not (SB.TurnOrder and SB.TurnOrder.IsActive and SB.TurnOrder.IsActive()) then
+        return SB.Logic.SpendTurn(skip)
+    end
+    -- Прошлый удержанный ход (не должен бы висеть) — закрываем сейчас.
+    SB.Logic.ReleaseHeldTurn()
+    local h = { skip = skip }
+    heldTurn = h
+    if SB.TurnOrder.SetAwaitingResult then SB.TurnOrder.SetAwaitingResult(true) end
+    h.timer = C_Timer.NewTimer(isAoe and HOLD_AOE or HOLD_SINGLE, function()
+        if heldTurn == h then SB.Logic.ReleaseHeldTurn() end
+    end)
+end
+
+--- Итог пришёл (или вышел срок) — потратить удержанный ход.
+function SB.Logic.ReleaseHeldTurn()
+    local h = heldTurn
+    if not h then return end
+    heldTurn = nil
+    if h.timer then h.timer:Cancel() end
+    if SB.TurnOrder and SB.TurnOrder.SetAwaitingResult then
+        SB.TurnOrder.SetAwaitingResult(false)
+    end
+    SB.Logic.SpendTurn(h.skip)
+end
+
 function SB.Logic.SpendTurn(skip, notMyAction)
     -- БОНУСНОЕ ДЕЙСТВИЕ ХОДА НЕ СТОИТ, и «не стоит» здесь буквально: ни
     -- тика эффектам, ни отметки у Ведущего, ни кулдауна темпа. Выпитое
@@ -3683,8 +3733,9 @@ function SB.Logic.InitiatePvpAttack(spellID, slotLevel)
     local ownContainer = SB.Logic.ApplyOwnContainer(spell, slotLevel, nil)
     SB.Logic.GrantCreatedItems(spell, nil)
 
-    -- Атака — потраченный ход, как и любой другой каст.
-    SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID, ownContainer))
+    -- Атака — потраченный ход, как и любой другой каст. Но тратится он
+    -- по приходу итога от цели (см. HoldTurnUntilResult).
+    SB.Logic.HoldTurnUntilResult(SB.Logic.TurnSkipFor(spell, spellID, ownContainer))
 end
 
 
@@ -4215,16 +4266,18 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
             guardTxt
     end
 
-    -- ПОЧЕМУ УДАР ПРОШЁЛ, ХОТЯ ЗАЩИТА ВЫИГРАЛА. Без этой приписки строка
-    -- читается как сбой счёта: «82 против 97» и урон следом. Пишем её
-    -- ровно тогда, когда крит и правда решил исход, — на выигранном
-    -- броске она была бы шумом.
-    if landed and atkCrit and not skipDefense and not (atkTotal > defTotal) then
-        outcomeTxt = outcomeTxt .. G .. " | |r" .. SB.Theme.MSG_BAD ..
-            "крит пробил защиту|r"
-    end
+    -- КРИТ — ЗАЩИТЫ НЕТ, ДАЖЕ ЕСЛИ КУБИК БРОШЕН. У крита с дебаффом
+    -- бросок защиты катится: им меряется закрепление чар (см. врезку у
+    -- landed выше). Но стоял он на месте защиты — «vs [95][+36]=131», — и
+    -- строка читалась так, будто цель отбивалась от удара, которого
+    -- отбить нельзя. Теперь на месте защиты «крит — защиты нет», а бросок
+    -- стоит там, где он работает: у дебаффа.
+    local critNoDefense = atkCrit and not guaranteed and not skipDefense
+    local resistRoll = critNoDefense
+        and (" " .. SB.UI.RollLine(defRoll, defMod, defTotal, G)) or ""
     if debuffLanded then
-        outcomeTxt = outcomeTxt .. G .. " | |r" .. SB.Theme.MSG_BAD .. "дебафф наложен|r"
+        outcomeTxt = outcomeTxt .. G .. " | |r" .. SB.Theme.MSG_BAD .. "дебафф наложен|r" ..
+            ((resistRoll ~= "") and (G .. " (сопротивление" .. resistRoll .. G .. ")|r") or "")
     elseif debuffResisted then
         -- Без этой строки «Воля» была бы невидимой: игрок получил урон,
         -- дебаффа нет, и почему — непонятно.
@@ -4235,7 +4288,12 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
         -- SB.Logic.DebuffResistStat), и скобки пустыми не ставим.
         outcomeTxt = outcomeTxt .. G .. " | |r" .. SB.Theme.MSG_GOOD ..
             "дебафф отведён" ..
-            (resistStat and (" (" .. resistStat .. ")") or "") .. "|r"
+            ((resistStat or resistRoll ~= "")
+                and (" (" .. (resistStat or "") ..
+                     ((resistStat and resistRoll ~= "") and ":" or "") ..
+                     resistRoll ..
+                     ((resistRoll ~= "") and SB.Theme.MSG_GOOD or "") .. ")")
+                or "") .. "|r"
     end
 
     -- Цифры атакующего не сошлись между собой. Пишем это в ту же строку,
@@ -4266,13 +4324,20 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
                 resisted = debuffResisted,
             })
     else
-        SB.Net.SendPvpResult(attackerName, UnitName("player"), defRoll, defMod, defTotal,
-            dmg, newHealth, maxHealth)
+        -- ОТВЕТ АТАКУЮЩЕМУ — ПОСЛЕ СТРОКИ БОЯ, следующим кадром. Строка
+        -- уходит очередью кадра (см. SB.Net.QueueLogLine), и отправь мы
+        -- ответ сразу, атакующий успевал бы разослать вампиризм и
+        -- потратить ход раньше, чем группа прочла сам удар. Таймер
+        -- заводится позже таймера очереди и потому срабатывает за ним.
+        local sendResult = function()
+            SB.Net.SendPvpResult(attackerName, UnitName("player"), defRoll, defMod, defTotal,
+                dmg, newHealth, maxHealth)
+        end
         -- У гарантированного удара защитных чисел нет — и в строке их
         -- тоже нет: «vs Защита: 0 + 0 (итог 0)» читалось бы как сбой
         -- расчёта. Та же формулировка, что у гарантированного эффекта
         -- (см. ResolveEffectCast).
-        local defTxt = skipDefense
+        local defTxt = (skipDefense or critNoDefense)
             and (G .. (guaranteed and ", цель не сопротивляется"
                                    or  ", крит — защиты нет"))
             or  (G .. " vs |r" .. SB.UI.RollLine(defRoll, defMod, defTotal, G))
@@ -4286,6 +4351,7 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
             G .. " по " .. UnitName("player") ..
             G .. ": |r" .. SB.UI.RollLine(atkRoll, atkMod, atkTotal, G) .. defTxt ..
             G .. ". |r" .. outcomeTxt, SB.LogRank.ACTION)
+        C_Timer.After(0, sendResult)
     end
 
     SB.Events.Fire("STATUS_CHANGED")
@@ -4320,6 +4386,16 @@ end
 --- @param aoe table|nil  данные для сжатого отчёта о залпе:
 ---        { parts = разбивка защиты, landed, debuff, resisted }
 function SB.Logic.HandlePvpResultReceived(targetName, defRoll, defMod, defTotal, dmg, newHealth, maxHealth, aoe)
+    -- Всё, что ответ печатает (вампиризм, отпись), идёт ДО траты хода:
+    -- тики и сдвиг очереди — последние в цепочке (см. HoldTurnUntilResult).
+    -- Площадь отпускает ход сама, по печати блока залпа.
+    local ok, err = pcall(SB.Logic.HandlePvpResultBody, targetName, defRoll, defMod,
+        defTotal, dmg, newHealth, maxHealth, aoe)
+    if not aoe then SB.Logic.ReleaseHeldTurn() end
+    if not ok then error(err, 0) end
+end
+
+function SB.Logic.HandlePvpResultBody(targetName, defRoll, defMod, defTotal, dmg, newHealth, maxHealth, aoe)
     local pending = pendingPvpSpells[targetName]
     pendingPvpSpells[targetName] = nil
 

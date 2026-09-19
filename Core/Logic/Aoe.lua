@@ -59,7 +59,7 @@ end
 --- Тридцать задетых давали тридцать почти одинаковых строк, из которых
 --- отличались только имя и числа. Группировка оставляет от них три-четыре
 --- строки, не теряя ни одного итога броска.
-local function FormatAttackEntries(entries)
+local function FormatAttackEntries(entries, crit)
     local buckets, order = {}, {}
     for _, e in ipairs(entries) do
         local tag
@@ -117,8 +117,11 @@ local function FormatAttackEntries(entries)
         for _, e in ipairs(b.list) do
             -- Одна ссылка на весь бросок: в скобках итог, внутри — кубик
             -- и разбивка модификатора.
-            local s = G .. e.name .. " |r" ..
-                SB.UI.ModText(e.mod or 0, tostring(e.total or 0))
+            -- КРИТ-ЗАЛП — БЕЗ ЧИСЕЛ ЗАЩИТЫ: отбить его нельзя, и
+            -- «Натан [0]» или бросок ради закрепления дебаффа на месте
+            -- защиты читались бы как отбитый удар.
+            local s = crit and (G .. e.name .. "|r") or (G .. e.name .. " |r" ..
+                SB.UI.ModText(e.mod or 0, tostring(e.total or 0)))
             if b.landed then
                 s = s .. G .. " → " .. (e.hp or 0) .. "/" .. (e.maxHp or 0) .. "|r"
             end
@@ -213,7 +216,7 @@ local function FlushAoeReport(report)
         elseif report.kind == "heal" then
             lines = FormatHealEntries(report.entries)
         else
-            lines = FormatAttackEntries(report.entries)
+            lines = FormatAttackEntries(report.entries, report.crit)
         end
         for _, line in ipairs(lines) do out[#out + 1] = line end
     end
@@ -233,6 +236,8 @@ local function FlushAoeReport(report)
             SB.Events.Fire(SB.E.BROADCAST_LOG, line, SB.LogRank.ACTION)
         end
     end
+    -- Блок напечатан — теперь и ход (см. SB.Logic.HoldTurnUntilResult).
+    if SB.Logic.ReleaseHeldTurn then SB.Logic.ReleaseHeldTurn() end
 end
 
 --- Взводит таймер закрытия, зажимая его жёстким потолком.
@@ -431,7 +436,9 @@ function SB.Logic.InitiateAoeAttack(spellID, slotLevel)
             and (", " .. SB.PlayerModel.GetResourceName() .. " x" .. slotLevel)
             or "") ..
         "). Атака: |r" .. SB.UI.RollText(roll) .. G .. " + |r" ..
-        SB.UI.ModText(mod) .. G .. " = " .. total .. ". Защита:|r")
+        SB.UI.ModText(mod) .. G .. " = " .. total ..
+        (isCrit and ". Крит — защиты нет:|r" or ". Защита:|r"))
+    aoeReport.crit = isCrit and true or false
 
     -- Эпицентр без координат — цель не член группы (обычно НПС). Точно
     -- измерить расстояние до неё нельзя ни у кого, и задетых аддон
@@ -459,7 +466,10 @@ function SB.Logic.InitiateAoeAttack(spellID, slotLevel)
 
     -- Второй шапки здесь больше нет: всё, что она говорила, вошло в
     -- единственную шапку залпа выше (см. OpenAoeReport).
-    SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID, ownContainer))
+    --
+    -- Ход — после блока залпа (см. SB.Logic.HoldTurnUntilResult):
+    -- иначе «Ходит: …» печаталось бы над итогами, которые его и вызвали.
+    SB.Logic.HoldTurnUntilResult(SB.Logic.TurnSkipFor(spell, spellID, ownContainer), true)
 end
 
 --- Получатель площадной атаки. Вся разница с одиночной — проверка
@@ -573,7 +583,7 @@ function SB.Logic.ResolveAoeEffectCast(spellID, slotLevel)
 
     SB.Net.SendAoeEffect(spell.id, effectID, radius, slotLevel, roll, mod, total, epi)
 
-    SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID, landedOnSelf))
+    SB.Logic.HoldTurnUntilResult(SB.Logic.TurnSkipFor(spell, spellID, landedOnSelf), true)
 end
 
 --- Получатель площадного эффекта.
@@ -755,7 +765,7 @@ function SB.Logic.ResolveAoeHeal(spellID, slotLevel)
 
     SB.Net.SendAoeHeal(spellID, spell.buff, radius, slotLevel, roll, mod, total, amount, epi)
 
-    SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID, landedOnSelf))
+    SB.Logic.HoldTurnUntilResult(SB.Logic.TurnSkipFor(spell, spellID, landedOnSelf), true)
 end
 
 --- Получатель площадного лечения: проверяет радиус и свой порог, лечит

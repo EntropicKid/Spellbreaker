@@ -186,7 +186,13 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
     -- ── Строка боя ────────────────────────────────────────
     local link    = SB.UI.MakeSpellLink(spell)
     local critTxt = isCrit and (" " .. SB.Theme.MSG_BAD .. "(КРИТ!)|r") or ""
-    local defTxt  = skipDefense
+    -- Крит с дебаффом бросает защиту ради закрепления, но на месте
+    -- защиты её не показываем — отбить крит нельзя (та же правка, что в
+    -- HandlePvpAttackReceived). Бросок уходит к исходу дебаффа.
+    local critNoDefense = isCrit and not guaranteed and not skipDefense
+    local resistRoll = critNoDefense
+        and (" " .. SB.UI.RollLine(defRoll, defMod, defTotal, G)) or ""
+    local defTxt  = (skipDefense or critNoDefense)
         and (G .. (guaranteed and " (существо не сопротивляется)"
                                or  " (крит — защиты нет)"))
         or  (G .. " vs Защита: |r" .. SB.UI.RollText(defRoll) .. G .. " + |r" ..
@@ -226,19 +232,15 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
         outcome = outcome .. guardTxt
     end
 
-    -- ПОЧЕМУ УДАР ПРОШЁЛ, ХОТЯ ЗАЩИТА ВЫИГРАЛА — та же приписка и тот же
-    -- довод, что в ПвП: без неё строка читается как сбой счёта.
-    if landed and isCrit and not skipDefense and not (total > defTotal) then
-        outcome = outcome .. G .. " | |r" .. SB.Theme.MSG_BAD .. "крит пробил защиту|r"
-    end
 
     -- ИМЯ ЭФФЕКТА В СТРОКУ НЕ ИДЁТ, только факт — ровно как в ПвП:
     -- заклинание в этой же строке названо кликабельной ссылкой, и что
     -- оно вешает, написано в его карточке.
+    local rr = (resistRoll ~= "") and (G .. " (сопротивление" .. resistRoll .. G .. ")") or ""
     if debuffLanded then
-        outcome = outcome .. G .. " Эффект наложен.|r"
+        outcome = outcome .. G .. " Эффект наложен" .. rr .. G .. ".|r"
     elseif debuffResisted then
-        outcome = outcome .. G .. " Эффект отведён.|r"
+        outcome = outcome .. G .. " Эффект отведён" .. rr .. G .. ".|r"
     end
 
     SB.Events.Fire(SB.E.BROADCAST_LOG,

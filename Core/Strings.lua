@@ -798,6 +798,7 @@ SB.Data.Messages = {
     turnNotYours            = SB.Theme.MSG_BAD .. "[Spellbreaker]: Сейчас не ваш ход — идёт пошаговый режим. Дождитесь своей очереди.|r",
     turnAlreadyActed        = SB.Theme.MSG_BAD .. "[Spellbreaker]: Вы уже походили. Следующее действие — когда очередь дойдёт снова.|r",
     noLongRestInTurnMode    = SB.Theme.MSG_BAD .. "[Spellbreaker]: Идёт пошаговый режим — Долгий Отдых объявить нельзя. Сначала переведите сцену в свободный ход.|r",
+    turnAwaitingResult      = SB.Theme.MSG_BAD .. "[Spellbreaker]: Удар ещё в пути — ход перейдёт дальше, когда придёт итог.|r",
     turnRequestPending      = SB.Theme.MSG_BAD .. "[Spellbreaker]: Ваша заявка ещё у Ведущего. Ход перейдёт дальше, когда он её рассмотрит.|r",
     downedCantAct           = SB.Theme.MSG_BAD .. "[Spellbreaker]: Ваше здоровье на нуле — действовать нельзя. Дождитесь лечения или Отдыха.|r",
     -- Существа (см. Core/NPC.lua). Навесить эффект вправе любой — это и

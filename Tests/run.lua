@@ -353,6 +353,12 @@ for _, path in ipairs(turnPaths) do
     SB.Cooldowns.Start(SB.Cooldowns.TURN)
     stub.world.time = stub.world.time + 10   -- отпускаем кулдаун темпа
     local ok, err = pcall(path[2])
+    -- Удар по игроку и площадь тратят ход по ИТОГУ, а не в момент
+    -- отправки (см. SB.Logic.HoldTurnUntilResult). Ответа в стенде нет —
+    -- отпускаем удержанный ход, как это сделал бы пришедший итог. Все
+    -- таймеры пускать нельзя: среди них и авто-круг, который тикнул бы
+    -- ещё раз.
+    SB.Logic.ReleaseHeldTurn()
     if not ok then
         failed = failed + 1
         print(("ПРОВАЛ    тик после «%s»: путь упал: %s"):format(path[1], err))
@@ -10828,6 +10834,147 @@ do
 end
 
 -- ============================================================
+-- КРИТ В СТРОКЕ БОЯ: ЗАЩИТЫ НЕТ, ДАЖЕ ЕСЛИ КУБИК БРОШЕН
+--
+-- Баг-репорт: «несмотря на автокрит Смертельного удара, в сообщении
+-- показано, что Натан кидал кубы против него». Бросок катится — им
+-- меряется закрепление дебаффа, — но стоял он на месте защиты:
+-- «vs [95][+36]=131». Теперь на месте защиты «крит — защиты нет», а
+-- бросок — у дебаффа, где он и работает.
+-- ============================================================
+do
+    local PM = SB.PlayerModel
+    ResetEffects()
+    SB.TurnOrder.Stop()
+    SB.Data.Spells["t_cr_eff"] = { id = "t_cr_eff", name = "Проба крит-чар",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "debuff", resist = "Выносливость", mods = { attack = -1 } } }
+    SB.Data.Spells["t_cr_hit"] = { id = "t_cr_hit", name = "Проба крит-удара",
+        class = "Маг", level = 1, canCrit = true, resistable = true,
+        distance = 30, debuff = "t_cr_eff" }
+
+    local lines = {}
+    local realFire = SB.Events.Fire
+    SB.Events.Fire = function(name, msg, ...)
+        if name == SB.E.BROADCAST_LOG and type(msg) == "string" then
+            lines[#lines + 1] = msg
+        end
+        return realFire(name, msg, ...)
+    end
+    -- Флаг крита приезжает от атакующего готовым (шестой довод).
+    for _ = 1, 20 do
+        _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
+        ResetEffects()
+        SB.Logic.HandlePvpAttackReceived("Ирина", "t_cr_hit", 100, 0, 100, true, 0, 1, 1)
+    end
+    SB.Events.Fire = realFire
+
+    local shownDef, noDef, rollAtDebuff = 0, 0, 0
+    for _, raw in ipairs(lines) do
+        -- Цвета режут текст на куски: «дебафф наложен|r|cFF…(сопротивление».
+        local msg = raw:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+        if msg:find("Проба крит-удара", 1, true) then
+            if msg:find(" vs ", 1, true) then shownDef = shownDef + 1 end
+            if msg:find("крит — защиты нет", 1, true) then noDef = noDef + 1 end
+            if msg:find("дебафф наложен (сопротивление", 1, true)
+               or msg:find("дебафф отведён (Выносливость:", 1, true) then
+                rollAtDebuff = rollAtDebuff + 1
+            end
+        end
+    end
+    checkTrue("строки крит-удара напечатаны", noDef > 0)
+    check("защиты против крита в строке нет", shownDef, 0)
+    check("бросок закрепления стоит у дебаффа", rollAtDebuff, noDef)
+
+    -- Без крита всё по-старому: защита на месте.
+    lines = {}
+    SB.Events.Fire = function(name, msg, ...)
+        if name == SB.E.BROADCAST_LOG and type(msg) == "string" then
+            lines[#lines + 1] = msg
+        end
+        return realFire(name, msg, ...)
+    end
+    _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
+    SB.Logic.HandlePvpAttackReceived("Ирина", "t_cr_hit", 50, 0, 50, false, 0, 1, 1)
+    SB.Events.Fire = realFire
+    checkTrue("без крита защита в строке есть",
+              lines[1] ~= nil and lines[1]:find(" vs ", 1, true) ~= nil)
+    stub.RunTimers()
+    ResetEffects()
+    _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
+end
+
+-- ============================================================
+-- ПОРЯДОК ЛОГА: УДАР → ИТОГ → ХОД
+--
+-- «Ходит: Натан» печаталось раньше удара, после которого он ходит, а
+-- «вытягивает жизнь» — раньше самого удара. Причина — две: ход тратился
+-- в момент отправки, а цель отвечала атакующему раньше, чем рассылала
+-- строку боя.
+-- ============================================================
+do
+    local L, TO = SB.Logic, SB.TurnOrder
+    local me = stub.world.playerName
+    ResetEffects()
+    local function Fresh()
+        TO.ApplyRemoteState({ active = true, mode = "all", round = 1,
+            index = 1, slots = { { me } }, acted = {} })
+        SB.Cooldowns.Start(SB.Cooldowns.TURN)
+        stub.world.time = stub.world.time + 10
+    end
+
+    -- ── АТАКУЮЩИЙ: ХОД ДЕРЖИТСЯ ДО ИТОГА ────────────────────
+    Fresh()
+    L.InitiatePvpAttack("t_strike", 1)
+    checkTrue("удар ушёл — ход ещё не потрачен", not TO.HasActed(me))
+    checkTrue("но второго действия нет",         not TO.CanActLocal())
+    L.HandlePvpResultReceived(stub.world.units["target"] and UnitName("target") or "?",
+        10, 0, 10, 1, 9, 10)
+    checkTrue("итог пришёл — ход потрачен",      TO.HasActed(me))
+    checkTrue("и замок снят",                    not TO.IsAwaitingResult())
+
+    -- Итога нет (цель вышла, нет аддона) — ход уходит по сроку.
+    Fresh()
+    L.InitiatePvpAttack("t_strike", 1)
+    checkTrue("без ответа ход пока держится", not TO.HasActed(me))
+    stub.RunTimers()
+    checkTrue("срок вышел — ход потрачен",    TO.HasActed(me))
+
+    -- Вне пошагового режима держать нечего.
+    TO.ApplyRemoteState({ active = false })
+    stub.world.time = stub.world.time + 10
+    L.InitiatePvpAttack("t_strike", 1)
+    checkTrue("в свободной игре замка нет", not TO.IsAwaitingResult())
+
+    -- ── ЗАЩИЩАЮЩИЙСЯ: СТРОКА БОЯ РАНЬШЕ ОТВЕТА ─────────────
+    local order = {}
+    local realSend, realQueue = SB.Net.SendPvpResult, SB.Net.QueueLogLine
+    SB.Net.SendPvpResult = function() order[#order + 1] = "ответ" end
+    SB.Net.QueueLogLine = function(msg, rank)
+        realQueue(msg, rank)
+        order[#order + 1] = "строка"
+    end
+    -- Подписка BROADCAST_LOG → QueueLogLine живёт в SB_INIT, которого в
+    -- стенде нет, — ведём строку в очередь сами.
+    local realFire = SB.Events.Fire
+    SB.Events.Fire = function(name, msg, rank, ...)
+        if name == SB.E.BROADCAST_LOG then SB.Net.QueueLogLine(msg, rank) end
+        return realFire(name, msg, rank, ...)
+    end
+    SB.Logic.HandlePvpAttackReceived("Ирина", "t_strike", 50, 0, 50, false, 0, 1, 1)
+    SB.Events.Fire = realFire
+    check("сразу ответа нет — только строка", table.concat(order, ","), "строка")
+    stub.RunTimers()
+    check("ответ уходит следующим кадром, за строкой",
+          table.concat(order, ","), "строка,ответ")
+    SB.Net.SendPvpResult, SB.Net.QueueLogLine = realSend, realQueue
+
+    TO.Stop()
+    ResetEffects()
+    _G.SpellbreakerCharDB.health = SB.PlayerModel.GetMaxHealth()
+end
+
+-- ============================================================
 -- ПОПЫТКИ ПОБЕГА: СЧЁТНЫЕ, ДО ДОЛГОГО ОТДЫХА
 --
 -- Без лимита побег был кнопкой «выйти из неудобной сцены»: провал стоил
@@ -12467,13 +12614,44 @@ do
                  maxResource = 4, skills = { ["Воля"] = 40 } })
         TargetWolf()
         local hpBefore = N.GetState("target").hp
+        -- Защита существа катится ГОЛЫМ кубиком (SB.Logic.RollPlain) —
+        -- подменяем и его, иначе исход здесь зависел бы от удачи.
+        local realPlain = SB.Logic.RollPlain
         SB.Logic.Roll = function() return 100, 1, 100 end
+        SB.Logic.RollPlain = SB.Logic.Roll
         SB.Logic.ResolveNpcAttack("t_npc_bolt", 1)
-        SB.Logic.Roll = realRoll
+        SB.Logic.Roll, SB.Logic.RollPlain = realRoll, realPlain
         checkTrue("стойкое существо отвело чары",
                   not N.HasEffect("target", "t_npc_slow"))
         checkTrue("но урон всё равно получило",
                   N.GetState("target").hp < hpBefore)
+
+        -- КРИТ ПО СУЩЕСТВУ: защиты в строке нет, бросок — у эффекта.
+        -- Та же правка, что в ПвП (см. «КРИТ В СТРОКЕ БОЯ»).
+        local seenNpc = {}
+        local realFireN = SB.Events.Fire
+        SB.Events.Fire = function(name, msg, ...)
+            if name == SB.E.BROADCAST_LOG and type(msg) == "string" then
+                seenNpc[#seenNpc + 1] = (msg:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+            end
+            return realFireN(name, msg, ...)
+        end
+        local realThr = SB.Logic.GetCritThreshold
+        SB.Logic.GetCritThreshold = function() return 1 end   -- любой бросок — крит
+        SB.Logic.ResolveNpcAttack("t_npc_bolt", 1)
+        SB.Logic.GetCritThreshold = realThr
+        SB.Events.Fire = realFireN
+        local line = nil
+        for _, m in ipairs(seenNpc) do
+            if m:find("Разряд", 1, true) and m:find("по Волк", 1, true) then line = m end
+        end
+        checkTrue("строка крита по существу есть", line ~= nil)
+        checkTrue("защиты против крита в ней нет",
+                  line ~= nil and not line:find("vs Защита", 1, true))
+        checkTrue("и сказано, что защиты нет",
+                  line ~= nil and line:find("крит — защиты нет", 1, true) ~= nil)
+        checkTrue("бросок закрепления стоит у эффекта",
+                  line ~= nil and line:find("(сопротивление", 1, true) ~= nil)
 
         N.ResetState()
         stub.world.units["target"] = savedU

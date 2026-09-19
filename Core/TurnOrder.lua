@@ -418,8 +418,26 @@ function TO.HasPendingRequest()
     return pendingRequest == true
 end
 
+-- ИТОГ СВОЕГО УДАРА ДЕРЖИТ ХОД — тот же замок, что у заявки, но свой
+-- флаг: удар по игроку разрешается не у Ведущего, а у цели, и ход
+-- тратится, когда итог пришёл (см. SB.Logic.HoldTurnUntilResult).
+-- Пока ждём, второе действие закрыто: иначе можно было бы ударить
+-- дважды за один ход, пока первый ответ в пути.
+local awaitingResult = false
+
+function TO.IsAwaitingResult() return awaitingResult == true end
+
+--- @param v boolean
+function TO.SetAwaitingResult(v)
+    v = v and true or false
+    if awaitingResult == v then return end
+    awaitingResult = v
+    SB.Events.Fire(SB.E.TURN_ORDER_CHANGED)
+end
+
 function TO.CanActLocal()
     if state.active and pendingRequest then return false end
+    if state.active and awaitingResult then return false end
     return TO.CanAct(UnitName("player"))
 end
 
@@ -430,6 +448,8 @@ function TO.CheckCanAct()
     local key
     if state.active and pendingRequest then
         key = "turnRequestPending"
+    elseif state.active and awaitingResult then
+        key = "turnAwaitingResult"
     elseif TO.HasActed(UnitName("player")) then
         key = "turnAlreadyActed"
     else
