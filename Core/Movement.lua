@@ -606,6 +606,8 @@ local sinceNotify = 0
 -- предел (moveDistance переживает релог), слал бы MOVEMENT_CHANGED прямо
 -- на экране загрузки, когда шапки ещё нет.
 local wasExhausted = nil
+-- Сколько было пройдено на прошлом обновлении шапки (см. Step).
+local shownDistance = nil
 
 --- Считать ли перемещение прямо сейчас.
 --- Полёт по маршруту и посмертный забег бегом персонажа не являются:
@@ -817,11 +819,19 @@ function SB.Movement.Step(elapsed)
         wasExhausted = capped
         return
     end
-    -- carried в условии наравне со скоростью: путь, набранный по
-    -- координатам, обязан обновлять шапку так же, как набранный бегом, —
-    -- иначе у везомого персонажа счётчик рос бы молча.
-    if ((speed > 0 or carried > 0) and not capped) or capped ~= wasExhausted then
-        wasExhausted = capped
+    -- ОБНОВЛЯЕМ, ЕСЛИ ПУТЬ ВЫРОС, А НЕ ЕСЛИ ИГРОК ДВИЖЕТСЯ ПРЯМО СЕЙЧАС.
+    -- Было «скорость больше нуля в кадре опроса». Микрошаг короче пятой
+    -- доли секунды в счётчик попадал, а к опросу игрок уже стоял — и
+    -- шапку никто не просил перерисоваться. Метры копились невидимо, по
+    -- метру-два, и всплывали разом, когда какой-нибудь шаг случайно
+    -- приходился на опрос: «прошёл почти весь ящик на нуле, и вдруг 2.2».
+    -- Сравнение с показанным ловит любой рост — бегом, координатами,
+    -- сколь угодно коротким шагом.
+    local walkedNow = tonumber(d.moveDistance) or 0
+    local grew = (shownDistance == nil) or (walkedNow ~= shownDistance)
+    if grew or capped ~= wasExhausted then
+        wasExhausted  = capped
+        shownDistance = walkedNow
         SB.Events.Fire(SB.E.MOVEMENT_CHANGED)
     end
 

@@ -13273,6 +13273,31 @@ do
         Player(0, false)
         stub.world.time = stub.world.time + 0.15
         SB.Movement.Step(0.15)                   -- опрос: уже стоит
+        -- И ШАПКА УЗНАЁТ О НЁМ СРАЗУ. Баг-репорт со скриншотами: микрошаги
+        -- копились невидимо («прошёл почти весь ящик на нуле»), потому что
+        -- обновление шапки просили, только если в кадре опроса игрок ещё
+        -- двигался.
+        Player(0, false)
+        Settle({ 0, 0, 1 })
+        local notified = 0
+        local onMove = function() notified = notified + 1 end
+        SB.Events.On(SB.E.MOVEMENT_CHANGED, onMove)
+        Player(7, false)
+        stub.world.time = stub.world.time + 0.1
+        SB.Movement.Step(0.1)                    -- микрошаг между опросами
+        Player(0, false)
+        stub.world.time = stub.world.time + 0.15
+        SB.Movement.Step(0.15)                   -- опрос: уже стоит
+        SB.Events.Off(SB.E.MOVEMENT_CHANGED, onMove)
+        checkTrue("шапке сказано обновиться после микрошага", notified > 0)
+        Settle({ 0, 0, 1 })
+        Player(7, false)
+        stub.world.time = stub.world.time + 0.1
+        SB.Movement.Step(0.1)
+        stub.world.playerPos = { 0, 0.7, 1 }
+        Player(0, false)
+        stub.world.time = stub.world.time + 0.15
+        SB.Movement.Step(0.15)
         check("короткий шаг засчитан один раз",
               math.floor(M.GetDistance() * 100 + 0.5), math.floor(0.7 * 0.9144 * 100 + 0.5))
         -- А кого везут (скорость молчит весь интервал) — считается как прежде.
