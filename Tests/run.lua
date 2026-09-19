@@ -17384,6 +17384,25 @@ do
 end
 
 -- ============================================================
+-- ОДИН ВАРИАНТ В ОКНЕ ВЫБОРА КРУГА — КАСТ СРАЗУ
+--
+-- Окно с одной кнопкой — лишний клик: у рассеивания круг один, у мага с
+-- одной маной вливать нечего. «Пропустить ход» так не жмётся — там окно
+-- объясняет, почему действовать нельзя. Интерфейс в прогоне не грузится,
+-- поэтому проверка по исходнику.
+-- ============================================================
+do
+    local src  = ReadFile("UI/MainFrame.lua")
+    local body = src:match("function SB%.UI%.ShowSlotPicker%(spellID%)(.-)\nend\n") or ""
+    local autoAt = body:find("if #options == 1 and not options[1].passTurn then", 1, true)
+    local drawAt = body:find("Ширина по самой длинной подписи", 1, true)
+    checkTrue("единственный вариант кастуется до отрисовки окна",
+              autoAt ~= nil and drawAt ~= nil and autoAt < drawAt)
+    checkTrue("и уходит тем же ConfirmCast, что и кнопка",
+              body:find("SB.Logic.ConfirmCast(spellID, options[1].level)", 1, true) ~= nil)
+end
+
+-- ============================================================
 -- БОНУСЫ ОРУЖИЯ
 --
 -- У каждого класса оружия своя черта (SB.Data.WeaponBonuses): щит —
