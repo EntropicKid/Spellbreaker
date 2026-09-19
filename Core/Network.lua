@@ -466,6 +466,11 @@ end
 -- «дебафф наложен» / «дебафф отведён», а не строки. Обрезать нечего.
 
 local function ParsePVPRES(t)
+    -- Строка боя едет в том же пакете (см. SB.Net.SendPvpResult) — её
+    -- печатают все, и ДО того, как атакующий возьмёт итог.
+    if type(t.log) == "string" then
+        SB.Events.Fire("LOG_MESSAGE_RECEIVED", SanitizeIncomingLog(t.log))
+    end
     if t.attacker ~= UnitName("player") then return end
     if not SB.Logic or not SB.Logic.HandlePvpResultReceived then return end
 
@@ -1297,6 +1302,13 @@ local IMMEDIATE_ACTIONS = {
     TURN    = true,
     TURNM   = true,
     TURNACT = true,
+    -- СТРОКИ ЛОГА — ТОЖЕ СРАЗУ. Шли через пакетную очередь (~0.1 с), а
+    -- «я походил» и итог удара — мимо неё. Пришедшая раньше строка
+    -- каста печаталась позже «Круг пройден», который она и вызвала.
+    -- Порядок пакетов одного отправителя держится, только если и
+    -- обрабатываются они одинаково.
+    LOG     = true,
+    LOGM    = true,
 }
 
 Dispatch = function(sender, t)
@@ -1465,12 +1477,13 @@ end
 -- обязаны прочитать сцену так же, как её автор.
 -- ============================================================
 local logQueue, logQueued, logSeq = {}, false, 0
+-- Что сделать СРАЗУ ПОСЛЕ строк этого кадра (см. SB.Net.AfterLogFlush).
+local afterFlush = {}
 
 local function FlushLogQueue()
     logQueued = false
     local q = logQueue
     logQueue = {}
-    if #q == 0 then return end
 
     table.sort(q, function(a, b)
         if a.rank ~= b.rank then return a.rank < b.rank end
@@ -1478,6 +1491,22 @@ local function FlushLogQueue()
     end)
     for _, item in ipairs(q) do
         SB.Net.BroadcastLog(item.msg)
+    end
+
+    local after = afterFlush
+    afterFlush = {}
+    for _, fn in ipairs(after) do pcall(fn) end
+end
+
+--- Выполнить ПОСЛЕ того, как уйдут строки этого кадра — в том числе
+--- поставленные в очередь позже этого вызова. Для пакетов, которые
+--- обязаны прийти за строками: «я походил» Ведущему нельзя слать раньше
+--- строки самого действия, иначе «Круг пройден» печатается над ним.
+function SB.Net.AfterLogFlush(fn)
+    afterFlush[#afterFlush + 1] = fn
+    if not logQueued then
+        logQueued = true
+        C_Timer.After(0, FlushLogQueue)
     end
 end
 
@@ -1827,6 +1856,33 @@ function SB.Net.SendPvpResult(attackerName, targetName, defRoll, defMod, defTota
     SendToPlayer(t, attackerName, "NORMAL")
 end
 
+--- ИТОГ ОДИНОЧНОГО УДАРА ВМЕСТЕ СО СТРОКОЙ БОЯ — одним пакетом в группу.
+---
+--- Строку печатают все, итог берёт атакующий — в том же обработчике и
+--- после строки (см. ParsePVPRES). Два пакета по двум каналам (строка в
+--- группу, итог лично) порядка не держали, и атакующий рассылал
+--- вампиризм и «Ходит: …» раньше самого удара. Пакет при этом один
+--- вместо двух: отправка в группу стоит отправителю столько же, сколько
+--- личная.
+--- @param line string  готовая строка боя
+--- @param r    table   доводы SendPvpResult по порядку
+function SB.Net.SendPvpResultWithLog(line, r)
+    SB.Events.Fire("LOG_MESSAGE_RECEIVED", line)
+    if not IsInGroup() then return end
+    SendToGroup({
+        action    = "PVPRES",
+        attacker  = r[1],
+        target    = r[2],
+        defRoll   = r[3],
+        defMod    = r[4],
+        defTotal  = r[5],
+        dmg       = r[6],
+        newHealth = r[7],
+        maxHealth = r[8],
+        log       = line,
+    }, "NORMAL")
+end
+
 --- Рассеивание. Снимает получатель у себя: эффекты живут на его
 --- клиенте, и никакой другой их не видит.
 --- @param schools table  множество школ { magic = true, ... }
@@ -1938,11 +1994,17 @@ end
 
 --- «Я походил» — адресно Ведущему. Имя в теле не шлём: отправителя даёт
 --- сам конверт, и подделать чужой ход поэтому нечем.
+--- В ГРУППУ, А НЕ ЛИЧНО, И ПОСЛЕ СТРОК ЭТОГО КАДРА. Строка действия
+--- уходит в группу, и «я походил» лично Ведущему обгонял её: личные и
+--- групповые сообщения WoW порядка между собой не держит. Одним каналом
+--- и следом за строками порядок держится сам. Пакет крошечный; кроме
+--- Ведущего его никто не разбирает (см. ParseTURNACT).
 function SB.Net.SendTurnActed()
     if not IsInGroup() then return end
-    local leader = SB.Net.GetLeaderName()
-    if not leader then return end
-    SendToPlayer({ action = "TURNACT" }, leader, "NORMAL")
+    SB.Net.AfterLogFlush(function()
+        if not IsInGroup() then return end
+        SendToGroup({ action = "TURNACT" }, "NORMAL")
+    end)
 end
 
 --- Целитель сообщает исцеляемому (и группе) результат лечения.
@@ -2580,7 +2642,13 @@ SB.Events.On("SB_INIT", function()
     -- Core/Events.lua. Задержка в один кадр невидима, а порядок строк
     -- становится причинно-следственным: сначала действие, потом его
     -- последствия, потом тики, потом сдвиг очереди.
-    SB.Events.On("BROADCAST_LOG", function(msg, rank)
+    SB.Events.On("BROADCAST_LOG", function(msg, rank, attach)
+        -- Строка с итогом удара уходит сразу и одним пакетом с ним (см.
+        -- SB.Net.SendPvpResultWithLog): ранга ACTION она и так первая.
+        if type(attach) == "table" and attach.pvpResult then
+            SB.Net.SendPvpResultWithLog(msg, attach.pvpResult)
+            return
+        end
         SB.Net.QueueLogLine(msg, rank)
     end)
 

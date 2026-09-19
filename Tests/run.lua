@@ -10869,13 +10869,20 @@ do
     end
     SB.Events.Fire = realFire
 
-    local shownDef, noDef, rollAtDebuff = 0, 0, 0
+    local shownDef, noDef, rollAtDebuff, bare, twice = 0, 0, 0, 0, 0
     for _, raw in ipairs(lines) do
         -- Цвета режут текст на куски: «дебафф наложен|r|cFF…(сопротивление».
         local msg = raw:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
         if msg:find("Проба крит-удара", 1, true) then
             if msg:find(" vs ", 1, true) then shownDef = shownDef + 1 end
-            if msg:find("крит — защиты нет", 1, true) then noDef = noDef + 1 end
+            if msg:find("КРИТ!", 1, true) then noDef = noDef + 1 end
+            -- Голая грань: «[100]. КРИТ!» — без модификатора и итога.
+            if msg:find(": [100]. КРИТ!", 1, true) then bare = bare + 1 end
+            -- Тавтологии нет: крит назван один раз.
+            local n = select(2, msg:gsub("КРИТ", ""))
+            if n > 1 or msg:find("защиты нет", 1, true) then twice = twice + 1 end
+            -- Здоровья после урона в строке нет: оно на рамке.
+            if msg:find("ХП (", 1, true) then shownDef = shownDef + 1 end
             if msg:find("дебафф наложен (сопротивление", 1, true)
                or msg:find("дебафф отведён (Выносливость:", 1, true) then
                 rollAtDebuff = rollAtDebuff + 1
@@ -10883,7 +10890,9 @@ do
         end
     end
     checkTrue("строки крит-удара напечатаны", noDef > 0)
-    check("защиты против крита в строке нет", shownDef, 0)
+    check("защиты против крита (и здоровья) в строке нет", shownDef, 0)
+    check("крит — голой гранью", bare, noDef)
+    check("и назван один раз", twice, 0)
     check("бросок закрепления стоит у дебаффа", rollAtDebuff, noDef)
 
     -- Без крита всё по-старому: защита на месте.
@@ -10946,28 +10955,58 @@ do
     L.InitiatePvpAttack("t_strike", 1)
     checkTrue("в свободной игре замка нет", not TO.IsAwaitingResult())
 
-    -- ── ЗАЩИЩАЮЩИЙСЯ: СТРОКА БОЯ РАНЬШЕ ОТВЕТА ─────────────
-    local order = {}
-    local realSend, realQueue = SB.Net.SendPvpResult, SB.Net.QueueLogLine
-    SB.Net.SendPvpResult = function() order[#order + 1] = "ответ" end
-    SB.Net.QueueLogLine = function(msg, rank)
-        realQueue(msg, rank)
-        order[#order + 1] = "строка"
-    end
-    -- Подписка BROADCAST_LOG → QueueLogLine живёт в SB_INIT, которого в
-    -- стенде нет, — ведём строку в очередь сами.
+    -- ── ЗАЩИЩАЮЩИЙСЯ: СТРОКА И ИТОГ — ОДНИМ ПАКЕТОМ ─────────
+    -- Два пакета по двум каналам (строка в группу, итог лично) порядка
+    -- не держат. Строка боя приезжает приложением к событию и уходит
+    -- вместе с итогом (см. SB.Net.SendPvpResultWithLog).
+    local attach
     local realFire = SB.Events.Fire
-    SB.Events.Fire = function(name, msg, rank, ...)
-        if name == SB.E.BROADCAST_LOG then SB.Net.QueueLogLine(msg, rank) end
-        return realFire(name, msg, rank, ...)
+    SB.Events.Fire = function(name, msg, rank, extra, ...)
+        if name == SB.E.BROADCAST_LOG and type(extra) == "table" and extra.pvpResult then
+            attach = { line = msg, res = extra.pvpResult }
+        end
+        return realFire(name, msg, rank, extra, ...)
     end
     SB.Logic.HandlePvpAttackReceived("Ирина", "t_strike", 50, 0, 50, false, 0, 1, 1)
     SB.Events.Fire = realFire
-    check("сразу ответа нет — только строка", table.concat(order, ","), "строка")
+    checkTrue("строка боя уходит вместе с итогом", attach ~= nil)
+    check("и итог адресован атакующему", attach and attach.res[1], "Ирина")
+
+    -- Пакет итога печатает строку ДО того, как атакующий возьмёт итог.
+    local printed, handled = {}, false
+    local realHandle = SB.Logic.HandlePvpResultReceived
+    SB.Logic.HandlePvpResultReceived = function() handled = (#printed > 0) end
+    SB.Events.Fire = function(name, msg, ...)
+        if name == "LOG_MESSAGE_RECEIVED" then printed[#printed + 1] = msg end
+        return realFire(name, msg, ...)
+    end
+    -- Пакет в стенде — готовая таблица: сериализатор-пустышку подменяем
+    -- тем же приёмом, что в проверках статуса.
+    local realDes = SB.Net.Deserialize
+    SB.Net.Deserialize = function(_, m) return true, m end
+    SB.Net.__commHandler(SB.Net.__commPrefix, { action = "PVPRES", attacker = me,
+        target = "Ирина", defRoll = 1, defMod = 0, defTotal = 1, dmg = 1,
+        newHealth = 9, maxHealth = 10, log = "строка удара" }, "PARTY", "Ирина")
+    -- Срочных пакетов за кадр — не больше лимита, а часы в стенде стоят:
+    -- пакет мог уйти в очередь срочных. Крутим её.
+    for _ = 1, 5 do stub.RunTimers() end
+    SB.Net.Deserialize = realDes
+    SB.Events.Fire = realFire
+    SB.Logic.HandlePvpResultReceived = realHandle
+    check("строка из пакета напечатана", printed[1], "строка удара")
+    checkTrue("и итог взят уже после неё", handled)
+
+    -- «Я походил» уходит после строк этого кадра, даже поставленных позже.
+    local sent = {}
+    local realQueue = SB.Net.QueueLogLine
+    SB.Net.AfterLogFlush(function() sent[#sent + 1] = "походил" end)
+    realQueue("строка после", SB.LogRank.ACTION)
+    local realBroadcast = SB.Net.BroadcastLog
+    SB.Net.BroadcastLog = function(msg) sent[#sent + 1] = msg end
     stub.RunTimers()
-    check("ответ уходит следующим кадром, за строкой",
-          table.concat(order, ","), "строка,ответ")
-    SB.Net.SendPvpResult, SB.Net.QueueLogLine = realSend, realQueue
+    SB.Net.BroadcastLog = realBroadcast
+    check("строки кадра уходят раньше «походил»", table.concat(sent, ","),
+          "строка после,походил")
 
     TO.Stop()
     ResetEffects()
@@ -12648,8 +12687,10 @@ do
         checkTrue("строка крита по существу есть", line ~= nil)
         checkTrue("защиты против крита в ней нет",
                   line ~= nil and not line:find("vs Защита", 1, true))
-        checkTrue("и сказано, что защиты нет",
-                  line ~= nil and line:find("крит — защиты нет", 1, true) ~= nil)
+        checkTrue("и крит — голой гранью",
+                  line ~= nil and line:find(": %[%d+%]%. КРИТ!") ~= nil)
+        checkTrue("исход эффекта отделён чертой",
+                  line ~= nil and line:find("| эффект", 1, true) ~= nil)
         checkTrue("бросок закрепления стоит у эффекта",
                   line ~= nil and line:find("(сопротивление", 1, true) ~= nil)
 
@@ -17022,6 +17063,63 @@ do
     check("«Мощь» верхнюю не двигает",          hi1, hi0)
     _G.SpellbreakerCharDB.skills = savedSkills
     stub.world.race = savedRace
+end
+
+-- ============================================================
+-- УДАЛЁННЫЕ ИЗ БИБЛИОТЕКИ — ВОН ИЗ ПОДГОТОВЛЕННОГО
+--
+-- Баг-репорт: удалённые способности (protect_from_evil, chilling) висели
+-- в ряду невидимыми карточками со знаком вопроса и занимали лимит.
+-- Встроенный неизвестный id — удалённый; кастомный — мог ещё не
+-- приехать, его не трогаем.
+-- ============================================================
+do
+    local PM = SB.PlayerModel
+    local savedPrep  = _G.SpellbreakerCharDB.preparedSpells
+    local savedItems = _G.SpellbreakerCharDB.preparedItems
+    local savedLock  = _G.SpellbreakerCharDB.configLocked
+
+    _G.SpellbreakerCharDB.configLocked = true      -- замок уборке не мешает
+    _G.SpellbreakerCharDB.preparedSpells = { "heroic_strike", "protect_from_evil",
+                                             "custom_not_arrived", "chilling" }
+    check("убраны два удалённых", PM.EvictDeletedSpells(), 2)
+    check("осталось живое и кастомное",
+          table.concat(_G.SpellbreakerCharDB.preparedSpells, ","),
+          "heroic_strike,custom_not_arrived")
+    check("повторно убирать нечего", PM.EvictDeletedSpells(), 0)
+
+    local potion
+    for id, sp in pairs(SB.Data.Spells) do
+        if SB.Items.IsItem(sp) and not SB.Items.IsConjured(sp) then potion = id break end
+    end
+    _G.SpellbreakerCharDB.preparedItems = {
+        { id = potion, n = 1 }, { id = "item_deleted_long_ago", n = 2 },
+        { id = "custom_item_pending", n = 1 } }
+    check("из сумки убран удалённый предмет", SB.Items.EvictDeleted(), 1)
+    check("ячеек занято живым и кастомным", #_G.SpellbreakerCharDB.preparedItems, 2)
+    check("первым остался живой", _G.SpellbreakerCharDB.preparedItems[1].id, potion)
+
+    _G.SpellbreakerCharDB.preparedSpells = savedPrep
+    _G.SpellbreakerCharDB.preparedItems  = savedItems
+    _G.SpellbreakerCharDB.configLocked   = savedLock
+end
+
+-- ============================================================
+-- СТРОКИ ЛОГА РАЗБИРАЮТСЯ СРАЗУ, «Я ПОХОДИЛ» — В ГРУППУ
+--
+-- Строки лога шли через пакетную очередь, а «я походил» и итог удара —
+-- мимо неё: пришедшая раньше строка каста печаталась позже «Круг
+-- пройден». И «я походил» уходило лично Ведущему, а строка — в группу:
+-- порядок между каналами WoW не держит.
+-- ============================================================
+do
+    local net = ReadFile("Core/Network.lua")
+    local imm = net:match("local IMMEDIATE_ACTIONS = (%b{})") or ""
+    checkTrue("строки лога — срочные", imm:find("LOG%s*=%s*true") ~= nil)
+    checkTrue("и пачки строк тоже",     imm:find("LOGM%s*=%s*true") ~= nil)
+    local turnAct = net:match("function SB%.Net%.SendTurnActed%(%)(.-)\nend") or ""
+    checkTrue("«я походил» уходит в группу", turnAct:find("SendToGroup", 1, true) ~= nil)
+    checkTrue("и после строк кадра",         turnAct:find("AfterLogFlush", 1, true) ~= nil)
 end
 
 -- ============================================================

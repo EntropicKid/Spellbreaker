@@ -122,9 +122,7 @@ local function FormatAttackEntries(entries, crit)
             -- защиты читались бы как отбитый удар.
             local s = crit and (G .. e.name .. "|r") or (G .. e.name .. " |r" ..
                 SB.UI.ModText(e.mod or 0, tostring(e.total or 0)))
-            if b.landed then
-                s = s .. G .. " → " .. (e.hp or 0) .. "/" .. (e.maxHp or 0) .. "|r"
-            end
+            -- Без «→ 15/29»: здоровье задетого видно на его рамке.
             items[#items + 1] = s
         end
         out[#out + 1] = ReportBullet(
@@ -429,15 +427,17 @@ function SB.Logic.InitiateAoeAttack(spellID, slotLevel)
     OpenAoeReport(
         SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. UnitName("player") ..
         " обрушивает |r" .. SB.UI.MakeSpellLink(spell) ..
-        (isCrit and (" " .. SB.Theme.MSG_BAD .. "(КРИТ!)|r") or "") ..
         G .. string.format(" на всё %s (радиус %g м",
             SB.Logic.AoeEpicenterLabel(epi), radius) ..
         ((slotLevel or 0) > 0
             and (", " .. SB.PlayerModel.GetResourceName() .. " x" .. slotLevel)
             or "") ..
-        "). Атака: |r" .. SB.UI.RollText(roll) .. G .. " + |r" ..
-        SB.UI.ModText(mod) .. G .. " = " .. total ..
-        (isCrit and ". Крит — защиты нет:|r" or ". Защита:|r"))
+        "). Атака: |r" ..
+        -- Крит — голой гранью, как в одиночном ударе.
+        (isCrit
+            and (SB.UI.RollText(roll) .. G .. ". |r" .. SB.Theme.MSG_BAD .. "КРИТ!|r")
+            or  (SB.UI.RollText(roll) .. G .. " + |r" .. SB.UI.ModText(mod) ..
+                 G .. " = " .. total .. ". Защита:|r")))
     aoeReport.crit = isCrit and true or false
 
     -- Эпицентр без координат — цель не член группы (обычно НПС). Точно

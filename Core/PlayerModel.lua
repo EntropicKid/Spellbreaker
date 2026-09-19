@@ -1605,6 +1605,48 @@ function PM.EvictUnjustifiedSpells()
     return #dropped
 end
 
+--- УДАЛЁННЫЕ ИЗ БИБЛИОТЕКИ — ВОН ИЗ ПОДГОТОВЛЕННЫХ.
+---
+--- Заклинание убрали из данных, а id в сохранёнке остался: в ряду
+--- висела невидимая карточка со знаком вопроса, и занимала она место в
+--- лимите подготовки. Встроенное неизвестное — значит удалённое: его
+--- id жил в файлах аддона, и никто его больше не пришлёт.
+---
+--- Кастомное (custom_…) НЕ ТРОГАЕМ: неизвестно оно может быть и
+--- потому, что ещё не приехало по сети. Судить о том, чего не видим,
+--- нельзя (та же оговорка, что в EvictUnjustifiedSpells).
+---
+--- Замок после каста здесь не действует: это не пересбор, а уборка
+--- того, чего нет.
+--- @return number  сколько убрано
+function PM.EvictDeletedSpells()
+    local d = db()
+    local list = d and d.preparedSpells
+    if type(list) ~= "table" or #list == 0 then return 0 end
+    local kept, dropped = {}, {}
+    for _, id in ipairs(list) do
+        if SB.Data.Spells[id] or tostring(id):match("^custom_") then
+            kept[#kept + 1] = id
+        else
+            dropped[#dropped + 1] = tostring(id)
+        end
+    end
+    if #dropped == 0 then return 0 end
+    d.preparedSpells = kept
+    print("|cFF9933FF[Spellbreaker]|r: |cFFFF4444убраны из подготовленных — " ..
+        "их больше нет в библиотеке: |r" .. table.concat(dropped, ", ") ..
+        "|cFFFF4444.|r")
+    SB.Events.Fire("PREPARED_SPELLS_CHANGED")
+    SB.Events.Fire(SB.E.STATUS_CHANGED)
+    return #dropped
+end
+
+-- Следующим кадром после старта: к этому моменту свои кастомные
+-- заклинания уже подняты из сохранёнки (SB.CustomSpells.Init).
+SB.Events.On("SB_INIT", function()
+    C_Timer.After(0, PM.EvictDeletedSpells)
+end)
+
 --- Полностью очищает список подготовленных заклинаний.
 --- Возвращает true при успехе, false если заблокировано (после каста —
 --- как и остальные изменения подготовки, требует предварительного отдыха).

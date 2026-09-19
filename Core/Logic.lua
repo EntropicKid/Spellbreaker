@@ -4218,7 +4218,11 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
     -- по умолчанию, читается заметно лучше на фоне чат-окна.
     local G          = SB.Theme.MSG_BODY
     local link       = spell and SB.UI.MakeSpellLink(spell) or (G .. "неизвестное заклинание|r")
-    local critTxt    = atkCrit and (" " .. SB.Theme.MSG_BAD .. "(КРИТ!)|r") or ""
+    -- КРИТ — ГОЛОЙ ГРАНЬЮ. Когда выпал крит, модификатор и итог не решают
+    -- ничего: попадание решила грань кубика. «[88]. КРИТ!» — ровно то, что
+    -- случилось, без «(КРИТ!)» у названия и «крит — защиты нет» после
+    -- броска, которые говорили одно и то же дважды.
+    local critTxt    = ""
     -- Три исхода: промах, доспех выдержал, урон. Средний вернулся вместе
     -- с бронёй-запасом: она снова умеет погасить удар целиком, и молчать
     -- об этом нельзя — «Урон: 0 ХП» читается как сбой, а не как работа
@@ -4260,10 +4264,12 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
             ((resisted > 0) and "Удар выдержан целиком!" or "Доспех выдержал удар целиком!") ..
             "|r" .. guardTxt
     else
+        -- БЕЗ «(7/42)»: здоровье и так видно на рамке (подмена ХП на
+        -- стандартных рамках, см. UI/Overlay.lua), а в строке оно
+        -- удлиняло каждый удар ради числа, на которое никто не смотрит.
         local dmgLink = SB.UI.AmountText("dmg", dmg)
         outcomeTxt = SB.Theme.MSG_BAD .. "Урон: |r" .. dmgLink ..
-            string.format(SB.Theme.MSG_BAD .. " ХП (%d/%d)|r", newHealth, maxHealth) ..
-            guardTxt
+            SB.Theme.MSG_BAD .. " ХП|r" .. guardTxt
     end
 
     -- КРИТ — ЗАЩИТЫ НЕТ, ДАЖЕ ЕСЛИ КУБИК БРОШЕН. У крита с дебаффом
@@ -4329,29 +4335,43 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
         -- ответ сразу, атакующий успевал бы разослать вампиризм и
         -- потратить ход раньше, чем группа прочла сам удар. Таймер
         -- заводится позже таймера очереди и потому срабатывает за ним.
-        local sendResult = function()
-            SB.Net.SendPvpResult(attackerName, UnitName("player"), defRoll, defMod, defTotal,
-                dmg, newHealth, maxHealth)
-        end
         -- У гарантированного удара защитных чисел нет — и в строке их
         -- тоже нет: «vs Защита: 0 + 0 (итог 0)» читалось бы как сбой
         -- расчёта. Та же формулировка, что у гарантированного эффекта
         -- (см. ResolveEffectCast).
-        local defTxt = (skipDefense or critNoDefense)
-            and (G .. (guaranteed and ", цель не сопротивляется"
-                                   or  ", крит — защиты нет"))
-            or  (G .. " vs |r" .. SB.UI.RollLine(defRoll, defMod, defTotal, G))
+        local rollTxt
+        if atkCrit and not guaranteed then
+            rollTxt = SB.UI.RollText(atkRoll) .. G .. ". |r" ..
+                      SB.Theme.MSG_BAD .. "КРИТ!|r "
+        else
+            local defTxt = skipDefense
+                and (G .. ", цель не сопротивляется")
+                or  (G .. " vs |r" .. SB.UI.RollLine(defRoll, defMod, defTotal, G))
+            rollTxt = SB.UI.RollLine(atkRoll, atkMod, atkTotal, G) .. defTxt .. G .. ". |r"
+        end
         -- «атакует X заклинанием [Y]» → «— [Y] по X»: два существительных
         -- из трёх пересказывали ссылку и стрелку, а третье («заклинанием»)
         -- не отличало удар от заклинания никак — бьют здесь всегда
         -- чем-то из библиотеки.
-        SB.Events.Fire(SB.E.BROADCAST_LOG,
-            SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " ..
+        local line = SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " ..
             G .. attackerName .. " — |r" .. link .. critTxt ..
             G .. " по " .. UnitName("player") ..
-            G .. ": |r" .. SB.UI.RollLine(atkRoll, atkMod, atkTotal, G) .. defTxt ..
-            G .. ". |r" .. outcomeTxt, SB.LogRank.ACTION)
-        C_Timer.After(0, sendResult)
+            G .. ": |r" .. rollTxt .. outcomeTxt
+
+        -- СТРОКА БОЯ И ИТОГ — ОДНИМ ПАКЕТОМ В ГРУППУ. Раньше строка шла
+        -- в группу, а итог — лично атакующему, и порядок между двумя
+        -- каналами WoW не держит: атакующий получал итог раньше строки и
+        -- успевал разослать вампиризм, тики и «Ходит: …» до самого удара.
+        -- Один пакет порядок держит сам: все печатают строку, а атакующий
+        -- тут же, в том же обработчике, берёт из него итог (см. ParsePVPRES).
+        --
+        -- Через BROADCAST_LOG с приложением, а не мимо: у события одна
+        -- подписка — сеть, — и она отправит пакет немедленно, в обход
+        -- очереди кадра (ранга ACTION он и так первый).
+        SB.Events.Fire(SB.E.BROADCAST_LOG, line, SB.LogRank.ACTION, {
+            pvpResult = { attackerName, UnitName("player"), defRoll, defMod, defTotal,
+                          dmg, newHealth, maxHealth },
+        })
     end
 
     SB.Events.Fire("STATUS_CHANGED")

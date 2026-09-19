@@ -185,7 +185,7 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
 
     -- ── Строка боя ────────────────────────────────────────
     local link    = SB.UI.MakeSpellLink(spell)
-    local critTxt = isCrit and (" " .. SB.Theme.MSG_BAD .. "(КРИТ!)|r") or ""
+    local critTxt = ""   -- крит — голой гранью (см. rollTxt ниже)
     -- Крит с дебаффом бросает защиту ради закрепления, но на месте
     -- защиты её не показываем — отбить крит нельзя (та же правка, что в
     -- HandlePvpAttackReceived). Бросок уходит к исходу дебаффа.
@@ -222,32 +222,32 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
             ((resisted > 0) and "Удар выдержан целиком!" or "Шкура выдержала удар целиком!") ..
             "|r" .. guardTxt
     else
-        outcome = SB.Theme.MSG_BAD .. "Урон: |r" .. SB.UI.AmountText("dmg", dmg)
-        if hpAfter and hpMax then
-            outcome = outcome .. string.format(SB.Theme.MSG_BAD .. " ХП (%d/%d)|r",
-                hpAfter, hpMax)
-        else
-            outcome = outcome .. SB.Theme.MSG_BAD .. " ХП|r"
-        end
-        outcome = outcome .. guardTxt
+        -- Без «(7/42)»: здоровье существа видно на его рамке.
+        outcome = SB.Theme.MSG_BAD .. "Урон: |r" .. SB.UI.AmountText("dmg", dmg) ..
+            SB.Theme.MSG_BAD .. " ХП|r" .. guardTxt
     end
 
 
     -- ИМЯ ЭФФЕКТА В СТРОКУ НЕ ИДЁТ, только факт — ровно как в ПвП:
     -- заклинание в этой же строке названо кликабельной ссылкой, и что
     -- оно вешает, написано в его карточке.
+    -- Через « | », как у игрока: без черты исход прилипал к урону —
+    -- «Урон: 2 ХП Эффект отведён».
     local rr = (resistRoll ~= "") and (G .. " (сопротивление" .. resistRoll .. G .. ")") or ""
     if debuffLanded then
-        outcome = outcome .. G .. " Эффект наложен" .. rr .. G .. ".|r"
+        outcome = outcome .. G .. " | |r" .. SB.Theme.MSG_BAD .. "эффект наложен|r" .. rr
     elseif debuffResisted then
-        outcome = outcome .. G .. " Эффект отведён" .. rr .. G .. ".|r"
+        outcome = outcome .. G .. " | |r" .. SB.Theme.MSG_GOOD .. "эффект отведён|r" .. rr
     end
 
     SB.Events.Fire(SB.E.BROADCAST_LOG,
         SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. UnitName("player") ..
         " — |r" .. link .. critTxt .. G .. " по " .. npcName ..
-        G .. ": |r" .. SB.UI.RollLine(roll, mod, total, G) .. defTxt ..
-        G .. ". |r" .. outcome, SB.LogRank.ACTION)
+        G .. ": |r" ..
+        ((isCrit and not guaranteed)
+            and (SB.UI.RollText(roll) .. G .. ". |r" .. SB.Theme.MSG_BAD .. "КРИТ!|r ")
+            or  (SB.UI.RollLine(roll, mod, total, G) .. defTxt .. G .. ". |r")) ..
+        outcome, SB.LogRank.ACTION)
 
     SB.Logic.PlayOutcomeSound(landed)
 

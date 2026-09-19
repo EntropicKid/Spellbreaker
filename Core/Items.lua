@@ -746,8 +746,34 @@ SB.Events.On(SB.E.SKILLS_CHANGED,          SB.Items.EvictOverflow)
 -- ВЫКЛАДЫВАНИЕ ЛИШНЕГО — ТУТ ЖЕ: сохранёнка могла прийти из сеанса, где
 -- ячеек было больше, а SKILLS_CHANGED на входе никто не шлёт — ничего
 -- не менялось, всё просто загрузилось.
+--- УДАЛЁННЫЙ ПРЕДМЕТ — ВОН ИЗ СУМКИ. Та же уборка, что у заклинаний
+--- (см. PM.EvictDeletedSpells): мёртвый id на чтении отсеивался, но
+--- ячейку занимал — сумка показывала два предмета из трёх и отказывала
+--- в третьем. Кастомный не трогаем: мог ещё не приехать.
+--- @return number  сколько убрано
+function SB.Items.EvictDeleted()
+    local list = db().preparedItems
+    if type(list) ~= "table" or #list == 0 then return 0 end
+    local kept, dropped = {}, {}
+    for _, raw in ipairs(list) do
+        local e = Normalize(raw)
+        if e and (SB.Data.Spells[e.id] or tostring(e.id):match("^custom_")) then
+            kept[#kept + 1] = raw
+        else
+            dropped[#dropped + 1] = tostring(e and e.id or raw)
+        end
+    end
+    if #dropped == 0 then return 0 end
+    db().preparedItems = kept
+    print("|cFF9933FF[Spellbreaker]|r: |cFFFF4444убрано из сумки — этого больше " ..
+        "нет в библиотеке: |r" .. table.concat(dropped, ", ") .. "|cFFFF4444.|r")
+    SB.Events.Fire(SB.E.PREPARED_ITEMS_CHANGED)
+    return #dropped
+end
+
 SB.Events.On("SB_INIT", function()
     C_Timer.After(0, function()
+        SB.Items.EvictDeleted()
         SB.Items.EvictOverflow()
         SB.Items.SyncCarried()
     end)
