@@ -476,8 +476,10 @@ function SB.NpcCast.Confirm()
     -- ЮНИТ ИЩЕМ ЗАНОВО, по ключу: подсказка, сохранённая при отметке,
     -- к этому мигу уже могла указывать на соседа (см. UnitForKey).
     local npcs = {}
+    -- Ключ самого заклинателя: по нему цикл по существам узнаёт «себя».
+    local selfKey = pending.unit and SB.NPC.SpawnKey(pending.unit)
     for key, t in pairs(pending.npcTargets) do
-        npcs[#npcs + 1] = { unit = UnitForKey(key, t.unit), name = t.name }
+        npcs[#npcs + 1] = { unit = UnitForKey(key, t.unit), name = t.name, key = key }
     end
     table.sort(npcs, function(a, b) return a.name < b.name end)
 
@@ -622,9 +624,20 @@ function SB.NpcCast.Confirm()
         local unit, nm = t.unit, t.name
         local st = SB.NPC.GetState and SB.NPC.GetState(unit)
         local nstats = SB.NPC.StatsForUnit and SB.NPC.StatsForUnit(unit)
+        -- САМ СЕБЕ СОЮЗНИК. Двойное заклинание («Шок небес»: союзника
+        -- лечит, врага жжёт) шло по существу одной веткой — ударом, —
+        -- потому что канал урона проверяется первым (см. KindOf). Самого
+        -- себя существо им и било. У игрока развилку решает пометка
+        -- друга; у существа достоверно известно одно — сам он себе не
+        -- враг. Остальные цели того же залпа идут прежней веткой.
+        local tkind = kind
+        if kind == "attack" and SB.Logic.IsHealingCast(spell)
+           and t.key ~= nil and t.key == selfKey then
+            tkind = "heal"
+        end
         -- Особь могла исчезнуть между отметкой и подтверждением.
         if st and nstats then
-            if kind == "attack" then
+            if tkind == "attack" then
                 -- Против крита не бросаем — пока итогу некуда
                 -- примениться (см. skipDefense в Core/Logic/NPC.lua).
                 local skipDef = guaranteed or (isCrit and not spell.debuff)
@@ -669,7 +682,7 @@ function SB.NpcCast.Confirm()
                         or (SB.Theme.MSG_GOOD .. "Уклонилось.|r")),
                     SB.LogRank.ACTION)
 
-            elseif kind == "heal" then
+            elseif tkind == "heal" then
                 -- ЛЕЧЕНИЕ СУЩЕСТВА — от помощи не сопротивляются, порога
                 -- нет вовсе. Ровно та же поблажка, что у лечения игрока
                 -- (см. ветку heal выше): бросок там есть, но отвести его
@@ -686,7 +699,7 @@ function SB.NpcCast.Confirm()
                     ".|r",
                     SB.LogRank.ACTION)
 
-            elseif kind == "effect" then
+            elseif tkind == "effect" then
                 -- ЭФФЕКТ. Бафф ложится без броска — сопротивляются
                 -- вмешательству, а не помощи; дебафф проверяет порог
                 -- существа, тот же, что у игрока по существу.

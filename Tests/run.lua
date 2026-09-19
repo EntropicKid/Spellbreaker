@@ -4542,6 +4542,26 @@ do
         check("целей не осталось", SB.NpcCast.CountSelected(), 0)
         SB.NpcCast.Cancel()
 
+        -- ── САМ СЕБЕ СОЮЗНИК ───────────────────────────────
+        -- Двойное заклинание («Шок небес»: союзника лечит, врага жжёт)
+        -- шло по существу ударом всегда — и существо, применив его на
+        -- себя, себя же и било. Себе оно лечит; соседа того же залпа
+        -- по-прежнему бьёт.
+        SB.Data.Spells["t_npc_holyshock"] = { id = "t_npc_holyshock", name = "Проба шока небес",
+            class = "Маг", level = 1, canCrit = true, isHeal = true,
+            resistable = false, distance = 20 }
+        local me2 = SB.NPC.GetState("target")
+        me2.maxHp, me2.hp, me2.res = 40, 10, 9
+        local nb = SB.NPC.GetState("focus")
+        nb.maxHp, nb.hp = 50, 50
+        SB.NpcCast.Begin("target", "t_npc_holyshock")
+        SB.NpcCast.ToggleSelf()
+        SB.NpcCast.ToggleNpc("focus")
+        checkTrue("залп ушёл", SB.NpcCast.Confirm())
+        checkTrue("себя двойное заклинание лечит", SB.NPC.GetState("target").hp > 10)
+        checkTrue("а соседа бьёт", SB.NPC.GetState("focus").hp < 50)
+        SB.Data.Spells["t_npc_holyshock"] = nil
+
         -- ── ИГРОКА ЭТОТ ПУТЬ НЕ БЕРЁТ ──────────────────────
         -- У игрока свой адрес и своя доставка; попади он сюда — удар
         -- посчитали бы за него мы, а не он сам.
