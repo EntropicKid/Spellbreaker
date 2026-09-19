@@ -277,6 +277,33 @@ SB.Logic.RegisterModifierSource("effDef", "Эффекты", function()
     return (SB.ActiveEffects.GetMod("defense"))
 end, "defense")
 
+-- Оружие в руках (см. SB.Data.WeaponBonuses): топор — к атаке, меч — к
+-- защите. Тоже два источника, по той же причине, что у эффектов, и тоже
+-- через реестр — прибавка сама видна в разбивке бейджей.
+SB.Logic.RegisterModifierSource("weaponAtk", "Оружие", function()
+    return SB.Skills and SB.Skills.GetWeaponBonus
+       and (SB.Skills.GetWeaponBonus("attack")) or 0
+end, "attack")
+
+SB.Logic.RegisterModifierSource("weaponDef", "Оружие", function()
+    return SB.Skills and SB.Skills.GetWeaponBonus
+       and (SB.Skills.GetWeaponBonus("defense")) or 0
+end, "defense")
+
+--- Наибольшая прибавка оружия в канале — у кого угодно: складывающийся
+--- вид в обеих руках, нескладывающийся — один раз. Для сверки чужих
+--- бросков: точного оружия атакующего мы не знаем.
+function SB.Logic.MaxWeaponBonus(channel)
+    local out = 0
+    for _, def in pairs(SB.Data.WeaponBonuses or {}) do
+        if def.channel == channel then
+            local v = (tonumber(def.value) or 0) * (def.stacks and 2 or 1)
+            if v > 0 then out = out + v end
+        end
+    end
+    return out
+end
+
 -- ПРОВОКАЦИЯ — единственный источник в реестре, который зависит от
 -- ТОГО, ПО КОМУ идёт бросок (ctx.versus). Остальные считают персонажа
 -- самого по себе, и это не случайность: условный модификатор пришлось
@@ -2346,7 +2373,10 @@ function SB.Logic.MaxPlausibleAttackMod(spell)
     -- знаем, но и десятикратного запаса им не надо.
     local effects = step * 3
 
-    return math.floor(rank + lvl + hit + skills + effects)
+    -- Оружие канала attack (топоры в обеих руках).
+    local weapon = SB.Logic.MaxWeaponBonus("attack")
+
+    return math.floor(rank + lvl + hit + skills + effects + weapon)
 end
 
 --- Самый низкий кубик, на котором крит МОЖЕТ случиться у кого угодно.
@@ -2600,14 +2630,7 @@ end
 --- руках. Точного оружия атакующего мы не знаем, и проверка ловит не
 --- ложь, а невозможное — как MaxPlausibleAttackMod.
 function SB.Logic.MaxPlausibleRoll()
-    local extra = 0
-    for _, def in pairs(SB.Data.WeaponBonuses or {}) do
-        if def.channel == "rollCeil" then
-            local v = (tonumber(def.value) or 0) * (def.stacks and 2 or 1)
-            if v > 0 then extra = extra + v end
-        end
-    end
-    return SB.Logic.ROLL_MAX + extra
+    return SB.Logic.ROLL_MAX + SB.Logic.MaxWeaponBonus("rollCeil")
 end
 
 

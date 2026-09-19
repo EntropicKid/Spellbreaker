@@ -1330,6 +1330,8 @@ end
 --   prepared        лимит подготовленных заклинаний (не выше 15)
 --   meleeRange      дальность приёмов ближнего боя (до 2.5 м)
 --   rangedRange     дальность способностей дальше ближнего боя
+--   attack          модификатор броска атаки
+--   defense         модификатор броска защиты
 -- или stat = «Навык» — прибавка к значению навыка или атрибута.
 --
 -- Правится здесь: число, канал и складывается ли. Нового кода под новую
@@ -1342,10 +1344,17 @@ SB.Data.WeaponBonuses = {
     unarmed  = { label = "Свободная рука",  channel = "rollFloor",       value = 5,   stacks = true  },
     offhand  = { label = "Предмет в левой руке", channel = "prepared",   value = 1,   stacks = false },
     polearm  = { label = "Древковое",       channel = "meleeRange",      value = 1.5, stacks = false },
-    dagger   = { label = "Кинжал",          channel = "rollCeil",        value = 5,   stacks = true  },
     crossbow = { label = "Арбалет",         channel = "rangedRange",     value = 6,   stacks = false },
-    sword    = { label = "Меч",             stat    = "Точность",        value = 2,   stacks = true  },
     wand     = { label = "Жезл",            stat    = "Рвение",          value = 2,   stacks = true  },
+    dagger   = { label = "Кинжал",          stat    = "Скрытность",      value = 1,   stacks = true  },
+    axe      = { label = "Топор",           channel = "attack",          value = 5,   stacks = true  },
+    bow      = { label = "Лук",             stat    = "Выносливость",    value = 1,   stacks = false },
+    -- Дробящее — про дебаффы: «Внушение» поднимает закрепление.
+    mace     = { label = "Дробящее",        stat    = "Внушение",        value = 2,   stacks = false },
+    sword    = { label = "Меч",             channel = "defense",         value = 5,   stacks = true  },
+    gun      = { label = "Огнестрельное",   channel = "rollCeil",        value = 5,   stacks = false },
+    glaive   = { label = "Боевые клинки",   channel = "rollCeil",        value = 5,   stacks = true  },
+    thrown   = { label = "Метательное",     stat    = "Ловкость",        value = 1,   stacks = false },
 }
 
 -- Дескриптор → требование. Держится отдельно от самих требований:

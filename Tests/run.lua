@@ -8851,6 +8851,14 @@ do
     check("и растёт ровно вдвое от 2 к 4",
           SB.Logic.GetStealthPenalty(S["t_sneak_hit"]), pen2 * 2)
 
+    -- МЕТР ЗА ОЧКО, А НЕ ТРИ. Скрытность 7 набирается легко (пять
+    -- очков, кинжалы, эффект), и при трёх метрах она уводила цель на 21 м:
+    -- дальний бой против скрытного переставал быть дальним. Число
+    -- прибито намеренно — это баланс, а не следствие формулы.
+    SB.Data.PlayersStatus["Ирина"] = { stealth = 7 }
+    check("Скрытность 7 — семь метров, а не двадцать один",
+          SB.Logic.GetStealthPenalty(S["t_sneak_hit"]), 7)
+
     -- В МИНУС НЕ УХОДИТ: дебафф уводит навык ниже единицы, но
     -- отрицательный штраф означал бы, что чужие заклинания бьют ДАЛЬШЕ
     -- своей заявленной дальности.
@@ -16825,7 +16833,7 @@ do
     local savedSkills = _G.SpellbreakerCharDB.skills
     local savedRace = stub.world.race
     stub.world.race = "Human"
-    stub.world.equipped = { [16] = { 2, 4 }, [17] = { 2, 4 } }
+    stub.world.equipped = { [16] = { 2, 20 }, [17] = { 2, 20 } }
     SB.Skills.ResetEquipCache()
     ResetEffects()
     _G.SpellbreakerCharDB.skills = {}
@@ -16853,19 +16861,19 @@ do
     local savedRace = stub.world.race
     stub.world.race = "Human"
     ResetEffects()
-    local MACE = { 2, 4 }
+    local ROD = { 2, 20 }
     local function Hands(t)
         stub.world.equipped = t
         SB.Skills.ResetEquipCache()
     end
 
-    Hands({ [16] = MACE, [17] = MACE })
+    Hands({ [16] = ROD, [17] = ROD })
     local lo0, hi0 = L.GetRollRange()
     check("булавы кубик не двигают: пол", lo0, 1)
     check("булавы кубик не двигают: потолок", hi0, L.ROLL_MAX)
 
     -- ── СВОБОДНАЯ РУКА И КИСТЕВОЕ: ПОЛ ────────────────────
-    Hands({ [16] = MACE })
+    Hands({ [16] = ROD })
     check("свободная левая рука — пол +5", (L.GetRollRange()), 5)
     Hands({})
     check("две свободные руки складываются", (L.GetRollRange()), 10)
@@ -16877,7 +16885,7 @@ do
     Hands({ [16] = { 2, 8 } })
     check("при двуручнике пустая левая — свободная рука", (L.GetRollRange()), 5)
     -- Слот дальнего боя рукой не считается.
-    Hands({ [16] = MACE, [17] = MACE, [18] = nil })
+    Hands({ [16] = ROD, [17] = ROD, [18] = nil })
     check("пустой слот дальнего боя пол не двигает", (L.GetRollRange()), 1)
 
     -- Пример из запроса: Орк с пустыми руками (10) под «Благословением».
@@ -16885,7 +16893,7 @@ do
     -- считается от них: руки добавляют ровно 10, а выше половины кубика
     -- не пускает тот же зажим, что держит диапазон.
     stub.world.race = "Orc"
-    Hands({ [16] = MACE, [17] = MACE })
+    Hands({ [16] = ROD, [17] = ROD })
     SB.ActiveEffects.Add("eff_bless", 5, false)
     local orcBless = (L.GetRollRange())
     Hands({})
@@ -16894,20 +16902,32 @@ do
     ResetEffects()
     stub.world.race = "Human"
 
-    -- ── КИНЖАЛ: ПОТОЛОК ────────────────────────────────────
-    Hands({ [16] = { 2, 15 }, [17] = MACE })
+    -- ── БОЕВЫЕ КЛИНКИ И ОГНЕСТРЕЛ: ПОТОЛОК ──────────────────
+    Hands({ [16] = { 2, 9 }, [17] = ROD })
     local _, hi1 = L.GetRollRange()
-    check("кинжал поднимает потолок на 5", hi1, L.ROLL_MAX + 5)
-    Hands({ [16] = { 2, 15 }, [17] = { 2, 15 } })
+    check("боевые клинки поднимают потолок на 5", hi1, L.ROLL_MAX + 5)
+    Hands({ [16] = { 2, 9 }, [17] = { 2, 9 } })
     local _, hi2 = L.GetRollRange()
-    check("два кинжала — на 10", hi2, L.ROLL_MAX + 10)
+    check("два клинка — на 10", hi2, L.ROLL_MAX + 10)
     local _, _, rolledMax = L.Roll()
     check("Roll отдаёт ту же верхнюю грань", rolledMax, hi2)
     local _, parts = SB.Skills.GetWeaponBonus("rollCeil")
-    check("в разбивке видно число кинжалов", parts[1] and parts[1].label, "Кинжал ×2")
+    check("в разбивке видно число клинков", parts[1] and parts[1].label, "Боевые клинки ×2")
+    Hands({ [16] = { 2, 3 }, [17] = { 2, 3 } })
+    local _, hiGun = L.GetRollRange()
+    check("огнестрел не складывается: два ружья — всё равно +5", hiGun, L.ROLL_MAX + 5)
+    Hands({ [16] = { 2, 9 }, [17] = { 2, 9 } })
     local rows = SB.Skills.DescribeWeaponBonuses()
     check("подсказка портрета: одна строка на вид", #rows, 1)
     check("и она говорит словами", rows[1] and rows[1].text, "+10 к верхней грани кубика")
+    Hands({ [16] = { 2, 0 }, [17] = { 2, 7 } })
+    local rows2 = SB.Skills.DescribeWeaponBonuses()
+    local texts = {}
+    for _, r in ipairs(rows2) do texts[#texts + 1] = r.text end
+    table.sort(texts)
+    check("топор и меч названы словами", table.concat(texts, "; "),
+          "+5 к броску атаки; +5 к броску защиты")
+    Hands({ [16] = { 2, 9 }, [17] = { 2, 9 } })
     -- У каждого канала из таблицы есть слова: иначе в подсказке встал бы
     -- голый ключ.
     for key, def in pairs(SB.Data.WeaponBonuses) do
@@ -16927,7 +16947,8 @@ do
 
     -- Проверка чужого каста не принимает кинжальный бросок за подделку,
     -- но выше двух кинжалов не пускает.
-    check("правдоподобный потолок — сотня и два кинжала", L.MaxPlausibleRoll(), L.ROLL_MAX + 10)
+    check("правдоподобный потолок — сотня, два клинка и огнестрел",
+          L.MaxPlausibleRoll(), L.ROLL_MAX + 15)
 
     -- ── ГОЛЫЙ КУБИК СУЩЕСТВ ────────────────────────────────
     -- Оружие и раса Ведущего существам не достаются.
@@ -16947,7 +16968,7 @@ do
               ReadFile("Core/Logic/NpcCast.lua"):find("local defRoll = skipDef and 0 or SB.Logic.RollPlain()", 1, true) ~= nil)
 
     -- ── ПОСОХ: РЕСУРС КАСТА, НЕ СКЛАДЫВАЕТСЯ ───────────────
-    Hands({ [16] = MACE, [17] = MACE })
+    Hands({ [16] = ROD, [17] = ROD })
     local z0, c0 = PM.GetMaxZeal(), PM.GetMaxClassResource()
     Hands({ [16] = { 2, 10 } })
     check("посох: +1 к мане",              PM.GetMaxZeal() - z0, 1)
@@ -16957,41 +16978,41 @@ do
 
     -- ПОСОХ ДАЁТ МЕСТО, А НЕ МАНУ. Иначе «снял — надел» наливало бы по
     -- единице за пару: при 2/6 снять (2/5), надеть (3/6) — и до полного.
-    Hands({ [16] = MACE, [17] = MACE })
+    Hands({ [16] = ROD, [17] = ROD })
     PM.SyncToMaximums()
     PM.SetZeal(2)
     PM.SyncToMaximums()
     for _ = 1, 3 do
         Hands({ [16] = { 2, 10 } }); PM.SyncToMaximums()
-        Hands({ [16] = MACE, [17] = MACE }); PM.SyncToMaximums()
+        Hands({ [16] = ROD, [17] = ROD }); PM.SyncToMaximums()
     end
     check("перекладывание посоха маны не наливает", PM.GetZeal(), 2)
     -- Полный запас со снятым посохом срезается, как при любом спаде.
     Hands({ [16] = { 2, 10 } }); PM.SyncToMaximums()
     PM.SetZeal(PM.GetMaxZeal()); PM.SyncToMaximums()
-    Hands({ [16] = MACE, [17] = MACE }); PM.SyncToMaximums()
+    Hands({ [16] = ROD, [17] = ROD }); PM.SyncToMaximums()
     check("снятый посох срезает лишнее", PM.GetZeal(), PM.GetMaxZeal())
     -- А обычный бафф на максимум по-прежнему даёт и запас.
     PM.SetZeal(2); PM.SyncToMaximums()
     Hands({ [16] = { 2, 10 } }); PM.SyncToMaximums()
     check("надетый посох — место под ману, а не ману", PM.GetZeal(), 2)
-    Hands({ [16] = MACE, [17] = MACE }); PM.SyncToMaximums()
+    Hands({ [16] = ROD, [17] = ROD }); PM.SyncToMaximums()
 
     -- ── ЩИТ НЕ СКЛАДЫВАЕТСЯ ─────────────────────────────────
-    Hands({ [16] = MACE, [17] = MACE })
+    Hands({ [16] = ROD, [17] = ROD })
     local a0 = SB.Skills.GetArmorPoints()
     Hands({ [16] = { 4, 6 }, [17] = { 4, 6 } })
     check("два щита — одна прибавка", SB.Skills.GetArmorPoints() - a0,
           SB.Data.WeaponBonuses.shield.value)
 
     -- ── ПРЕДМЕТ В ЛЕВОЙ РУКЕ: ПОДГОТОВКА ПОД ПОТОЛКОМ ──────
-    Hands({ [16] = MACE, [17] = MACE })
+    Hands({ [16] = ROD, [17] = ROD })
     local p0   = PM.GetMaxPrepared()
     local hard = SB.Data.Config.MaxPreparedHard or 15
-    Hands({ [16] = MACE, [17] = { 4, 0 } })
+    Hands({ [16] = ROD, [17] = { 4, 0 } })
     check("предмет в левой руке: +1 к подготовке, но не выше потолка",
           PM.GetMaxPrepared() - p0, math.min(1, hard - p0))
-    Hands({ [16] = MACE, [17] = { 4, 6 } })
+    Hands({ [16] = ROD, [17] = { 4, 6 } })
     check("щит — не «предмет в левой руке»", PM.GetMaxPrepared(), p0)
 
     -- ── ДРЕВКОВОЕ И АРБАЛЕТ: ДАЛЬНОСТЬ ПО ВИДУ ПРИЁМА ──────
@@ -17002,23 +17023,54 @@ do
     check("древковое: ближний бой до 4 м", L.GetSpellRange(melee), 4)
     check("а дальнему — ничего",           L.GetSpellRange(ranged), 30)
     check("и «на себя» не двигает",        L.GetSpellRange(self_), 0)
-    Hands({ [16] = MACE, [18] = { 2, 18 } })
+    Hands({ [16] = ROD, [18] = { 2, 18 } })
     check("арбалет: дальнему +6",          L.GetSpellRange(ranged), 36)
     check("а ближнему — ничего",           L.GetSpellRange(melee), L.MELEE_RANGE)
 
-    -- ── МЕЧ И ЖЕЗЛ: НАВЫКИ, СКЛАДЫВАЮТСЯ ───────────────────
-    Hands({ [16] = MACE, [17] = MACE })
-    local acc0, zeal0 = SB.Skills.GetEffective("Точность"), SB.Skills.GetEffective("Рвение")
-    Hands({ [16] = { 2, 7 }, [17] = MACE })
-    check("меч: +2 к Точности",        SB.Skills.GetEffective("Точность") - acc0, 2)
-    Hands({ [16] = { 2, 7 }, [17] = { 2, 7 } })
-    check("два меча — +4",             SB.Skills.GetEffective("Точность") - acc0, 4)
-    check("а вложенное не тронуто",    SB.Skills.Get("Точность"), acc0)
-    Hands({ [16] = { 2, 19 }, [17] = MACE })
-    check("жезл: +2 к Рвению",         SB.Skills.GetEffective("Рвение") - zeal0, 2)
+    -- ── НАВЫКИ И АТРИБУТЫ ОТ ОРУЖИЯ ─────────────────────────
+    local function Eff(k) return SB.Attributes.GetEffective(k) end
+    Hands({ [16] = ROD, [17] = ROD })
+    local base = {}
+    for _, k in ipairs({ "Рвение", "Скрытность", "Внушение", "Выносливость", "Ловкость" }) do
+        base[k] = Eff(k)
+    end
+    Hands({ [16] = { 2, 19 }, [17] = ROD })
+    check("жезл: +2 к Рвению",                 Eff("Рвение") - base["Рвение"], 2)
+    Hands({ [16] = { 2, 15 }, [17] = { 2, 15 } })
+    check("два кинжала: +2 к Скрытности",       Eff("Скрытность") - base["Скрытность"], 2)
+    check("а вложенное не тронуто",            SB.Skills.Get("Скрытность"), base["Скрытность"])
+    Hands({ [16] = { 2, 4 }, [17] = { 2, 4 } })
+    check("дробящее не складывается: +2 к Внушению", Eff("Внушение") - base["Внушение"], 2)
+    Hands({ [16] = ROD, [18] = { 2, 2 } })
+    check("лук: +1 к Выносливости (атрибут)",  Eff("Выносливость") - base["Выносливость"], 1)
+    Hands({ [16] = ROD, [18] = { 2, 16 } })
+    check("метательное: +1 к Ловкости",        Eff("Ловкость") - base["Ловкость"], 1)
+
+    -- ── ТОПОР И МЕЧ: БРОСКИ АТАКИ И ЗАЩИТЫ ─────────────────
+    -- Через реестр источников — значит видно в разбивке бейджей.
+    Hands({ [16] = ROD, [17] = ROD })
+    local atk0 = L.GetModifierBreakdown("attack", {})
+    local def0 = L.GetModifierBreakdown("defense", {})
+    Hands({ [16] = { 2, 0 }, [17] = { 2, 0 } })
+    check("два топора: +10 к атаке", L.GetModifierBreakdown("attack", {}) - atk0, 10)
+    check("и защиту не трогают",     L.GetModifierBreakdown("defense", {}) - def0, 0)
+    Hands({ [16] = { 2, 7 }, [17] = ROD })
+    check("меч: +5 к защите",        L.GetModifierBreakdown("defense", {}) - def0, 5)
+    check("а атаку не трогает",      L.GetModifierBreakdown("attack", {}) - atk0, 0)
+    -- Сверка чужого броска не принимает двуручного топорщика за жулика.
+    -- Сдвигаем число топора и смотрим, что потолок сдвинулся ровно на
+    -- столько же: «потолок не меньше десяти» выполнялось бы и без учёта.
+    local axe = SB.Data.WeaponBonuses.axe
+    local savedAxe = axe.value
+    local ceil0 = L.MaxPlausibleAttackMod(SB.Data.Spells["heroic_strike"])
+    axe.value = savedAxe + 100
+    local ceil1 = L.MaxPlausibleAttackMod(SB.Data.Spells["heroic_strike"])
+    axe.value = savedAxe
+    check("правдоподобная атака учитывает топоры в обеих руках", ceil1 - ceil0, 200)
+    check("а наибольшая прибавка оружия к атаке — два топора", L.MaxWeaponBonus("attack"), 10)
 
     -- Всё вернуть: следующие разделы ждут нейтральные руки.
-    Hands({ [16] = MACE, [17] = MACE })
+    Hands({ [16] = ROD, [17] = ROD })
     ResetEffects()
     stub.world.race = savedRace
 end
@@ -17038,7 +17090,7 @@ do
     ResetEffects()
     -- Булавы в обеих руках: пустая рука сама двигает пол (см. бонусы
     -- оружия ниже), а здесь проверяются одни эффекты.
-    stub.world.equipped = { [16] = { 2, 4 }, [17] = { 2, 4 } }
+    stub.world.equipped = { [16] = { 2, 20 }, [17] = { 2, 20 } }
     SB.Skills.ResetEquipCache()
 
     local lo0, hi0 = L.GetRollRange()
