@@ -892,6 +892,14 @@ local function ParseADDEFF(sender, t)
     if not (SB.ActiveEffects and SB.ActiveEffects.Add) then return end
     if not (t.contID and SB.Data.Spells[t.contID]) then return end
 
+    -- РАЗДАЧА НА ВСЕХ ПАВШЕГО НЕ КАСАЕТСЯ (см. SendEffectToAll): статус
+    -- у Ведущего мог устареть, поэтому проверяем и здесь. Адресную выдачу
+    -- (не quiet) не трогаем — её Ведущий навёл на этого игрока сам.
+    if t.quiet == true and SB.PlayerModel and SB.PlayerModel.IsDowned
+       and SB.PlayerModel.IsDowned() then
+        return
+    end
+
     SB.ActiveEffects.Add(t.contID, tonumber(t.duration) or 1, t.isConc == true)
 
     -- Строку пишет ПОЛУЧАТЕЛЬ: у Ведущего эффект не висит, и «сколько

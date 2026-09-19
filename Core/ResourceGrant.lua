@@ -657,9 +657,24 @@ local function SendEffectToAll()
     local me     = UnitName("player")
     local count  = 0
 
+    -- ПАВШИМ НЕ РАЗДАЁМ. Эффект на персонаже с нулём здоровья ничего не
+    -- делает — он не ходит и не бросает, — а висит и тикает, и в «Задето:
+    -- N» его число врёт. Своё — из модели, чужое — из статуса (тем же
+    -- правилом, каким очередь пропускает павших, см. TO.IsDowned), и
+    -- мёртвых в самой игре — тоже. Получатель проверяет ещё раз у себя
+    -- (см. ParseADDEFF): статус у Ведущего мог устареть.
+    local function Downed(name, unit)
+        if SB.TurnOrder and SB.TurnOrder.IsDowned and SB.TurnOrder.IsDowned(name) then
+            return true
+        end
+        return unit and UnitIsDeadOrGhost and UnitIsDeadOrGhost(unit) or false
+    end
+
     -- Себе — напрямую: свой пакет по сети до себя не доходит.
-    SB.ActiveEffects.Add(pendingEffect, turns, isConc)
-    count = count + 1
+    if not Downed(me, "player") then
+        SB.ActiveEffects.Add(pendingEffect, turns, isConc)
+        count = count + 1
+    end
 
     if IsInGroup() then
         local prefix = IsInRaid() and "raid" or "party"
@@ -671,7 +686,7 @@ local function SendEffectToAll()
             -- «наложено на N» задним числом нечем.
             if UnitExists(unit) and UnitIsPlayer(unit) and UnitIsConnected(unit) then
                 local name = UnitName(unit)
-                if name and name ~= me then
+                if name and name ~= me and not Downed(name, unit) then
                     SB.Net.SendAddEffect(name, pendingEffect, turns, isConc, true)
                     count = count + 1
                 end

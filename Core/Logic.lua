@@ -1248,6 +1248,28 @@ function SB.Logic.ReleaseHeldTurn()
     SB.Logic.SpendTurn(h.skip)
 end
 
+-- ============================================================
+-- ВЫПЛАТА КАСТА — В СТРОКЕ КАСТА
+--
+-- Цена («Жизнеотвод: 1 урона») и содержимое склянки («+2 ХП») шли
+-- отдельными строками, и раньше строки самого каста: выплата печаталась
+-- сразу, а шапка залпа — когда соберутся ответы. Теперь выплата ждёт,
+-- пока её заберёт строка каста (TakeCastPayload), и встаёт в неё:
+-- «Денрук применяет [Жизнеотвод]: +2 Мана, 1 урона.». Не забрал никто
+-- (например, удар по игроку — его строку пишет цель) — печатается
+-- отдельно, как раньше, в конце кадра.
+-- ============================================================
+local castPayload = nil
+
+--- Забрать текст выплаты этого каста (или nil). Забранный больше не
+--- печатается отдельно.
+function SB.Logic.TakeCastPayload(spellID)
+    local p = castPayload
+    if not p or (spellID and p.spellID ~= spellID) then return nil end
+    castPayload = nil
+    return p.text
+end
+
 function SB.Logic.SpendTurn(skip, notMyAction)
     -- БОНУСНОЕ ДЕЙСТВИЕ ХОДА НЕ СТОИТ, и «не стоит» здесь буквально: ни
     -- тика эффектам, ни отметки у Ведущего, ни кулдауна темпа. Выпитое
@@ -3025,6 +3047,22 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
         if isItem and not ItemStaysOnCaster(spell, pendingTargetIsAlly)
            and SB.Net and SB.Net.SendItemPayload then
             SB.Net.SendItemPayload(pendingTargetName, spellID)
+        elseif SB.ActiveEffects.ApplyPayloadCollected then
+            local parts = SB.ActiveEffects.ApplyPayloadCollected(spellID, spell.onCast)
+            if #parts > 0 then
+                local rec = { spellID = spellID, text = table.concat(parts, ", ") }
+                castPayload = rec
+                -- Не забрали к концу кадра — печатаем отдельно.
+                C_Timer.After(0, function()
+                    if castPayload ~= rec then return end
+                    castPayload = nil
+                    local G = SB.Theme.MSG_BODY
+                    SB.Events.Fire(SB.E.BROADCAST_LOG,
+                        SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. UnitName("player") ..
+                        " — |r" .. (spell.name or spellID) .. G .. ": " .. rec.text .. ".|r",
+                        SB.LogRank.TICK)
+                end)
+            end
         else
             SB.ActiveEffects.ApplyPayload(spellID, spell.onCast)
         end
@@ -3499,8 +3537,11 @@ function SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, totalScaling, turnS
     -- ссылки может значить только порядок.
     local ordTxt = (slotLevel and slotLevel > 0) and (G .. " (" .. slotLevel .. ")") or ""
     if SB.Logic.IsGuaranteed(spell) then
+        -- Выплата — в эту же строку: «применяет [Простое лечебное зелье]: +2 ХП.»
+        local pay = SB.Logic.TakeCastPayload(spellID)
         sysMsg = SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. UnitName("player") ..
-                 " применяет |r" .. link .. ordTxt .. G .. buffTargetNote .. ".|r"
+                 " применяет |r" .. link .. ordTxt .. G .. buffTargetNote ..
+                 (pay and (": " .. pay) or "") .. ".|r"
     else
         -- СЛ показываем, только если она реально задана Ведущим. У
         -- заклинаний без сопротивления бросок идёт против нуля, и строка
@@ -5032,6 +5073,10 @@ end
 function SB.Logic.ResolveEffectCast(spellID, slotLevel)
     local spell = SB.Data.Spells[spellID]
     if not spell then return end
+    -- Цена каста («Кровавая ярость: +2 Ярость, 2 урона») — в строку
+    -- каста (см. TakeCastPayload). Забираем сразу: строка может ждать
+    -- ответа цели, а выплата напечаталась бы без неё в конце кадра.
+    local pay = SB.Logic.TakeCastPayload(spellID)
 
     local effectID, onSelf = SB.Logic.GetTargetedEffect(spell)
     if not effectID then return end
@@ -5145,6 +5190,13 @@ function SB.Logic.ResolveEffectCast(spellID, slotLevel)
                  G .. " против " .. finalThreshold .. ". |r")
         if guaranteed and finalSuccess then outcomeTxt = "" end
         if guaranteed and not finalSuccess then rollTxt = G .. ". |r" end
+        if pay then
+            if guaranteed and finalSuccess then
+                rollTxt = G .. ": " .. pay .. ".|r"
+            else
+                outcomeTxt = outcomeTxt .. G .. " (" .. pay .. ")|r"
+            end
+        end
 
         SB.Events.Fire(SB.E.BROADCAST_LOG,
             SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. UnitName("player") ..

@@ -1823,6 +1823,24 @@ end
 ---        платил бы за теневые заклинания дешевле остальных — не потому
 ---        что так задумано, а потому что цена шла бы тем же каналом, что
 ---        и чужой удар.
+-- ВЫПЛАТА КАСТА — ЧАСТЬЮ СТРОКИ КАСТА, а не отдельными строками. Пока
+-- собирается (см. ApplyPayloadCollected), каждая часть кладётся сюда, а
+-- не в лог: «Леннарт применяет [Простое лечебное зелье]: +2 ХП.» вместо
+-- двух строк, из которых вторая печаталась раньше первой.
+local payloadCollect = nil
+
+--- Применить выплату и вернуть её словами, ничего не печатая.
+--- @return table  части («+2 Мана», «1 урона», «+20 брони (37/47)»)
+function SB.ActiveEffects.ApplyPayloadCollected(spellID, def, source)
+    local prev = payloadCollect
+    payloadCollect = {}
+    local ok, err = pcall(SB.ActiveEffects.ApplyPayload, spellID, def, source)
+    local out = payloadCollect
+    payloadCollect = prev
+    if not ok then error(err, 0) end
+    return out
+end
+
 function SB.ActiveEffects.ApplyPayload(spellID, def, source)
     if type(def) ~= "table" then return end
     local sp = SB.Data.Spells[spellID]
@@ -1920,6 +1938,10 @@ function SB.ActiveEffects.ApplyPayload(spellID, def, source)
                 -- событие: три висящих эффекта, каждый со своим каналом,
                 -- давали три строки подряд об одном и том же мгновении.
                 tickSummary.armor = (tickSummary.armor or 0) + moved
+            elseif payloadCollect then
+                payloadCollect[#payloadCollect + 1] = string.format("%s%d брони (%d/%d)",
+                    (moved > 0) and "+" or "", moved,
+                    SB.Skills.GetArmorPoints(), SB.Skills.GetArmorMax())
             else
                 local sign = (moved > 0) and "+" or ""
                 SB.Events.Fire(SB.E.BROADCAST_LOG,
@@ -1943,6 +1965,10 @@ function SB.ActiveEffects.ApplyPayload(spellID, def, source)
             SB.Events.Fire(SB.E.STATUS_CHANGED)
             tickSummary.pools = tickSummary.pools or {}
             tickSummary.pools[pool] = (tickSummary.pools[pool] or 0) + gained
+        elseif gained ~= 0 and payloadCollect then
+            SB.Events.Fire(SB.E.STATUS_CHANGED)
+            payloadCollect[#payloadCollect + 1] = string.format("%s%d %s",
+                (gained > 0) and "+" or "", gained, PM.PoolName(pool))
         elseif gained ~= 0 then
             SB.Events.Fire(SB.E.STATUS_CHANGED)
             local sign = (gained > 0) and "+" or ""
@@ -1964,6 +1990,12 @@ function SB.ActiveEffects.ApplyPayload(spellID, def, source)
         -- Ключ разбивки — само название эффекта: в подсказке видно,
         -- какой именно эффект сколько снял или вернул.
         table.insert(tickSummary.parts, { key = name, value = hpMoved })
+        return
+    end
+
+    if payloadCollect then
+        if hpMoved < 0 then payloadCollect[#payloadCollect + 1] = (-hpMoved) .. " урона" end
+        if hpMoved > 0 then payloadCollect[#payloadCollect + 1] = "+" .. hpMoved .. " ХП" end
         return
     end
 

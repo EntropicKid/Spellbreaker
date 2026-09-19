@@ -662,6 +662,11 @@ local lastX, lastY, lastInst
 --- не проехать.
 local MAX_STEP_YARDS = 40
 
+-- Была ли собственная скорость с прошлой сверки координат. Сдвиг по
+-- координатам засчитывается, только если НЕ была ни разу: иначе в него
+-- входит шаг, уже посчитанный по скорости (см. SB.Movement.Step).
+local spedSinceSample = false
+
 local function PositionStep()
     if not UnitPosition then return 0 end
     local y, x, _, inst = UnitPosition("player")
@@ -698,6 +703,7 @@ function SB.Movement.Step(elapsed)
     sinceNotify = sinceNotify + elapsed
     local due   = (sinceNotify >= NOTIFY_INTERVAL)
     local speed = CurrentSpeed()
+    if speed > 0 then spedSinceSample = true end
 
     -- САМЫЙ ЧАСТЫЙ КАДР: персонаж стоит, до опроса ещё далеко. Выходим
     -- на двух сравнениях, не трогая ни сохранёнки, ни навыки, ни эффекты.
@@ -728,10 +734,20 @@ function SB.Movement.Step(elapsed)
     -- Считаем ЗДЕСЬ, а не в общей ветке ниже: там путь прибавляется от
     -- скорости за кадр, а координаты дают уже готовые метры за интервал,
     -- и умножать их на elapsed было бы неверно.
+    -- КОРОТКИЙ ШАГ НЕ СЧИТАЕТСЯ ДВАЖДЫ. Раньше условие было «скорость
+    -- молчит в кадре опроса», и шаг, начавшийся и кончившийся между двумя
+    -- опросами, засчитывался дважды: кадрами по скорости и ещё раз
+    -- сдвигом координат, когда к опросу игрок уже стоял. Микрошаг давал
+    -- два-три метра вместо одного. Теперь сдвиг засчитывается, только
+    -- если скорость молчала ВЕСЬ интервал — то есть персонажа и правда
+    -- везли, а не он шёл.
     local carried = 0
     if due then
         local step = PositionStep()
-        if speed <= 0 then carried = step * YARDS_TO_METERS end
+        if speed <= 0 and not spedSinceSample then
+            carried = step * YARDS_TO_METERS
+        end
+        spedSinceSample = false
     end
 
     if carried > 0 and ShouldCount() then

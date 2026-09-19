@@ -253,6 +253,12 @@ end
 
 --- Открыть отчёт: шапка печатается не сразу, а вместе с ответами.
 --- @param kind string  "atk" | "eff" — чем форматировать при закрытии
+--- «; себе: 2 урона» — цена каста в скобке шапки залпа.
+local function PayloadTxt(spellID)
+    local p = SB.Logic.TakeCastPayload and SB.Logic.TakeCastPayload(spellID)
+    return p and ("; себе: " .. p) or ""
+end
+
 local function OpenAoeReport(header, kind)
     -- Предыдущий залп мог ещё ждать ответов — закрываем его сейчас,
     -- иначе два блока перемешались бы между собой.
@@ -430,6 +436,8 @@ function SB.Logic.InitiateAoeAttack(spellID, slotLevel)
         ((slotLevel or 0) > 0
             and (", " .. SB.PlayerModel.GetResourceName() .. " x" .. slotLevel)
             or "") ..
+        -- Цена каста — в шапку, а не строкой над ней (см. TakeCastPayload).
+        PayloadTxt(spellID) ..
         "). Атака: |r" ..
         -- Крит — голой гранью, как в одиночном ударе.
         (isCrit
@@ -554,6 +562,8 @@ function SB.Logic.ResolveAoeEffectCast(spellID, slotLevel)
         ((slotLevel or 0) > 0
             and (", " .. SB.PlayerModel.GetResourceName() .. " x" .. slotLevel)
             or "") ..
+        -- Цена каста — в шапку, а не строкой над ней (см. TakeCastPayload).
+        PayloadTxt(spellID) ..
         "): |r" .. SB.UI.RollLine(roll, mod, total, G) ..
         G .. ". Пороги:|r", "eff")
 
@@ -730,6 +740,8 @@ function SB.Logic.ResolveAoeHeal(spellID, slotLevel)
         ((slotLevel or 0) > 0
             and (", " .. SB.PlayerModel.GetResourceName() .. " x" .. slotLevel)
             or "") ..
+        -- Цена каста — в шапку, а не строкой над ней (см. TakeCastPayload).
+        PayloadTxt(spellID) ..
         "): |r" .. SB.UI.RollLine(roll, mod, total, G) ..
         G .. ", исцеление |r" .. SB.UI.AmountText("heal", amount) ..
         G .. ". Пороги:|r", "heal")

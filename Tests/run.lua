@@ -13260,6 +13260,27 @@ do
         checkTrue("бегущему координаты ничего не добавляют",
                   math.abs(M.GetDistance() - bySpeed) < 0.01)
 
+        -- КОРОТКИЙ ШАГ МЕЖДУ ДВУМЯ ОПРОСАМИ. Баг-репорт: «микрошаг — и
+        -- сразу три метра». Шаг начался и кончился внутри интервала:
+        -- кадр по скорости его засчитал, а к опросу игрок уже стоял — и
+        -- сдвиг координат добавлял тот же шаг второй раз.
+        Player(0, false)
+        Settle({ 0, 0, 1 })
+        Player(7, false)
+        stub.world.time = stub.world.time + 0.1
+        SB.Movement.Step(0.1)                    -- шаг: 0.7 ярда по скорости
+        stub.world.playerPos = { 0, 0.7, 1 }
+        Player(0, false)
+        stub.world.time = stub.world.time + 0.15
+        SB.Movement.Step(0.15)                   -- опрос: уже стоит
+        check("короткий шаг засчитан один раз",
+              math.floor(M.GetDistance() * 100 + 0.5), math.floor(0.7 * 0.9144 * 100 + 0.5))
+        -- А кого везут (скорость молчит весь интервал) — считается как прежде.
+        stub.world.playerPos = { 0, 6.7, 1 }
+        Walk(0.25)
+        checkTrue("везомого координаты считают по-прежнему",
+                  M.GetDistance() > 0.7 * 0.9144 + 5)
+
         stub.world.playerPos = savedPos
     end
 
@@ -17210,6 +17231,97 @@ do
               skipAt ~= nil and annAt ~= nil and skipAt < annAt)
 
     TO.Stop()
+end
+
+-- ============================================================
+-- ВЫПЛАТА КАСТА — В СТРОКЕ КАСТА
+--
+-- «Леннарт применяет [Простое лечебное зелье].» и следом «Леннарт —
+-- Простое лечебное зелье: +2 ХП.» — одно событие двумя строками. А цена
+-- площадного каста печаталась НАД шапкой залпа.
+-- ============================================================
+do
+    local L, PM = SB.Logic, SB.PlayerModel
+    local function Plain(m)
+        return (m:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|H.-|h", ""):gsub("|h", ""))
+    end
+    local lines = {}
+    local realFire = SB.Events.Fire
+    local function Capture()
+        lines = {}
+        SB.Events.Fire = function(name, msg, ...)
+            if name == SB.E.BROADCAST_LOG and type(msg) == "string" then
+                lines[#lines + 1] = Plain(msg)
+            end
+            return realFire(name, msg, ...)
+        end
+    end
+    SB.TurnOrder.Stop()
+    ResetEffects()
+
+    -- ── ЗЕЛЬЕ: ОДНА СТРОКА ─────────────────────────────────
+    SB.Data.Spells["t_pay_potion"] = { id = "t_pay_potion", name = "Проба склянки",
+        class = "Предмет", level = 0, isItem = true, profession = "alchemy",
+        distance = 1.5, resistable = false, stack = 5, onCast = { heal = 2 } }
+    _G.SpellbreakerCharDB.preparedItems = { { id = "t_pay_potion", n = 5 } }
+    _G.SpellbreakerCharDB.health = PM.GetMaxHealth() - 3
+    stub.world.time = stub.world.time + 10
+    Capture()
+    L.ConfirmCast("t_pay_potion", 0, { onSelf = true })
+    stub.RunTimers()
+    SB.Events.Fire = realFire
+    local cast, separate = nil, 0
+    for _, m in ipairs(lines) do
+        if m:find("применяет Проба склянки", 1, true) or m:find("применяет [Проба склянки]", 1, true) then cast = m end
+        if m:find("— Проба склянки:", 1, true) then separate = separate + 1 end
+    end
+    checkTrue("строка зелья есть", cast ~= nil)
+    checkTrue("и в ней выпитое: «: +2 ХП.»", cast ~= nil and cast:find(": +2 ХП.", 1, true) ~= nil)
+    check("отдельной строки о выпитом нет", separate, 0)
+
+    -- ── НИКТО НЕ ЗАБРАЛ — ПЕЧАТАЕТСЯ ОТДЕЛЬНО ──────────────
+    -- Выплата не должна теряться: если строка каста её не взяла, она
+    -- уходит сама, как раньше.
+    SB.Data.Spells["t_pay_cost"] = { id = "t_pay_cost", name = "Проба цены",
+        class = "Маг", level = 0, onCast = { damage = 1 } }
+    _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
+    Capture()
+    -- Выплата напрямую, мимо пути каста: забрать её некому.
+    local parts = SB.ActiveEffects.ApplyPayloadCollected("t_pay_cost", { damage = 1 })
+    SB.Events.Fire = realFire
+    check("собранная выплата не печатается сама", #lines, 0)
+    check("и возвращается словами", parts[1], "1 урона")
+
+    -- ── ПЛОЩАДЬ: ЦЕНА В ШАПКЕ ──────────────────────────────
+    checkTrue("шапка залпа забирает цену каста",
+              select(2, ReadFile("Core/Logic/Aoe.lua"):gsub("PayloadTxt%(spellID%)", "")) >= 3)
+
+    _G.SpellbreakerCharDB.preparedItems = {}
+    _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
+    ResetEffects()
+end
+
+-- ============================================================
+-- «НАЛОЖИТЬ НА ВСЕХ» ПАВШИХ НЕ КАСАЕТСЯ
+--
+-- Эффект на персонаже с нулём здоровья бессмыслен: он не ходит и не
+-- бросает, а эффект висит, тикает и завышает «Задето: N». Проверяют
+-- обе стороны: Ведущий — по статусу, получатель — у себя (статус мог
+-- устареть). Адресная выдача одному — не трогается.
+-- ============================================================
+do
+    local rg  = ReadFile("Core/ResourceGrant.lua")
+    local all = rg:match("local function SendEffectToAll%(%)(.-)\nend") or ""
+    checkTrue("раздача на всех проверяет павших у себя",
+              all:find("Downed(me", 1, true) ~= nil)
+    checkTrue("и у каждого в группе",
+              all:find("not Downed(name, unit)", 1, true) ~= nil)
+    local net = ReadFile("Core/Network.lua")
+    local add = net:match("local function ParseADDEFF%(sender, t%)(.-)\nend") or ""
+    local guardAt = add:find("t.quiet == true and SB.PlayerModel", 1, true)
+    local addAt   = add:find("SB.ActiveEffects.Add(", 1, true)
+    checkTrue("получатель раздачи на всех не вешает на себя павшего",
+              guardAt ~= nil and addAt ~= nil and guardAt < addAt)
 end
 
 -- ============================================================
