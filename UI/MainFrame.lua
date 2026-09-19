@@ -801,7 +801,7 @@ local function BuildMainFrame()
         GameTooltip:AddDoubleLine("Пройдено", string.format("%.1f м", walked), 0.9,0.9,0.9, 1,1,1)
         if SB.Movement.HasLimit() then
             GameTooltip:AddDoubleLine("Предел",
-                string.format("%.0f м", SB.Movement.GetCap()), 0.9,0.9,0.9, 1,1,1)
+                SB.Movement.FormatMeters(SB.Movement.GetCap()) .. " м", 0.9,0.9,0.9, 1,1,1)
             GameTooltip:AddDoubleLine("Осталось",
                 string.format("%.1f м", SB.Movement.GetRemaining()), 0.9,0.9,0.9, 1, 0.82, 0)
         else
@@ -1483,11 +1483,12 @@ function SB.UI.UpdateAll()
             -- Перебег в бейдже НЕ показываем: об усталости сообщает
             -- строка в чате, а «12/12 +6» в шапке — это второе число там,
             -- где решение принимает первое.
-            moveBadge.text:SetText(string.format("%.0f/%.0f", walked, SB.Movement.GetCap()))
+            moveBadge.text:SetText(SB.Movement.FormatMeters(walked) .. "/" ..
+                SB.Movement.FormatMeters(SB.Movement.GetCap()))
         else
             -- Предел снят Ведущим: показываем пройденное и бесконечность,
             -- иначе «12/-1» читалось бы как поломка.
-            moveBadge.text:SetText(string.format("%.0f/∞", walked))
+            moveBadge.text:SetText(SB.Movement.FormatMeters(walked) .. "/∞")
         end
         -- Красным, когда предел выбран: бейдж в этот момент перестаёт быть
         -- справкой и становится единственным, что можно нажать.

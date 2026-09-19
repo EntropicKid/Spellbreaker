@@ -17325,6 +17325,23 @@ do
 end
 
 -- ============================================================
+-- ШАГОМЕР ПОКАЗЫВАЕТ ДЕСЯТЫЕ
+-- ============================================================
+do
+    local F = SB.Movement.FormatMeters
+    check("5.3 — как есть", F(5.3), "5.3")
+    check("целое — без «.0»", F(27), "27")
+    check("2.46 — до десятой", F(2.46), "2.5")
+    check("ноль", F(0), "0")
+    for _, path in ipairs({ "UI/MainFrame.lua", "UI/SpellBar.lua" }) do
+        local src = ReadFile(path)
+        checkTrue(path .. ": метры шагомера не округляются до целых",
+                  not src:find('"%.0f/%.0f"', 1, true)
+                  and not src:find("math.floor((SB.Movement.GetDistance()", 1, true))
+    end
+end
+
+-- ============================================================
 -- БОНУСЫ ОРУЖИЯ
 --
 -- У каждого класса оружия своя черта (SB.Data.WeaponBonuses): щит —

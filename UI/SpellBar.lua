@@ -141,8 +141,9 @@ local INFO_SLOTS = {
         value = function()
             local cap = SB.Movement.GetCap()
             if cap == SB.Movement.NO_LIMIT then return "∞" end
-            return math.floor((SB.Movement.GetDistance() or 0) + 0.5)
-                .. "/" .. math.floor(cap + 0.5)
+            -- До десятой, как бейдж в шапке (см. SB.Movement.FormatMeters).
+            return SB.Movement.FormatMeters(SB.Movement.GetDistance() or 0)
+                .. "/" .. SB.Movement.FormatMeters(cap)
         end,
         -- Красным, когда предел выбран: в этот момент иконки рядом
         -- гаснут, и цвет объясняет почему.
