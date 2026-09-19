@@ -1385,10 +1385,11 @@ function TO.Advance()
     -- «ХОД ПЕРЕХОДИТ ДАЛЬШЕ. ХОДИТ: ИРИНА.» — первая фраза целиком
     -- содержится во второй: если названа Ирина, то ход к ней и перешёл.
     -- Остаётся она только тогда, когда назвать некого.
+    -- Следующий по очереди тоже может лежать — пролистываем ДО
+    -- объявления (см. ту же правку в MarkActed).
+    if SkipDownedSlots() > 0 then return end
     local who = CurrentText()
     Announce(who and ("Ходит: " .. who .. ".") or "Ход переходит дальше.")
-    -- Следующий по очереди тоже может лежать.
-    SkipDownedSlots()
 end
 
 --- Отметить, что игрок походил. У Ведущего — точка сборки: сюда
@@ -1440,10 +1441,13 @@ function TO.MarkActed(name, quiet)
         Announce("Круг пройден.")
         return
     end
+    -- Ход мог достаться павшему — СНАЧАЛА пролистываем его, потом
+    -- объявляем. Наоборот выходило две строки об одном: «Ходит: Аудемира,
+    -- Уоренс.» и тут же «Без сознания, ход пропущен: Аудемира. Ходит:
+    -- Уоренс.». Пролистывание объявляет итог само.
+    if SkipDownedSlots() > 0 then return end
     local who = CurrentText()
     if who then Announce("Ходит: " .. who .. ".") end
-    -- Ход мог достаться павшему — его очередь пролистывается сама.
-    SkipDownedSlots()
 end
 
 -- ============================================================
@@ -1473,8 +1477,8 @@ local skippingDowned = false
 function SkipDownedSlots(announceNext)
     -- По умолчанию объявляем: молчит ровно один вызов — из нового круга.
     if announceNext == nil then announceNext = true end
-    if skippingDowned then return end          -- MarkActed ниже зовёт нас обратно
-    if not state.active or not AssertGM() then return end
+    if skippingDowned then return 0 end        -- MarkActed ниже зовёт нас обратно
+    if not state.active or not AssertGM() then return 0 end
     skippingDowned = true
 
     local closed, reason = {}, {}
@@ -1528,7 +1532,7 @@ function SkipDownedSlots(announceNext)
     end
 
     skippingDowned = false
-    if #closed == 0 then return end
+    if #closed == 0 then return 0 end
 
     -- MarkActed разослал их как «походивших» — поправляем на «пропущен».
     -- Пакет короткий (см. BroadcastMark), и он же чинит зеркала.
@@ -1561,6 +1565,9 @@ function SkipDownedSlots(announceNext)
     if #fled > 0 then
         Announce("Сбежал из боя, ход пропущен: " .. table.concat(fled, ", ") .. "." .. tail)
     end
+    -- Сколько пролистано: вызывающий по этому числу решает, объявлять ли
+    -- «Ходит» самому (объявили уже здесь, с итогом).
+    return #closed
 end
 
 --- Своё действие состоялось (зовётся из SB.Logic.SpendTurn — через неё

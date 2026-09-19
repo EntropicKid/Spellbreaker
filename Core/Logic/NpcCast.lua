@@ -664,7 +664,7 @@ function SB.NpcCast.Confirm()
                     SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. nm .. ": |r" ..
                     (landed
                         and (SB.Theme.MSG_BAD .. "Урон " .. dmg .. "|r" .. G ..
-                             (after and (" (" .. after.hp .. "/" .. after.maxHp .. ")") or "") ..
+                             -- Без «(7/20)»: здоровье существа на его рамке.
                              ((#guard > 0) and (" — " .. table.concat(guard, ", ")) or "") .. ".|r")
                         or (SB.Theme.MSG_GOOD .. "Уклонилось.|r")),
                     SB.LogRank.ACTION)
@@ -683,7 +683,7 @@ function SB.NpcCast.Confirm()
                 SB.Events.Fire(SB.E.BROADCAST_LOG,
                     SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. nm .. ": |r" ..
                     SB.Theme.MSG_GOOD .. "Исцеление " .. amount .. "|r" .. G ..
-                    (after and (" (" .. after.hp .. "/" .. after.maxHp .. ").|r") or ".|r"),
+                    ".|r",
                     SB.LogRank.ACTION)
 
             elseif kind == "effect" then

@@ -3817,7 +3817,7 @@ function SB.Logic.ApplyLeech(spell, dmg, intoReport)
         -- собственного каста, и эта строка приклеена к ней тем же блоком.
         SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. UnitName("player") ..
         " вытягивает жизнь: |r" .. SB.Theme.MSG_GOOD .. "+" .. healed .. " ХП|r" ..
-        G .. " (" .. PM.GetHealth() .. "/" .. PM.GetMaxHealth() .. ").|r",
+        G .. ".|r",
         SB.LogRank.RESULT)
     return healed
 end
@@ -4703,10 +4703,16 @@ function SB.Logic.ResolveHeal(spellID, slotLevel)
     -- У гарантированного лечения броска нет — и в строке его нет, ровно
     -- как у гарантированного эффекта (см. ResolveEffectCast): «Итог 43
     -- против порога 71. Исцеление удалось» выглядело бы поломкой.
+    -- Гарантированное лечение — без «(без сопротивления)» и без
+    -- «Исцеление удалось!»: броска не было, и удаться иначе оно не могло.
     local rollTxt = guaranteed
-        and (G .. " (без сопротивления). |r")
+        and (G .. ": |r")
         or  (G .. ": |r" .. SB.UI.RollLine(roll, mod, total, G) ..
              G .. " против " .. threshold .. ". |r")
+    if guaranteed and success and (shownHeal > 0 or not (repairArmor > 0)) then
+        outcomeTxt = G .. healName .. " восстанавливает |r" ..
+            SB.UI.AmountText("heal", shownHeal) .. G .. " ХП.|r" .. wearTxt .. repairTxt
+    end
     -- «лечит X заклинанием [Y]» → «— [Y] на X»: существительное
     -- пересказывало ссылку, стоящую следом (тот же разбор, что у удара).
     local sysMsg = SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " ..
@@ -4823,10 +4829,14 @@ function SB.Logic.AnnounceDispel(casterName, spellID, names, friend)
                G .. table.concat(names, ", ") .. ".|r"
     end
 
+    -- Строка — ОТВЕТ заклинателю: он держит ход, пока её не увидит (см.
+    -- ResolveDispel). Одним пакетом в группу, тем же приёмом, что итог
+    -- удара: все печатают, заклинатель по ней отпускает ход.
+    local replyTo = (casterName and casterName ~= who) and casterName or nil
     SB.Events.Fire(SB.E.BROADCAST_LOG,
         SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G ..
         (casterName or "Кто-то") .. " " .. verb .. " " .. who .. " через |r" .. link ..
-        G .. ": |r" .. tail, SB.LogRank.RESULT)
+        G .. ": |r" .. tail, SB.LogRank.RESULT, replyTo and { replyTo = replyTo } or nil)
 end
 
 --- Снять с СЕБЯ по чужому (или своему) рассеиванию.
@@ -4910,6 +4920,10 @@ function SB.Logic.ResolveDispel(spellID, slotLevel)
             "рассеивание ушло к " .. targetName ..
             " (до " .. count .. " эффектов, " ..
             (friend and "дебаффы" or "баффы") .. ").|r")
+        -- Что снято, пишет ЦЕЛЬ, и её строка — ответ нам (см.
+        -- AnnounceDispel): ход ждёт её, как удар ждёт итога.
+        SB.Logic.HoldTurnUntilResult(SB.Logic.TurnSkipFor(spell, spellID))
+        return
     end
 
     SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID))
@@ -5099,7 +5113,14 @@ function SB.Logic.ResolveEffectCast(spellID, slotLevel)
     -- «Боль» этот ход не тикала. Площадной путь так не ошибался: он
     -- передаёт landedOnSelf, то есть тоже «легло на меня».
     local landedOnSelf = (success and onSelf) and effectID or nil
-    SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID, landedOnSelf))
+    -- Исход каста на другого приходит ответом цели, и строка ждёт его —
+    -- значит ждёт и ход: иначе «Ходит: …» печаталось бы раньше самого
+    -- каста (см. SB.Logic.HoldTurnUntilResult). Отпускает Announce.
+    if waitsForTarget then
+        SB.Logic.HoldTurnUntilResult(SB.Logic.TurnSkipFor(spell, spellID, landedOnSelf))
+    else
+        SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID, landedOnSelf))
+    end
 
     -- ИСХОД ПЕЧАТАЕТСЯ ОДНОЙ СТРОКОЙ, и потому собран в функцию: при
     -- касте на чужого настоящий порог и настоящий исход приезжают
@@ -5114,13 +5135,16 @@ function SB.Logic.ResolveEffectCast(spellID, slotLevel)
             and (SB.Theme.MSG_GOOD .. "Успех.|r")
             or  (SB.Theme.MSG_BAD  .. "Провал.|r")
 
-        -- У гарантированного эффекта броска не было — и в логе его нет:
-        -- строка «Итог 43 против порога 60. Успех» читалась бы как
-        -- ошибка расчёта.
+        -- ГАРАНТИРОВАННОЕ — ОДНОЙ ФРАЗОЙ: «применяет [Боевой крик] на
+        -- себя.» Бафф — автоуспех, это сказано в карточке заклинания, и
+        -- «(без сопротивления). Успех.» на каждой стойке и каждом зелье
+        -- пересказывало очевидное. Броска не было — и в строке его нет.
         local rollTxt = guaranteed
-            and (G .. " (без сопротивления). |r")
+            and (G .. ".|r")
             or  (G .. ": |r" .. SB.UI.RollLine(roll, mod, total, G) ..
                  G .. " против " .. finalThreshold .. ". |r")
+        if guaranteed and finalSuccess then outcomeTxt = "" end
+        if guaranteed and not finalSuccess then rollTxt = G .. ". |r" end
 
         SB.Events.Fire(SB.E.BROADCAST_LOG,
             SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. UnitName("player") ..
@@ -5142,6 +5166,8 @@ function SB.Logic.ResolveEffectCast(spellID, slotLevel)
             guaranteed and "Без сопротивления — бросок не требуется"
                 or string.format("%d + %d = %d против порога %d",
                                  roll, mod, total, finalThreshold))
+        -- Строка ушла — теперь и ход (см. HoldTurnUntilResult выше).
+        if waitsForTarget then SB.Logic.ReleaseHeldTurn() end
     end
 
     if waitsForTarget then

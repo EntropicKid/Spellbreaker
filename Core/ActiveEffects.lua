@@ -1737,8 +1737,8 @@ local function FlushTickSummary()
         -- в перечислении из трёх частей он не помещается, а «[-2] ХП»
         -- рядом с «[+1] Мана» читается без него и одинаково у всех
         -- каналов. Отсюда "eff": он единственный печатает знак.
-        parts[#parts + 1] = SB.UI.AmountText("eff", net) .. G ..
-            string.format(" ХП (%d/%d)", PM.GetHealth(), PM.GetMaxHealth())
+        -- Без «(24/42)»: здоровье видно на рамке (UI/Overlay.lua).
+        parts[#parts + 1] = SB.UI.AmountText("eff", net) .. G .. " ХП"
     end
 
     -- Пулы — в постоянном порядке, а не как придётся из pairs: строка
@@ -1949,8 +1949,7 @@ function SB.ActiveEffects.ApplyPayload(spellID, def, source)
             SB.Events.Fire(SB.E.BROADCAST_LOG,
                 SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. who .. " — |r" ..
                 ((gained > 0) and SB.Theme.MSG_GOOD or SB.Theme.MSG_BAD) .. name ..
-                G .. string.format(": %s%d %s (%d/%d).|r", sign, gained,
-                    PM.PoolName(pool), PM.GetPool(pool), PM.GetMaxPool(pool)),
+                G .. string.format(": %s%d %s.|r", sign, gained, PM.PoolName(pool)),
                 SB.LogRank.TICK)
         end
     end
@@ -1971,15 +1970,13 @@ function SB.ActiveEffects.ApplyPayload(spellID, def, source)
     if hpMoved < 0 then
         SB.Events.Fire(SB.E.BROADCAST_LOG,
             SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. who .. " — |r" ..
-            SB.Theme.MSG_BAD .. name .. G .. string.format(": %d урона (%d/%d).|r",
-                -hpMoved, PM.GetHealth(), PM.GetMaxHealth()),
+            SB.Theme.MSG_BAD .. name .. G .. string.format(": %d урона.|r", -hpMoved),
             SB.LogRank.TICK)
     end
     if hpMoved > 0 then
         SB.Events.Fire(SB.E.BROADCAST_LOG,
             SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. who .. " — |r" ..
-            SB.Theme.MSG_GOOD .. name .. G .. string.format(": +%d ХП (%d/%d).|r",
-                hpMoved, PM.GetHealth(), PM.GetMaxHealth()),
+            SB.Theme.MSG_GOOD .. name .. G .. string.format(": +%d ХП.|r", hpMoved),
             SB.LogRank.TICK)
     end
 end

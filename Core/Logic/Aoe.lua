@@ -163,8 +163,7 @@ local function FormatHealEntries(entries)
         local b, items = buckets[tag], {}
         for _, e in ipairs(b.list) do
             if b.ok then
-                items[#items + 1] = G .. e.name .. " → " ..
-                    (e.hp or 0) .. "/" .. (e.maxHp or 0) .. "|r"
+                items[#items + 1] = G .. e.name .. "|r"
             else
                 items[#items + 1] = G .. e.name ..
                     " (порог " .. (e.threshold or 0) .. ")|r"
@@ -223,8 +222,7 @@ local function FlushAoeReport(report)
     -- на каждого задетого (см. SB.Logic.ApplyLeech).
     if (report.leech or 0) > 0 then
         out[#out + 1] = "   |cFFFFD100•|r " .. SB.Theme.MSG_GOOD .. "Вытянуто жизни: |r" ..
-            SB.Theme.MSG_BODY .. "+" .. report.leech .. " ХП (" ..
-            SB.PlayerModel.GetHealth() .. "/" .. SB.PlayerModel.GetMaxHealth() .. ").|r"
+            SB.Theme.MSG_BODY .. "+" .. report.leech .. " ХП.|r"
     end
 
     if SB.Net and SB.Net.BroadcastLogLines then

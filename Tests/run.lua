@@ -432,6 +432,9 @@ ResetEffects()
 SB.ActiveEffects.Add("t_pain", 3, false)   -- сами под Болью
 stub.world.time = stub.world.time + 10
 SB.Logic.ResolveEffectCast("t_paincast", 1)
+-- Каст на другого тратит ход по ответу цели (см. HoldTurnUntilResult) —
+-- отпускаем, как это сделал бы ответ.
+SB.Logic.ReleaseHeldTurn()
 check("своя Боль тикает, когда насылаешь Боль на другого", UsesOf("t_pain"), 2)
 
 -- Обратная сторона: наложенный НА СЕБЯ эффект в тот же ход не тикает.
@@ -17120,6 +17123,93 @@ do
     local turnAct = net:match("function SB%.Net%.SendTurnActed%(%)(.-)\nend") or ""
     checkTrue("«я походил» уходит в группу", turnAct:find("SendToGroup", 1, true) ~= nil)
     checkTrue("и после строк кадра",         turnAct:find("AfterLogFlush", 1, true) ~= nil)
+end
+
+-- ============================================================
+-- ЛОГ БЕЗ ЛИШНЕГО И ПО ПОРЯДКУ (третий разбор)
+--
+-- «тик: [-1] ХП (24/42)» и «вытягивает жизнь: +1 ХП (13/34)» — здоровье
+-- и ресурс видны на рамке. «(без сопротивления). Успех.» — бафф и так
+-- автоуспех. «Ходит: А, Б.» и тут же «Без сознания: А. Ходит: Б.» — одна
+-- строка об одном. Эффект на другого и рассеивание — ход по ответу.
+-- ============================================================
+do
+    local L, TO = SB.Logic, SB.TurnOrder
+    local me = stub.world.playerName
+
+    -- ── ЗДОРОВЬЕ И РЕСУРС НЕ ПОВТОРЯЮТСЯ В СТРОКАХ ──────────
+    for _, path in ipairs({ "Core/ActiveEffects.lua", "Core/Logic.lua",
+                            "Core/Logic/Aoe.lua", "Core/Logic/NPC.lua",
+                            "Core/Logic/NpcCast.lua" }) do
+        local src = ReadFile(path)
+        local bad = 0
+        -- Броню не трогаем намеренно: чужой запас брони на рамке не
+        -- виден, и «+20 брони» без него ничего не говорит.
+        for _, pat in ipairs({ "ХП (%d/%d)", "%s (%d/%d).|r", "урона (%d/%d)",
+                               "GetHealth() .. \"/\" ..", "after.hp .. \"/\"",
+                               "(e.hp or 0) .. \"/\"" }) do
+            if src:find(pat, 1, true) then bad = bad + 1 end
+        end
+        check(path .. ": «(hp/max)» в строках лога", bad, 0)
+    end
+
+    -- ── ГАРАНТИРОВАННОЕ — ОДНОЙ ФРАЗОЙ ───────────────────────
+    local lines = {}
+    local realFire = SB.Events.Fire
+    SB.Events.Fire = function(name, msg, ...)
+        if name == SB.E.BROADCAST_LOG and type(msg) == "string" then
+            lines[#lines + 1] = (msg:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|H.-|h", ""):gsub("|h", ""))
+        end
+        return realFire(name, msg, ...)
+    end
+    SB.Data.Spells["t_q_buff"] = { id = "t_q_buff", name = "Проба стойки",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff", mods = { attack = 1 } } }
+    SB.Data.Spells["t_q_cast"] = { id = "t_q_cast", name = "Проба крика",
+        class = "Маг", level = 0, distance = 0, resistable = false,
+        duration = 3, container = "t_q_buff" }
+    TO.Stop()
+    stub.world.time = stub.world.time + 10
+    L.ResolveEffectCast("t_q_cast", 0)
+    SB.Events.Fire = realFire
+    local qline
+    for _, m in ipairs(lines) do if m:find("Проба крика", 1, true) then qline = m end end
+    checkTrue("строка баффа есть", qline ~= nil)
+    checkTrue("без «(без сопротивления)»",
+              qline ~= nil and not qline:find("без сопротивления", 1, true))
+    checkTrue("и без «Успех.»", qline ~= nil and not qline:find("Успех", 1, true))
+    checkTrue("а кончается на «на себя.»",
+              qline ~= nil and qline:find("на себя%.$") ~= nil)
+    ResetEffects()
+
+    -- ── РАССЕИВАНИЕ: ХОД ЖДЁТ СТРОКИ ЦЕЛИ ──────────────────
+    local net = ReadFile("Core/Network.lua")
+    checkTrue("строка-ответ разбирается сразу",
+              (net:match("local IMMEDIATE_ACTIONS = (%b{})") or ""):find("LOGR%s*=%s*true") ~= nil)
+    TO.ApplyRemoteState({ active = true, mode = "all", round = 1,
+        index = 1, slots = { { me } }, acted = {} })
+    L.HoldTurnUntilResult(nil)
+    checkTrue("ход удержан",           not TO.HasActed(me))
+    local realDes = SB.Net.Deserialize
+    SB.Net.Deserialize = function(_, m) return true, m end
+    -- Новый «кадр»: лимит срочных пакетов за кадр в стенде копится (часы
+    -- стоят), и пакет ушёл бы в очередь. Таймеры не крутим: среди них
+    -- страховка удержания, и ход отпустила бы она, а не ответ.
+    stub.world.time = stub.world.time + 1
+    SB.Net.__commHandler(SB.Net.__commPrefix,
+        { action = "LOGR", msg = "Ирина срывает чары", to = me }, "PARTY", "Ирина")
+    SB.Net.Deserialize = realDes
+    checkTrue("строка-ответ отпустила ход", TO.HasActed(me))
+
+    -- ── ПАВШИЙ НЕ ПОЛУЧАЕТ ОБЪЯВЛЕНИЯ ПЕРЕД ПРОЛИСТЫВАНИЕМ ──
+    local src = ReadFile("Core/TurnOrder.lua")
+    local mark = src:match("function TO%.MarkActed(.-)\nend") or ""
+    local skipAt = mark:find("SkipDownedSlots() > 0", 1, true)
+    local annAt  = mark:find('Announce("Ходит: "', 1, true)
+    checkTrue("павшие пролистываются ДО «Ходит»",
+              skipAt ~= nil and annAt ~= nil and skipAt < annAt)
+
+    TO.Stop()
 end
 
 -- ============================================================

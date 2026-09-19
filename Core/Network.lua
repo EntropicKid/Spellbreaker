@@ -1035,6 +1035,17 @@ end
 -- ограничения одна кривая (или злонамеренная) посылка залила бы чат.
 local MAX_LOG_LINES = 45
 
+--- Строка-ответ: печатают все, адресат по ней отпускает удержанный ход
+--- (см. SB.Logic.HoldTurnUntilResult).
+local function ParseLOGR(t)
+    if type(t.msg) == "string" then
+        SB.Events.Fire("LOG_MESSAGE_RECEIVED", SanitizeIncomingLog(t.msg))
+    end
+    if t.to == UnitName("player") and SB.Logic and SB.Logic.ReleaseHeldTurn then
+        SB.Logic.ReleaseHeldTurn()
+    end
+end
+
 local function ParseLOGM(t)
     if type(t.msgs) ~= "table" then return end
     for i, msg in ipairs(t.msgs) do
@@ -1309,6 +1320,7 @@ local IMMEDIATE_ACTIONS = {
     -- обрабатываются они одинаково.
     LOG     = true,
     LOGM    = true,
+    LOGR    = true,
 }
 
 Dispatch = function(sender, t)
@@ -1326,6 +1338,7 @@ Dispatch = function(sender, t)
         SB.Net.ReplyPeerStatusTo(sender)
     elseif action == "LOG"     then ParseLOG(t)
     elseif action == "LOGM"    then ParseLOGM(t)
+    elseif action == "LOGR"    then ParseLOGR(t)
     elseif action == "REST"    then ParseREST(sender, t)
     elseif action == "GRANT"   then ParseGRANT(sender, t)
     -- Действующее лицо этим четырём даём по отправителю, а не по полю
@@ -2647,6 +2660,13 @@ SB.Events.On("SB_INIT", function()
         -- SB.Net.SendPvpResultWithLog): ранга ACTION она и так первая.
         if type(attach) == "table" and attach.pvpResult then
             SB.Net.SendPvpResultWithLog(msg, attach.pvpResult)
+            return
+        end
+        if type(attach) == "table" and attach.replyTo then
+            SB.Events.Fire("LOG_MESSAGE_RECEIVED", msg)
+            if IsInGroup() then
+                SendToGroup({ action = "LOGR", msg = msg, to = attach.replyTo }, "NORMAL")
+            end
             return
         end
         SB.Net.QueueLogLine(msg, rank)

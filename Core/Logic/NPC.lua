@@ -354,8 +354,9 @@ function SB.Logic.ResolveNpcHeal(spellID, slotLevel)
     SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID))
 
     local link    = SB.UI.MakeSpellLink(spell)
+    -- Гарантированное — без «(без сопротивления)»: броска не было.
     local rollTxt = guaranteed
-        and (G .. " (без сопротивления). |r")
+        and (G .. ": |r")
         or  (G .. ": |r" .. SB.UI.RollLine(roll, mod, total, G) ..
              G .. " против " .. threshold .. ". |r")
 
@@ -369,11 +370,7 @@ function SB.Logic.ResolveNpcHeal(spellID, slotLevel)
         local head = isCrit and (SB.Theme.MSG_GOOD .. "Критическое исцеление!|r ")
                              or (SB.Theme.MSG_GOOD .. "Исцеление удалось!|r ")
         outcome = head .. G .. npcName .. " восстанавливает |r" ..
-            SB.UI.AmountText("heal", healed) .. G .. " ХП"
-        if hpAfter and hpMax then
-            outcome = outcome .. string.format(" (%d/%d)", hpAfter, hpMax)
-        end
-        outcome = outcome .. ".|r" .. wearTxt
+            SB.UI.AmountText("heal", healed) .. G .. " ХП.|r" .. wearTxt
     end
 
     SB.Events.Fire(SB.E.BROADCAST_LOG,
@@ -465,16 +462,19 @@ function SB.Logic.ResolveNpcEffect(spellID, slotLevel)
     SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID))
 
     local link    = SB.UI.MakeSpellLink(spell)
+    -- Гарантированное — одной фразой, как у игрока (см. ResolveEffectCast).
     local rollTxt = guaranteed
-        and (G .. " (без сопротивления). |r")
+        and (G .. (success and ".|r" or ". |r"))
         or  (G .. ": |r" .. SB.UI.RollLine(roll, mod, total, G) ..
              G .. " против " .. threshold .. ". |r")
+    local quietOk = guaranteed and success
 
     SB.Events.Fire(SB.E.BROADCAST_LOG,
         SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. UnitName("player") ..
         " применяет к " .. npcName .. " заклинание |r" .. link .. rollTxt ..
-        (success and (SB.Theme.MSG_GOOD .. "Эффект наложен.|r")
-                 or  (SB.Theme.MSG_BAD  .. "Эффект отведён.|r")),
+        (quietOk and ""
+            or (success and (SB.Theme.MSG_GOOD .. "Эффект наложен.|r")
+                        or  (SB.Theme.MSG_BAD  .. "Эффект отведён.|r"))),
         SB.LogRank.ACTION)
 
     SB.Logic.PlayOutcomeSound(success)
