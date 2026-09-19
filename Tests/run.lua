@@ -10078,12 +10078,8 @@ do
     -- автоуспехом (см. SB.Logic.MinPlausibleCritRoll).
     check("грань считается от потолка полосы",
           critRoll, 100 - SB.Data.Config.CritBandMaxPct + 1)
-    -- Грань сверки — от наименьшей честной верхней грани: подавленная
-    -- «Мощь» опускает кубик, а с ним и честный порог крита.
-    local floorCrit = SB.Logic.MinPlausibleCritRoll(SB.Logic.MinPlausibleRollMax())
-    checkTrue("сверка не мягче половины кубика", floorCrit > SB.Logic.ROLL_MAX / 2)
     check("крит на невозможном кубике не пробивает защиту",
-          CritAttack("t_unsure", floorCrit - 1), 10)
+          CritAttack("t_unsure", critRoll - 1), 10)
 
     -- Площадной эффект: порог у задетого свой, и гарантированный обязан
     -- лечь даже при итоге в единицу.
@@ -16687,71 +16683,30 @@ do
 end
 
 -- ============================================================
--- «ТОЧНОСТЬ» И «МОЩЬ» ДВИГАЮТ ГРАНИ КУБИКА
+-- НАВЫКИ ГРАНЕЙ КУБИКА НЕ ДВИГАЮТ
 --
--- +2 к нижней грани за очко «Точности», +2 к верхней за очко «Мощи».
--- По действующему значению: эффекты двигают так же, и в минус тоже.
--- Нижняя грань не ниже единицы ни при каком штрафе.
+-- «Точность» и «Мощь» двигали грани (+2 за очко, с эффектами) один
+-- коммит и были отключены: грань — самое нелинейное место системы. От
+-- неё считаются крит, сверка чужого броска и зажим «низ не выше
+-- половины верха», и каждая масштабируемая прибавка к ней тянет за
+-- собой их все. Грани двигают только ограниченные постоянные источники:
+-- раса, класс, оружие в руках и немногие эффекты. Хочешь силы навыка —
+-- это модификатор броска, линейный и видимый в разбивке.
 -- ============================================================
 do
     local L = SB.Logic
-    local savedRace, savedSkills = stub.world.race, _G.SpellbreakerCharDB.skills
+    local savedSkills = _G.SpellbreakerCharDB.skills
+    local savedRace = stub.world.race
     stub.world.race = "Human"
-    stub.world.equipped = { [16] = { 2, 4 }, [17] = { 2, 4 } }   -- булавы: без черты
+    stub.world.equipped = { [16] = { 2, 4 }, [17] = { 2, 4 } }
     SB.Skills.ResetEquipCache()
     ResetEffects()
-    local step = L.ROLL_FACE_PER_POINT
-    check("шаг грани — два", step, 2)
-
     _G.SpellbreakerCharDB.skills = {}
     local lo0, hi0 = L.GetRollRange()
-    check("без вложений кубик ровный: низ", lo0, 1)
-    check("без вложений кубик ровный: верх", hi0, L.ROLL_MAX)
-
-    _G.SpellbreakerCharDB.skills = { ["Точность"] = 3 }
-    check("«Точность» 3 — нижняя грань 6", (L.GetRollRange()), 3 * step)
-    _G.SpellbreakerCharDB.skills = { ["Мощь"] = 5 }
-    local _, hiP = L.GetRollRange()
-    check("«Мощь» 5 — верхняя грань +10", hiP, L.ROLL_MAX + 5 * step)
-    local _, _, rolledHi = L.Roll()
-    check("и бросок катится до неё", rolledHi, hiP)
-
-    -- Эффекты — в обе стороны.
-    _G.SpellbreakerCharDB.skills = {}
-    SB.Data.Spells["t_face_up"] = { id = "t_face_up", name = "Проба точности",
-        class = "Эффект", level = 0, isContainer = true,
-        effect = { kind = "buff", stats = { ["Точность"] = 4, ["Мощь"] = 4 } } }
-    SB.Data.Spells["t_face_down"] = { id = "t_face_down", name = "Проба слабости",
-        class = "Эффект", level = 0, isContainer = true,
-        effect = { kind = "debuff", stats = { ["Точность"] = -8, ["Мощь"] = -8 } } }
-    SB.ActiveEffects.Add("t_face_up", 5, false)
-    local loU, hiU = L.GetRollRange()
-    check("бафф поднял нижнюю грань", loU, 4 * step)
-    check("и верхнюю",                hiU, L.ROLL_MAX + 4 * step)
-    ResetEffects()
-    SB.ActiveEffects.Add("t_face_down", 5, false)
-    local loD, hiD = L.GetRollRange()
-    check("штраф не опускает нижнюю грань ниже единицы", loD, 1)
-    check("а верхнюю опускает",                         hiD, L.ROLL_MAX - 8 * step)
-    ResetEffects()
-
-    -- Кубик остаётся кубиком.
-    SB.Data.Spells["t_face_crush"] = { id = "t_face_crush", name = "Проба раздавленной мощи",
-        class = "Эффект", level = 0, isContainer = true,
-        effect = { kind = "debuff", stats = { ["Мощь"] = -100, ["Точность"] = 100 } } }
-    SB.ActiveEffects.Add("t_face_crush", 5, false)
-    local loC, hiC = L.GetRollRange()
-    check("верхняя грань не ниже половины сотни", hiC, L.MIN_ROLL_MAX)
-    checkTrue("нижняя не выше половины верхней", loC <= math.floor(hiC / 2))
-    ResetEffects()
-
-    -- Честный крит под подавленной «Мощью» проверка чужого броска не режет:
-    -- два штрафа по восемь — в пределах правдоподобного.
-    checkTrue("два крепких штрафа к «Мощи» — ещё честная грань",
-              L.ROLL_MAX - 16 * step >= L.MinPlausibleRollMax())
-
-    SB.Data.Spells["t_face_up"], SB.Data.Spells["t_face_down"] = nil, nil
-    SB.Data.Spells["t_face_crush"] = nil
+    _G.SpellbreakerCharDB.skills = { ["Точность"] = 5, ["Мощь"] = 5 }
+    local lo1, hi1 = L.GetRollRange()
+    check("«Точность» нижнюю грань не двигает", lo1, lo0)
+    check("«Мощь» верхнюю не двигает",          hi1, hi0)
     _G.SpellbreakerCharDB.skills = savedSkills
     stub.world.race = savedRace
 end
@@ -16792,10 +16747,8 @@ do
     Hands({ [16] = { 2, 13 } })
     check("кастет и пустая рука — вместе", (L.GetRollRange()), 10)
     -- Решено намеренно: двуручник левую руку не занимает.
-    -- Двуручный меч — ещё и меч: +2 «Точности», то есть +4 к нижней грани.
     Hands({ [16] = { 2, 8 } })
-    check("при двуручнике пустая левая — свободная рука", (L.GetRollRange()),
-          5 + 2 * L.ROLL_FACE_PER_POINT)
+    check("при двуручнике пустая левая — свободная рука", (L.GetRollRange()), 5)
     -- Слот дальнего боя рукой не считается.
     Hands({ [16] = MACE, [17] = MACE, [18] = nil })
     check("пустой слот дальнего боя пол не двигает", (L.GetRollRange()), 1)
@@ -16847,9 +16800,7 @@ do
 
     -- Проверка чужого каста не принимает кинжальный бросок за подделку,
     -- но выше двух кинжалов не пускает.
-    checkTrue("правдоподобный потолок пускает два кинжала и полную «Мощь»",
-              L.MaxPlausibleRoll() >= L.ROLL_MAX + 10
-                  + L.ROLL_FACE_PER_POINT * SB.Attributes.GetMaxValue())
+    check("правдоподобный потолок — сотня и два кинжала", L.MaxPlausibleRoll(), L.ROLL_MAX + 10)
 
     -- ── ГОЛЫЙ КУБИК СУЩЕСТВ ────────────────────────────────
     -- Оружие и раса Ведущего существам не достаются.

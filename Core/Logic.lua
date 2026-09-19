@@ -2535,34 +2535,6 @@ function SB.Logic.VerifyIncomingCast(attacker, spellID, roll, mod, total, slot, 
     return total, nil
 end
 
--- ============================================================
--- «ТОЧНОСТЬ» И «МОЩЬ» ДВИГАЮТ ГРАНИ КУБИКА
---
--- Каждое очко «Точности» поднимает нижнюю грань на ROLL_FACE_PER_POINT,
--- каждое очко «Мощи» — верхнюю. Точный реже промахивается совсем,
--- сильный чаще бьёт выше сотни.
---
--- ДЕЙСТВУЮЩЕЕ ЗНАЧЕНИЕ, А НЕ ВЛОЖЕННОЕ: эффекты и оружие (меч даёт
--- «Точность») двигают грани так же, как очки, — и в минус тоже.
--- Подавленная «Мощь» опускает потолок, подавленная «Точность» уводит
--- нижнюю грань вниз, но не ниже единицы.
---
--- ДВА ЗАЖИМА, ОБА ПРО ТО, ЧТОБЫ КУБИК ОСТАЛСЯ КУБИКОМ:
---   • нижняя грань — не ниже 1 и не выше половины верхней (этот зажим
---     был и раньше: без него диапазон схлопывался бы в одно число);
---   • верхняя — не ниже MIN_ROLL_MAX. Иначе крепкий дебафф на «Мощь»
---     превращал бы бросок в 1-10, а это уже не штраф, а выключение.
--- ============================================================
-local ROLL_FACE_PER_POINT = 2
-SB.Logic.ROLL_FACE_PER_POINT = ROLL_FACE_PER_POINT
-SB.Logic.MIN_ROLL_MAX = math.floor(SB.Logic.ROLL_MAX / 2)
-
---- Сдвиг грани от навыка — по действующему значению.
-local function SkillFace(skill)
-    if not (SB.Skills and SB.Skills.GetEffective) then return 0 end
-    return ROLL_FACE_PER_POINT * ((SB.Skills.GetEffective(skill)) or 0)
-end
-
 --- Прибавка оружия к грани кубика (rollFloor / rollCeil).
 local function WeaponRoll(channel)
     if SB.Skills and SB.Skills.GetWeaponBonus then
@@ -2575,8 +2547,7 @@ function SB.Logic.GetRollRange()
     -- ПОТОЛОК ДВИГАЕТ ОРУЖИЕ: кинжал поднимает верхнюю грань (1-105, с
     -- двумя — 1-110). Всё, что считает крит, берёт границу из Roll(), а
     -- не сотню литералом — иначе 101+ критовал бы всегда.
-    local rollMax = SB.Logic.ROLL_MAX + WeaponRoll("rollCeil") + SkillFace("Мощь")
-    if rollMax < SB.Logic.MIN_ROLL_MAX then rollMax = SB.Logic.MIN_ROLL_MAX end
+    local rollMax = SB.Logic.ROLL_MAX + WeaponRoll("rollCeil")
     local rollMin = 1
 
     -- ПОЛ ДВИГАЮТ И ЭФФЕКТЫ, А НЕ ТОЛЬКО ПРОИСХОЖДЕНИЕ. Раньше здесь
@@ -2596,7 +2567,6 @@ function SB.Logic.GetRollRange()
         + ((SB.ActiveEffects and SB.ActiveEffects.GetMod)
             and (SB.ActiveEffects.GetMod("rollFloor")) or 0)
         + WeaponRoll("rollFloor")
-        + SkillFace("Точность")
     if floor > rollMin then rollMin = floor end
     -- Пол не должен схлопнуть диапазон: оставляем хотя бы половину граней.
     if rollMin > math.floor(rollMax / 2) then rollMin = math.floor(rollMax / 2) end
@@ -2626,16 +2596,9 @@ function SB.Logic.RollPlain()
     return math.random(1, hi), 1, hi
 end
 
--- С какого запаса прибавки к «Мощи» от эффектов бросок перестаёт быть
--- правдоподобным. Потолка у эффектов в коде нет — только правило данных
--- (не больше 8 на эффект, см. проверку прогона), — поэтому запас взят
--- на два таких эффекта разом.
-local PLAUSIBLE_EFFECT_STAT = 16
-
---- Наибольший бросок, какой бывает честно: сотня, кинжалы в обеих руках
---- и полная «Мощь» с запасом на эффекты. Точного листа атакующего мы не
---- знаем, и проверка ловит не ложь, а невозможное — как
---- MaxPlausibleAttackMod.
+--- Наибольший бросок, какой бывает честно: сотня плюс кинжалы в обеих
+--- руках. Точного оружия атакующего мы не знаем, и проверка ловит не
+--- ложь, а невозможное — как MaxPlausibleAttackMod.
 function SB.Logic.MaxPlausibleRoll()
     local extra = 0
     for _, def in pairs(SB.Data.WeaponBonuses or {}) do
@@ -2644,19 +2607,7 @@ function SB.Logic.MaxPlausibleRoll()
             if v > 0 then extra = extra + v end
         end
     end
-    local maxSkill = (SB.Attributes and SB.Attributes.GetMaxValue
-                      and SB.Attributes.GetMaxValue()) or 5
     return SB.Logic.ROLL_MAX + extra
-         + ROLL_FACE_PER_POINT * (maxSkill + PLAUSIBLE_EFFECT_STAT)
-end
-
---- Наименьшая верхняя грань, какая бывает честно: невложенная «Мощь» под
---- тем же запасом эффектов, что и выше, только со знаком минус. От неё
---- считается грань правдоподобного крита: подавленная «Мощь» опускает
---- и честный порог.
-function SB.Logic.MinPlausibleRollMax()
-    return math.max(SB.Logic.MIN_ROLL_MAX,
-        SB.Logic.ROLL_MAX - ROLL_FACE_PER_POINT * PLAUSIBLE_EFFECT_STAT)
 end
 
 
@@ -4009,9 +3960,7 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
     -- (см. SB.Logic.MinPlausibleCritRoll). Существу верим: его бросок
     -- считает тот же Ведущий, что и всё остальное в сцене.
     if atkCrit and not fromNpc then
-        -- От НАИМЕНЬШЕЙ возможной верхней грани: подавленная «Мощь»
-        -- опускает её, а с ней и честный порог крита.
-        local floorRoll = SB.Logic.MinPlausibleCritRoll(SB.Logic.MinPlausibleRollMax())
+        local floorRoll = SB.Logic.MinPlausibleCritRoll(SB.Logic.ROLL_MAX)
         if (tonumber(atkRoll) or 0) < floorRoll then
             atkCrit = false
             local note = string.format("крит на кубике %d при грани %d",
