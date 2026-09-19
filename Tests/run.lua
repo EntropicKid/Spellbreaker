@@ -5648,10 +5648,15 @@ do
                   and DT[id].color:match("^%x%x%x%x%x%x%x%x$") ~= nil)
     end
 
-    -- ── РАЗДАЧА ПОЛНА ───────────────────────────────────────
-    -- Живыми данными: атакующая способность без типа — это дыра в
-    -- раздаче, а с чужим типом — опечатка, и молча не видно ни того,
-    -- ни другого.
+    -- ── РАЗДАЧА ТИПОВ ───────────────────────────────────────
+    -- Без типа — ЧИСТЫЙ урон (SB.Data.PURE_DAMAGE), и это решение, а не
+    -- дыра: его не гасит ни один резист. Поэтому список без типа —
+    -- справка, а не провал: его видно в каждом прогоне, и случайно
+    -- забытое поле отсюда заметно.
+    --
+    -- А ЧУЖОЙ ТИП — провал: опечатка в школе тоже молча становится
+    -- чистым уроном, и её от решения не отличить ничем, кроме этой
+    -- проверки.
     local noType, badType = {}, {}
     for id, sp in pairs(SB.Data.Spells) do
         if ShippedSpells[id] and sp.canCrit and not sp.isContainer then
@@ -5662,8 +5667,10 @@ do
             end
         end
     end
-    check("атакующих способностей без типа урона", #noType, 0)
-    if #noType > 0 then print("          " .. table.concat(noType, ", ")) end
+    table.sort(noType)
+    if #noType > 0 then
+        print("[чистый урон] атакующие без типа: " .. table.concat(noType, ", "))
+    end
     check("способностей с несуществующим типом", #badType, 0)
     if #badType > 0 then print("          " .. table.concat(badType, ", ")) end
 
@@ -9220,10 +9227,9 @@ do
         SB.Data.Spells["t_cost_dark"].onCast)
     check("своя кровь платится полностью", hp - PM.GetHealth(), 3)
 
-    -- ── У ТИКАЮЩИХ ЭФФЕКТОВ БИБЛИОТЕКИ ТИП ЕСТЬ ─────────────
-    -- Живыми данными: эффект, который капает без школы, защищён только
-    -- общим резистом — то есть раса против него бессильна, хотя по
-    -- описанию должна держать.
+    -- ── ТИКИ БЕЗ ШКОЛЫ — ЧИСТЫЙ УРОН ────────────────────────
+    -- Справка, как и у атакующих выше: без школы тик не гасит ни один
+    -- резист. Список печатается, чтобы забытое поле было видно.
     local noType = {}
     for id, sp in pairs(SB.Data.Spells) do
         if ShippedSpells[id] and sp.isContainer and type(sp.effect) == "table" then
@@ -9234,8 +9240,10 @@ do
             end
         end
     end
-    check("тикающих уроном эффектов без школы", #noType, 0)
-    if #noType > 0 then print("          " .. table.concat(noType, ", ")) end
+    table.sort(noType)
+    if #noType > 0 then
+        print("[чистый урон] тики без школы: " .. table.concat(noType, ", "))
+    end
 
     -- ── ЗАЩИТНЫЕ СПОСОБНОСТИ ДЕЛАЮТ ТО, ЧТО ОБЕЩАЮТ ─────────
     --
@@ -16590,6 +16598,125 @@ do
     checkTrue("в стартовом наборе есть заклинания", n > 0)
     check("стартовых заклинаний, которых нет или выше первого круга", #bad, 0)
     if #bad > 0 then print("          " .. table.concat(bad, ", ")) end
+end
+
+-- ============================================================
+-- СОХРАНЁНКА ЧЕРЕЗ НАСТОЯЩУЮ AceDB: ВЫХОД И ВХОД
+--
+-- Весь прогон держит сохранёнку обычной таблицей, а в игре её держит
+-- AceDB: вырезает совпадающее с умолчанием при выходе и подставляет при
+-- входе. Этой разницы прогон не видел вовсе — поэтому фантомные единицы
+-- атрибутов прошли мимо всех проверок. Здесь настоящая библиотека из
+-- Libs/, в своём окружении (заглушка LibStub остальному прогону нужна
+-- прежней), и настоящие умолчания аддона.
+-- ============================================================
+do
+    local CHAR, ACC = SB.Init.CHAR_DEFAULTS, SB.Init.ACCOUNT_DEFAULTS
+    checkTrue("умолчания аддона доступны проверке", CHAR ~= nil and ACC ~= nil)
+
+    -- LibStub из заглушки в окружение не пускаем: настоящий LibStub
+    -- смотрит, нет ли уже глобального, и принял бы заглушку за себя.
+    local env = setmetatable({}, { __index = function(_, k)
+        if k == "LibStub" then return nil end
+        return _G[k]
+    end })
+    env._G = env
+    local frames = {}
+    env.CreateFrame = function()
+        local f = { ev = {} }
+        function f:RegisterEvent(e) self.ev[e] = true end
+        function f:UnregisterEvent(e) self.ev[e] = nil end
+        function f:UnregisterAllEvents() self.ev = {} end
+        function f:SetScript(k, fn) self[k] = fn end
+        frames[#frames + 1] = f
+        return f
+    end
+    env.GetRealmName      = function() return "Aviana" end
+    env.UnitName          = function() return "Проба" end
+    env.UnitClass         = function() return "Жрец", "PRIEST" end
+    env.UnitRace          = function() return "Человек", "Human" end
+    env.UnitFactionGroup  = function() return "Alliance" end
+    env.GetCurrentRegion  = function() return 3 end
+    env.geterrorhandler   = function() return function(e) error(e) end end
+    env.securecallfunction = function(fn, ...) return fn(...) end
+    for _, path in ipairs({ "Libs/LibStub/LibStub.lua",
+                            "Libs/CallbackHandler-1.0/CallbackHandler-1.0.lua",
+                            "Libs/AceDB-3.0/AceDB-3.0.lua" }) do
+        local chunk = assert(loadfile(path))
+        setfenv(chunk, env)
+        chunk()
+    end
+    local AceDB = env.LibStub("AceDB-3.0")
+
+    local function Copy(t)
+        if type(t) ~= "table" then return t end
+        local out = {}
+        for k, v in pairs(t) do out[k] = Copy(v) end
+        return out
+    end
+    local n = 0
+    --- Сессия: база из «файла», дело над ней, выход. Возвращает файл.
+    local function Session(file, work)
+        n = n + 1
+        local name = "SBAceTest" .. n
+        env[name] = Copy(file) or {}
+        local db = AceDB:New(name, { char = CHAR, global = ACC })
+        if work then work(db.char, db.global) end
+        for _, f in ipairs(frames) do
+            if f.ev.PLAYER_LOGOUT and f.OnEvent then f:OnEvent("PLAYER_LOGOUT") end
+        end
+        return Copy(env[name])
+    end
+    local function Read(file, fn)
+        local out
+        Session(file, function(char, acc) out = fn(char, acc) end)
+        return out
+    end
+
+    -- ── СБРОС АТРИБУТОВ ПЕРЕЖИВАЕТ ПЕРЕЗАХОД ───────────────
+    -- Ровно то, что делает «Сбросить», и ровно тот баг: невложенное
+    -- после /reload не должно всплывать ничем, кроме базы.
+    local base = SB.Data.STAT_BASE or 0
+    local before
+    local file = Session(nil, function(char)
+        char.attributes = {}
+        char.attributes["Ловкость"] = 5
+        before = char.attributes["Сила"] or base
+    end)
+    check("до перезахода невложенная Сила — база", before, base)
+    check("и после — тоже база",
+          Read(file, function(char) return char.attributes["Сила"] or base end), base)
+    check("вложенное пережило перезаход",
+          Read(file, function(char) return char.attributes["Ловкость"] end), 5)
+
+    -- ── НИ ОДНОЙ ТАБЛИЦЫ С УМОЛЧАНИЯМИ ВНУТРИ У ПЕРСОНАЖА ──
+    -- Замена такой таблицы новой читается в сессии без умолчаний, а после
+    -- перезахода — с ними. Игровые данные персонажа так хранить нельзя
+    -- (см. врезку над CHAR_DEFAULTS в Core/Init.lua).
+    local nested = {}
+    for k, v in pairs(CHAR) do
+        if type(v) == "table" and next(v) ~= nil then nested[#nested + 1] = k end
+    end
+    table.sort(nested)
+    check("таблиц персонажа с умолчаниями внутри", #nested, 0)
+    if #nested > 0 then print("          " .. table.concat(nested, ", ")) end
+
+    -- ── «301 — БЕЗ ЛИМИТА» ДЕРЖИТСЯ, ПОКА ОН ВЫШЕ МАКСИМУМА ─
+    checkTrue("умолчание времени хода означает «без лимита»",
+              (ACC.turnTimeLimit or 0) > SB.TurnOrder.TURN_TIME_MAX)
+
+    -- ── ОБЩИЙ КРУГ: ЧТО ПРОЧИТАНО ДО ВЫХОДА, ТО И ПОСЛЕ ─────
+    -- Значения, равные умолчанию, и отличные от него, у персонажа и у
+    -- учётной записи.
+    local wrote = Session(nil, function(char, acc)
+        char.mastery, char.moveDistance, char.configLocked = "Адепт", 0, true
+        acc.turnMode, acc.spellBar = "all", true
+    end)
+    check("ранг",          Read(wrote, function(c) return c.mastery end), "Адепт")
+    check("путь",          Read(wrote, function(c) return c.moveDistance end), 0)
+    check("замок набора",  Read(wrote, function(c) return c.configLocked end), true)
+    check("порядок хода",  Read(wrote, function(_, a) return a.turnMode end), "all")
+    check("панель",        Read(wrote, function(_, a) return a.spellBar end), true)
 end
 
 -- ============================================================
