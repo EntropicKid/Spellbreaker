@@ -3445,13 +3445,24 @@ do
     SB.ActiveEffects.Clear()
     _G.SpellbreakerCharDB.activeEffects = {}
 
-    -- Сколько снимает каст: круг заклинания в зачёт не идёт, считается
-    -- только переплата сверх него.
+    -- Сколько снимает каст — столько, какой круг у заклинания, и
+    -- вливание сверх круга этого не меняет.
     local d3 = { level = 3 }
-    check("каст в свой круг снимает базу",  SB.Logic.GetDispelCount(d3, 3), 1)
-    check("единица сверх — на один больше", SB.Logic.GetDispelCount(d3, 4), 2)
-    check("три сверх — четыре",             SB.Logic.GetDispelCount(d3, 6), 4)
-    check("недокаст не уводит ниже базы",   SB.Logic.GetDispelCount(d3, 0), 1)
+    check("третий круг снимает три",        SB.Logic.GetDispelCount(d3, 3), 3)
+    check("вливание сверх не добавляет",    SB.Logic.GetDispelCount(d3, 5), 3)
+    check("первый круг — один",             SB.Logic.GetDispelCount({ level = 1 }, 1), 1)
+    check("заговор — тоже один",            SB.Logic.GetDispelCount({ level = 0 }, 0), 1)
+    local priest = SB.Data.Spells["dispel_magic"]
+    for _, sp in pairs(SB.Data.Spells) do
+        if sp.name == "Рассеивание магии" and sp.class == "Жрец" then priest = sp end
+        if sp.name == "Антимагия" and sp.class == "Маг" then d3 = sp end
+    end
+    if priest and (priest.level or 0) >= 1 then
+        check("«Рассеивание магии» жреца снимает по кругу",
+              SB.Logic.GetDispelCount(priest, priest.level), priest.level)
+    end
+    check("«Антимагия» мага снимает по кругу",
+          SB.Logic.GetDispelCount(d3, d3.level or 0), math.max(1, d3.level or 0))
 
     -- Разбор объявления школ.
     checkTrue("одна школа строкой",
@@ -8617,8 +8628,8 @@ do
     -- «+1 к урону оружием» выразить было бы нечем.
     checkTrue("у физического есть ключ прибавки",
               SB.Data.DamageTypes.physical.damageKey ~= nil)
-    checkTrue("а ключа сопротивления по-прежнему нет",
-              SB.Data.DamageTypes.physical.resistKey == nil)
+    checkTrue("и ключ сопротивления у него теперь тоже есть",
+              SB.Data.DamageTypes.physical.resistKey == "resistPhysical")
 
     local fi = Keys("fire")
     checkTrue("на огонь работает общий",  fi[SB.Data.DAMAGE_ALL])
@@ -9029,14 +9040,20 @@ do
         return out
     end
 
-    -- ФИЗИЧЕСКИЙ ГАСИТСЯ ТОЛЬКО ОБЩИМ. Своего ключа у него нет и быть не
-    -- должно: сопротивление стали в аддоне уже есть, и это доспех.
+    -- ФИЗИЧЕСКИЙ — ОБЩИМ И СВОИМ. Свой ключ завели, чтобы защитные чары
+    -- против оружия не приходилось выражать резистом ко всему: тот гасит
+    -- и магию. Магическим физическое не гасится по-прежнему.
     local phys = Keys("physical")
     checkTrue("физический гасит общий резист", phys[SB.Data.RESIST_ALL])
+    checkTrue("и свой, физический",            phys["resistPhysical"])
     checkTrue("но не магический",              not phys[SB.Data.RESIST_MAGIC])
-    check("и всего один ключ", #SB.Data.ResistKeysFor("physical"), 1)
-    checkTrue("отдельного ключа у физического нет",
-              SB.Data.DamageTypes.physical.resistKey == nil)
+    check("ровно два ключа", #SB.Data.ResistKeysFor("physical"), 2)
+    local listed = false
+    for _, k in ipairs(SB.Data.ResistKeys) do
+        if k == "resistPhysical" then listed = true end
+    end
+    checkTrue("ключ в общем списке: канал эффекта и подпись есть", listed)
+    check("подпись", SB.Data.ResistLabel("resistPhysical"), "Сопротивление: Физический")
 
     -- Магическая школа — все три уровня.
     local sh = Keys("shadow")
@@ -17975,13 +17992,14 @@ do
     local dur3 = L.GetEffectDuration("eff_battle_stance", stance, 3)
     check("срок от вливания не меняется", dur3, dur0)
 
-    -- ── РАССЕИВАНИЕ: ВЛОЖЕННОЕ — ВСЯ ЕГО ЦЕНА ──────────────
+    -- ── РАССЕИВАНИЕ: ВЛИВАТЬ НЕКУДА ────────────────────────
     --
-    -- Каждая единица сверх круга снимает ещё один эффект, броска у
-    -- рассеивания нет вовсе. Эту зависимость правило сначала не знало, и
-    -- «Снятие проклятья» переставало предлагать вливание.
-    checkTrue("рассеиванию вливать есть смысл",
-              L.CanUpcast({ dispel = { "magic" }, level = 1 }))
+    -- Прежде каждая единица сверх круга снимала ещё один эффект, и
+    -- выбор круга у рассеиваний был всей их ценой. Теперь число снимаемого
+    -- равно кругу заклинания — и выбор круга пропадает сам, по той же
+    -- арифметике, по которой его нет у стоек.
+    checkTrue("рассеиванию вливать больше нечего",
+              not L.CanUpcast({ dispel = { "magic" }, level = 1 }))
     -- ВЫБИРАЕМ ДЕТЕРМИНИРОВАННО И С ЗАПАСОМ ПО КРУГАМ. Первая версия
     -- брала первое попавшееся рассеивание перебором pairs — а порядок
     -- там непредсказуем, и раз в несколько прогонов попадалось
@@ -18003,10 +18021,15 @@ do
     end
     checkTrue("рассеивание с запасом по кругам в библиотеке есть", purge ~= nil)
     if purge then
-        checkTrue("и живому рассеиванию вливать есть смысл", L.CanUpcast(purge))
-        checkTrue("а число снимаемого и правда растёт",
-                  L.GetDispelCount(purge, (purge.level or 0) + 1)
-                  > L.GetDispelCount(purge, purge.level or 0))
+        -- Число снимаемого привязано к кругу заклинания, и вливать в
+        -- рассеивание больше незачем: выбора круга у него нет.
+        check("число снимаемого от вливания не растёт",
+              L.GetDispelCount(purge, (purge.level or 0) + 1),
+              L.GetDispelCount(purge, purge.level or 0))
+        if not (purge.container or purge.buff or purge.debuff)
+           and not purge.repairArmor and not (purge.scaling and purge.scaling.damage) then
+            checkTrue("и выбора круга у чистого рассеивания нет", not L.CanUpcast(purge))
+        end
     end
 
     -- ── ГЛАВНЫЙ ИНВАРИАНТ: ЗЕРКАЛО ПРАВИЛА ─────────────────

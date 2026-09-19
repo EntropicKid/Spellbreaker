@@ -71,13 +71,15 @@ SB.Data.DamageTypes = {
 -- это три источника защиты. Дворф со своим льдом под аурой паладина
 -- держит мороз лучше, чем поодиночке, и удивляться тут нечему.
 --
--- У ФИЗИЧЕСКОГО СВОЕГО КЛЮЧА НЕТ, и это не пробел. Сопротивление стали
--- в аддоне уже есть, и называется оно доспехом: свой запас, свой расход,
--- свой Долгий Отдых (см. SB.Skills.AbsorbDamage). Завести рядом второе,
--- бесконечное и плоское, значило бы иметь два несогласованных ответа на
--- один вопрос — и обесценить доспех, который стоит слотов и навыка.
--- Общий resistAll физический всё-таки гасит: «неуязвим ко всему» — это
--- осмысленный эффект, а «неуязвим к мечам, но не к магии» — это доспех.
+-- У ФИЗИЧЕСКОГО СВОЙ КЛЮЧ ЕСТЬ — resistPhysical. Прежде его не было:
+-- считалось, что сопротивление стали — это доспех, и второе, плоское,
+-- его обесценит. На деле без ключа защитные чары против оружия («Щит»,
+-- «Каменная кожа», стойки) было нечем выразить, кроме резиста ко всему
+-- — а тот гасит заодно и магию. Доспех и резист при этом разные вещи и
+-- работают по-разному: резист плоский и вечный на время эффекта, доспех
+-- — расходуемый запас, и порядок их прежний (сначала резист, потом
+-- броня, см. SB.Skills.ApplyResistance). Магическим resistMagic
+-- физическое по-прежнему не гасится.
 --
 -- РЕЗИСТ ГАСИТ ДО НУЛЯ. Пола «единица проходит всегда» здесь нет, и это
 -- решение принято после того, как пол сломал главное правило порядка:
@@ -142,11 +144,9 @@ do
     for id in pairs(SB.Data.DamageTypes) do names[#names + 1] = id end
     table.sort(names)
     for _, id in ipairs(names) do
-        -- Физический пропускаем: его ключ — доспех (см. врезку выше).
-        if SB.Data.DamageTypes[id].magic then
-            SB.Data.DamageTypes[id].resistKey = KeyOf(id)
-            SB.Data.ResistKeys[#SB.Data.ResistKeys + 1] = KeyOf(id)
-        end
+        -- Все школы, физическая тоже (см. врезку выше).
+        SB.Data.DamageTypes[id].resistKey = KeyOf(id)
+        SB.Data.ResistKeys[#SB.Data.ResistKeys + 1] = KeyOf(id)
     end
 end
 
@@ -176,7 +176,7 @@ end
 function SB.Data.ResistKeysFor(typeID)
     local dt = SB.Data.DamageTypes[typeID or ""]
     if not dt then return {} end
-    if not dt.magic then return { SB.Data.RESIST_ALL } end
+    if not dt.magic then return { SB.Data.RESIST_ALL, dt.resistKey } end
     return { SB.Data.RESIST_ALL, SB.Data.RESIST_MAGIC, dt.resistKey }
 end
 
