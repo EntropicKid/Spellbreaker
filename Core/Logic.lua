@@ -4254,6 +4254,11 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
     -- До рассылки результата: команда эмулятору не должна ждать сети.
     CheckPvpDeath(healthBefore)
 
+    -- ВОЗМЕЗДИЕ ЧИСЛАМИ уезжает вместе с итогом (см. TakeRetributions).
+    -- Существу отвечать некому: у него нет клиента, который принял бы урон.
+    local retrib = SB.ActiveEffects.TakeRetributions and SB.ActiveEffects.TakeRetributions() or {}
+    if fromNpc or #retrib == 0 then retrib = nil end
+
     -- ЕДИНОЕ ФИНАЛЬНОЕ СООБЩЕНИЕ (атака + защита + итог одной строкой).
     -- G — основной цвет тела сообщения: тёплое золото вместо белого
     -- по умолчанию, читается заметно лучше на фоне чат-окна.
@@ -4369,6 +4374,7 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
                 landed   = landed,
                 debuff   = debuffLanded,
                 resisted = debuffResisted,
+                retrib   = retrib,
             })
     else
         -- ОТВЕТ АТАКУЮЩЕМУ — ПОСЛЕ СТРОКИ БОЯ, следующим кадром. Строка
@@ -4411,7 +4417,7 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
         -- очереди кадра (ранга ACTION он и так первый).
         SB.Events.Fire(SB.E.BROADCAST_LOG, line, SB.LogRank.ACTION, {
             pvpResult = { attackerName, UnitName("player"), defRoll, defMod, defTotal,
-                          dmg, newHealth, maxHealth },
+                          dmg, newHealth, maxHealth, retrib },
         })
     end
 
@@ -4446,12 +4452,21 @@ end
 --- только шлём РП-отпись (outcome) заклинания по факту попадания/промаха.
 --- @param aoe table|nil  данные для сжатого отчёта о залпе:
 ---        { parts = разбивка защиты, landed, debuff, resisted }
-function SB.Logic.HandlePvpResultReceived(targetName, defRoll, defMod, defTotal, dmg, newHealth, maxHealth, aoe)
+function SB.Logic.HandlePvpResultReceived(targetName, defRoll, defMod, defTotal, dmg, newHealth, maxHealth, aoe, retrib)
     -- Всё, что ответ печатает (вампиризм, отпись), идёт ДО траты хода:
     -- тики и сдвиг очереди — последние в цепочке (см. HoldTurnUntilResult).
     -- Площадь отпускает ход сама, по печати блока залпа.
     local ok, err = pcall(SB.Logic.HandlePvpResultBody, targetName, defRoll, defMod,
         defTotal, dmg, newHealth, maxHealth, aoe)
+    -- ВОЗМЕЗДИЕ ЦЕЛИ — после строки удара и до траты хода: ударил,
+    -- получил в ответ, потом тики. Не больше пяти источников за удар —
+    -- пакет чужой, и бесконечный список из него не принимаем.
+    if type(retrib) == "table" and SB.ActiveEffects and SB.ActiveEffects.ApplyRetribution then
+        for i, id in ipairs(retrib) do
+            if i > 5 then break end
+            pcall(SB.ActiveEffects.ApplyRetribution, id)
+        end
+    end
     if not aoe then SB.Logic.ReleaseHeldTurn() end
     if not ok then error(err, 0) end
 end

@@ -1199,6 +1199,8 @@ function PM.GetIncomingHealMod()
     if SB.ActiveEffects and SB.ActiveEffects.GetMod then
         mod = mod + SB.ActiveEffects.GetMod("healTaken")
     end
+    -- Раса и класс — тем же ключом, что у эффектов (у Паладина +1).
+    mod = mod + (SB.Data.GetSoftBonus("healTaken") or 0)
     if SB.TurnOrder and SB.TurnOrder.GetHealWear then
         mod = mod - SB.TurnOrder.GetHealWear()
     end

@@ -504,7 +504,7 @@ local function BuildMainFrame()
         -- КАЖДЫЙ ключ, встречающийся в профилях рас и классов, был здесь.
         -- Порядок остаётся ручным (он про читаемость), полнота — нет.
         local ROW_ORDER = {
-            "health", "resource", "attack", "defense", "heal",
+            "health", "resource", "attack", "defense", "heal", "healTaken",
             "prepared", "rollFloor", "armor", "skillPoints",
             "attrPoints", "moveCap",
         }
@@ -525,6 +525,7 @@ local function BuildMainFrame()
             -- выдаёт, а не то, что получает (см. SB.Logic.GetHealBonus).
             -- Без уточнения жрец читал бы это как «меня лучше лечат».
             heal     = "Исцеление (исходящее)",
+            healTaken = "Исцеление (получаемое)",
             -- Ресурс у каждого класса зовётся по-своему (Мана, Ярость,
             -- Фокус...) — обобщённое «Максимум ресурса» уместно только
             -- в расовом блоке, где класс ещё неизвестен.

@@ -7156,7 +7156,10 @@ do
     for id, school in pairs(SCHOOL) do
         local ret
         for _, act in ipairs(SB.ActiveEffects.ActionsOf(SB.Data.Spells[id]) or {}) do
-            if act.toAttacker then ret = SB.Data.Spells[act.toAttacker] end
+            -- Ответ эффектом — школа у эффекта-ответа; ответ числами
+            -- (toAttacker = { damage = N }) — школа у самой ауры.
+            if type(act.toAttacker) == "string" then ret = SB.Data.Spells[act.toAttacker] end
+            if type(act.toAttacker) == "table" then ret = SB.Data.Spells[id] end
         end
         check("«" .. SB.Data.Spells[id].name .. "» отвечает своей школой",
               ret and ret.damageType, school)
@@ -9381,9 +9384,13 @@ do
     -- ── ЛЕСТНИЦА ЦЕЛА ───────────────────────────────────────
     -- Живыми данными: значение выше тройки в этой системе — уже не
     -- сопротивление, а неуязвимость (запас здоровья 3-9).
+    -- ИСКЛЮЧЕНИЕ ОДНО, И ОНО НАЗВАНО: «Небесный промысел» — священный
+    -- стазис, полная неуязвимость по описанию, и цель за неё платит тем,
+    -- что сама не действует, а паладин — собой.
+    local CAP_EXEMPT = { eff_divine_intervention = true }
     local overCap = {}
     for id, sp in pairs(SB.Data.Spells) do
-        if ShippedSpells[id] and type(sp.effect) == "table"
+        if ShippedSpells[id] and not CAP_EXEMPT[id] and type(sp.effect) == "table"
            and type(sp.effect.mods) == "table" then
             for _, k in ipairs(SB.Data.ResistKeys) do
                 local v = tonumber(sp.effect.mods[k]) or 0
@@ -16717,21 +16724,38 @@ do
               SB.Skills.GetLeadershipRegenPeriod(), EXPECT[v])
     end
 
-    -- ── ВНИЗ НЕ ШТРАФУЕТ ───────────────────────────────────
+    -- ── ЭФФЕКТЫ ДВИГАЮТ РУЧЕЁК — ПО СТУПЕНЯМ И В РАМКАХ ─────
     --
-    -- Прямое требование: просаженный дебаффами навык не должен ни
-    -- замедлять ручеёк, ни тем более отнимать ресурс. Поэтому считается
-    -- ВЛОЖЕННОЕ (Get), а не действующее (GetEffective).
+    -- Бафф ускоряет, дебафф замедляет, но быстрее «каждый ход» не
+    -- бывает, а ниже нуля навык молчит — ресурс не отнимается.
     _G.SpellbreakerCharDB.skills = { ["Лидерство"] = 5 }
     SB.Data.Spells["t_lead_down"] = { id = "t_lead_down", name = "Проба давления",
         class = "Эффект", level = 0, isContainer = true,
         effect = { kind = "debuff", stats = { ["Лидерство"] = -9 } } }
-    SB.ActiveEffects.Add("t_lead_down", 5, false)
-    checkTrue("дебафф действительно топит навык",
-              SB.Skills.GetEffective("Лидерство") < 1)
-    check("но период не сдвинулся", SB.Skills.GetLeadershipRegenPeriod(), 1)
+    SB.Data.Spells["t_lead_mid"] = { id = "t_lead_mid", name = "Проба сомнения",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "debuff", stats = { ["Лидерство"] = -2 } } }
+    SB.Data.Spells["t_lead_up"] = { id = "t_lead_up", name = "Проба вдохновения",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff", stats = { ["Лидерство"] = 4 } } }
+    SB.ActiveEffects.Add("t_lead_mid", 5, false)
+    check("дебафф −2 на пятёрке: третья ступень", SB.Skills.GetLeadershipRegenPeriod(), 2)
     ResetEffects()
-    SB.Data.Spells["t_lead_down"] = nil
+    SB.ActiveEffects.Add("t_lead_down", 5, false)
+    check("утопленный навык молчит — и только", SB.Skills.GetLeadershipRegenPeriod(), nil)
+    ResetEffects()
+    _G.SpellbreakerCharDB.skills = { ["Лидерство"] = 1 }
+    SB.ActiveEffects.Add("t_lead_up", 5, false)
+    check("бафф +4 на единице: каждый ход", SB.Skills.GetLeadershipRegenPeriod(), 1)
+    _G.SpellbreakerCharDB.skills = { ["Лидерство"] = 5 }
+    check("и выше потолка не разгоняет", SB.Skills.GetLeadershipRegenPeriod(), 1)
+    ResetEffects()
+    _G.SpellbreakerCharDB.skills = {}
+    SB.ActiveEffects.Add("t_lead_up", 5, false)
+    check("бафф и без вложений даёт ручеёк", SB.Skills.GetLeadershipRegenPeriod(), 2)
+    ResetEffects()
+    SB.Data.Spells["t_lead_down"], SB.Data.Spells["t_lead_mid"] = nil, nil
+    SB.Data.Spells["t_lead_up"] = nil
 
     -- Ручеёк висит на том же TURN_TICK, что и классовые механики, но
     -- своим счётчиком: общий заставлял бы обе прибавки приходить строго
@@ -17400,6 +17424,92 @@ do
               autoAt ~= nil and drawAt ~= nil and autoAt < drawAt)
     checkTrue("и уходит тем же ConfirmCast, что и кнопка",
               body:find("SB.Logic.ConfirmCast(spellID, options[1].level)", 1, true) ~= nil)
+end
+
+-- ============================================================
+-- ПАЛАДИН: КЛАСС, АУРА ВОЗДАЯНИЯ, ПЕЧАТЬ СПРАВЕДЛИВОСТИ, НЕБЕСНЫЙ ПРОМЫСЕЛ
+-- ============================================================
+do
+    local PM = SB.PlayerModel
+
+    -- ── КЛАСС: БЕЗ ШТРАФА К МАНЕ, +1 ВХОДЯЩЕГО ИСЦЕЛЕНИЯ ────
+    local prof = SB.Data.ClassProfiles["Паладин"]
+    check("штрафа к мане у паладина нет", prof.resource, nil)
+    check("входящее исцеление +1", prof.healTaken, 1)
+    checkTrue("и его читает входящее исцеление",
+              ReadFile("Core/PlayerModel.lua"):find('GetSoftBonus("healTaken")', 1, true) ~= nil)
+    checkTrue("и подсказка портрета называет",
+              ReadFile("UI/MainFrame.lua"):find('"heal", "healTaken"', 1, true) ~= nil)
+
+    -- ── АУРА ВОЗДАЯНИЯ: МГНОВЕННЫЙ УРОН УДАРИВШЕМУ ──────────
+    -- Раньше toAttacker понимал только id эффекта, а таблицу молча
+    -- пропускал: аура с { damage = 1 } не делала ничего.
+    ResetEffects()
+    SB.ActiveEffects.Add("eff_auraoflight", 5, false)
+    SB.ActiveEffects.TakeRetributions()
+    SB.ActiveEffects.FireAction("damaged", SB.Data.Spells["heroic_strike"], "Ирина")
+    local ret = SB.ActiveEffects.TakeRetributions()
+    check("удар по носителю ауры копит возмездие", ret[1], "eff_auraoflight")
+    SB.ActiveEffects.FireAction("damaged", SB.Data.Spells["heroic_strike"], nil)
+    check("удару без имени отвечать некому", #SB.ActiveEffects.TakeRetributions(), 0)
+    ResetEffects()
+
+    -- Получатель берёт урон из своей библиотеки, а не из пакета.
+    _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
+    checkTrue("возмездие применяется", SB.ActiveEffects.ApplyRetribution("eff_auraoflight"))
+    check("и снимает записанное", PM.GetMaxHealth() - PM.GetHealth(), 1)
+    checkTrue("чужое подложить нельзя", not SB.ActiveEffects.ApplyRetribution("heroic_strike"))
+    _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
+
+    -- Возмездие едет вместе с итогом удара — отдельный пакет обгонял бы
+    -- строку боя.
+    local attach
+    local realFire = SB.Events.Fire
+    SB.Events.Fire = function(name, msg, rank, extra, ...)
+        if name == SB.E.BROADCAST_LOG and type(extra) == "table" and extra.pvpResult then
+            attach = extra.pvpResult
+        end
+        return realFire(name, msg, rank, extra, ...)
+    end
+    SB.TurnOrder.Stop()
+    ResetEffects()
+    SB.ActiveEffects.Add("eff_auraoflight", 5, false)
+    SB.Logic.HandlePvpAttackReceived("Ирина", "t_strike", 100, 50, 150, false, 0, 1, 1)
+    SB.Events.Fire = realFire
+    checkTrue("итог удара везёт возмездие",
+              attach ~= nil and type(attach[9]) == "table" and attach[9][1] == "eff_auraoflight")
+    ResetEffects()
+    _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
+
+    -- ── ПЕЧАТЬ СПРАВЕДЛИВОСТИ ───────────────────────────────
+    local seal = SB.Data.Spells["seal_of_wrath"]
+    check("печать — на себя", seal.distance, 0)
+    check("своим контейнером", seal.container, "eff_weapon_enchant_seal_of_wrath")
+    local act = (SB.ActiveEffects.ActionsOf(SB.Data.Spells[seal.container]) or {})[1] or {}
+    check("срабатывает от удара",      act.when, "hit")
+    check("только в ближнем бою",      act.melee, true)
+    check("с шансом 20%",              act.chance, 20)
+    check("и дезориентирует цель",     act.toTarget, "eff_seal_of_justice_daze")
+    local daze = SB.Data.Spells["eff_seal_of_justice_daze"]
+    checkTrue("дезориентация — дебафф",
+              daze ~= nil and daze.effect.kind == "debuff" and daze.effect.family == "Оглушение")
+    -- Шанс — ровным кубиком: кубик Орка (от 25) не дал бы 20% никогда.
+    checkTrue("шанс повода бросается ровным кубиком",
+              ReadFile("Core/ActiveEffects.lua"):find("if SB.Logic.RollPlain() > need then ok = false end", 1, true) ~= nil)
+
+    -- ── НЕБЕСНЫЙ ПРОМЫСЕЛ ───────────────────────────────────
+    local di = SB.Data.Spells["divine_intervention"]
+    check("вешает стазис на союзника", di.buff, "eff_divine_intervention")
+    check("на 3 минуты — 30 ходов", di.duration, 30)
+    checkTrue("паладин платит собой", (di.onCast and di.onCast.damage or 0) >= 50)
+    local st = SB.Data.Spells["eff_divine_intervention"].effect
+    checkTrue("атаковать цель нельзя",  (st.mods.defense or 0) >= 300)
+    checkTrue("урон не проходит",      (st.mods.resistAll or 0) >= 50)
+    checkTrue("сама не бьёт",          (st.mods.attack or 0) <= -300)
+    local sup = {}
+    for _, k in ipairs(st.suppress or {}) do sup[k] = true end
+    checkTrue("и невосприимчива к вредным чарам",
+              sup["magic"] and sup["Оглушение"] and sup["poison"] and sup["curse"])
 end
 
 -- ============================================================

@@ -480,6 +480,9 @@ function SB.ActiveEffects.GetEffectLines(spellID)
         if payTxt then table.insert(parts, payTxt) end
         if type(act.effect)     == "string" then table.insert(parts, name(act.effect)) end
         if type(act.toAttacker) == "string" then table.insert(parts, "ударившему — " .. name(act.toAttacker)) end
+        if type(act.toAttacker) == "table" and (tonumber(act.toAttacker.damage) or 0) > 0 then
+            table.insert(parts, "ударившему — " .. act.toAttacker.damage .. " урона сразу")
+        end
         -- Зеркало возмездия: «я попал — цель получила» (см. SendAside).
         if type(act.toTarget)   == "string" then table.insert(parts, "цели — "       .. name(act.toTarget)) end
         local what = (#parts > 0) and table.concat(parts, ", ") or nil
@@ -2117,6 +2120,37 @@ end
 -- задаёт заклинание-источник, а у контейнера щита её нет — значит один
 -- ход (см. SB.Logic.GetEffectDuration). Ровно то, что нужно: искры
 -- вспыхнули и погасли, а не жгут врага полбоя.
+-- ВОЗМЕЗДИЕ ЧИСЛАМИ — toAttacker = { damage = N }: не эффект на
+-- ударившего, а мгновенный урон ему. Копится здесь за один удар и
+-- уезжает ВМЕСТЕ С ИТОГОМ удара (см. HandlePvpAttackReceived): отдельный
+-- пакет обгонял бы строку боя. Едут id эффектов-источников, а не числа:
+-- получатель берёт урон из СВОЕЙ библиотеки (см. ApplyRetribution).
+local retribPending = {}
+
+--- Забрать накопленное возмездие этого удара (список id эффектов).
+function SB.ActiveEffects.TakeRetributions()
+    local out = retribPending
+    retribPending = {}
+    return out
+end
+
+--- Получить возмездие: урон из onAction того эффекта, у которого он
+--- записан таблицей, — ровно так, как записано в своей библиотеке.
+--- @return boolean  применено ли
+function SB.ActiveEffects.ApplyRetribution(effectID)
+    local sp = type(effectID) == "string" and SB.Data.Spells[effectID]
+    if not sp then return false end
+    for _, act in ipairs(SB.ActiveEffects.ActionsOf(sp) or {}) do
+        if act.when == "damaged" and type(act.toAttacker) == "table" then
+            -- Через "tick": урон пришёл извне — сопротивление школе
+            -- эффекта работает, доспех нет (см. врезку в ApplyPayload).
+            SB.ActiveEffects.ApplyPayload(effectID, act.toAttacker, "tick")
+            return true
+        end
+    end
+    return false
+end
+
 local function SendAside(ok, effectID, name, sourceID)
     if not ok or type(effectID) ~= "string" then return end
     if not name or name == "" or name == UnitName("player") then return end
@@ -2151,7 +2185,11 @@ local function FireAction(when, spell, attacker, target)
             end
             if ok and act.chance then
                 local need = math.max(0, math.min(100, tonumber(act.chance) or 100))
-                if SB.Logic.Roll() > need then ok = false end
+                -- РОВНЫМ КУБИКОМ 1-100, а не кубиком персонажа: «1d100
+                -- меньше 20» — это шанс, а не бросок персонажа. Кубик с
+                -- расовым минимумом (Орк бросает от 25) не давал бы
+                -- такому поводу сработать никогда.
+                if SB.Logic.RollPlain() > need then ok = false end
             end
             if ok and type(act.payload) == "table" then
                 -- Через "tick": для носителя это ПРИШЛО ИЗВНЕ ровно так
@@ -2192,6 +2230,10 @@ local function FireAction(when, spell, attacker, target)
             -- SB.Logic.GetEffectDuration). Ровно то, что нужно: искры
             -- вспыхнули и погасли, а не жгут врага полбоя.
             SendAside(ok, act.toAttacker, attacker, eff.spellID)
+            if ok and type(act.toAttacker) == "table" and attacker
+               and attacker ~= "" and attacker ~= UnitName("player") then
+                retribPending[#retribPending + 1] = eff.spellID
+            end
 
             -- ── И ОБРАТНО: ЭФФЕКТ УХОДИТ ТОМУ, КОГО УДАРИЛ ─────
             --

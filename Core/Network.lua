@@ -485,7 +485,7 @@ local function ParsePVPRES(t)
         }
     end
     SB.Logic.HandlePvpResultReceived(t.target, t.defRoll, t.defMod, t.defTotal,
-        t.dmg, t.newHealth, t.maxHealth, aoe)
+        t.dmg, t.newHealth, t.maxHealth, aoe, t.retrib)
 end
 
 --- Ответ задетого на площадной эффект — собираем у заклинателя.
@@ -1872,6 +1872,7 @@ function SB.Net.SendPvpResult(attackerName, targetName, defRoll, defMod, defTota
         t.landed   = aoe.landed and true or false
         t.debuff   = aoe.debuff and true or false
         t.resisted = aoe.resisted and true or false
+        t.retrib   = aoe.retrib
         t.isAoe    = true
     end
     SendToPlayer(t, attackerName, "NORMAL")
@@ -1900,6 +1901,7 @@ function SB.Net.SendPvpResultWithLog(line, r)
         dmg       = r[6],
         newHealth = r[7],
         maxHealth = r[8],
+        retrib    = r[9],
         log       = line,
     }, "NORMAL")
 end
