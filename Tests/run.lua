@@ -14225,13 +14225,35 @@ do
     checkTrue("лёгший контроль сорвал концентрацию", UsesOf("t_cc_plain") == nil)
     checkTrue("а сам остался висеть", UsesOf("t_cc_stun") ~= nil)
 
-    -- ПРОДЛЕНИЕ ТОЖЕ СБИВАЕТ. Оглушить второй раз того, кто успел
-    -- сосредоточиться заново, — обычный ход, и ветка продления обязана
-    -- знать про сбив не хуже ветки вставки.
+    -- ПОД ВИСЯЩИМ КОНТРОЛЕМ КОНЦЕНТРАЦИЯ НЕ ВСТАЁТ ВОВСЕ.
+    --
+    -- Здесь проверялось обратное: концентрация поднималась поверх
+    -- висящих оков, и от ветки продления требовалось сорвать её второй
+    -- раз. За столом это значило, что контроль мешает сосредоточению
+    -- ровно один ход: переждал — и держишь под тем же страхом.
     SB.ActiveEffects.Add("t_cc_plain", 5, true)
-    checkTrue("концентрация поднялась заново", UsesOf("t_cc_plain") ~= nil)
+    checkTrue("под контролем сосредоточиться нельзя", UsesOf("t_cc_plain") == nil)
+    checkTrue("и контроль этим не сбит",              UsesOf("t_cc_stun") ~= nil)
+    check("кто держит — названо по имени",
+          SB.ActiveEffects.ConcentrationBlockedBy(), "Проба оков")
+
+    -- ОТКАЗ ОТ СБИВА — ОТКАЗ И ОТ ЗАПРЕТА: поле одно, ответ один.
+    SB.Data.Spells["t_cc_firm"] = { id = "t_cc_firm", name = "Проба твёрдости",
+        class = "Эффект", level = 0, isContainer = true, isConcentration = true,
+        effect = { kind = "buff", breakOn = { controlled = false } } }
+    SB.ActiveEffects.Add("t_cc_firm", 5, true)
+    checkTrue("объявленная стойкой встаёт и под контролем",
+              UsesOf("t_cc_firm") ~= nil)
+    SB.Data.Spells["t_cc_firm"] = nil
+
+    -- БЕЗ КОНТРОЛЯ ВСЁ ПО-ПРЕЖНЕМУ: встала и сорвалась.
+    ResetEffects()
+    check("свободному сосредоточиться ничто не мешает",
+          SB.ActiveEffects.ConcentrationBlockedBy(), nil)
+    SB.ActiveEffects.Add("t_cc_plain", 5, true)
+    checkTrue("концентрация поднялась", UsesOf("t_cc_plain") ~= nil)
     SB.ActiveEffects.Add("t_cc_stun", 2, false)
-    checkTrue("повторный контроль сорвал её снова", UsesOf("t_cc_plain") == nil)
+    checkTrue("пришедший контроль сорвал её", UsesOf("t_cc_plain") == nil)
 
     -- ЗАМЕДЛЕНИЕ НЕ СБИВАЕТ. Оно отнимает метры, а не голову.
     ResetEffects()
@@ -17658,6 +17680,50 @@ do
     local disp = table.concat(L.GetSpellScalingLines(SB.Data.Spells["cure_blind"]), "\n")
     checkTrue("рассеивание называет число", disp:find("1 эффект", 1, true) ~= nil)
     checkTrue("и школы, которые снимает",   disp:find("Магия", 1, true) ~= nil)
+end
+
+-- ============================================================
+-- ЧУЖОЙ КАСТ НА НАС ПЕЧАТАЕТСЯ ОДИН РАЗ
+-- ============================================================
+do
+    SB.Data.Spells["t_bf_eff"] = { id = "t_bf_eff", name = "Проба порчи",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "debuff", resist = "Воля", school = "magic" } }
+    SB.Data.Spells["t_bf_cast"] = { id = "t_bf_cast", name = "Проба сглаза",
+        class = "Чернокнижник", level = 1, key = "Тьма", resistable = true,
+        distance = 10, debuff = "t_bf_eff" }
+
+    local realSend = SB.Net.SendBuffResult
+    SB.Net.SendBuffResult = function() end
+
+    local function Lines(...)
+        local said = {}
+        local realPrint = print
+        print = function(a) said[#said + 1] = tostring(a) end
+        SB.Logic.HandleBuffReceived(...)
+        print = realPrint
+        local n = 0
+        for _, line in ipairs(said) do
+            if line:find("применяет на вас", 1, true) then n = n + 1 end
+        end
+        return n
+    end
+
+    -- С БРОСКОМ строку пишет заклинатель — одну, на всю группу. Своя
+    -- копия двоила её в чате и при этом в лог не попадала.
+    ResetEffects()
+    check("каст с броском своей строки не печатает",
+          Lines("Зольц", "t_bf_cast", "t_bf_eff", 0, 56, 28, 84, "Зольц"), 0)
+
+    -- БЕЗ БРОСКА печатаем по-прежнему: приказ Ведущего, отдача щита и
+    -- бафф союзнику ответа не ждут, и сказать о них больше некому.
+    ResetEffects()
+    check("каст без броска остаётся при своей строке",
+          Lines("Зольц", "t_bf_cast", "t_bf_eff", 0, nil, nil, nil, "Зольц"), 1)
+
+    SB.Net.SendBuffResult = realSend
+    SB.Data.Spells["t_bf_eff"], SB.Data.Spells["t_bf_cast"] = nil, nil
+    ResetEffects()
 end
 
 -- ============================================================

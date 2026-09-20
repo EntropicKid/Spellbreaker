@@ -1952,11 +1952,17 @@ function SB.Logic.HandleBuffReceived(casterName, spellID, effectID, slotLevel,
                              casterName)
     end
 
-    local G = SB.Theme.MSG_BODY
-    print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. who .. G .. ": |r" ..
-        SB.UI.RollLine(roll, mod, total, G) .. G .. " против " .. threshold .. ". |r" ..
-        (ok and (SB.Theme.MSG_GOOD .. "Успех.|r") or (SB.Theme.MSG_BAD .. "Провал.|r")))
-
+    -- СТРОКУ ПИШЕТ ЗАКЛИНАТЕЛЬ, А НЕ МЫ. Здесь стояла своя печать —
+    -- «Зольц применяет на вас [Проклятие Тьмы]: [56][+28]=84 против 99.
+    -- Провал.», — и это была вторая копия того же события: порог и исход
+    -- уезжают ответом (SendBuffResult), заклинатель дожидается их и
+    -- печатает ОДНУ строку на всю группу, с теми же числами
+    -- (см. Announce в ProcessRollAndCast). Локальная при этом в лог не
+    -- попадала вовсе — то есть в чате двоилось, а в логе оставалось одно.
+    --
+    -- Потеряться строка не может: BUFF с броском шлётся только внутри
+    -- группы (SB.Net.SendBuff начинается с IsInGroup), а значит и
+    -- общая строка заклинателя до нас дойдёт.
     if SB.Net and SB.Net.SendBuffResult then
         SB.Net.SendBuffResult(sender or casterName, spellID, threshold, ok)
     end

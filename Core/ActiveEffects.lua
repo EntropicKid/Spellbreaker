@@ -1484,6 +1484,25 @@ function SB.ActiveEffects.IsSuppressed(containerSpellID)
     return false
 end
 
+--- Что сейчас не даёт сосредоточиться. nil — ничего.
+---
+--- Тот же список, по которому контроль СБИВАЕТ концентрацию
+--- (SB.Data.ConcentrationBreakers): оглушение, жёсткий контроль, страх.
+--- Второго списка здесь быть не может — «сбивает, но не мешает лечь»
+--- нельзя объяснить ни за столом, ни в коде.
+--- @return string|nil  имя первого найденного эффекта
+function SB.ActiveEffects.ConcentrationBlockedBy()
+    local breakers = SB.Data.ConcentrationBreakers or {}
+    for _, eff in ipairs(effects) do
+        local sp  = SB.Data.Spells[eff.spellID]
+        local def = sp and sp.effect
+        if def and def.kind == "debuff" and breakers[def.family or ""] then
+            return (sp.name or eff.spellID)
+        end
+    end
+    return nil
+end
+
 --- Снять всё, что подавляет только что наложенный подавитель.
 --- @return number, string  сколько снято и ЧТО именно (списком имён)
 local function DropSuppressed(containerSpellID)
@@ -1561,6 +1580,37 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc, source)
             "«" .. ((sp and sp.name) or containerSpellID) ..
             "» не лёг — «" .. (by or "?") .. "».|r")
         return
+    end
+
+    -- ПОД КОНТРОЛЕМ НЕ СОСРЕДОТОЧИТЬСЯ — и это не то же самое, что сбив.
+    --
+    -- Сбив (BreakOn "controlled") снимает концентрацию, которая УЖЕ
+    -- висела в миг, когда пришёл контроль. Обратного порядка не было
+    -- вовсе, и выходила дыра: пока на персонаже висит страх или
+    -- оглушение, он спокойно кладёт НОВУЮ концентрацию и держит её до
+    -- конца срока. То есть контроль мешал сосредоточению ровно один
+    -- раз — в момент наложения, — а дальше не значил ничего, и хватало
+    -- переждать один ход, чтобы закрепиться заново под тем же страхом.
+    --
+    -- ОТКАЗ ЧИТАЕТСЯ ТОТ ЖЕ, ЧТО У СБИВА: breakOn = { controlled = false }
+    -- значит «эту концентрацию контроль не трогает» — ни сорвать, ни не
+    -- пустить. Два разных ответа на одно поле были бы западнёй.
+    --
+    -- ДО DropFamily, как и подавление строкой выше: иначе новая
+    -- концентрация сперва снесла бы свою же семейную предшественницу, а
+    -- потом сама не легла — и игрок остался бы вовсе ни с чем.
+    if isConc then
+        local br = SB.Data.Spells[containerSpellID]
+        br = br and br.effect and br.effect.breakOn
+        local optOut = (type(br) == "table") and br.controlled == false
+        local held = (not optOut) and SB.ActiveEffects.ConcentrationBlockedBy()
+        if held then
+            local sp = SB.Data.Spells[containerSpellID]
+            print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BAD ..
+                "«" .. ((sp and sp.name) or containerSpellID) ..
+                "» не лёг — «" .. held .. "» не даёт сосредоточиться.|r")
+            return
+        end
     end
 
     -- ДО всего остального, включая продление уже висящего: семейство
