@@ -817,7 +817,10 @@ function SB.Logic.HandleAoeHealReceived(casterName, spellID, effectID, radius,
         if effectID then
             -- fromOther: лечит союзник, ему и держать. Ровно этим путём
             -- приезжает «Молитва о сострадании» жреца.
-            SB.Logic.ApplyEffect(effectID, SB.Data.Spells[spellID], slotLevel, true)
+            -- И ЕГО ЖЕ ИМЯ: кто вылечил, тот и наложил — оно уже здесь,
+            -- в аргументе, и по сети за ним ходить не надо.
+            SB.Logic.ApplyEffect(effectID, SB.Data.Spells[spellID], slotLevel, true,
+                                 nil, casterName)
         end
     end
 

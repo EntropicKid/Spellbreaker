@@ -17763,6 +17763,94 @@ do
 end
 
 -- ============================================================
+-- КАЖДЫЙ ВИСЯЩИЙ ЭФФЕКТ ЗНАЕТ, КТО ЕГО НАЛОЖИЛ
+-- ============================================================
+do
+    local AE = SB.ActiveEffects
+    local me = UnitName("player")
+
+    SB.Data.Spells["t_src_eff"] = { id = "t_src_eff", name = "Проба следа",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff", school = "magic", mods = { attack = 1 } } }
+    SB.Data.Spells["t_src_conc"] = { id = "t_src_conc", name = "Проба сосредоточения",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff", mods = { defense = 1 } } }
+
+    -- ── УМОЛЧАНИЕ — МЫ САМИ ─────────────────────────────────
+    ResetEffects()
+    AE.Add("t_src_eff", 3, false)
+    check("свой эффект подписан своим именем", AE.SourceOf("t_src_eff"), me)
+    check("и чужим не считается",              AE.IsFromOther("t_src_eff"), false)
+
+    -- ── ИМЯ, КОГДА ЕГО НАЗВАЛИ ──────────────────────────────
+    ResetEffects()
+    AE.Add("t_src_eff", 3, false, "Лайка")
+    check("чужой эффект помнит источник", AE.SourceOf("t_src_eff"), "Лайка")
+    check("и знает, что он чужой",        AE.IsFromOther("t_src_eff"), true)
+    -- Повторное наложение переписывает источник: держит последний.
+    AE.Add("t_src_eff", 3, false, "Зольц")
+    check("переналожение меняет источник", AE.SourceOf("t_src_eff"), "Зольц")
+
+    -- Пустая строка — это не имя: пусть лучше «я сам», чем «кто-то».
+    ResetEffects()
+    AE.Add("t_src_eff", 3, false, "")
+    check("пустое имя источником не становится", AE.SourceOf("t_src_eff"), me)
+
+    -- ── ОТДАЁТСЯ НАРУЖУ И ПЕРЕЖИВАЕТ /reload ────────────────
+    ResetEffects()
+    AE.Add("t_src_eff", 3, false, "Лайка")
+    local seen
+    for _, eff in ipairs(AE.GetAll()) do
+        if eff.spellID == "t_src_eff" then seen = eff.src end
+    end
+    check("список эффектов везёт источник", seen, "Лайка")
+    -- Сохранение идёт само, вместе с уведомлением об изменении
+    -- (см. FireChanged): достаточно перечитать.
+    AE.LoadFromDB()
+    check("и сохранёнка его помнит", AE.SourceOf("t_src_eff"), "Лайка")
+    check("нет эффекта — нет и ответа", AE.SourceOf("t_src_eff_нет"), nil)
+    check("и чужим он тоже не числится", AE.IsFromOther("t_src_eff_нет"), false)
+
+    -- ── ЧУЖОЕ РАССЕИВАНИЕ ПРИВОЗИТ СВОЙ БОНУС ЧУЖИМ ─────────
+    --
+    -- Бонусный бафф рассеивания («Очищенная кровь») приезжал без имени
+    -- и без пометки «чужое»: он считался МОЕЙ концентрацией и, ложась,
+    -- снимал мою настоящую. Ход тратился впустую, причём чужими руками.
+    SB.Data.Spells["t_src_dispel"] = { id = "t_src_dispel", name = "Проба очищения",
+        class = "Жрец", level = 1, key = "Слово Света", resistable = false,
+        distance = 10, dispel = { "poison" }, isConcentration = true,
+        buff = "t_src_eff" }
+    ResetEffects()
+    AE.Add("t_src_conc", 5, true)          -- моя настоящая концентрация
+    SB.Logic.HandleDispelReceived("Лайка", "t_src_dispel", { "poison" }, 1,
+                                  "t_src_eff", 1, true)
+    check("бонус чужого рассеивания подписан им", AE.SourceOf("t_src_eff"), "Лайка")
+    checkTrue("и мою концентрацию он не сносит", AE.SourceOf("t_src_conc") ~= nil)
+
+    -- СВОЁ рассеивание — своя концентрация, как и было.
+    ResetEffects()
+    SB.Logic.HandleDispelReceived(me, "t_src_dispel", { "poison" }, 1,
+                                  "t_src_eff", 1, true)
+    check("своё рассеивание подписано собой", AE.SourceOf("t_src_eff"), me)
+
+    -- ── ОСТАЛЬНЫЕ ДОРОГИ ИМЯ ТОЖЕ НЕСУТ ─────────────────────
+    -- Проверяем по исходникам: разыграть выдачу Ведущего и площадное
+    -- лечение целиком здесь нечем (нужен живой AceComm), а забыть один
+    -- из путей — ровно та ошибка, которую эта правка и закрывает.
+    checkTrue("выдача Ведущего называет того, кто выдал",
+              ReadFile("Core/Network.lua"):find("t.isConc == true,\n                         ActorOf(sender, t))", 1, true) ~= nil
+              or ReadFile("Core/Network.lua"):find("ActorOf(sender, t))", 1, true) ~= nil)
+    checkTrue("площадное лечение называет лекаря",
+              ReadFile("Core/Logic/Aoe.lua"):find("slotLevel, true,\n                                 nil, casterName)", 1, true) ~= nil
+              or ReadFile("Core/Logic/Aoe.lua"):find("nil, casterName)", 1, true) ~= nil)
+
+    SB.Data.Spells["t_src_eff"]    = nil
+    SB.Data.Spells["t_src_conc"]   = nil
+    SB.Data.Spells["t_src_dispel"] = nil
+    ResetEffects()
+end
+
+-- ============================================================
 -- БОНУСЫ ОРУЖИЯ
 --
 -- У каждого класса оружия своя черта (SB.Data.WeaponBonuses): щит —

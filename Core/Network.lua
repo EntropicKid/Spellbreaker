@@ -900,7 +900,12 @@ local function ParseADDEFF(sender, t)
         return
     end
 
-    SB.ActiveEffects.Add(t.contID, tonumber(t.duration) or 1, t.isConc == true)
+    -- КТО НАЛОЖИЛ — ОТПРАВИТЕЛЬ, И ЭТО БЕСПЛАТНО: имя даёт транспорт, а
+    -- не пакет, подделать его нельзя. ActorOf на случай, когда Ведущий
+    -- выдаёт эффект от лица существа: в подсказке должно стоять имя
+    -- тушки, а не того, кто ей управляет (см. врезку у ActorOf).
+    SB.ActiveEffects.Add(t.contID, tonumber(t.duration) or 1, t.isConc == true,
+                         ActorOf(sender, t))
 
     -- Строку пишет ПОЛУЧАТЕЛЬ: у Ведущего эффект не висит, и «сколько
     -- ходов осталось» знает только тот, на ком он теперь.

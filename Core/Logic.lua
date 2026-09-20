@@ -4949,7 +4949,17 @@ function SB.Logic.HandleDispelReceived(casterName, spellID, schools, count, effe
     -- ложится независимо от того, было ли что снимать: это часть каста,
     -- а не награда за попадание.
     if effectID then
-        SB.Logic.ApplyEffect(effectID, SB.Data.Spells[spellID], slotLevel)
+        -- ЧЬЁ РАССЕИВАНИЕ — ТОГО И БАФФ. Имя уже в аргументе (свой путь
+        -- зовёт эту же функцию, подставляя себя), и по сети за ним
+        -- ходить не надо.
+        --
+        -- fromOther СЧИТАЕТСЯ ТЕМ ЖЕ СРАВНЕНИЕМ, и это заодно чинит
+        -- старую тихую поломку: бонус от ЧУЖОГО рассеивания приезжал
+        -- помеченным как моя концентрация — и, ложась, снимал мою
+        -- настоящую (см. врезку в SB.Logic.ApplyEffect о чужих аурах).
+        local fromOther = (casterName ~= nil) and (casterName ~= UnitName("player"))
+        SB.Logic.ApplyEffect(effectID, SB.Data.Spells[spellID], slotLevel,
+                             fromOther, nil, casterName)
     end
     SB.Logic.AnnounceDispel(casterName, spellID, names, friend)
     SB.Events.Fire(SB.E.STATUS_CHANGED)
