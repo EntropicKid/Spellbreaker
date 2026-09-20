@@ -14260,8 +14260,41 @@ do
     SB.ActiveEffects.Add("t_cc_plain", 5, true)
     SB.ActiveEffects.Add("t_cc_slow", 2, false)
     checkTrue("замедление концентрацию не трогает", UsesOf("t_cc_plain") ~= nil)
+    -- И ЛЕЧЬ ПОД НИМ ТОЖЕ МОЖНО: запрет и сбив читают один список.
+    ResetEffects()
+    SB.ActiveEffects.Add("t_cc_slow", 2, false)
+    check("под замедлением сосредоточиться можно",
+          SB.ActiveEffects.ConcentrationBlockedBy(), nil)
+    SB.ActiveEffects.Add("t_cc_plain", 5, true)
+    checkTrue("и концентрация встаёт", UsesOf("t_cc_plain") ~= nil)
 
     SB.Data.Spells["t_cc_stun"], SB.Data.Spells["t_cc_slow"] = nil, nil
+
+    -- ── ЧИСТОЕ ЗАМЕДЛЕНИЕ НЕ ЛЕЖИТ В «КОНТРОЛЕ» ─────────────
+    --
+    -- Три приёма, которые отнимают одни метры, стояли в семействе
+    -- «Контроль»: они сбивали сосредоточение, не давали ему встать и
+    -- вытесняли настоящий контроль — подрезанные сухожилия снимали бы
+    -- полиморф. Правило проверяется по данным, а не по списку имён:
+    -- забыть его при следующем таком приёме — дело одного дня.
+    ResetEffects()
+    local breakers = SB.Data.ConcentrationBreakers or {}
+    local mislabeled = {}
+    for _, id in ipairs({ "eff_hamstring", "eff_concussive_shot", "eff_wing_clip" }) do
+        local def = SB.Data.Spells[id] and SB.Data.Spells[id].effect
+        local mods, only = def and def.mods or {}, true
+        for k in pairs(mods) do if k ~= "movePct" then only = false end end
+        if breakers[(def and def.family) or ""] then
+            mislabeled[#mislabeled + 1] = (SB.Data.Spells[id].name or id)
+        end
+        if id ~= "eff_hamstring" then
+            checkTrue("«" .. (SB.Data.Spells[id].name or id) ..
+                      "» отнимает только метры", only)
+        end
+        check("«" .. (SB.Data.Spells[id].name or id) .. "» — замедление",
+              def and def.family, "Замедление")
+    end
+    check("чистых замедлений в списке сбива нет", #mislabeled, 0)
 
     -- ── И ЭТО РАБОТАЕТ НА ЖИВЫХ ДАННЫХ ──────────────────────
     ResetEffects()
@@ -14287,7 +14320,10 @@ do
             ctrl = ctrl + 1
         end
     end
-    check("контрольных эффектов помечено", ctrl, 16)
+    -- Тринадцать, а не шестнадцать: «Подрезать сухожилия», «Контузящий
+    -- выстрел» и «Подрезать крылья» переехали в «Замедление» — они
+    -- отнимают метры, а не голову (см. проверку выше).
+    check("контрольных эффектов помечено", ctrl, 13)
     checkTrue("оглушение сбивает", SB.Data.ConcentrationBreakers["Оглушение"])
     checkTrue("страх сбивает",     SB.Data.ConcentrationBreakers["Страх"])
     check("а замедление — нет",    SB.Data.ConcentrationBreakers["Замедление"], nil)
