@@ -17763,6 +17763,84 @@ do
 end
 
 -- ============================================================
+-- БАФФ НА ХАРАКТЕРИСТИКИ ДОХОДИТ ДО СУЩЕСТВА
+--
+-- Ведущий сообщил, что «баффы на характеристики на НПС не работают».
+-- Цепочка длинная — наложение, список особи, пересчёт, чтение при
+-- броске, — и оборвись она в любом месте, снаружи это выглядело бы
+-- одинаково: эффект висит на рамке и не делает ничего. Поэтому
+-- проверяется не кусок, а весь путь, и по каждому каналу отдельно.
+--
+-- ЧТО У СУЩЕСТВА ВООБЩЕ ЧИТАЕТ ХАРАКТЕРИСТИКИ (см. StatOver в
+-- Core/NPC.lua): «Акробатика» — защиту, «Ношение брони» — броню,
+-- «Воля» — порог чар, «Живучесть» и «Исток» — максимумы,
+-- и любой ключ, названный в scaling его же способности, — её бросок и
+-- урон. Характеристика, которую не читает ни один из этих путей, на
+-- существе и правда не делает ничего — но ровно так же она не делает
+-- ничего и на игроке: атрибуты работают ЧЕРЕЗ навыки.
+-- ============================================================
+do
+    local savedDB     = _G.SpellbreakerNPCDB
+    local savedTarget = stub.world.units["target"]
+    _G.SpellbreakerNPCDB = { npcs = {} }
+    stub.world.units["target"] = { name = "Пробный волк", level = 5, npc = true,
+        creatureType = "Животное", guid = "Creature-0-970-0-11-4242-00BB01" }
+
+    SB.Data.Spells["t_st_skill"] = { id = "t_st_skill", name = "Проба сноровки",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff", stats = { ["Акробатика"] = 3 } } }
+    SB.Data.Spells["t_st_attr"] = { id = "t_st_attr", name = "Проба силы",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff", stats = { ["Сила"] = 3 } } }
+    SB.Data.Spells["t_st_mod"] = { id = "t_st_mod", name = "Проба стойки",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff", mods = { defense = 7 } } }
+    SB.Data.Spells["t_st_claw"] = { id = "t_st_claw", name = "Проба когтя",
+        class = "Маг", level = 1, canCrit = true, distance = 5,
+        scaling = { hit = { ["Сила"] = 1 }, damage = { ["Сила"] = 1 } } }
+
+    SB.NPC.Save({ npcID = 4242, name = "Пробный волк", classification = "beast",
+        level = 5, maxHealth = 20, resourceName = "Ярость", maxResource = 3,
+        skills = { ["Акробатика"] = 2 }, attributes = { ["Сила"] = 2 } })
+
+    local function Stats() return SB.NPC.StatsForUnit("target") end
+    local base = SB.NPC.DefenseModifier(Stats(), "target")
+
+    SB.NPC.AddEffect("target", "t_st_mod", 5)
+    check("канал mods двигает защиту существа",
+          SB.NPC.DefenseModifier(Stats(), "target") - base, 7)
+    SB.NPC.RemoveEffect("target", "t_st_mod")
+
+    SB.NPC.AddEffect("target", "t_st_skill", 5)
+    checkTrue("бафф НАВЫКА двигает защиту существа",
+              SB.NPC.DefenseModifier(Stats(), "target") > base)
+    SB.NPC.RemoveEffect("target", "t_st_skill")
+
+    local readBefore = SB.NPC.StatReader(Stats(), "target")("Сила")
+    SB.NPC.AddEffect("target", "t_st_attr", 5)
+    local readAfter = SB.NPC.StatReader(Stats(), "target")("Сила")
+    check("бафф АТРИБУТА виден читателю характеристик", readAfter - readBefore, 3)
+
+    local atkBefore = SB.NPC.AttackModifier(Stats(), nil, SB.Data.Spells["t_st_claw"])
+    local atkAfter  = SB.NPC.AttackModifier(Stats(), "target", SB.Data.Spells["t_st_claw"])
+    checkTrue("и доходит до броска атаки существа", atkAfter > atkBefore)
+
+    -- И ДО УРОНА: скейлинг существа читает те же характеристики тем же
+    -- читателем, что и бросок.
+    local dmgBefore = SB.Logic.GetSpellScaling(SB.Data.Spells["t_st_claw"], "damage",
+                          nil, SB.NPC.StatReader(Stats(), nil))
+    local dmgAfter  = SB.Logic.GetSpellScaling(SB.Data.Spells["t_st_claw"], "damage",
+                          nil, SB.NPC.StatReader(Stats(), "target"))
+    checkTrue("и до урона существа", dmgAfter > dmgBefore)
+
+    SB.NPC.RemoveEffect("target", "t_st_attr")
+    SB.Data.Spells["t_st_skill"], SB.Data.Spells["t_st_attr"] = nil, nil
+    SB.Data.Spells["t_st_mod"],   SB.Data.Spells["t_st_claw"] = nil, nil
+    stub.world.units["target"] = savedTarget
+    _G.SpellbreakerNPCDB = savedDB
+end
+
+-- ============================================================
 -- ЧАСТИЦА СВЕТА: ДОЛЯ ЧУЖОГО ИСЦЕЛЕНИЯ
 -- ============================================================
 do
