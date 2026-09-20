@@ -351,6 +351,12 @@ function SB.Logic.ResolveNpcHeal(spellID, slotLevel)
         SB.NPC.AddEffect("target", spell.buff, turns)
     end
 
+    -- ЧАСТИЦА СВЕТА БЕРЁТ ДОЛЮ И С ЛЕЧЕНИЯ СУЩЕСТВА: «даже если
+    -- изначальной целью является кто-то иной» — союзный волк такой же
+    -- «кто-то иной», как и человек (см. SB.Logic.EchoBeacon). Число —
+    -- ДО истощения боя, как и по сети: его вычтет получатель.
+    if success then SB.Logic.EchoBeacon(npcName, amount) end
+
     SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID))
 
     local link    = SB.UI.MakeSpellLink(spell)

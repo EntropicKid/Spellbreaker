@@ -542,6 +542,16 @@ function SB.ActiveEffects.GetEffectLines(spellID)
         table.insert(lines, "|cFFFFD100" .. head .. ":|r " .. (what or "срабатывает"))
     end
 
+    -- ЧАСТИЦА — СВОЕЙ СТРОКОЙ. Ни в mods, ни в tick она не выражается:
+    -- это правило про ЧУЖОЙ каст, а не про носителя, и без подписи
+    -- карточка показывала бы у неё один прибавленный запас здоровья —
+    -- то есть молчала бы ровно о том, ради чего её и берут.
+    local share = SB.ActiveEffects.BeaconShare(spellID)
+    if share then
+        table.insert(lines, "|cFFFFD100Эхо исцеления:|r " .. share ..
+            "% того, что наложивший вылечит другим")
+    end
+
     local tickTxt = PayloadText(def.tick)
     if tickTxt then
         table.insert(lines, "|cFFFFD100Каждый ход:|r " .. tickTxt)
@@ -698,6 +708,28 @@ function SB.ActiveEffects.SourceOf(spellID)
         if eff.spellID == spellID then return eff.src end
     end
     return nil
+end
+
+--- Доля чужого исцеления, утекающая носителю «частицы». nil — эффект
+--- не частица вовсе.
+---
+--- ОБЪЯВЛЯЕТСЯ В ДАННЫХ, а не в коде: `beacon = { share = 50 }` у
+--- контейнера, и «сколько утекает» правится в Spells/ без единой строки
+--- логики. Короткая запись `beacon = 50` читается так же.
+--- @param effectID string|nil
+--- @return number|nil  проценты (1..100)
+function SB.ActiveEffects.BeaconShare(effectID)
+    -- ЧИТАЕМ СЫРОЕ ОБЪЯВЛЕНИЕ, а не GetEffectDef: та отдаёт приведённую
+    -- к числам выжимку (kind/mods/stats) и всё, что не параметр,
+    -- по дороге теряет — как теряла бы и onAction.
+    local sp = type(effectID) == "string" and SB.Data.Spells[effectID]
+    local def = sp and sp.effect
+    local b = (type(def) == "table") and def.beacon or nil
+    if type(b) == "number" then b = { share = b } end
+    if type(b) ~= "table" then return nil end
+    local share = tonumber(b.share) or 0
+    if share <= 0 then return nil end
+    return math.min(100, share)
 end
 
 --- Наложен ли этот эффект кем-то другим (не нами).
@@ -2605,6 +2637,12 @@ function SB.ActiveEffects.TickAll(skip, realtime)
     -- ОТМЕТКУ СТАВИМ ДО САМОГО ТИКА: подписи, которые перерисуются по
     -- ходу обхода, должны увидеть уже новую фазу, а не прошлую.
     lastTickAt = GetTime()
+
+    -- ЗДЕСЬ ЖЕ СТАРЕЕТ ЗАПИСКА О ЧУЖОЙ ЧАСТИЦЕ СВЕТА. Она лежит у
+    -- заклинателя, а сама частица — у носителя, и часы у них обязаны
+    -- быть одни: иначе адрес переживёт эффект или умрёт раньше него
+    -- (см. врезку о частице в Core/Logic.lua).
+    if SB.Logic and SB.Logic.TickBeacon then SB.Logic.TickBeacon() end
 
     -- Весь ход — ОДНА пачка: иначе каждый эффект слал бы в группу свой
     -- пакет AEFFECT, и бой с несколькими эффектами забивал бы исходящую

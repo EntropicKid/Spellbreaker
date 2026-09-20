@@ -4624,6 +4624,139 @@ function SB.Logic.HandlePvpResultBody(targetName, defRoll, defMod, defTotal, dmg
 end
 
 -- ============================================================
+-- ЧАСТИЦА СВЕТА: ЭХО ЧУЖОГО ЛЕЧЕНИЯ
+--
+-- «Притягивает часть исцеляющей силы Света, ДАЖЕ ЕСЛИ ИЗНАЧАЛЬНОЙ ЦЕЛЬЮ
+-- ЯВЛЯЕТСЯ КТО-ТО ИНОЙ». То есть: паладин лечит кого угодно — носитель
+-- частицы получает долю того же исцеления.
+--
+-- ── ЗАЧЕМ ЗАКЛИНАТЕЛЮ ЗАПИСКА ───────────────────────────────
+--
+-- Эффект живёт на НОСИТЕЛЕ и виден только его клиенту — своих эффектов
+-- чужой клиент не видит и видеть не должен. Значит лекарь сам по себе не
+-- знает, что его частица где-то горит. Спрашивать по сети незачем:
+-- исход наложения цель и так присылает назад (см. BuffAwait), и в тот
+-- миг заклинателю известно всё, что нужно, — на ком и удалось ли.
+-- Поэтому записка ставится там же и не стоит ни одного пакета.
+--
+-- ЗАПИСКА — ЭТО АДРЕС, А НЕ ПРАВО. Она говорит только «слать сюда»;
+-- решает, лечиться ли, ПОЛУЧАТЕЛЬ: он один знает, висит ли на нём
+-- частица и его ли это паладин (см. SB.ActiveEffects.SourceOf и
+-- HandleHealReceived). Устаревшая записка поэтому безвредна — эхо
+-- просто не найдёт, к чему приложиться, и строки о нём не будет.
+-- Именно так проверяется и подлинность: подделать эхо нельзя, не
+-- наложив сперва настоящую частицу.
+--
+-- ── ПОЧЕМУ ТОЛЬКО ОДИНОЧНОЕ ЛЕЧЕНИЕ ─────────────────────────
+--
+-- Площадное и так накрывает носителя, если он в круге; эхо поверх него
+-- значило бы двойную выплату за один каст. А прямое лечение самого
+-- носителя эхом не удваивается по той же причине.
+--
+-- ДОЛЯ ОКРУГЛЯЕТСЯ ВНИЗ, и ноль не шлётся: «часть» единицы — это
+-- ничего, а не ещё одна единица. Иначе заговор в 1 ХП лечил бы двоих
+-- на 1 ХП каждого.
+-- ============================================================
+
+--- Записка живёт в сохранёнке: частица висит час, а /reload посреди
+--- сцены не должен её терять.
+local function BeaconDB()
+    if not SpellbreakerCharDB then return nil end
+    return SpellbreakerCharDB
+end
+
+--- Эффект-частица, который вешает это заклинание. nil — не частица.
+--- @return string|nil effectID, number|nil доля в процентах
+function SB.Logic.BeaconOf(spell)
+    if type(spell) == "string" then spell = SB.Data.Spells[spell] end
+    local id = type(spell) == "table" and spell.buff or nil
+    if not id then return nil end
+    local share = SB.ActiveEffects and SB.ActiveEffects.BeaconShare
+                  and SB.ActiveEffects.BeaconShare(id)
+    if not share then return nil end
+    return id, share
+end
+
+--- Запомнить, на кого легла наша частица. Не частица — молчим.
+--- @param targetName string  на ком она теперь
+function SB.Logic.NoteBeacon(spellID, targetName, slotLevel)
+    local spell = SB.Data.Spells[spellID]
+    local effectID = SB.Logic.BeaconOf(spell)
+    if not effectID then return end
+    if type(targetName) ~= "string" or targetName == "" then return end
+
+    local d = BeaconDB()
+    if not d then return end
+    -- ОДНА ЧАСТИЦА ЗА РАЗ: новая тушит прежнюю, как и положено — на
+    -- носителе её держит семейство, а здесь держать нечем, кроме
+    -- перезаписи.
+    d.beacon = {
+        name    = targetName,
+        spellID = spellID,
+        turns   = SB.Logic.GetEffectDuration(effectID, spell, slotLevel),
+    }
+end
+
+--- Кому сейчас уходит эхо. nil — частицы нет.
+function SB.Logic.GetBeacon()
+    local d = BeaconDB()
+    local b = d and d.beacon
+    if type(b) ~= "table" or type(b.name) ~= "string" then return nil end
+    if not SB.Logic.BeaconOf(b.spellID) then return nil end
+    return b
+end
+
+--- Снять записку (частица догорела или её перебили).
+function SB.Logic.ClearBeacon()
+    local d = BeaconDB()
+    if d then d.beacon = nil end
+end
+
+--- Ход прошёл — записка стареет.
+---
+--- ЗОВЁТСЯ ОТТУДА ЖЕ, ОТКУДА ТИКАЮТ ЭФФЕКТЫ (SB.ActiveEffects.TickAll):
+--- часы у записки и у самой частицы обязаны быть одни, иначе адрес
+--- переживёт эффект или умрёт раньше него.
+function SB.Logic.TickBeacon()
+    local b = SB.Logic.GetBeacon()
+    if not b then return end
+    local left = tonumber(b.turns) or 0
+    -- Бессрочную (-1) не трогаем: её снимет только Долгий Отдых.
+    if left < 0 then return end
+    b.turns = left - 1
+    if b.turns <= 0 then SB.Logic.ClearBeacon() end
+end
+
+--- Отправить долю только что выданного исцеления носителю частицы.
+--- @param healedName string|nil  кого лечили (существу имени может и не быть)
+--- @param amount number  сколько вышло ДО истощения боя: его вычтет
+---        получатель, как и у обычного лечения.
+function SB.Logic.EchoBeacon(healedName, amount)
+    local b = SB.Logic.GetBeacon()
+    if not b then return end
+    local _, share = SB.Logic.BeaconOf(b.spellID)
+    if not share then return end
+
+    -- Носителя лечили напрямую — эхо было бы вторым лечением за тот же
+    -- каст (см. врезку выше).
+    if healedName and healedName == b.name then return end
+
+    local part = math.floor((math.max(0, tonumber(amount) or 0) * share) / 100)
+    if part <= 0 then return end
+
+    if b.name == UnitName("player") then
+        -- Частица на самом паладине: своего пакета до себя не доходит.
+        SB.Logic.HandleHealReceived(UnitName("player"), b.spellID, true, part, 0)
+    elseif SB.Net and SB.Net.SendHealResult then
+        -- ОБЫЧНЫМ ПАКЕТОМ ЛЕЧЕНИЯ, без новых полей: «вот столько ХП от
+        -- вот этого заклинания». Что это именно эхо, получатель поймёт
+        -- по самому заклинанию — частица не лечит напрямую, и HEAL с её
+        -- id значит ровно одно (см. HandleHealReceived).
+        SB.Net.SendHealResult(b.name, b.spellID, true, part, 0)
+    end
+end
+
+-- ============================================================
 -- ЛЕЧЕНИЕ (авто-резолв, минуя ГМа)
 -- Срабатывает, если у заклинания isHeal = true.
 -- Порог = 60 + уровень исцеляемого; шанс попасть в него поднимает навык
@@ -4717,6 +4850,10 @@ function SB.Logic.ResolveHeal(spellID, slotLevel)
         SB.Events.Fire("STATUS_CHANGED")
     end
     SB.Net.SendHealResult(healName, spellID, success, healAmount, repairArmor)
+
+    -- ЧАСТИЦА СВЕТА ЗАБИРАЕТ СВОЮ ДОЛЮ — после того, как исцеление
+    -- ушло по адресу, и только с удачного (см. врезку о частице выше).
+    if success then SB.Logic.EchoBeacon(healName, healAmount) end
 
     -- ── ЭФФЕКТ, КОТОРЫЙ ВЕШАЕТ ЛЕЧЕНИЕ (spell.buff) ─────────
     --
@@ -5273,6 +5410,16 @@ function SB.Logic.ResolveEffectCast(spellID, slotLevel)
             " применяет |r" .. link .. G .. " на " .. (onSelf and "себя" or targetName) ..
             rollTxt .. outcomeTxt, SB.LogRank.ACTION)
 
+        -- ЧАСТИЦА СВЕТА ЗАПОМИНАЕТСЯ ЗДЕСЬ — в единственном месте, где
+        -- уже известно И на кого лёг эффект, И лёг ли он вообще (исход
+        -- присылает сама цель, см. BuffAwait выше). Запись нужна
+        -- заклинателю как АДРЕС: сам эффект живёт на носителе, и с
+        -- чужого клиента его не видно (см. SB.Logic.NoteBeacon).
+        if finalSuccess then
+            SB.Logic.NoteBeacon(spellID,
+                onSelf and UnitName("player") or targetName, slotLevel)
+        end
+
         -- РП-отпись — по тем же правилам, что у остальных заклинаний:
         -- только на успех и только если игрок её задал.
         local outcomeText = finalSuccess and SB.SpellOutcomes.Get(spellID) or nil
@@ -5571,6 +5718,41 @@ function SB.Logic.HandleHealReceived(healerName, spellID, success, amount, armor
 
     local PM     = SB.PlayerModel
     local asked  = math.max(0, tonumber(amount) or 0)
+
+    -- ── ЭХО ЧАСТИЦЫ СВЕТА ───────────────────────────────────
+    --
+    -- Сама частица не лечит, поэтому лечение ОТ НЕЁ значит ровно одно:
+    -- паладин вылечил кого-то другого, и к нам утекла доля
+    -- (см. SB.Logic.EchoBeacon).
+    --
+    -- РЕШАЕМ ЗДЕСЬ, И ТОЛЬКО ЗДЕСЬ. Записка у заклинателя — это адрес, а
+    -- право даёт висящий эффект: частица должна быть на нас И быть
+    -- именно его (SourceOf). Оттого эхо и нельзя подделать — сперва
+    -- пришлось бы по-настоящему наложить частицу, а это каст, бросок и
+    -- согласие самой цели. И оттого же устаревший адрес безвреден:
+    -- частица догорела — эхо тихо ни к чему не приложится.
+    local beaconID = SB.Logic.BeaconOf(spellID)
+    if beaconID then
+        if not (SB.ActiveEffects and SB.ActiveEffects.SourceOf) then return end
+        if SB.ActiveEffects.SourceOf(beaconID) ~= healerName then return end
+        local got = PM.Heal(asked)
+        if got <= 0 then return end
+        SB.Events.Fire(SB.E.STATUS_CHANGED)
+        -- СТРОКУ ПИШЕТ НОСИТЕЛЬ: сколько влезло, знает только он — у
+        -- полного здоровья доля упирается в максимум, а истощение боя
+        -- он же и вычитает (см. PM.Heal). Рангом TICK: это не действие,
+        -- а следствие чужого каста, и в логе ему место рядом с ним.
+        local sp = SB.Data.Spells[spellID]
+        SB.Events.Fire(SB.E.BROADCAST_LOG,
+            SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. SB.Theme.MSG_BODY ..
+            UnitName("player") .. " — |r" ..
+            (sp and SB.UI.MakeSpellLink(sp) or (sp and sp.name) or spellID) ..
+            SB.Theme.MSG_BODY .. " (" .. (healerName or "?") .. "): |r" ..
+            SB.Theme.MSG_GOOD .. "+" .. got .. " ХП|r" ..
+            SB.Theme.MSG_BODY .. ".|r", SB.LogRank.TICK)
+        return
+    end
+
     local healed = PM.Heal(asked)
 
     -- СВОЙ МОДИФИКАТОР ВХОДЯЩЕГО ЛЕЧЕНИЯ ВИДЕН ТОЛЬКО НАМ, и назвать его

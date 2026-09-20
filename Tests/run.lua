@@ -17763,6 +17763,126 @@ do
 end
 
 -- ============================================================
+-- ЧАСТИЦА СВЕТА: ДОЛЯ ЧУЖОГО ИСЦЕЛЕНИЯ
+-- ============================================================
+do
+    local AE, L = SB.ActiveEffects, SB.Logic
+    local me = UnitName("player")
+
+    SB.Data.Spells["t_bc_eff"] = { id = "t_bc_eff", name = "Проба частицы",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff", school = "magic", beacon = { share = 50 } } }
+    SB.Data.Spells["t_bc_cast"] = { id = "t_bc_cast", name = "Проба маяка",
+        class = "Паладин", level = 3, key = "Свет", resistable = true,
+        distance = 10, duration = 10, buff = "t_bc_eff" }
+
+    -- ── ДОЛЯ ЧИТАЕТСЯ ИЗ ДАННЫХ ─────────────────────────────
+    check("доля объявлена в эффекте",  AE.BeaconShare("t_bc_eff"), 50)
+    check("обычный эффект не частица", AE.BeaconShare("eff_burn"), nil)
+    check("и короткая запись читается так же",
+          AE.BeaconShare(nil), nil)
+    local bid, bshare = L.BeaconOf("t_bc_cast")
+    check("заклинание знает свою частицу", bid, "t_bc_eff")
+    check("и её долю",                     bshare, 50)
+    check("заклинание без частицы молчит", L.BeaconOf("heroic_strike"), nil)
+    checkTrue("а на карточке это написано словами",
+              table.concat(AE.GetEffectLines("t_bc_eff"), "\n")
+                  :find("Эхо исцеления", 1, true) ~= nil)
+
+    -- ── ЗАПИСКА У ЗАКЛИНАТЕЛЯ ───────────────────────────────
+    L.ClearBeacon()
+    check("без каста записки нет", L.GetBeacon(), nil)
+    L.NoteBeacon("t_bc_cast", "Зуко", 3)
+    checkTrue("после каста есть", (L.GetBeacon() or {}).name == "Зуко")
+    -- Не частица записку не ставит и чужую не трогает.
+    L.NoteBeacon("heroic_strike", "Ирина", 0)
+    check("не частица записку не трогает", (L.GetBeacon() or {}).name, "Зуко")
+    -- Одна частица за раз: новая тушит прежнюю.
+    L.NoteBeacon("t_bc_cast", "Ирина", 3)
+    check("новая частица перебивает прежнюю", (L.GetBeacon() or {}).name, "Ирина")
+
+    -- ── ЗАПИСКА СТАРЕЕТ ПО ТЕМ ЖЕ ЧАСАМ, ЧТО ЭФФЕКТЫ ────────
+    L.ClearBeacon()
+    L.NoteBeacon("t_bc_cast", "Зуко", 0)
+    local left = (L.GetBeacon() or {}).turns
+    checkTrue("срок берётся у заклинания", (tonumber(left) or 0) > 0)
+    for _ = 1, (tonumber(left) or 0) do AE.TickAll() end
+    check("догорела — адреса больше нет", L.GetBeacon(), nil)
+
+    -- ── ЭХО УХОДИТ ДОЛЕЙ, А НЕ ЦЕЛИКОМ ──────────────────────
+    local sent
+    local realSend = SB.Net.SendHealResult
+    SB.Net.SendHealResult = function(target, spellID, ok, amount)
+        sent = { target = target, spellID = spellID, ok = ok, amount = amount }
+    end
+
+    L.ClearBeacon(); sent = nil
+    L.NoteBeacon("t_bc_cast", "Зуко", 3)
+    L.EchoBeacon("Ирина", 6)
+    check("эхо ушло носителю",     (sent or {}).target, "Зуко")
+    check("половиной вылеченного", (sent or {}).amount, 3)
+    check("и от имени частицы",    (sent or {}).spellID, "t_bc_cast")
+
+    -- ЛЕЧИЛИ САМОГО НОСИТЕЛЯ — эха нет: это было бы второе лечение за
+    -- один каст.
+    sent = nil
+    L.EchoBeacon("Зуко", 6)
+    check("носителю напрямую эхо не двоится", sent, nil)
+
+    -- ДОЛЯ ОКРУГЛЯЕТСЯ ВНИЗ, и ноль не шлётся.
+    sent = nil
+    L.EchoBeacon("Ирина", 1)
+    check("часть единицы — это ничего", sent, nil)
+    sent = nil
+    L.EchoBeacon("Ирина", 3)
+    check("а часть тройки — единица", (sent or {}).amount, 1)
+
+    -- Нет частицы — нет и эха.
+    L.ClearBeacon(); sent = nil
+    L.EchoBeacon("Ирина", 10)
+    check("без частицы эхо не уходит", sent, nil)
+    SB.Net.SendHealResult = realSend
+
+    -- ── ПРАВО ДАЁТ ЭФФЕКТ, А НЕ ПАКЕТ ───────────────────────
+    --
+    -- Записка — только адрес. Лечиться или нет, решает носитель: частица
+    -- должна висеть на нём и быть ИМЕННО ЭТОГО паладина.
+    local PM = SB.PlayerModel
+    ResetEffects()
+    _G.SpellbreakerCharDB.health = PM.GetMaxHealth() - 5
+
+    -- Частицы нет вовсе — эхо ни к чему не прикладывается.
+    L.HandleHealReceived("Зольц", "t_bc_cast", true, 3, 0)
+    check("без частицы эхо не лечит", PM.GetMaxHealth() - PM.GetHealth(), 5)
+
+    -- Частица есть, но чужая — тоже мимо.
+    AE.Add("t_bc_eff", 10, false, "Лайка")
+    L.HandleHealReceived("Зольц", "t_bc_cast", true, 3, 0)
+    check("эхо не от своего паладина не лечит",
+          PM.GetMaxHealth() - PM.GetHealth(), 5)
+
+    -- Своя — лечит.
+    AE.Add("t_bc_eff", 10, false, "Зольц")
+    L.HandleHealReceived("Зольц", "t_bc_cast", true, 3, 0)
+    check("эхо своего паладина лечит", PM.GetMaxHealth() - PM.GetHealth(), 2)
+
+    ResetEffects()
+    L.ClearBeacon()
+    _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
+    SB.Data.Spells["t_bc_eff"], SB.Data.Spells["t_bc_cast"] = nil, nil
+
+    -- ── И ЭТО РАБОТАЕТ НА ЖИВЫХ ДАННЫХ ──────────────────────
+    local live, share = L.BeaconOf("beaconoflight")
+    check("«Частица Света» объявлена частицей", live, "eff_beaconoflight")
+    checkTrue("с долей от четверти до половины",
+              (share or 0) >= 25 and (share or 0) <= 50)
+    checkTrue("резолв одиночного лечения зовёт эхо",
+              ReadFile("Core/Logic.lua"):find("SB.Logic.EchoBeacon(healName, healAmount)", 1, true) ~= nil)
+    checkTrue("и лечение существа — тоже",
+              ReadFile("Core/Logic/NPC.lua"):find("SB.Logic.EchoBeacon(npcName, amount)", 1, true) ~= nil)
+end
+
+-- ============================================================
 -- КАЖДЫЙ ВИСЯЩИЙ ЭФФЕКТ ЗНАЕТ, КТО ЕГО НАЛОЖИЛ
 -- ============================================================
 do
@@ -18190,15 +18310,17 @@ do
     check("а брони — нет, она не про сталь", fh.effect.mods.armor, nil)
     check("и её кормят каждый ход",          (fh.effect.tick or {}).castResource, -1)
 
-    -- ── ЧАСТИЦА СВЕТА ЛЕЧИТСЯ, А НЕ ЛЕЧИТ ──────────────────
+    -- ── ЧАСТИЦА СВЕТА ЗАБИРАЕТ ДОЛЮ ЧУЖОГО ИСЦЕЛЕНИЯ ───────
     --
-    -- Канал был не тот, и это меняло смысл заклинания на противоположный:
-    -- heal двигает ВЫДАВАЕМОЕ исцеление, то есть баф делал цель лучшим
-    -- лекарем вместо того, чтобы её саму было проще лечить.
-    local bol = S["eff_beaconoflight"].effect.mods
-    checkTrue("«Частица Света» двигает получаемое исцеление",
-              (bol.healTaken or 0) > 0)
-    check("а выдаваемое — не трогает", bol.heal, nil)
+    -- Здесь стояло «двигает получаемое исцеление»: healTaken был
+    -- ПРИБЛИЖЕНИЕМ той же строки описания, пока механизма доли не
+    -- существовало. Теперь есть он, а приближение убрано — платить за
+    -- одно предложение дважды незачем.
+    local bol = S["eff_beaconoflight"].effect
+    check("«Частица Света» забирает половину чужого исцеления",
+          SB.ActiveEffects.BeaconShare("eff_beaconoflight"), 50)
+    check("а получаемое больше не двигает", (bol.mods or {}).healTaken, nil)
+    check("и выдаваемое — тоже",            (bol.mods or {}).heal, nil)
 
     -- ── БЛАГОСЛОВЕНИЕ ДЕЛАЕТ ТО, ЧТО ОБЕЩАЕТ ───────────────
     local bl = S["eff_bless"].effect
