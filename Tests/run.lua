@@ -17533,6 +17533,73 @@ do
 end
 
 -- ============================================================
+-- breakOn.action: СПАДАЕТ ОТ ЛЮБОГО ДЕЙСТВИЯ, КРОМЕ ПРОПУСКА ХОДА
+--
+-- «Притвориться мёртвым» запрещал бить, но не мешал лежать и спокойно
+-- баффаться: срыв висел на уроне, а не на действии.
+-- ============================================================
+do
+    local L = SB.Logic
+    local function Active(id)
+        for _, e in ipairs(SB.ActiveEffects.GetAll()) do
+            if e.spellID == id then return true end
+        end
+        return false
+    end
+    SB.TurnOrder.Stop()
+    ResetEffects()
+    SB.Data.Spells["t_act_eff"] = { id = "t_act_eff", name = "Проба покоя",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff", mods = { defense = 5 }, breakOn = { action = true } } }
+    SB.Data.Spells["t_act_cast"] = { id = "t_act_cast", name = "Проба замирания",
+        class = "Маг", level = 0, distance = 0, resistable = false,
+        duration = 5, container = "t_act_eff" }
+    SB.Data.Spells["t_act_buff"] = { id = "t_act_buff", name = "Проба ободрения",
+        class = "Маг", level = 0, distance = 0, resistable = false,
+        duration = 3, container = "t_q_buff" }
+
+    -- ── САМ СЕБЯ КАСТ НЕ СРЫВАЕТ ────────────────────────────
+    local savedPrep = _G.SpellbreakerCharDB.preparedSpells
+    _G.SpellbreakerCharDB.preparedSpells = { "t_act_cast", "t_act_buff" }
+    _G.SpellbreakerCharDB.configLocked = false
+    stub.world.time = stub.world.time + 10
+    L.ConfirmCast("t_act_cast", 0)
+    checkTrue("эффект лёг и держится", Active("t_act_eff"))
+
+    -- ── ПРОПУСК ХОДА НЕ СРЫВАЕТ ─────────────────────────────
+    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = 1,
+        index = 1, slots = { { stub.world.playerName } }, acted = {} })
+    stub.world.time = stub.world.time + 10
+    L.SpendTurnManually()
+    checkTrue("после пропуска хода эффект на месте", Active("t_act_eff"))
+
+    -- ── ЛЮБОЙ ДРУГОЙ КАСТ СРЫВАЕТ ───────────────────────────
+    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = 2,
+        index = 1, slots = { { stub.world.playerName } }, acted = {} })
+    stub.world.time = stub.world.time + 10
+    L.ConfirmCast("t_act_buff", 0)
+    checkTrue("а бафф на себя — срывает", not Active("t_act_eff"))
+
+    -- Карточка называет повод словами.
+    local said = false
+    for _, l in ipairs(SB.ActiveEffects.GetEffectLines("t_act_eff")) do
+        if l:find("любое действие", 1, true) then said = true end
+    end
+    checkTrue("и карточка о нём говорит", said)
+
+    -- «Притвориться мёртвым» этим поводом пользуется.
+    local fd = SB.Data.Spells["eff_feign_death"]
+    checkTrue("«Притвориться мёртвым» срывается действием",
+              fd ~= nil and fd.effect.breakOn.action == true)
+
+    SB.Data.Spells["t_act_eff"], SB.Data.Spells["t_act_cast"] = nil, nil
+    SB.Data.Spells["t_act_buff"] = nil
+    _G.SpellbreakerCharDB.preparedSpells = savedPrep
+    SB.TurnOrder.Stop()
+    ResetEffects()
+end
+
+-- ============================================================
 -- БОНУСЫ ОРУЖИЯ
 --
 -- У каждого класса оружия своя черта (SB.Data.WeaponBonuses): щит —

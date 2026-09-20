@@ -511,6 +511,7 @@ function SB.ActiveEffects.GetEffectLines(spellID)
         if def.breakOn.damaged then table.insert(why, "получен урон") end
         if def.breakOn.dealt   then table.insert(why, "нанесён урон") end
         if def.breakOn.healed  then table.insert(why, "исцеление") end
+        if def.breakOn.action  then table.insert(why, "любое действие") end
         if #why > 0 then
             table.insert(lines, "|cFFFFD100Спадает досрочно:|r " .. table.concat(why, ", "))
         end
@@ -2602,7 +2603,19 @@ end
 --   effect = { breakOn = { damaged = true } }  -- спадает, когда бьют тебя
 --   effect = { breakOn = { dealt   = true } }  -- спадает, когда бьёшь ты
 --   effect = { breakOn = { healed  = true } }  -- спадает, когда тебя лечат
+--   effect = { breakOn = { action  = true } }  -- спадает от любого действия
 --   effect = { breakOn = { damaged = true, dealt = true } }
+--
+-- ДЕЙСТВИЕ — ЭТО ЛЮБОЕ ПРИМЕНЕНИЕ, КРОМЕ ПРОПУСКА ХОДА. Удар, лечение,
+-- бафф на себя, зелье — всё, что проходит через ConfirmCast, то есть
+-- через единственную дверь всех кастов. Пропуск хода в неё не заходит и
+-- эффект не срывает: «лежать и ничего не делать» — это и есть условие
+-- таких эффектов. Прежде «Притвориться мёртвым» запрещал бить, но не
+-- мешал спокойно набаффаться лёжа.
+--
+-- СНИМАЕТСЯ ДО ТОГО, как ляжет эффект самого каста: повод приходит на
+-- CAST_CONFIRMED, а эффекты этого каста применяются дальше по пути
+-- резолва. Иначе заклинание с breakOn.action снимало бы само себя.
 --
 -- ТРИ СОБЫТИЯ БЕРУТСЯ ИЗ ГОТОВЫХ ВОРОНОК, а не расставляются по путям
 -- резолва: «получил урон» и «исцелён» — это HEALTH_CHANGED с
@@ -2631,11 +2644,12 @@ local BREAK_REASON = {
     damaged    = "вы получили урон",
     dealt      = "вы нанесли урон",
     healed     = "рана закрыта исцелением",
+    action     = "вы действовали",
     controlled = "вас сковало",
 }
 
 --- Снять эффекты, которые ждали именно этого события.
---- @param trigger string  "damaged" | "dealt" | "healed"
+--- @param trigger string  "damaged" | "dealt" | "healed" | "action"
 function SB.ActiveEffects.BreakOn(trigger)
     if breaking or #effects == 0 then return end
 
@@ -2737,6 +2751,13 @@ SB.Events.On(SB.E.ATTACK_RESOLVED, function(dmg, _, landed)
     if landed and (tonumber(dmg) or 0) > 0 then
         SB.ActiveEffects.BreakOn("dealt")
     end
+end)
+
+-- ЛЮБОЕ ДЕЙСТВИЕ — через CAST_CONFIRMED: он приходит ровно раз на
+-- состоявшийся каст (после всех отказов и после списания ресурса) и не
+-- приходит на пропуск хода. См. врезку выше.
+SB.Events.On(SB.E.CAST_CONFIRMED, function()
+    SB.ActiveEffects.BreakOn("action")
 end)
 
 function SB.ActiveEffects.Clear()
