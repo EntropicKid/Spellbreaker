@@ -305,6 +305,81 @@ function SB.ActiveEffects.PayloadPoolParts(payload)
     return out
 end
 
+--- Что делает выплата — готовой строкой «-1 ХП (Тьма), +15 брони».
+---
+--- ОБЩАЯ НА ВСЕ МЕСТА, ГДЕ ВЫПЛАТА ПОКАЗЫВАЕТСЯ: карточка эффекта
+--- (tick, onRemove, onAction) и карточка заклинания (onCast, см.
+--- SB.Logic.GetSpellScalingLines). Формат у выплаты один, и второй его
+--- копии заводить незачем — разъедутся на первой же правке.
+---
+--- ШКОЛА УРОНА — СВОЯ У ВЫПЛАТЫ, если она её назвала полем damageType,
+--- и школа источника иначе. Возмездие «ударившему — 1 урона» не обязано
+--- совпадать по школе с самим эффектом: аура может жечь Светом, а
+--- висеть при этом чарами без школы вовсе. Ровно то же поле читает
+--- ApplyPayload, когда считает сопротивление, — подпись и расчёт берут
+--- школу из одного места.
+--- @param payload  table|nil  блок { damage, heal, armor, mana, ... }
+--- @param dmgType  table|nil  школа источника (см. SB.Data.GetDamageType)
+--- @return string|nil  nil — выплате нечего сказать
+function SB.ActiveEffects.PayloadText(payload, dmgType)
+    if type(payload) ~= "table" then return nil end
+    if payload.damageType and SB.Data.GetDamageType then
+        dmgType = SB.Data.GetDamageType(payload)
+    end
+    local parts = {}
+    local d = tonumber(payload.damage) or 0
+    local h = tonumber(payload.heal) or 0
+    if d > 0 then
+        local txt = "-" .. d .. " ХП"
+        if dmgType then
+            txt = SB.Data.ColorByDamageType(dmgType, txt) ..
+                  " (" .. SB.Data.ColorByDamageType(dmgType, dmgType.name) .. ")"
+        end
+        table.insert(parts, txt)
+    end
+    if h > 0 then table.insert(parts, "+" .. h .. " ХП") end
+    -- БРОНЯ. Канал был у ApplyPayload с самого начала, а здесь его не
+    -- было — и карточка молчала о том, что эффект делает. Хуже всего
+    -- вышло у «Оборонительной стойки»: чинить доспех каждый ход — это
+    -- ВСЁ, что она делает полезного, и карточка показывала у неё один
+    -- штраф к урону. Приём читался как чистое ухудшение.
+    --
+    -- Отдельным словом «брони», а не «ХП»: шкала другая (десять
+    -- единиц брони = одна единица поглощённого урона), и «+15» без
+    -- пометки прочиталось бы как пятнадцать здоровья.
+    local a = tonumber(payload.armor) or 0
+    if a ~= 0 then
+        table.insert(parts, ((a > 0) and "+" or "") .. a .. " брони")
+    end
+    -- Пулы — общей функцией: эффект повесят на нас, и подписи
+    -- считаются по НАШЕМУ персонажу (у Мага «Мана», у Воина «Ярость»,
+    -- а чужой пул он и вовсе не увидит).
+    for _, part in ipairs(SB.ActiveEffects.PayloadPoolParts(payload)) do
+        table.insert(parts, part.text)
+    end
+    if #parts == 0 then return nil end
+    return table.concat(parts, ", ")
+end
+
+--- Возмездие числами словами: «1 урона (Свет)».
+---
+--- Отдельно от PayloadText, и разница не в оформлении: та говорит о
+--- СВОЁМ здоровье («-1 ХП»), а это — о чужом, и «ХП» тут сказать
+--- нельзя, пока неизвестно, сколько их у ударившего. Школа считается
+--- по тому же правилу (см. PayloadText).
+--- @return string  всегда строка: вызывают её, уже проверив damage > 0
+function SB.ActiveEffects.PayloadRetributionText(payload, dmgType)
+    if payload.damageType and SB.Data.GetDamageType then
+        dmgType = SB.Data.GetDamageType(payload)
+    end
+    local txt = (tonumber(payload.damage) or 0) .. " урона"
+    if dmgType then
+        txt = SB.Data.ColorByDamageType(dmgType, txt) ..
+              " (" .. SB.Data.ColorByDamageType(dmgType, dmgType.name) .. ")"
+    end
+    return txt
+end
+
 --- Полное описание эффекта строками — mods, stats и tick разом.
 ---
 --- Заведено для КАРТОЧКИ эффекта в библиотеке (см. UI/Library.lua): у
@@ -396,40 +471,7 @@ function SB.ActiveEffects.GetEffectLines(spellID)
     local dmgType = SB.Data.GetDamageType and SB.Data.GetDamageType(sp)
 
     local function PayloadText(payload)
-        if type(payload) ~= "table" then return nil end
-        local parts = {}
-        local d = tonumber(payload.damage) or 0
-        local h = tonumber(payload.heal) or 0
-        if d > 0 then
-            local txt = "-" .. d .. " ХП"
-            if dmgType then
-                txt = SB.Data.ColorByDamageType(dmgType, txt) ..
-                      " (" .. SB.Data.ColorByDamageType(dmgType, dmgType.name) .. ")"
-            end
-            table.insert(parts, txt)
-        end
-        if h > 0 then table.insert(parts, "+" .. h .. " ХП") end
-        -- БРОНЯ. Канал был у ApplyPayload с самого начала, а здесь его не
-        -- было — и карточка молчала о том, что эффект делает. Хуже всего
-        -- вышло у «Оборонительной стойки»: чинить доспех каждый ход — это
-        -- ВСЁ, что она делает полезного, и карточка показывала у неё один
-        -- штраф к урону. Приём читался как чистое ухудшение.
-        --
-        -- Отдельным словом «брони», а не «ХП»: шкала другая (десять
-        -- единиц брони = одна единица поглощённого урона), и «+15» без
-        -- пометки прочиталось бы как пятнадцать здоровья.
-        local a = tonumber(payload.armor) or 0
-        if a ~= 0 then
-            table.insert(parts, ((a > 0) and "+" or "") .. a .. " брони")
-        end
-        -- Пулы — общей функцией: эффект повесят на нас, и подписи
-        -- считаются по НАШЕМУ персонажу (у Мага «Мана», у Воина «Ярость»,
-        -- а чужой пул он и вовсе не увидит).
-        for _, part in ipairs(SB.ActiveEffects.PayloadPoolParts(payload)) do
-            table.insert(parts, part.text)
-        end
-        if #parts == 0 then return nil end
-        return table.concat(parts, ", ")
+        return SB.ActiveEffects.PayloadText(payload, dmgType)
     end
 
     -- ── СРАБАТЫВАНИЕ (onAction) ─────────────────────────────
@@ -481,7 +523,13 @@ function SB.ActiveEffects.GetEffectLines(spellID)
         if type(act.effect)     == "string" then table.insert(parts, name(act.effect)) end
         if type(act.toAttacker) == "string" then table.insert(parts, "ударившему — " .. name(act.toAttacker)) end
         if type(act.toAttacker) == "table" and (tonumber(act.toAttacker.damage) or 0) > 0 then
-            table.insert(parts, "ударившему — " .. act.toAttacker.damage .. " урона сразу")
+            -- ШКОЛА — ТА ЖЕ, ЧТО В РАСЧЁТЕ. Без неё строка «ударившему —
+            -- 1 урона» не отвечала на единственный вопрос, который к ней
+            -- есть: гасит ли этот урон сопротивление ударившего. Школу
+            -- называет сама выплата (toAttacker.damageType), а не назвала
+            -- — берётся школа эффекта, ровно как в ApplyPayload.
+            local txt = SB.ActiveEffects.PayloadRetributionText(act.toAttacker, dmgType)
+            table.insert(parts, "ударившему сразу — " .. txt)
         end
         -- Зеркало возмездия: «я попал — цель получила» (см. SendAside).
         if type(act.toTarget)   == "string" then table.insert(parts, "цели — "       .. name(act.toTarget)) end
@@ -1896,9 +1944,14 @@ function SB.ActiveEffects.ApplyPayload(spellID, def, source)
     -- заклинания, которое его повесило: один и тот же «Поджег» вешают три
     -- разных огненных заклинания, и спрашивать «кто был источником» через
     -- полчаса после каста уже не у кого.
+    -- ШКОЛА ВЫПЛАТЫ ПЕРЕБИВАЕТ ШКОЛУ ЭФФЕКТА. Одному эффекту случается
+    -- бить разным: аура висит на носителе чарами без школы, а отвечает
+    -- ударившему Светом (toAttacker = { damage = 1, damageType = "holy" }).
+    -- Не назвала — школа контейнера, как было.
     if source == "tick" and dmg > 0
        and SB.Skills and SB.Skills.ApplyResistance then
-        dmg = SB.Skills.ApplyResistance(dmg, sp and sp.damageType)
+        dmg = SB.Skills.ApplyResistance(dmg,
+            def.damageType or (sp and sp.damageType))
     end
     --
     -- Здоровье двигаем в любом случае и сразу: на GrantHealth/Heal

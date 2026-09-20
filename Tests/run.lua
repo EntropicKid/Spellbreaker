@@ -7177,9 +7177,14 @@ do
         local ret
         for _, act in ipairs(SB.ActiveEffects.ActionsOf(SB.Data.Spells[id]) or {}) do
             -- Ответ эффектом — школа у эффекта-ответа; ответ числами
-            -- (toAttacker = { damage = N }) — школа у самой ауры.
+            -- (toAttacker = { damage = N }) — школа у САМОЙ ВЫПЛАТЫ, а
+            -- не назвала — у эффекта: тем же правилом, что в
+            -- ApplyPayload и на карточке.
             if type(act.toAttacker) == "string" then ret = SB.Data.Spells[act.toAttacker] end
-            if type(act.toAttacker) == "table" then ret = SB.Data.Spells[id] end
+            if type(act.toAttacker) == "table" then
+                ret = { damageType = act.toAttacker.damageType
+                                     or SB.Data.Spells[id].damageType }
+            end
         end
         check("«" .. SB.Data.Spells[id].name .. "» отвечает своей школой",
               ret and ret.damageType, school)
@@ -17597,6 +17602,62 @@ do
     _G.SpellbreakerCharDB.preparedSpells = savedPrep
     SB.TurnOrder.Stop()
     ResetEffects()
+end
+
+-- ============================================================
+-- ШКОЛА У ВЫПЛАТЫ И ВЫПЛАТА НА КАРТОЧКЕ ЗАКЛИНАНИЯ
+-- ============================================================
+do
+    local AE, L = SB.ActiveEffects, SB.Logic
+
+    -- ── ВЫПЛАТА СЛОВАМИ — ОДНОЙ ФУНКЦИЕЙ ────────────────────
+    check("пустая выплата молчит", AE.PayloadText(nil), nil)
+    check("и таблица без чисел — тоже", AE.PayloadText({}), nil)
+    check("броня — своим словом", AE.PayloadText({ armor = 15 }), "+15 брони")
+    checkTrue("урон без школы — просто ХП",
+              AE.PayloadText({ damage = 2 }) == "-2 ХП")
+    -- Школа выплаты сильнее школы источника: один эффект бьёт разным.
+    checkTrue("школа выплаты называется словом",
+              AE.PayloadText({ damage = 2, damageType = "shadow" }):find("Тьма", 1, true) ~= nil)
+    checkTrue("а школа источника — когда выплата молчит",
+              AE.PayloadText({ damage = 2 }, SB.Data.GetDamageType("eff_burn"))
+                  :find("Огонь", 1, true) ~= nil)
+
+    -- ── ВОЗМЕЗДИЕ: «1 урона (Свет)», А НЕ «-1 ХП» ───────────
+    local rt = AE.PayloadRetributionText({ damage = 1, damageType = "holy" })
+    checkTrue("возмездие считает чужие ХП, а не свои", rt:find("1 урона", 1, true) ~= nil)
+    checkTrue("и называет школу ответа",                rt:find("Свет", 1, true) ~= nil)
+    -- Карточка ауры говорит и то и другое.
+    local card = table.concat(AE.GetEffectLines("eff_auraoflight"), "\n")
+    checkTrue("карточка ауры: ударившему сразу", card:find("ударившему сразу", 1, true) ~= nil)
+    checkTrue("карточка ауры: школа ответа",     card:find("Свет", 1, true) ~= nil)
+
+    -- ── РАСЧЁТ БЕРЁТ ТУ ЖЕ ШКОЛУ, ЧТО И ПОДПИСЬ ─────────────
+    -- Иначе на карточке «Свет», а гасит его сопротивление тьме.
+    local seen
+    local realAR = SB.Skills.ApplyResistance
+    SB.Skills.ApplyResistance = function(dmg, school) seen = school; return dmg end
+    AE.ApplyPayload("eff_auraoflight", { damage = 1, damageType = "holy" }, "tick")
+    check("сопротивление считают по школе выплаты", seen, "holy")
+    seen = nil
+    AE.ApplyPayload("eff_burn", { damage = 1 }, "tick")
+    check("выплата без школы — школа эффекта", seen, "fire")
+    SB.Skills.ApplyResistance = realAR
+    _G.SpellbreakerCharDB.health = SB.PlayerModel.GetMaxHealth()
+
+    -- ── КАРТОЧКА ЗАКЛИНАНИЯ: onCast И РАССЕИВАНИЕ ───────────
+    -- «Удар щитом» чинил пятнадцать брони и молчал об этом.
+    local slam = table.concat(L.GetSpellScalingLines(SB.Data.Spells["shield_slam"]), "\n")
+    checkTrue("«Удар щитом» говорит о броне", slam:find("+15 брони", 1, true) ~= nil)
+    checkTrue("и подписывает, когда это будет",
+              slam:find("При применении", 1, true) ~= nil)
+    checkTrue("заклинание без onCast лишней строки не рисует",
+              table.concat(L.GetSpellScalingLines(SB.Data.Spells["heroic_strike"]), "\n")
+                  :find("При применении", 1, true) == nil)
+
+    local disp = table.concat(L.GetSpellScalingLines(SB.Data.Spells["cure_blind"]), "\n")
+    checkTrue("рассеивание называет число", disp:find("1 эффект", 1, true) ~= nil)
+    checkTrue("и школы, которые снимает",   disp:find("Магия", 1, true) ~= nil)
 end
 
 -- ============================================================

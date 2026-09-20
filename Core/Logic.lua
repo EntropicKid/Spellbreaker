@@ -2293,6 +2293,44 @@ function SB.Logic.GetSpellScalingLines(spell)
         Line("Вампиризм", string.format("%g%% нанесённого урона", leech * 100))
     end
 
+    -- ── Рассеивание ─────────────────────────────────────────
+    -- СКОЛЬКО И ЧЕГО — на самой карточке. Числа не было нигде: круг
+    -- заклинания игрок видит, а правило «снимает столько, какой круг»
+    -- (см. GetDispelCount) держать в голове не обязан, и школы —
+    -- единственное, что отличает «Очищение» от «Рассеивания магии», —
+    -- лежали только в данных.
+    local schools = SB.Logic.GetDispelSchools and SB.Logic.GetDispelSchools(spell)
+    if schools then
+        local names = {}
+        for key in pairs(schools) do
+            local info = SB.Data.EffectSchools and SB.Data.EffectSchools[key]
+            names[#names + 1] = (info and info.label) or key
+        end
+        table.sort(names)   -- pairs() непредсказуем, подписи не прыгают
+        local n = SB.Logic.GetDispelCount(spell, slot)
+        local word = "эффектов"
+        if n % 10 == 1 and n % 100 ~= 11 then
+            word = "эффект"
+        elseif n % 10 >= 2 and n % 10 <= 4 and (n % 100 < 12 or n % 100 > 14) then
+            word = "эффекта"
+        end
+        Line("Рассеивает", string.format("%d %s", n, word), table.concat(names, ", "))
+    end
+
+    -- ── Что каст делает с самим заклинателем (onCast) ───────
+    -- Канал был у резолва с самого начала, а у карточки его не было:
+    -- «Удар щитом» чинит пятнадцать брони и не говорил об этом ни
+    -- слова, «Жизнеотвод» платит кровью — тоже молча. Собирает строку
+    -- та же функция, что и карточка эффекта: формат выплаты один на
+    -- оба места (см. SB.ActiveEffects.PayloadText).
+    --
+    -- БЕЗ ШКОЛЫ УРОНА, и это не упущение: своя цена не сопротивляется
+    -- (ApplyPayload зовётся не через "tick"), и подпись «(Тьма)» на
+    -- ней обещала бы резист, которого нет.
+    local castTxt = SB.ActiveEffects and SB.ActiveEffects.PayloadText
+        and SB.ActiveEffects.PayloadText(spell.onCast)
+    if castTxt then Line("При применении", castTxt) end
+
     return lines
 end
 
