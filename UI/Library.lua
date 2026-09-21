@@ -47,13 +47,13 @@ function SB.Library.GetMode() return libMode end
 --- вместо двух развилок в UpdateList и в сборке меню.
 --- @return table  массив строк-названий
 local function ModeSections()
-    -- РАЗДЕЛЫ РЕМЕСЛА — ЭТО ПРОФЕССИИ. Класс к предмету отношения не
-    -- имеет: зелье носит кто угодно (см. врезку в Core/Items.lua), и
-    -- выбирать здесь надо ремесло, а не школу.
+    -- У ПРЕДМЕТОВ РАЗДЕЛОВ НЕТ ВОВСЕ. Класс к предмету отношения не
+    -- имеет — вещь носит кто угодно, — а ремёсел, по которым их делили,
+    -- больше нет (см. врезку в Core/Items.lua). Один раздел на все:
+    -- выпадающий список с единственной строкой ничего не выбирает, но
+    -- и убирать его отдельной развилкой незачем — он просто не делит.
     if libMode == "items" then
-        local out = {}
-        for _, prof in ipairs(SB.Items.Professions) do out[#out + 1] = prof.name end
-        return out
+        return { "Предметы" }
     end
     if libMode == "npcs" then
         local out = {}
@@ -317,10 +317,7 @@ function SB.Library.UpdateList()
     -- только ОТБОР: что попадает в filtered.
     local itemsMode = (libMode == "items")
     local profID
-    if itemsMode then
-        local prof = SB.Items.Professions[currentClassIndex]
-        profID = prof and prof.id or "alchemy"
-    end
+
 
     -- Фильтрация
     local filtered = {}
@@ -334,7 +331,6 @@ function SB.Library.UpdateList()
         local pass
         if itemsMode then
             pass = SB.Items.IsItem(spell)
-                   and (spell.profession or "alchemy") == profID
         else
             pass = not spell.isContainer and spell.class ~= "Эффект"
                    and not SB.Data.IsSpellHiddenFromLibrary(spell)

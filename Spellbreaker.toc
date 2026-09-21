@@ -52,9 +52,8 @@ Core\Migrations.lua
 # Effects.lua идёт последним: он описывает контейнеры, на которые
 # ссылаются классовые файлы полями container/buff/debuff.
 Spells\Warrior.lua
-# Алхимия — предметы, а не заклинания (см. врезку в самом файле).
-# Составлено игроками и перенесено из их сохранёнок.
-Spells\Alchemy.lua
+# Сотворённое — предметы, а не заклинания (см. врезку в самом файле):
+# вода маны, камни здоровья, самоцветы. Встроенных зелий больше нет.
 Spells\Conjured.lua
 Spells\Hunter.lua
 Spells\Mage.lua
@@ -116,7 +115,7 @@ Core\NPCCommands.lua
 # берутся оттуда же, что у игрока, — второй таблицы «эффекты для НПС» в
 # аддоне нет и быть не должно (см. врезку в Core\NPCEffects.lua).
 Core\NPCEffects.lua
-# Предметы и ремёсла. После ActiveEffects: предмет устроен как
+# Предметы. После ActiveEffects: предмет устроен как
 # заклинание и живёт в той же таблице (см. врезку в Core\Items.lua).
 Core\Items.lua
 Core\ClassMechanics.lua

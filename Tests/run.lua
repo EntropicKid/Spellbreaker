@@ -169,6 +169,31 @@ check("очередь «все сразу»: Майк отходил",    TO.Can
 TO.ApplyRemoteState({ active = false })
 check("очередь выключена — ходят все",        TO.CanAct("Кто угодно"),       true)
 
+-- ПОКУПНАЯ СКЛЯНКА ДЛЯ ПРОВЕРОК СУМКИ. Раньше бралась из завезённой
+-- алхимии: та вырезана вместе с ремеслом, а механика сумки осталась —
+-- набор перед выходом, долив на Долгом Отдыхе, скрытие из книги
+-- заклинаний. Всё это про ПРЕДМЕТ ВООБЩЕ, а не про зелья.
+--
+-- Заводится здесь, а не рядом с проверками: её просят и в сотне
+-- строк отсюда, и в тринадцати тысячах, а Lua читает файл сверху вниз.
+SB.Data.Spells["t_bagitem"] = {
+    id = "t_bagitem", name = "Проба склянки",
+    class = "Предмет", level = 0, isItem = true, isCustom = true,
+    distance = 1.5, resistable = false, stack = 5,
+    icon = "Interface" .. string.char(92) .. "Icons" ..
+           string.char(92) .. "INV_Misc_QuestionMark",
+    onCast = { mana = 2, heal = 1 },
+    dispel = "poison",
+    buff = "t_bagitem_eff",
+}
+SB.Data.Spells["t_bagitem_eff"] = {
+    id = "t_bagitem_eff", name = "Проба зелья", class = "Эффект",
+    level = 0, isContainer = true,
+    icon = "Interface" .. string.char(92) .. "Icons" ..
+           string.char(92) .. "INV_Misc_QuestionMark",
+    effect = { kind = "buff", tick = { heal = 1 } },
+}
+
 -- Нагрузка эффекта: tick / onRemove / onCast считаются одинаково.
 SB.Data.Spells["test_potion"] = {
     id = "test_potion", name = "Проверочное зелье",
@@ -1356,7 +1381,7 @@ do
     -- Воду маны не наливают перед выходом. Два заслона: список набора и
     -- сам Prepare — предмет мог прийти и не из библиотеки.
     local inList = 0
-    for _, sp in ipairs(SB.Items.ListByProfession("alchemy")) do
+    for _, sp in ipairs(SB.Items.ListPackable()) do
         if SB.Items.IsConjured(sp) then inList = inList + 1 end
     end
     check("сотворённого нет в списке набора", inList, 0)
@@ -1365,8 +1390,8 @@ do
     local ok, why = SB.Items.Prepare("item_mana_water")
     check("и подготовить его нельзя", why, "conjured")
     checkTrue("а покупное — можно",
-              SB.Items.Prepare("custom_abcdef34567123456789a23de9abcdef") == true)
-    SB.Items.Unprepare("custom_abcdef34567123456789a23de9abcdef")
+              SB.Items.Prepare("t_bagitem") == true)
+    SB.Items.Unprepare("t_bagitem")
 
     -- ── ЗАКЛИНАНИЕ КЛАДЁТ ИХ В СУМКУ ────────────────────────
     SpellbreakerCharDB.preparedItems = {}
@@ -1407,7 +1432,7 @@ do
     SpellbreakerCharDB.preparedItems = {}
     for i = 1, SB.Items.GetMaxPrepared() do
         SpellbreakerCharDB.preparedItems[i] =
-            { id = "custom_abcdef34567123456789a23de9abcdef", n = 1 }
+            { id = "t_bagitem", n = 1 }
     end
     -- Все ячейки заняты ОДНИМ и тем же id — но сумка от этого не менее
     -- полна: свободных ячеек нет, а своей у хлеба ещё не было.
@@ -1429,14 +1454,14 @@ do
     SpellbreakerCharDB.skills = { ["Искусность"] = 5 }
     SpellbreakerCharDB.preparedItems = {}
     SB.Logic.GrantCreatedItems(food)
-    SB.Items.Prepare("custom_abcdef34567123456789a23de9abcdef")
-    SB.Items.NoteUsed("custom_abcdef34567123456789a23de9abcdef")
-    local boughtLeft = SB.Items.CountOf("custom_abcdef34567123456789a23de9abcdef")
+    SB.Items.Prepare("t_bagitem")
+    SB.Items.NoteUsed("t_bagitem")
+    local boughtLeft = SB.Items.CountOf("t_bagitem")
 
     SB.Items.RefillPrepared()
     check("сотворённое исчезло", SB.Items.CountOf("item_mana_food"), 0)
     checkTrue("а покупное долито",
-              SB.Items.CountOf("custom_abcdef34567123456789a23de9abcdef") > boughtLeft)
+              SB.Items.CountOf("t_bagitem") > boughtLeft)
 
     -- ── ВЫПЛАТА ПЕРЕЕХАЛА, А НЕ ПРОПАЛА ─────────────────────
     --
@@ -5012,16 +5037,16 @@ do
     _G.SpellbreakerCharDB.preparedItems = {}
 
     SB.Data.Spells["t_potion"] = { id = "t_potion", name = "Проверочное зелье",
-        class = "Предмет", level = 0, isItem = true, profession = "alchemy",
+        class = "Предмет", level = 0, isItem = true,
         distance = 1.5, resistable = false }
     SB.Data.Spells["t_potion2"] = { id = "t_potion2", name = "Второе зелье",
-        class = "Предмет", level = 0, isItem = true, profession = "alchemy",
+        class = "Предмет", level = 0, isItem = true,
         distance = 1.5, resistable = false }
     SB.Data.Spells["t_potion3"] = { id = "t_potion3", name = "Третье зелье",
-        class = "Предмет", level = 0, isItem = true, profession = "alchemy",
+        class = "Предмет", level = 0, isItem = true,
         distance = 1.5, resistable = false }
     SB.Data.Spells["t_potion4"] = { id = "t_potion4", name = "Четвёртое зелье",
-        class = "Предмет", level = 0, isItem = true, profession = "alchemy",
+        class = "Предмет", level = 0, isItem = true,
         distance = 1.5, resistable = false }
 
     checkTrue("зелье — предмет", SB.Items.IsItem("t_potion"))
@@ -5216,7 +5241,7 @@ do
             class = "Эффект", level = 0, isContainer = true, duration = 5,
             effect = { kind = "buff", mods = { armor = 25 }, stats = { ["Воля"] = 2 } } }
         SB.Data.Spells["t_pot_armor"] = { id = "t_pot_armor", name = "Зелье пробы",
-            class = "Предмет", level = 0, isItem = true, profession = "alchemy",
+            class = "Предмет", level = 0, isItem = true,
             distance = 1.5, resistable = false, stack = 2, buff = "t_eff_armor" }
 
         local willBefore  = SB.Skills.GetEffective("Воля")
@@ -5238,7 +5263,7 @@ do
     -- зелья тихо превратятся обратно в декорацию.
     do
         local withEffect, working = 0, 0
-        for _, sp in ipairs(SB.Items.ListByProfession("alchemy")) do
+        for _, sp in ipairs(SB.Items.ListPackable()) do
             local e = sp.buff and SB.Data.Spells[sp.buff]
             if e then
                 withEffect = withEffect + 1
@@ -5248,11 +5273,10 @@ do
                 end
             end
         end
-        checkTrue("зелий с эффектом много", withEffect > 40)
-        -- Часть эффектов чисто описательная («дышит чем угодно») — у них
-        -- чисел нет и не должно быть. Но большинство обязано работать.
-        checkTrue("и большинство из них действительно что-то делает",
-                  working >= withEffect * 0.7)
+        -- СЧИТАТЬ БОЛЬШЕ НЕЧЕГО: встроенные зелья вырезаны вместе с
+        -- ремеслом. Осталось правило — у предмета с эффектом эффект
+        -- обязан существовать, — и его стерегут пробы на месте.
+        check("зелий без объявленного эффекта нет", withEffect - working, 0)
     end
 
     -- МАРШРУТИЗАЦИЯ БРОСКА (SB.UI.RouteDroppedSpell) здесь не
@@ -5270,7 +5294,7 @@ do
         _G.SpellbreakerCharDB.configLocked = false
 
         SB.Data.Spells["t_pot_heal"] = { id = "t_pot_heal", name = "Проба лечения",
-            class = "Предмет", level = 0, isItem = true, profession = "alchemy",
+            class = "Предмет", level = 0, isItem = true,
             distance = 1.5, resistable = false, stack = 1,
             onCast = { heal = 3 } }
 
@@ -5285,7 +5309,7 @@ do
         -- некастеру ничего не даёт, и это не ошибка — «Воду маны» может
         -- выпить и Воин, для него это пустышка.
         SB.Data.Spells["t_pot_mana"] = { id = "t_pot_mana", name = "Проба маны",
-            class = "Предмет", level = 0, isItem = true, profession = "alchemy",
+            class = "Предмет", level = 0, isItem = true,
             distance = 1.5, resistable = false, stack = 1,
             onCast = { mana = 4 } }
         _G.SpellbreakerCharDB.zeal = 0
@@ -5301,7 +5325,7 @@ do
     -- отвалится, лечебные зелья тихо перестанут лечить.
     do
         local withOnCast, healers = 0, 0
-        for _, sp in ipairs(SB.Items.ListByProfession("alchemy")) do
+        for _, sp in ipairs(SB.Items.ListPackable()) do
             if sp.onCast and next(sp.onCast) then
                 withOnCast = withOnCast + 1
                 -- Каждое число обязано быть положительным: onCast с нулём
@@ -5313,8 +5337,9 @@ do
                 if sp.onCast.heal then healers = healers + 1 end
             end
         end
-        checkTrue("зелий с мгновенным восполнением хватает", withOnCast >= 15)
-        checkTrue("и лечебные среди них есть", healers >= 5)
+        -- Числа «сколько их завезено» ушли вместе с самой алхимией;
+        -- осталось правило: выплата предмета положительна (проверено
+        -- в цикле выше).
     end
 
     -- ── СКЛЯНКА БЕЗ ЦЕЛИ — ВЫПИТА САМИМ ────────────────────
@@ -5339,7 +5364,7 @@ do
             class = "Эффект", level = 0, isContainer = true, duration = 4,
             resistable = false, effect = { kind = "buff" } }
         SB.Data.Spells["t_pot_self"] = { id = "t_pot_self", name = "Зелье самокаста",
-            class = "Предмет", level = 0, isItem = true, profession = "alchemy",
+            class = "Предмет", level = 0, isItem = true,
             distance = 1.5, resistable = false, stack = 5, buff = "t_eff_self" }
         -- Заклинание-близнец: те же поля, кроме isItem. Оно и есть
         -- контроль — без него проверка ниже доказывала бы только то, что
@@ -5431,7 +5456,7 @@ do
         stub.world.units["target"] = nil
         SB.Data.Spells["t_pot_healself"] = { id = "t_pot_healself",
             name = "Лечебное зелье пробы", class = "Предмет", level = 0,
-            isItem = true, profession = "alchemy", distance = 1.5,
+            isItem = true, distance = 1.5,
             resistable = false, stack = 1, isHeal = true, buff = "t_eff_self" }
         SB.Items.ClearPrepared()
         SB.Items.Prepare("t_pot_healself")
@@ -5445,10 +5470,11 @@ do
         ResetEffects()
     end
 
-    -- ── ЗАВЕЗЁННАЯ АЛХИМИЯ ───────────────────────────────────────────────────────────────────────────
-    -- Живыми данными: перенос из чужих сохранёнок мог потерять поля.
-    local alch = SB.Items.ListByProfession("alchemy")
-    checkTrue("зелья завезены", #alch > 50)
+    -- ── ЗДЕСЬ СЧИТАЛАСЬ ЗАВЕЗЁННАЯ АЛХИМИЯ ─────────────────
+    -- Сто двадцать семь встроенных зелий вырезаны вместе с ремеслом;
+    -- проверять их поля больше не на чем. Механику сумки стерегут
+    -- пробы, заводимые на месте.
+    local alch = SB.Items.ListPackable()
     local badDist, badEff = {}, {}
     for _, sp in ipairs(alch) do
         -- Дальность ближнего боя: выпить самому или подойти и напоить.
@@ -6630,7 +6656,7 @@ do
     end
 
     SB.Data.Spells["t_bonus_potion"] = { id = "t_bonus_potion", name = "Проба глотка",
-        class = "Предмет", level = 0, isItem = true, profession = "alchemy",
+        class = "Предмет", level = 0, isItem = true,
         distance = 1.5, resistable = false, stack = 5, onCast = { heal = 1 } }
     SB.Data.Spells["t_bonus_act"] = { id = "t_bonus_act", name = "Проба действия",
         class = "Маг", level = 0, distance = 0, resistable = false }
@@ -7560,12 +7586,8 @@ do
                   brew:find("Яд", 1, true) ~= nil and
                   brew:find("poison", 1, true) == nil)
 
-        -- Оговорка «не снимает» — тоже в карточке: без неё два зелья
-        -- выглядят одинаково, а стоят по-разному.
-        local keep = table.concat(SB.ActiveEffects.GetEffectLines(
-            "custom_cont_3456789ab0123456789a") or {}, "\n")
-        checkTrue("«уже наложенное не снимает» сказано вслух",
-                  keep:find("не снимает", 1, true) ~= nil)
+        -- Оговорка «не снимает» проверялась на зелье; зелий больше нет,
+        -- а само правило стережёт проба выше по файлу.
     end
 
     -- ── СПИСКИ ПОДАВЛЕНИЯ БЕЗ ОПЕЧАТОК ──────────────────────
@@ -8077,7 +8099,7 @@ do
     -- Они объявлены через MELEE, а не числом, поэтому двойной прибавки
     -- получить не могли — но проверить это дешевле, чем вспоминать.
     local badPotion = {}
-    for _, sp in ipairs(SB.Items.ListByProfession("alchemy")) do
+    for _, sp in ipairs(SB.Items.ListPackable()) do
         if ShippedSpells[sp.id]
            and (tonumber(sp.distance) or 0) ~= SB.Logic.MELEE_RANGE then
             badPotion[#badPotion + 1] = (sp.name or sp.id) .. "=" ..
@@ -8117,7 +8139,7 @@ do
         _G.SpellbreakerCharDB.skills = {}
         SB.Items.ClearPrepared()
         local taken = 0
-        for _, sp in ipairs(SB.Items.ListByProfession("alchemy")) do
+        for _, sp in ipairs(SB.Items.ListPackable()) do
             if SB.Items.Prepare(sp.id) then taken = taken + 1 end
         end
         check("в сумку влезло ровно столько, сколько открыто",
@@ -8137,7 +8159,7 @@ do
     do
         _G.SpellbreakerCharDB.configLocked = false
         SB.Data.Spells["t_thrift"] = { id = "t_thrift", name = "Проба расхода",
-            class = "Предмет", level = 0, isItem = true, profession = "alchemy",
+            class = "Предмет", level = 0, isItem = true,
             distance = 1.5, resistable = false, stack = 5 }
 
         -- ДАЖЕ ПРИ ПОЛНОСТЬЮ ВЛОЖЕННОЙ «НАУКЕ» И БАФФЕ ПОВЕРХ: раньше
@@ -8208,265 +8230,43 @@ do
 end
 
 -- ============================================================
--- АЛХИМИЯ: ТРИ ТИПА И ПОТОЛКИ
+-- ЗДЕСЬ БЫЛА АЛХИМИЯ
 --
--- Зелья составлены игроками и правятся руками, а значит разъезжаются.
--- Правило одно: зелье слабее заклинания-аналога, но действует
--- гарантированно, без броска. Всё ниже сторожит именно это.
+-- Сто двадцать семь встроенных зелий, эликсиров и ядов со своими
+-- потолками, лестницей «зелье слабее заклинания-аналога» и разбором
+-- имён — всё это вырезано вместе с самим ремеслом. Проверять больше
+-- нечего, кроме одного: что их действительно нет и что вкладка
+-- «Предметы» пережила удаление.
 -- ============================================================
 do
-    local KEYS = { ["Зелье"] = true, ["Эликсир"] = true, ["Яд"] = true }
-    -- ТОЛЬКО ЗАВЕЗЁННЫЕ: к этому месту прогон уже наделал своих зелий
-    -- («Проба маны», «Проверочное зелье»), и они нарочно неполны.
-    local list = {}
-    for _, sp in ipairs(SB.Items.ListByProfession("alchemy")) do
-        if ShippedSpells[sp.id] then list[#list + 1] = sp end
-    end
-    checkTrue("зелья на месте", #list > 70)
-
-    -- ── ТРИ ТИПА, И НИ ОДНОГО ЧЕТВЁРТОГО ────────────────────
-    local badKey, badStack = {}, {}
-    for _, sp in ipairs(list) do
-        if not KEYS[sp.key or ""] then
-            badKey[#badKey + 1] = (sp.name or sp.id) .. "=" .. tostring(sp.key)
-        end
-        -- Градация по связке: сильное — 1, среднее — 2, слабое — 5.
-        local n = SB.Items.StackSize(sp)
-        if n ~= 1 and n ~= 2 and n ~= 5 then
-            badStack[#badStack + 1] = (sp.name or sp.id) .. "=" .. n
+    local potions = 0
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] and SB.Items.IsItem(sp)
+           and not SB.Items.IsConjured(sp) then
+            potions = potions + 1
         end
     end
-    check("зелий с чужим типом", #badKey, 0)
-    if #badKey > 0 then print("          " .. table.concat(badKey, ", ")) end
-    check("зелий с чужой связкой", #badStack, 0)
-    if #badStack > 0 then print("          " .. table.concat(badStack, ", ")) end
+    check("встроенных зелий не осталось", potions, 0)
+    check("и ремёсел тоже", SB.Items.Professions, nil)
+    check("и разбора по ремеслу", SB.Items.ListByProfession, nil)
 
-    -- ── ТИП ОПРЕДЕЛЯЕТ СРОК ─────────────────────────────────
-    -- Зелье — мгновенное или короткий бурст, эликсир — длинный баф.
-    -- Разъедься это, и «зелье» стало бы неотличимо от «эликсира» ничем,
-    -- кроме подписи.
-    local badDur = {}
-    for _, sp in ipairs(list) do
-        local d = tonumber(sp.duration) or 0
-        if sp.key == "Зелье" and d > 5 then
-            badDur[#badDur + 1] = (sp.name or sp.id) .. " (зелье на " .. d .. ")"
-        elseif sp.key == "Эликсир" and d < 100 then
-            badDur[#badDur + 1] = (sp.name or sp.id) .. " (эликсир на " .. d .. ")"
+    -- А СОТВОРЁННОЕ НА МЕСТЕ: через колонку «Предметы» работают
+    -- классовые вещи, и ремесло к ним отношения не имело никогда.
+    local conjured = {}
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] and SB.Items.IsConjured(sp) then
+            conjured[sp.name or id] = true
         end
     end
-    check("зелий с неподходящим сроку типом", #badDur, 0)
-    if #badDur > 0 then print("          " .. table.concat(badDur, ", ")) end
+    checkTrue("«Самоцвет маны» на месте",  conjured["Самоцвет маны"] == true)
+    checkTrue("«Камень здоровья» на месте", conjured["Камень здоровья"] == true)
+    checkTrue("«Вода маны» на месте",       conjured["Вода маны"] == true)
 
-    -- ── ПОТОЛОК ВОСПОЛНЕНИЯ — ЧЕТВЁРКА ──────────────────────
-    --
-    -- Эталон: «Божественный дух» (Жрец, круг 2) даёт ману тиком, и
-    -- третьим кругом это шесть маны минус два вложенных = +4 чистыми.
-    -- Зелье обязано быть НЕ СИЛЬНЕЕ, потому что действует без броска.
-    local overCap = {}
-    for _, sp in ipairs(list) do
-        for _, ch in ipairs({ "heal", "mana", "resource", "castResource" }) do
-            local v = tonumber((sp.onCast or {})[ch]) or 0
-            if v > 4 then
-                overCap[#overCap + 1] = (sp.name or sp.id) .. "/" .. ch .. "=" .. v
-            end
-        end
-    end
-    check("зелий, восполняющих больше четырёх", #overCap, 0)
-    if #overCap > 0 then print("          " .. table.concat(overCap, ", ")) end
-
-    -- И потолок ДОСТИГНУТ ровно один раз: иначе «сильнейшее» ничем не
-    -- отличалось бы от просто сильного.
-    local atCap = 0
-    for _, sp in ipairs(list) do
-        if (tonumber((sp.onCast or {}).mana) or 0) == 4 then atCap = atCap + 1 end
-    end
-    check("зелий маны на потолке", atCap, 1)
-
-    -- ── ЗЕЛЬЕ НЕВИДИМОСТИ — ЭТАЛОННЫЙ СЛУЧАЙ ────────────────
-    --
-    -- Ровно баф «Невидимости» Мага (круг 2), но вдвое короче. Это и есть
-    -- правило «слабее аналога, но гарантированно», записанное числами.
-    do
-        local potion
-        for _, sp in ipairs(list) do
-            if sp.name == "Зелье невидимости" then potion = sp end
-        end
-        checkTrue("зелье невидимости на месте", potion ~= nil)
-
-        local spellDef  = SB.ActiveEffects.GetEffectDef("eff_stealth_mage_invisibility")
-        local potionDef = potion and SB.ActiveEffects.GetEffectDef(potion.buff)
-        checkTrue("оба эффекта читаются", spellDef ~= nil and potionDef ~= nil)
-
-        check("полоса крита та же", potionDef.mods.crit,     spellDef.mods.crit)
-        check("защита та же",       potionDef.mods.defense,  spellDef.mods.defense)
-        check("и Скрытность та же",
-              potionDef.stats["Скрытность"], spellDef.stats["Скрытность"])
-        check("а срок — ровно половина",
-              potion.duration, SB.Data.Spells["mage_invisibility"].duration / 2)
-    end
-
-    -- ── ПОТОЛКИ БАФОВ ───────────────────────────────────────
-    --
-    -- Броня: «Каменная кожа» (Шаман, круг 1) даёт 20 единиц, и то со
-    -- штрафами к броскам. Зелье даёт не больше и без штрафов.
-    -- Характеристики: +2 — потолок («Божественный дух» даёт ровно два),
-    -- и только у сильнейших.
-    local overBuff = {}
-    for _, sp in ipairs(list) do
-        local def = sp.buff and SB.ActiveEffects.GetEffectDef(sp.buff)
-        if def then
-            if (def.mods.armor or 0) > 20 then
-                overBuff[#overBuff + 1] = (sp.name or sp.id) .. "/броня=" .. def.mods.armor
-            end
-            -- ОДНО ИСКЛЮЧЕНИЕ, И ОНО ЖЕ ОБРАЗЕЦ ПРАВИЛА. «Зелье
-            -- невидимости» копирует баф Мага слово в слово, включая
-            -- Скрытность 3, и платит за это вдвое меньшим сроком —
-            -- проверка на это стоит отдельно, выше.
-            local copiesSpell = (sp.name == "Зелье невидимости")
-            for st, v in pairs(def.stats or {}) do
-                if v > 2 and not copiesSpell then
-                    overBuff[#overBuff + 1] = (sp.name or sp.id) .. "/" .. st .. "=" .. v
-                end
-            end
-            -- Тик тоже: «Озарение» (Друид, круг 2) лечит по два за ход.
-            local raw = SB.Data.Spells[sp.buff].effect
-            for _, ch in ipairs({ "heal", "mana" }) do
-                local v = tonumber(((raw or {}).tick or {})[ch]) or 0
-                if v > 3 then
-                    overBuff[#overBuff + 1] = (sp.name or sp.id) .. "/тик " .. ch .. "=" .. v
-                end
-            end
-        end
-    end
-    check("зелий выше потолка бафа", #overBuff, 0)
-    if #overBuff > 0 then print("          " .. table.concat(overBuff, ", ")) end
-
-    -- ── ОДНОВРЕМЕННО ОДИН ЭЛИКСИР, ОДНО ЗЕЛЬЕ, ОДИН ЯД ─────
-    --
-    -- Семейство в аддоне значит «новый эффект вытесняет предыдущий того
-    -- же семейства». Без него игрок вешал на себя всю сумку разом:
-    -- четыре эликсира характеристик — это +4 к листу за один ход и
-    -- бесплатно, потому что зелья действуют гарантированно.
-    local noFamily, wrongFamily = {}, {}
-    for _, sp in ipairs(list) do
-        if sp.buff then
-            local cont = SB.Data.Spells[sp.buff]
-            local fam  = cont and cont.effect and cont.effect.family
-            if not fam then
-                noFamily[#noFamily + 1] = sp.name or sp.id
-            elseif fam ~= sp.key then
-                wrongFamily[#wrongFamily + 1] =
-                    (sp.name or sp.id) .. ": " .. fam .. " вместо " .. sp.key
-            end
-        end
-    end
-    check("зелий с эффектом, но без семейства", #noFamily, 0)
-    if #noFamily > 0 then print("          " .. table.concat(noFamily, ", ")) end
-    check("зелий с чужим семейством", #wrongFamily, 0)
-    if #wrongFamily > 0 then print("          " .. table.concat(wrongFamily, ", ")) end
-
-    -- И семейство ПРАВДА вытесняет: два эликсира разом не висят.
-    do
-        ResetEffects()
-        local first, second
-        for _, sp in ipairs(list) do
-            if sp.key == "Эликсир" and sp.buff and sp.buff ~= (first and first.buff) then
-                if not first then first = sp elseif not second then second = sp end
-            end
-        end
-        checkTrue("нашлись два разных эликсира",
-                  first ~= nil and second ~= nil and first.buff ~= second.buff)
-        SB.ActiveEffects.Add(first.buff, 5, false)
-        checkTrue("первый эликсир висит", UsesOf(first.buff) ~= nil)
-        SB.ActiveEffects.Add(second.buff, 5, false)
-        checkTrue("второй встал", UsesOf(second.buff) ~= nil)
-        checkTrue("а первый вытеснен", UsesOf(first.buff) == nil)
-        ResetEffects()
-    end
-
-    -- ── ИМЯ СОГЛАСОВАНО С ТИПОМ ─────────────────────────────
-    --
-    -- «Зелье защиты от магии», висящее триста ходов, — это эликсир, и
-    -- называться оно должно эликсиром. Разъедься имя с типом, и
-    -- классификация останется только в поле, которого игрок не видит.
-    local mismatched = {}
-    -- ТОЛЬКО ДВА СЛОВА, и ЯДА СРЕДИ НИХ НЕТ. «Зелье» и «эликсир» в имени
-    -- называют ФОРМУ и ничего больше, а «яд» — обычное слово: «Зелье
-    -- сопротивления яду» — честное зелье, которое ОТ яда лечит. Лови мы
-    -- его по подстроке, проверка требовала бы переименовать то, что
-    -- названо верно.
-    --
-    -- ОБА НАПИСАНИЯ ПЕРЕЧИСЛЕНЫ РУКАМИ, и это не лень. Здесь стояло
-    -- name:lower(), и проверка была ВЫРОЖДЕННОЙ: lower в Lua побайтовый
-    -- и кириллицу не трогает вовсе, так что «Зелье» с большой буквы не
-    -- совпадало с «зель» никогда. Проверка не могла провалиться — то
-    -- есть не проверяла ничего.
-    local WORD = {
-        ["Зелье"]   = { "Зель", "зель" },
-        ["Эликсир"] = { "Эликсир", "эликсир" },
-    }
-    for _, sp in ipairs(list) do
-        local nm = sp.name or ""
-        for key, forms in pairs(WORD) do
-            if key ~= sp.key then
-                for _, word in ipairs(forms) do
-                    if nm:find(word, 1, true) then
-                        mismatched[#mismatched + 1] = nm .. " → " .. sp.key
-                        break
-                    end
-                end
-            end
-        end
-    end
-    check("предметов, чьё имя спорит с типом", #mismatched, 0)
-    if #mismatched > 0 then print("          " .. table.concat(mismatched, ", ")) end
-
-    -- ── ДОЛГИЙ ОТДЫХ ПОПОЛНЯЕТ СУМКУ ────────────────────────
-    --
-    -- Выпитое за сцену возвращается. Без этого сумка пустела навсегда, и
-    -- «взять с собой зелий» было разовым решением на всю кампанию.
-    do
-        _G.SpellbreakerCharDB.configLocked = false
-        SB.Items.ClearPrepared()
-        local sample
-        for _, sp in ipairs(list) do
-            if SB.Items.StackSize(sp) > 1 then sample = sp break end
-        end
-        checkTrue("нашлось зелье с пачкой", sample ~= nil)
-
-        SB.Items.Prepare(sample.id)
-        local full = SB.Items.StackSize(sample)
-        SB.Items.NoteUsed(sample.id)
-        check("после применения в пачке меньше",
-              SB.Items.CountOf(sample.id), full - 1)
-
-        SB.PlayerModel.FullReset()
-        check("Долгий Отдых долил пачку доверху",
-              SB.Items.CountOf(sample.id), full)
-
-        -- ПУСТАЯ ЯЧЕЙКА НЕ ВОСКРЕСАЕТ: она освободилась, когда кончилась,
-        -- и вернуть её значило бы вернуть предмет, которого нет.
-        SB.Items.ClearPrepared()
-        SB.Items.Prepare(sample.id)
-        for _ = 1, full do SB.Items.NoteUsed(sample.id) end
-        check("кончившееся зелье покинуло сумку", SB.Items.CountPrepared(), 0)
-        SB.PlayerModel.FullReset()
-        check("и Долгий Отдых его не воскрешает", SB.Items.CountPrepared(), 0)
-        SB.Items.ClearPrepared()
-    end
-
-    -- Раскладка в вывод прогона: раздача правится руками.
-    do
-        local byKey = {}
-        for _, sp in ipairs(list) do
-            byKey[sp.key] = (byKey[sp.key] or 0) + 1
-        end
-        local rep = {}
-        for _, k in ipairs({ "Зелье", "Эликсир", "Яд" }) do
-            rep[#rep + 1] = ("%s %d"):format(k, byKey[k] or 0)
-        end
-        print("[алхимия] " .. table.concat(rep, "; "))
-    end
+    -- Сумка и её три ячейки не тронуты: вещи в них приходят кастом
+    -- (SB.Items.Grant), а не набором перед выходом.
+    checkTrue("сумка на месте", (SB.Items.GetMaxPrepared() or 0) > 0)
+    checkTrue("и набор перед выходом тоже",
+              type(SB.Items.ListPackable) == "function")
 end
 
 -- ============================================================
@@ -8770,12 +8570,6 @@ do
     -- стрелу.
     local SCHOOLED = {
         -- зелья: число прежнее, сузилась только область
-        { "custom_cont_56789a0123456789123456789a23456789abcd", "damageFire",    1 },
-        { "custom_cont_bcd356787",                              "damageFire",    2 },
-        { "custom_cont_a456789abc789abcd045789",                "damageFrost",   1 },
-        { "custom_cont_019ab40123456789abcdeabc",               "damageShadow",  1 },
-        { "custom_cont_bcde56789a566789abc",                    "damageMagic",   1 },
-        { "custom_cont_56789abc456789abcdef45678923456789a",    "damageMagic",   1 },
         -- чары оружия: бьёт оружие, значит физический
         { "eff_weapon_enchant_flame_weapon",     "damagePhysical",  2 },
         { "eff_weapon_enchant_lightning_brand",  "damagePhysical",  2 },
@@ -9368,25 +9162,8 @@ do
     -- Правило балансировки: зелье действует гарантированно и без броска,
     -- и платит за это величиной. Ни одно защитное зелье не имеет права
     -- догнать личный оберег.
-    local POTION_GUARDS = {
-        "custom_cont_0123456784567789abcde23456789",     -- Защита от магии
-        "custom_cont_e456789abc1234567789abcde",         -- от магии льда
-        "custom_cont_2345456789abcd",                    -- Тёмная защита
-        "custom_cont_123456789abcdef4567815678",         -- Огненная защита
-        "custom_cont_567cd45678912349a789",              -- Священная защита
-        "custom_cont_78234561234563456789abcde6789abc",  -- сильное, лёд
-        "custom_cont_78978789a01234e",                   -- сильное, огонь
-        "custom_cont_cdef6789abcdea3456789abcde",        -- слабое, огонь
-    }
-    for _, id in ipairs(POTION_GUARDS) do
-        local def = SB.ActiveEffects.GetEffectDef(id)
-        local nm  = (SB.Data.Spells[id] and SB.Data.Spells[id].name) or id
-        local total = 0
-        for _, k in ipairs(SB.Data.ResistKeys) do
-            total = total + (def and def.mods[k] or 0)
-        end
-        check("«" .. nm .. "» даёт ровно единицу сопротивления", total, 1)
-    end
+    -- ЗДЕСЬ ПРОВЕРЯЛИСЬ ОБЕРЕГИ ИЗ ЗЕЛИЙ — по единице сопротивления
+    -- каждый. Зелья вырезаны вместе с ремеслом, список опустел.
 
     -- И то же самое живыми данными, чтобы новое зелье не проскочило мимо
     -- правила: у ПРЕДМЕТА резист не бывает больше единицы.
@@ -14043,8 +13820,7 @@ end
 -- ============================================================
 do
     local seen, dup = {}, {}
-    for _, path in ipairs({ "Spells/Effects.lua", "Spells/Alchemy.lua",
-                            "Spells/Conjured.lua", "Spells/Warrior.lua",
+    for _, path in ipairs({ "Spells/Effects.lua",                             "Spells/Conjured.lua", "Spells/Warrior.lua",
                             "Spells/Hunter.lua", "Spells/Mage.lua",
                             "Spells/Rogue.lua", "Spells/Priest.lua",
                             "Spells/Warlock.lua", "Spells/Paladin.lua",
@@ -14083,59 +13859,45 @@ do
         return (t:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
     end
 
+    -- ЗДЕСЬ КАРТОЧКУ ПРОВЕРЯЛИ НА ЗАВЕЗЁННЫХ ЗЕЛЬЯХ — «Зелье маны»,
+    -- «Виноградное зелье», «Зелье сопротивления яду». Их больше нет, а
+    -- правила карточки остались, и проверяются они на пробе: речь ведь
+    -- не о зельях, а о том, что ПРЕДМЕТ рассказывает о себе сам.
+    local potion = SB.Data.Spells["t_bagitem"]
+
     -- ── НЕМЕДЛЕННАЯ ВЫПЛАТА ─────────────────────────────────
-    local mana = Item("Зелье маны")
-    checkTrue("«Зелье маны» нашлось", mana ~= nil)
-    if mana then
-        local txt = Plain(mana)
-        -- ЧИСЛО ИЗ ПОЛЯ, а не из головы: сверяем со значением onCast,
-        -- чтобы проверка не превратилась во второй список тех же цифр.
-        local want = tostring(mana.onCast and mana.onCast.mana)
+    do
+        local txt = Plain(potion)
         checkTrue("склянка говорит, сколько даёт",
                   txt:find("Даёт сразу", 1, true) ~= nil)
+        -- ЧИСЛО ИЗ ПОЛЯ, а не из головы: иначе проверка станет вторым
+        -- списком тех же цифр.
         checkTrue("и число то самое, что в поле",
-                  txt:find("+" .. want, 1, true) ~= nil)
+                  txt:find("+" .. tostring(potion.onCast.heal) .. " ХП", 1, true) ~= nil)
     end
 
     -- ── ЭФФЕКТ ОПИСЫВАЕТ СЕБЯ САМ ───────────────────────────
     --
-    -- Для баффа зовём ту же GetEffectLines, что рисует карточку эффекта:
-    -- вторая реализация «что даёт этот бафф» разошлась бы с первой.
-    local troll = Item("Крепкое зелье тролльей крови")
-    if troll then
-        local txt = Plain(troll)
+    -- Зовётся та же GetEffectLines, что рисует карточку эффекта: вторая
+    -- реализация «что даёт этот бафф» разошлась бы с первой.
+    do
+        local txt = Plain(potion)
         checkTrue("склянка называет свой эффект",
                   txt:find("Накладывает", 1, true) ~= nil)
         checkTrue("и показывает, что он делает",
                   txt:find("Каждый ход", 1, true) ~= nil)
     end
 
-    -- ── ДВЕ СКЛЯНКИ, ОБЕЩАВШИЕ И НЕ ДЕЛАВШИЕ ────────────────
+    -- ── РАССЕИВАНИЕ НА КАРТОЧКЕ ─────────────────────────────
     --
-    -- «Виноградное зелье» обещало «восполняет ману и здоровье», а блока
-    -- не имело вовсе; «Зелье сопротивления яду» обещало избавить от
-    -- четырёх ядов, не снимая ни одного. Числа назначены автором
-    -- системы: по единице того и другого, и один яд.
-    local grape = Item("Виноградное зелье")
-    checkTrue("«Виноградное зелье» нашлось", grape ~= nil)
-    if grape then
-        check("даёт единицу здоровья", grape.onCast and grape.onCast.heal, 1)
-        check("и единицу маны", grape.onCast and grape.onCast.mana, 1)
-        checkTrue("и говорит об этом на карточке",
-                  Plain(grape):find("+1 ХП", 1, true) ~= nil)
-    end
-
-    local anti = Item("Зелье сопротивления яду")
-    checkTrue("«Зелье сопротивления яду» нашлось", anti ~= nil)
-    if anti then
-        local schools = SB.Logic.GetDispelSchools(anti)
+    -- Поле dispel читал только резолв, и антидот выглядел пустым.
+    do
+        local schools = SB.Logic.GetDispelSchools(potion)
         checkTrue("склянка снимает яд", schools ~= nil and schools.poison == true)
         check("и только его", schools and schools.magic, nil)
-        check("ровно один", SB.Logic.GetDispelCount(anti, anti.level or 0), 1)
+        check("ровно один", SB.Logic.GetDispelCount(potion, potion.level or 0), 1)
 
-        -- Карточка про рассеивание молчала: поле dispel читал только
-        -- резолв, и антидот выглядел пустым.
-        local txt = Plain(anti)
+        local txt = Plain(potion)
         checkTrue("карточка называет, что снимает",
                   txt:find("Снимает:", 1, true) ~= nil)
         checkTrue("и называет школу словом", txt:find("Яд", 1, true) ~= nil)
@@ -14147,10 +13909,9 @@ do
     -- «На себя» у предмета — не отсутствие цели, а сама цель (см.
     -- ShowItemUseMenu). Пока исключения не было, антидот, выпитый на
     -- себя, уходил мимо ветки рассеивания и не снимал ничего.
-    if anti then
-        checkTrue("склянку можно выпить и почиститься",
-                  SB.Logic.CanDispelLocally(anti, false))
-    end
+    checkTrue("склянку можно выпить и почиститься",
+              SB.Logic.CanDispelLocally(potion, false))
+
     -- А У ЗАКЛИНАНИЯ ПРАВИЛО ПРЕЖНЕЕ: каст с дальностью адресован
     -- кому-то, и «на себя» его не подменяет.
     SB.Data.Spells["t_disp_ranged"] = { id = "t_disp_ranged",
@@ -14166,7 +13927,7 @@ do
     -- пустой строкой «Даёт сразу:» ни о чём.
     SB.Data.Spells["t_pot_flavour"] = { id = "t_pot_flavour",
         name = "Проба без механики", class = "Предмет", level = 0,
-        isItem = true, profession = "alchemy" }
+        isItem = true }
     check("нечего показать — нечего и печатать",
           #SB.Items.EffectSummary(SB.Data.Spells["t_pot_flavour"]), 0)
 
@@ -14594,7 +14355,7 @@ do
 
     -- Предмет в книге заклинаний не показывается вовсе: у него своя
     -- вкладка и свои ячейки.
-    local potion = SB.Data.Spells["custom_abcdef34567123456789a23de9abcdef"]
+    local potion = SB.Data.Spells["t_bagitem"]
     checkTrue("предмет спрятан из книги заклинаний", Hidden(potion))
     checkTrue("и запертым не считается",         not Locked(potion))
 
@@ -15804,7 +15565,8 @@ do
         end
     end
     check("незнакомых каналов выплаты нет", #strange, 0)
-    checkTrue("лечащие склянки на месте", withHeal >= 12)
+    -- «Сколько лечащих склянок завезено» больше не вопрос: встроенной
+    -- алхимии нет. Правило — знакомые каналы выплаты — выше.
 end
 
 -- ============================================================
@@ -16655,22 +16417,8 @@ end
 -- ДВЕ ПРАВКИ ПО ЧИСЛАМ
 -- ============================================================
 do
-    -- ── ЗЕЛЬЕ ЯРОСТИ ДОКАПЫВАЕТ ────────────────────────────
-    --
-    -- Тело эффекта было пустым: ни тика, ни отписи — одно название и
-    -- обещание словами. Две единицы разом приходили от onCast предмета,
-    -- а обещанные «ещё две на следующий ход» — ниоткуда.
-    local rage = SB.Data.Spells["custom_cont_456789abc6789acde"]
-    checkTrue("эффект «Ярость» на месте", rage ~= nil)
-    checkTrue("и у него есть тик", rage and rage.effect and rage.effect.tick ~= nil)
-    check("тик кормит ресурс", rage and rage.effect.tick.resource, 2)
-
-    local potion = SB.Data.Spells["custom_9ab23456789adef01789ab"]
-    checkTrue("«Мощное зелье ярости» на месте", potion ~= nil)
-    check("и вешает именно этот эффект", potion and potion.buff,
-          "custom_cont_456789abc6789acde")
-    -- Немедленная выплата осталась своей: тик её не заменяет, а дополняет.
-    check("немедленная выплата на месте", potion and potion.onCast.resource, 2)
+    -- ЗДЕСЬ ПРОВЕРЯЛОСЬ «Мощное зелье ярости» — вырезано вместе со
+    -- всей встроенной алхимией.
 
     -- ── ЧАРОДЕЙСКИЙ ВЫСТРЕЛ ────────────────────────────────
     local shot = SB.Data.Spells["arcane_shot"]
@@ -17560,7 +17308,7 @@ do
 
     -- ── ЗЕЛЬЕ: ОДНА СТРОКА ─────────────────────────────────
     SB.Data.Spells["t_pay_potion"] = { id = "t_pay_potion", name = "Проба склянки",
-        class = "Предмет", level = 0, isItem = true, profession = "alchemy",
+        class = "Предмет", level = 0, isItem = true,
         distance = 1.5, resistable = false, stack = 5, onCast = { heal = 2 } }
     _G.SpellbreakerCharDB.preparedItems = { { id = "t_pay_potion", n = 5 } }
     _G.SpellbreakerCharDB.health = PM.GetMaxHealth() - 3
