@@ -1782,6 +1782,9 @@ function PM.FullReset()
     -- что и доспех: Долгий Отдых, и больше ничего. nil, а не ноль: не
     -- копим в сохранёнке поле, которое значит «ничего не потрачено».
     db().fleeUsed = nil
+    -- Запас срывов Воли — третий запас на сцену рядом с бронёй и
+    -- побегом, и возвращает его то же самое (см. SB.Skills.RestoreWill).
+    if SB.Skills and SB.Skills.RestoreWill then SB.Skills.RestoreWill() end
     SB.Events.Fire("PLAYER_MODEL_CHANGED")
     PM.SetLocked(false)
 end

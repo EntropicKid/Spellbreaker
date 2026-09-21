@@ -10646,13 +10646,11 @@ do
     checkTrue("а говорит про срок дебаффа",
               will:find("ход", 1, true) ~= nil)
 
-    -- ЧИСЛО В ТЕКСТЕ СВЕРЯЕМ С РАСЧЁТОМ. «Один ход за очко» — это ровно
-    -- то, что возвращает GetWillDurationCut; разойдись они, подсказка
-    -- врала бы в единственном месте, где игрок решает, куда вложиться.
+    -- ЧИСЛО В ТЕКСТЕ СВЕРЯЕМ С РАСЧЁТОМ: разойдись они, подсказка врала
+    -- бы в единственном месте, где игрок решает, куда вложиться.
     local savedWill = SB.Skills.Get("Воля")
     SB.Skills.Set("Воля", 2)
-    check("два вложенных очка — два хода",
-          SB.Skills.GetWillDurationCut(), 2)
+    check("два вложенных очка — два срыва", SB.Skills.GetWillMax(), 2)
     SB.Skills.Set("Воля", savedWill)
 
     -- «Внушение» ссылалось на «Волю» как на свою противоположность.
@@ -10680,31 +10678,32 @@ do
 end
 
 -- ============================================================
--- ВОЛЯ РЕЖЕТ СРОК ЧУЖОГО ДЕБАФФА
+-- ВОЛЯ — ЗАПАС СРЫВОВ, А НЕ СРЕЗ СРОКА
 --
--- Раньше Воля поднимала порог, и это было глухо: заклинатель либо
--- пробивал планку, либо нет, а стойкость цели не значила ничего в тот
--- самый момент, когда дебафф всё-таки лёг. Пять очков давали «иногда не
--- попадут» — и ни одного хода разницы, если попали.
+-- Срез был плоским, а угроза — множительной: трёхходовое оглушение с
+-- третьего круга висит девять ходов (апкаст), и все пять очков Воли
+-- срезали их до четырёх. Чем дороже контроль, тем полнее Воля
+-- переставала существовать. Плюс пол в один ход делал её бесполезной
+-- против девяти одноходовых площадных оглушений, а насыщение на двойке
+-- обесценивало третье, четвёртое и пятое очко.
 --
--- Теперь каждое вложенное очко срезает ход. Стойкость перестала быть
--- монеткой: дебафф ложится, но держится хуже.
+-- Теперь очки — счётный запас на сцену, срыв снимает контроль ЦЕЛИКОМ
+-- и стоит столько, сколько кругов влил нападающий.
 -- ============================================================
 do
     ResetEffects()
     local wasWill = SB.Skills.Get("Воля")
+    local AE = SB.ActiveEffects
 
     SB.Skills.Set("Воля", SB.Data.STAT_BASE)
-    check("без вложенной Воли срок не режется",
-          SB.Skills.GetWillDurationCut(), 0)
-
+    check("без вложенной Воли срывов нет", SB.Skills.GetWillMax(), 0)
     SB.Skills.Set("Воля", 5)
-    check("пять очков — минус пять ходов",
-          SB.Skills.GetWillDurationCut(), 5)
+    check("пять очков — пять срывов", SB.Skills.GetWillMax(), 5)
+    check("и все они на месте",       SB.Skills.GetWillLeft(), 5)
 
-    -- СЕМЕЙСТВО ОБЯЗАТЕЛЬНО: Воля режет только вмешательство в волю
-    -- (см. SB.Data.WillCutsDuration), и образец без семейства проверял
-    -- бы не срез, а собственную устарелость.
+    -- СЕМЕЙСТВО ОБЯЗАТЕЛЬНО: Воля берёт только вмешательство в волю
+    -- (см. SB.Data.WillTakes), и образец без семейства проверял бы не
+    -- механику, а собственную устарелость.
     SB.Data.Spells["t_will_deb"] = { id = "t_will_deb", name = "Проба долгого",
         class = "Эффект", level = 0, isContainer = true,
         icon = "Interface" .. string.char(92) .. "Icons" ..
@@ -10716,35 +10715,83 @@ do
                string.char(92) .. "INV_Misc_QuestionMark",
         effect = { kind = "buff", mods = { attack = 5 } } }
 
-    -- «Усмирение разума» на десять ходов при Воле 5 держится пять.
-    SB.ActiveEffects.Add("t_will_deb", 10, false)
-    check("десять ходов стали пятью", UsesOf("t_will_deb"), 5)
-
-    -- «Удар по почкам» на два хода — один.
+    -- ── СРОК БОЛЬШЕ НЕ РЕЖЕТСЯ ВОВСЕ ───────────────────────
     ResetEffects()
-    SB.ActiveEffects.Add("t_will_deb", 2, false)
-    check("два хода стали одним", UsesOf("t_will_deb"), 1)
+    AE.Add("t_will_deb", 10, false)
+    check("десять ходов так и остались десятью", UsesOf("t_will_deb"), 10)
+    check("один ход — одним", (function()
+        ResetEffects(); AE.Add("t_will_deb", 1, false); return UsesOf("t_will_deb")
+    end)(), 1)
 
-    -- «Промеж глаз» на один ход остаётся одним: ниже единицы не
-    -- опускается, иначе Воля стала бы невосприимчивостью ко всему
-    -- короткому.
+    -- ── ЦЕНА = КРУГ, НА КОТОРОМ НАЛОЖИЛИ ───────────────────
     ResetEffects()
-    SB.ActiveEffects.Add("t_will_deb", 1, false)
-    check("один ход так и остаётся одним", UsesOf("t_will_deb"), 1)
+    AE.Add("t_will_deb", 9, false, "Зольц", 3)
+    check("третий круг стоит три", AE.WillCostOf("t_will_deb"), 3)
+    ResetEffects()
+    AE.Add("t_will_deb", 3, false, "Зольц", 1)
+    check("первый круг — один", AE.WillCostOf("t_will_deb"), 1)
+    -- Круга нет вовсе (выдача Ведущего, заговор) — минимум единица:
+    -- бесплатный срыв был бы невосприимчивостью к дешёвому контролю.
+    ResetEffects()
+    AE.Add("t_will_deb", 3, false, "Зольц", 0)
+    check("без круга — всё равно очко", AE.WillCostOf("t_will_deb"), 1)
+    -- Наложили поверх, влив больше, — цена едет за новым вложением.
+    AE.Add("t_will_deb", 9, false, "Зольц", 3)
+    check("переналожение поднимает цену", AE.WillCostOf("t_will_deb"), 3)
 
-    -- ПОМОЩЬ НЕ РЕЖЕТСЯ: сопротивляются чужому вмешательству, а не
-    -- союзнику. Иначе развитая Воля укорачивала бы собственные баффы.
+    -- ПОМОЩЬ И ПОСТОРОННЕЕ ВОЛЯ НЕ БЕРЁТ.
     ResetEffects()
-    SB.ActiveEffects.Add("t_will_buf", 10, false)
-    check("бафф держится сколько положено", UsesOf("t_will_buf"), 10)
+    AE.Add("t_will_buf", 10, false, "Зольц", 3)
+    check("бафф срывать нечего",      AE.WillCostOf("t_will_buf"), nil)
+    check("и держится он сколько положено", UsesOf("t_will_buf"), 10)
 
-    -- И БЕССРОЧНОЕ ОСТАЁТСЯ БЕССРОЧНЫМ: срезать «до конца сцены» на
-    -- четыре хода не значит ничего, а испортить сентинел — значит
-    -- превратить его в четыре хода со знаком минус.
+    -- ── СРЫВ СНИМАЕТ ЦЕЛИКОМ И СПИСЫВАЕТ ЗАПАС ─────────────
+    --
+    -- Пример Ведущего: у жреца пять Воли, по нему прилетают два «Удара
+    -- по почкам» с третьего круга. Первый он гасит полностью, на второй
+    -- очков не хватает — и тот висит весь срок. Оставшиеся два очка при
+    -- этом не пропадают: их хватит на дешёвое оглушение.
     ResetEffects()
-    SB.ActiveEffects.Add("t_will_deb", SB.ActiveEffects.INFINITE, false)
-    check("бессрочный дебафф не тронут",
-          UsesOf("t_will_deb"), SB.ActiveEffects.INFINITE)
+    SB.Skills.Set("Воля", 5)
+    SB.Skills.RestoreWill()
+    AE.Add("t_will_deb", 9, false, "Зольц", 3)
+    checkTrue("первый контроль сорван", AE.ShakeOff("t_will_deb"))
+    check("и его больше нет",  UsesOf("t_will_deb"), nil)
+    check("запас списан на три", SB.Skills.GetWillLeft(), 2)
+
+    AE.Add("t_will_deb", 9, false, "Зольц", 3)
+    checkTrue("на второй такой же очков не хватает",
+              not AE.ShakeOff("t_will_deb"))
+    check("он висит полный срок",     UsesOf("t_will_deb"), 9)
+    check("и запас не тронут",        SB.Skills.GetWillLeft(), 2)
+    checkTrue("а отказ назван словами",
+              select(2, AE.CanShakeOff("t_will_deb")) ~= nil)
+
+    -- Зато дешёвое — по силам.
+    SB.Data.Spells["t_will_cheap"] = { id = "t_will_cheap", name = "Проба дешёвого",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "debuff", family = "Замедление", mods = { movePct = -30 } } }
+    AE.Add("t_will_cheap", 3, false, "Зольц", 1)
+    checkTrue("слабое замедление срывается", AE.ShakeOff("t_will_cheap"))
+    check("и очко списано",                  SB.Skills.GetWillLeft(), 1)
+
+    -- ── ЗАПАС ВОЗВРАЩАЕТ ДОЛГИЙ ОТДЫХ ──────────────────────
+    SB.Skills.RestoreWill()
+    check("отдых вернул всё", SB.Skills.GetWillLeft(), 5)
+    -- Частично сорвать нельзя: не хватило — не списано ничего.
+    checkTrue("шесть очков не списываются", not SB.Skills.SpendWill(6))
+    check("и запас остался целым", SB.Skills.GetWillLeft(), 5)
+    checkTrue("ноль тоже не списывается", not SB.Skills.SpendWill(0))
+
+    -- ── КРУГ ПЕРЕЖИВАЕТ /reload ────────────────────────────
+    ResetEffects()
+    AE.Add("t_will_deb", 9, false, "Зольц", 3)
+    AE.LoadFromDB()
+    check("после перезахода цена та же", AE.WillCostOf("t_will_deb"), 3)
+
+    SB.Data.Spells["t_will_cheap"] = nil
+    ResetEffects()
+    SB.Skills.RestoreWill()
 
     -- ── РЕЖЕТ НЕ ВСЁ ───────────────────────────────────────
     --
@@ -10752,14 +10799,14 @@ do
     -- всей вредной половины библиотеки разом — и от яда, и от
     -- кровотечения, и от проклятия, у которых для этого есть свои
     -- ответы. Теперь она про вмешательство в волю, и только.
-    check("оглушение режется",   SB.Data.WillCutsDuration("t_will_deb"), true)
+    check("оглушение режется",   SB.Data.WillTakes("t_will_deb"), true)
 
     SB.Data.Spells["t_will_poison"] = { id = "t_will_poison", name = "Проба яда",
         class = "Эффект", level = 0, isContainer = true,
         icon = "Interface" .. string.char(92) .. "Icons" ..
                string.char(92) .. "INV_Misc_QuestionMark",
         effect = { kind = "debuff", school = "poison", tick = { damage = 1 } } }
-    check("а яд — нет", SB.Data.WillCutsDuration("t_will_poison"), false)
+    check("а яд — нет", SB.Data.WillTakes("t_will_poison"), false)
     ResetEffects()
     SB.ActiveEffects.Add("t_will_poison", 10, false)
     check("и держится он полный срок", UsesOf("t_will_poison"), 10)
@@ -10772,12 +10819,12 @@ do
             class = "Эффект", level = 0, isContainer = true,
             effect = { kind = "debuff", family = fam, mods = { attack = -1 } } }
         check("«" .. fam .. "» режется",
-              SB.Data.WillCutsDuration("t_will_" .. fam), true)
+              SB.Data.WillTakes("t_will_" .. fam), true)
     end
     checkTrue("само гнездо ослепления режется",
-              SB.Data.WillCutsDuration("eff_blinded"))
+              SB.Data.WillTakes("eff_blinded"))
     checkTrue("и отщеплённое от него тоже",
-              SB.Data.WillCutsDuration("eff_blinded_smoke_bomb"))
+              SB.Data.WillTakes("eff_blinded_smoke_bomb"))
 
     -- СТРАХ НЕ РЕЖЕТСЯ, хотя и сбивает концентрацию: это чары над
     -- чувствами, и у них своя защита.
@@ -10785,11 +10832,11 @@ do
         class = "Эффект", level = 0, isContainer = true,
         effect = { kind = "debuff", family = "Страх", mods = { attack = -1 } } }
     check("страх Воля не укорачивает",
-          SB.Data.WillCutsDuration("t_will_fear"), false)
+          SB.Data.WillTakes("t_will_fear"), false)
 
     -- Мусор на входе требованием не становится.
-    check("нет эффекта — нечего и резать", SB.Data.WillCutsDuration(nil), false)
-    check("и неизвестный id тоже",  SB.Data.WillCutsDuration("нет такого"), false)
+    check("нет эффекта — нечего и резать", SB.Data.WillTakes(nil), false)
+    check("и неизвестный id тоже",  SB.Data.WillTakes("нет такого"), false)
 
     -- ВСЁ ГНЕЗДО ОСЛЕПЛЕНИЯ В БИБЛИОТЕКЕ ПОКРЫТО. Список гнёзд —
     -- единственное место, где это правило записано, и разъехаться с
@@ -10797,7 +10844,7 @@ do
     local blindMissed = {}
     for id, sp in pairs(SB.Data.Spells) do
         if type(id) == "string" and id:sub(1, 11) == "eff_blinded"
-           and not SB.Data.WillCutsDuration(id) then
+           and not SB.Data.WillTakes(id) then
             blindMissed[#blindMissed + 1] = sp.name or id
         end
     end

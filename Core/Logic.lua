@@ -1708,7 +1708,13 @@ function SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, fromOther, extra
         if isConc == nil then isConc = sourceSpell and sourceSpell.isConcentration end
     end
 
-    SB.ActiveEffects.Add(effectID, turns, isConc or false, source)
+    -- КРУГ ЕДЕТ ВМЕСТЕ С ЭФФЕКТОМ. Вложение заклинателя уже здесь, в
+    -- аргументе (и у своего каста, и у чужого пакета, и у площади), а
+    -- нужно оно носителю: по нему считается цена срыва Волей
+    -- (см. SB.ActiveEffects.WillCostOf). Не передан — собственный круг
+    -- заклинания-источника, то есть «влил ровно столько, сколько стоит».
+    SB.ActiveEffects.Add(effectID, turns, isConc or false, source,
+        tonumber(slotLevel) or (sourceSpell and tonumber(sourceSpell.level)))
 end
 
 -- ============================================================

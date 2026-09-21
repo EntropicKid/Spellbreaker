@@ -732,6 +732,81 @@ function SB.ActiveEffects.BeaconShare(effectID)
     return math.min(100, share)
 end
 
+-- ============================================================
+-- СРЫВ ВОЛЕЙ: ПЛАТИШЬ СТОЛЬКО ЖЕ, СКОЛЬКО ОН ВЛИЛ
+--
+-- Правило целиком — во врезке у SB.Skills.GetWillMax. Здесь только
+-- цена и само снятие: «сколько стоит» — вопрос к висящему эффекту (он
+-- один помнит круг наложения), «сколько есть» — вопрос к навыку, и
+-- складывать их в одну функцию значило бы, что запас Воли считается в
+-- двух местах.
+--
+-- СРЫВ — НЕ ДЕЙСТВИЕ ХОДА. Он не тратит ход и не ждёт своей очереди:
+-- оглушение на то и оглушение, что до своего хода носитель может не
+-- дожить. «Гасит полностью» значит полностью.
+-- ============================================================
+
+--- Во сколько очков Воли обойдётся срыв этого эффекта.
+--- nil — Воля его не берёт вовсе (не контроль, не дебафф или не висит).
+--- @return number|nil
+function SB.ActiveEffects.WillCostOf(spellID)
+    if not (SB.Data.WillTakes and SB.Data.WillTakes(spellID)) then
+        return nil
+    end
+    if SB.ActiveEffects.GetKind(spellID) ~= "debuff" then return nil end
+    for _, eff in ipairs(effects) do
+        if eff.spellID == spellID then
+            -- МИНИМУМ ЕДИНИЦА. Заговор и выдача Ведущего круга не имеют,
+            -- а бесплатный срыв означал бы полную невосприимчивость к
+            -- дешёвому контролю — то есть ровно ту неуязвимость, от
+            -- которой в своё время спасал пол в один ход.
+            return math.max(1, math.floor(tonumber(eff.lvl) or 0))
+        end
+    end
+    return nil
+end
+
+--- Можно ли сорвать прямо сейчас.
+--- @return boolean, string|nil  причина отказа словами
+function SB.ActiveEffects.CanShakeOff(spellID)
+    local cost = SB.ActiveEffects.WillCostOf(spellID)
+    if not cost then return false, "Воля берёт только контроль." end
+    if not (SB.Skills and SB.Skills.GetWillLeft) then return false end
+    local left = SB.Skills.GetWillLeft()
+    if left < cost then
+        return false, "Не хватает Воли: нужно " .. cost .. ", осталось " .. left .. "."
+    end
+    return true
+end
+
+--- Сорвать чужой контроль, заплатив Волей.
+--- @return boolean  сорвано ли
+function SB.ActiveEffects.ShakeOff(spellID)
+    local ok, why = SB.ActiveEffects.CanShakeOff(spellID)
+    if not ok then
+        if why then
+            print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BAD .. why .. "|r")
+        end
+        return false
+    end
+    local cost = SB.ActiveEffects.WillCostOf(spellID)
+    if not SB.Skills.SpendWill(cost) then return false end
+
+    local sp = SB.Data.Spells[spellID]
+    -- Строка ОБЩАЯ, а не местная: сорванное оглушение меняет расклад
+    -- боя для всех, и тот, кто его наложил, обязан увидеть, что его ход
+    -- пропал даром.
+    SB.Events.Fire(SB.E.BROADCAST_LOG,
+        SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. SB.Theme.MSG_BODY ..
+        UnitName("player") .. " срывает с себя |r" ..
+        ((sp and SB.UI.MakeSpellLink(sp)) or (sp and sp.name) or spellID) ..
+        SB.Theme.MSG_BODY .. " усилием воли (−" .. cost .. ", осталось " ..
+        SB.Skills.GetWillLeft() .. ").|r", SB.LogRank.ACTION)
+
+    SB.ActiveEffects.Remove(spellID, true)
+    return true
+end
+
 --- Наложен ли этот эффект кем-то другим (не нами).
 --- Отдельной функцией, потому что сравнение с собой повторялось бы в
 --- каждом месте, где «чужие чары» и «свои» решают разное.
@@ -1183,7 +1258,21 @@ local function MakeSlot(i)
                         GameTooltip:AddLine("|cFFFFFFFFЛКМ|r — Применить (бесплатно)", 0.8,0.8,0.8)
                     end
                 end
-                if SB.ActiveEffects.GetKind(self._spID) == "debuff" then
+                local willCost = SB.ActiveEffects.WillCostOf(self._spID)
+                if willCost then
+                    -- ЦЕНА И ОСТАТОК — ОДНОЙ СТРОКОЙ. «Сорвать за Волю»
+                    -- без числа не даёт принять решение: весь смысл
+                    -- запаса в том, что игрок сам выбирает, на что его
+                    -- тратить (см. врезку у SB.Skills.GetWillMax).
+                    local left = (SB.Skills and SB.Skills.GetWillLeft
+                                  and SB.Skills.GetWillLeft()) or 0
+                    local can  = left >= willCost
+                    GameTooltip:AddLine(
+                        (can and "|cFFFFFFFFПКМ|r — " or "|cFF888888ПКМ|r — ") ..
+                        "сорвать Волей: |cFFFFD100" .. willCost ..
+                        "|r (осталось " .. left .. ")",
+                        can and 0.8 or 0.5, can and 0.8 or 0.5, can and 0.8 or 0.5)
+                elseif SB.ActiveEffects.GetKind(self._spID) == "debuff" then
                     GameTooltip:AddLine("|cFFFF6666Снять нельзя|r — спадёт сам или на Долгом Отдыхе",
                         0.8, 0.5, 0.5, true)
                 else
@@ -1212,9 +1301,18 @@ local function MakeSlot(i)
                 SB.ActiveEffects.Use(self._spID)
             end
         elseif btn == "RightButton" then
-            -- ДЕБАФФ СНЯТЬ С СЕБЯ НЕЛЬЗЯ. Иначе он не имеет смысла: любой,
-            -- на кого навесили «Кровотечение», просто щёлкал бы по иконке.
-            -- Уходит он сам по истечении ходов либо на Долгом Отдыхе.
+            -- КОНТРОЛЬ СРЫВАЕТСЯ ВОЛЕЙ, и это единственный дебафф,
+            -- который снимается с себя своими руками. Платит за это
+            -- счётный запас (см. SB.ActiveEffects.ShakeOff), поэтому
+            -- «щёлкнул и стряхнул» тут не выходит: у запаса есть дно.
+            if SB.ActiveEffects.WillCostOf(self._spID) then
+                SB.ActiveEffects.ShakeOff(self._spID)
+                return
+            end
+            -- ОСТАЛЬНЫЕ ДЕБАФФЫ СНЯТЬ С СЕБЯ НЕЛЬЗЯ. Иначе они не имеют
+            -- смысла: любой, на кого навесили «Кровотечение», просто
+            -- щёлкал бы по иконке. Уходят сами по истечении ходов либо
+            -- на Долгом Отдыхе.
             if SB.ActiveEffects.GetKind(self._spID) == "debuff" then
                 SB.UI.PrintMsg("cantRemoveDebuff")
                 return
@@ -1615,43 +1713,18 @@ end
 ---        отвечает на этот вопрос всегда, а не иногда. У ПРОДЛЕНИЯ уже
 ---        висящего умолчания нет — там безымянный вызов сохраняет
 ---        прежнего источника.
-function SB.ActiveEffects.Add(containerSpellID, duration, isConc, source)
+--- @param level number|nil  КРУГ, НА КОТОРОМ ЭФФЕКТ НАЛОЖИЛИ. Не срок и
+---        не сила — именно вложение заклинателя: по нему считается цена
+---        срыва Волей (см. SB.ActiveEffects.WillCostOf). Не передан —
+---        берётся собственный круг заклинания, а у выдачи Ведущего его
+---        нет вовсе, и тогда это единица.
+function SB.ActiveEffects.Add(containerSpellID, duration, isConc, source, level)
     if not containerSpellID then return end
     if not SB.Data.Spells[containerSpellID] then return end
 
     -- Пустая строка — не имя: пусть лучше «я сам», чем «кто-то».
     if type(source) ~= "string" or source == "" then source = nil end
-
-    -- ── ВОЛЯ РЕЖЕТ СРОК ЧУЖОГО ДЕБАФФА ──────────────────────
-    --
-    -- Здесь, в Add, а не в GetEffectDuration: это ЕДИНСТВЕННАЯ точка, куда
-    -- сходятся все пути — свой каст, чужой пакет по сети, выдача
-    -- Ведущего. Срез, поставленный в расчёт длительности, ловил бы
-    -- только первый из трёх.
-    --
-    -- ТОЛЬКО ДЕБАФФ: сопротивляются чужому вмешательству, а не помощи
-    -- союзника — иначе развитая Воля укорачивала бы собственные баффы.
-    --
-    -- И ТОЛЬКО ВМЕШАТЕЛЬСТВО В ВОЛЮ — оглушение, контроль, ослепление,
-    -- замедление (см. SB.Data.WillCutsDuration). Прежде Воля резала срок
-    -- ЛЮБОМУ дебаффу, то есть один навык защищал от всей вредной половины
-    -- библиотеки разом: и от яда, и от кровотечения, и от проклятия, у
-    -- которых для этого есть свои ответы.
-    --
-    -- НИЖЕ ОДНОГО ХОДА НЕ ОПУСКАЕТСЯ, и бессрочное не трогается вовсе:
-    -- срезать «до конца сцены» на четыре хода не значит ничего, а
-    -- испортить сентинел (-1) значит превратить его в отрицательный срок.
-    local turns = duration
-    if turns and turns ~= INFINITE and (tonumber(turns) or 0) > 0
-       and SB.ActiveEffects.GetKind(containerSpellID) == "debuff"
-       and SB.Data.WillCutsDuration and SB.Data.WillCutsDuration(containerSpellID)
-       and SB.Skills and SB.Skills.GetWillDurationCut then
-        local cut = SB.Skills.GetWillDurationCut()
-        if cut > 0 then
-            turns = math.max(1, turns - cut)
-        end
-    end
-    duration = turns
+    level = tonumber(level)
 
     -- ПОДАВЛЕНО — НЕ ЛОЖИТСЯ. Проверяем ДО всего остального: иначе
     -- подавляемое сначала сбросило бы своё семейство (DropFamily), а
@@ -1733,6 +1806,11 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc, source)
             -- провокатор держал бы цель до конца срока, а второй тратил
             -- бы ход на то, чтобы продлить внимание к сопернику.
             eff.src    = source or eff.src
+            -- И КРУГ — ПО ТОЙ ЖЕ ПРИЧИНЕ, что и источник: перебивает
+            -- последний. Наложить оглушение поверх уже висящего, влив
+            -- больше, — обычный ход, и цена срыва обязана поехать за
+            -- новым вложением, а не остаться от прежнего, дешёвого.
+            eff.lvl    = level or eff.lvl
             -- ПОВТОРНОЕ НАЛОЖЕНИЕ ОБНОВЛЯЕТ И САМ ОБЕРЕГ, а не только
             -- его срок: пробитый «Щит» на то и перекладывают, чтобы он
             -- снова держал. Пока расход оберега жил в общем числе
@@ -1760,6 +1838,10 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc, source)
         -- безымянное продление переписало бы адресата на себя — и штраф
         -- по провокатору перестал бы работать.
         src       = source or UnitName("player"),
+        -- Круг, на котором наложили. Не передали — собственный круг
+        -- заклинания: выдача Ведущего вложения не знает, и брать с неё
+        -- больше единицы не за что (см. WillCostOf).
+        lvl       = level or tonumber(SB.Data.Spells[containerSpellID].level),
         -- Ноль явно: свежий оберег ничего ещё не отдал, а поле читается
         -- сложением (см. SB.ActiveEffects.GetArmorUsed).
         armorUsed = 0,
@@ -2988,6 +3070,9 @@ function SaveEffects()
             -- И провокатор тоже: /reload посреди сцены не должен
             -- превращать адресную провокацию в безадресную.
             src       = eff.src,
+            -- И круг наложения: от него зависит цена срыва Волей, и
+            -- перезаход в игру не должен её удешевлять.
+            lvl       = eff.lvl,
         })
     end
     SpellbreakerCharDB.activeEffects = t
@@ -3006,6 +3091,7 @@ function SB.ActiveEffects.LoadFromDB()
                 isConc    = entry.isConc or false,
                 armorUsed = tonumber(entry.armorUsed) or 0,
                 src       = (type(entry.src) == "string") and entry.src or nil,
+                lvl       = tonumber(entry.lvl),
             })
         end
     end
@@ -3038,6 +3124,7 @@ function SB.ActiveEffects.GetAll()
             -- вызывающему пришлось бы вторым заходом спрашивать
             -- SourceOf по каждому id.
             src     = eff.src,
+            lvl     = eff.lvl,
         }
     end
     return copy
