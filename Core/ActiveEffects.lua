@@ -897,42 +897,67 @@ end
 -- каст. Порядок бережёт то, что дороже восстановить.
 -- ============================================================
 
---- Сколько единиц брони даёт именно этот эффект. Минус сюда не идёт:
---- «−20 брони» проклятия — это просадка максимума, а не запас, который
+-- ── ОДИН ДВИЖОК НА ВСЕ ЗАПАСЫ ────────────────────────────────
+--
+-- Броня и Воля устроены одинаково: надетое плюс наведённое, расход у
+-- каждой половины свой, тратится сперва наведённое. Пока это было
+-- написано дважды, вторая копия отставала от первой — Воля умела
+-- только складывать максимум и не умела помнить, что оберег уже
+-- истрачен. Поэтому здесь не «броня» и не «воля», а ЗАПАС ВООБЩЕ: чем
+-- он полнится и где хранится расход, сказано в SB.Data.Pools, а
+-- следующий такой запас заведётся одной строкой данных.
+--
+-- ЧЕМ ПОЛНИТ ЭФФЕКТ — РАЗНЫМИ ПОЛЯМИ. Броню он даёт каналом mods.armor,
+-- Волю — характеристикой stats["Воля"]: это не прихоть, а разные вещи
+-- по смыслу (одна — свойство доспеха, другая — значение навыка, через
+-- которое считается всё остальное). Адрес поля лежит в описании
+-- запаса, и здесь его не знают.
+
+--- Описание запаса из данных. nil — такого запаса нет.
+local function PoolDef(pool)
+    return SB.Data.Pools and SB.Data.Pools[pool] or nil
+end
+
+--- Сколько ЭТОГО запаса даёт именно этот эффект. Минус сюда не идёт:
+--- «−20 брони» проклятия — просадка максимума, а не запас, который
 --- можно истратить (см. SB.Skills.GetArmorFromEffects).
-local function ArmorOf(spellID)
+local function PoolGrantOf(pool, spellID)
+    local d = PoolDef(pool)
+    if not d then return 0 end
     local def = SB.ActiveEffects.GetEffectDef(spellID)
-    local v   = def and def.mods and def.mods.armor
-    return math.max(0, tonumber(v) or 0)
+    local tbl = def and def[d.source]
+    return math.max(0, tonumber(tbl and tbl[d.key]) or 0)
 end
 
---- Сколько единиц брони этот эффект уже отдал. Прижато к его же
---- прибавке: определение эффекта могли и поправить между сессиями.
-local function ArmorUsedOf(eff)
-    return math.min(math.max(0, tonumber(eff.armorUsed) or 0), ArmorOf(eff.spellID))
+--- Сколько этот эффект уже отдал. Прижато к его же прибавке:
+--- определение эффекта могли поправить между сессиями.
+local function PoolUsedOf(pool, eff)
+    local used = eff.used and eff.used[pool]
+    return math.min(math.max(0, tonumber(used) or 0), PoolGrantOf(pool, eff.spellID))
 end
 
---- Сколько магической брони истрачено всеми оберегами разом.
-function SB.ActiveEffects.GetArmorUsed()
+--- Сколько истрачено всеми оберегами разом.
+function SB.ActiveEffects.GetPoolUsed(pool)
     local used = 0
-    for _, eff in ipairs(effects) do used = used + ArmorUsedOf(eff) end
+    for _, eff in ipairs(effects) do used = used + PoolUsedOf(pool, eff) end
     return used
 end
 
---- Истратить units единиц магической брони. Идёт по списку сверху вниз;
---- какой именно оберег просядет первым, не важно — видна только сумма.
---- @return number  сколько реально истрачено (меньше units — запас кончился)
-function SB.ActiveEffects.SpendArmor(units)
+--- Истратить units единиц наведённого запаса. Идёт по списку сверху
+--- вниз; какой именно оберег просядет первым, не важно — видна сумма.
+--- @return number  сколько реально истрачено (меньше units — кончился)
+function SB.ActiveEffects.SpendPool(pool, units)
     units = math.floor(tonumber(units) or 0)
-    if units <= 0 then return 0 end
+    if units <= 0 or not PoolDef(pool) then return 0 end
 
     local spent = 0
     for _, eff in ipairs(effects) do
         if spent >= units then break end
-        local used = ArmorUsedOf(eff)
-        local take = math.min(ArmorOf(eff.spellID) - used, units - spent)
+        local used = PoolUsedOf(pool, eff)
+        local take = math.min(PoolGrantOf(pool, eff.spellID) - used, units - spent)
         if take > 0 then
-            eff.armorUsed = used + take
+            eff.used = eff.used or {}
+            eff.used[pool] = used + take
             spent = spent + take
         end
     end
@@ -940,21 +965,22 @@ function SB.ActiveEffects.SpendArmor(units)
     return spent
 end
 
---- Вернуть units единиц магической брони (починка). В ОБРАТНОМ порядке:
---- чинится сначала то, что истратилось последним.
+--- Вернуть units единиц наведённого запаса. В ОБРАТНОМ порядке:
+--- возвращается сперва то, что истратилось последним.
 --- @return number  сколько реально возвращено
-function SB.ActiveEffects.RestoreArmor(units)
+function SB.ActiveEffects.RestorePool(pool, units)
     units = math.floor(tonumber(units) or 0)
-    if units <= 0 then return 0 end
+    if units <= 0 or not PoolDef(pool) then return 0 end
 
     local back = 0
     for i = #effects, 1, -1 do
         if back >= units then break end
         local eff  = effects[i]
-        local used = ArmorUsedOf(eff)
+        local used = PoolUsedOf(pool, eff)
         local give = math.min(used, units - back)
         if give > 0 then
-            eff.armorUsed = used - give
+            eff.used = eff.used or {}
+            eff.used[pool] = used - give
             back = back + give
         end
     end
@@ -962,15 +988,33 @@ function SB.ActiveEffects.RestoreArmor(units)
     return back
 end
 
---- Забыть весь расход оберегов. Долгий Отдых, и только он — вместе с
---- запасом надетого (см. SB.Skills.ResetArmor).
-function SB.ActiveEffects.ResetArmorUsed()
+--- Забыть расход оберегов. Долгий Отдых, и только он: вместе с запасом
+--- надетого (см. SB.Skills.ResetArmor).
+--- @param pool string|nil  какой запас забыть; без имени — все сразу
+function SB.ActiveEffects.ResetPoolUsed(pool)
     local any = false
     for _, eff in ipairs(effects) do
-        if (tonumber(eff.armorUsed) or 0) ~= 0 then eff.armorUsed, any = 0, true end
+        if eff.used ~= nil then
+            if pool == nil then
+                eff.used, any = nil, true
+            elseif eff.used[pool] ~= nil then
+                eff.used[pool], any = nil, true
+                -- Пустую таблицу не держим: она поедет в сохранёнку и
+                -- будет означать «расход есть», хотя его нет.
+                if next(eff.used) == nil then eff.used = nil end
+            end
+        end
     end
     if any then SaveEffects() end
 end
+
+-- ИМЕНА БРОНИ ОСТАЮТСЯ — но уже обёртками в одну строку. Звать их из
+-- десятка мест «SpendPool("armor", n)» значило бы размазать имя запаса
+-- по всему аддону ради экономии пяти строк здесь.
+function SB.ActiveEffects.GetArmorUsed()      return SB.ActiveEffects.GetPoolUsed("armor")      end
+function SB.ActiveEffects.SpendArmor(units)   return SB.ActiveEffects.SpendPool("armor", units) end
+function SB.ActiveEffects.RestoreArmor(units) return SB.ActiveEffects.RestorePool("armor", units) end
+function SB.ActiveEffects.ResetArmorUsed()    return SB.ActiveEffects.ResetPoolUsed("armor")    end
 
 -- ============================================================
 -- ПРИБАВКА К УРОНУ С УЧЁТОМ ШКОЛЫ
@@ -1816,7 +1860,7 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc, source, level)
             -- снова держал. Пока расход оберега жил в общем числе
             -- armorSpent, этой строке было негде стоять, и повторный
             -- каст щита не давал ничего (см. врезку о запасе выше).
-            eff.armorUsed = 0
+            eff.used = nil
             Redraw(); FireChanged()
             if breaksConc then SB.ActiveEffects.BreakOn("controlled") end
             return
@@ -1842,9 +1886,10 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc, source, level)
         -- заклинания: выдача Ведущего вложения не знает, и брать с неё
         -- больше единицы не за что (см. WillCostOf).
         lvl       = level or tonumber(SB.Data.Spells[containerSpellID].level),
-        -- Ноль явно: свежий оберег ничего ещё не отдал, а поле читается
-        -- сложением (см. SB.ActiveEffects.GetArmorUsed).
-        armorUsed = 0,
+        -- Расход оберега по каждому запасу (броня, Воля). Пустая
+        -- таблица, а не нули: запасов теперь несколько, и заводить
+        -- строку под каждый заранее незачем (см. врезку о запасах).
+        used      = nil,
     })
 
     -- ПОДАВИТЕЛЬ ЧИСТИТ ЗА СОБОЙ. После вставки, а не до: «Свобода
@@ -3066,7 +3111,7 @@ function SaveEffects()
             -- Расход оберега переживает перезаход в игру ровно так же,
             -- как расход надетого доспеха: и то и другое возвращает
             -- Долгий Отдых, а не /reload.
-            armorUsed = eff.armorUsed,
+            used      = eff.used,
             -- И провокатор тоже: /reload посреди сцены не должен
             -- превращать адресную провокацию в безадресную.
             src       = eff.src,
@@ -3089,7 +3134,12 @@ function SB.ActiveEffects.LoadFromDB()
                 spellID   = entry.spellID,
                 uses      = entry.uses or 1,
                 isConc    = entry.isConc or false,
-                armorUsed = tonumber(entry.armorUsed) or 0,
+                -- СТАРОЕ ПОЛЕ armorUsed ЧИТАЕТСЯ ТОЖЕ: сохранёнка
+                -- пережила разделение запасов, и терять на перезаходе
+                -- расход оберега незачем.
+                used      = (type(entry.used) == "table") and entry.used
+                            or ((tonumber(entry.armorUsed) or 0) > 0
+                                and { armor = tonumber(entry.armorUsed) } or nil),
                 src       = (type(entry.src) == "string") and entry.src or nil,
                 lvl       = tonumber(entry.lvl),
             })

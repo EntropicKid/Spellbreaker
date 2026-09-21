@@ -8125,69 +8125,64 @@ do
         SB.Items.ClearPrepared()
     end
 
-    -- ── НАУКА БЕРЕЖЁТ СКЛЯНКИ ───────────────────────────────
+    -- ── ЗДЕСЬ БЫЛА «БЕРЕЖЛИВОСТЬ» ОТ «НАУКИ» ────────────────
     --
-    -- Шанс — модификатор навыка ПЯТИКРАТНО. Сам модификатор растёт по три
-    -- за очко, и в чистом виде он не чувствуется: шесть процентов на
-    -- половине вложенного навыка выглядят как выброшенное очко.
-    -- С БАЗЫ В НОЛЬ: первое вложенное очко даёт свои пятнадцать, а
-    -- пятое доводит до семидесяти пяти (см. SB.Data.STAT_BASE).
-    local CHANCE = { [0] = 0, [1] = 15, [2] = 30, [3] = 45, [4] = 60, [5] = 75 }
-    for sci, pct in pairs(CHANCE) do
-        _G.SpellbreakerCharDB.skills = { ["Наука"] = sci, ["Искусность"] = 1 }
-        check("Наука " .. sci .. " → шанс", SB.Items.GetThriftChance(), pct)
-    end
+    -- Применённый предмет имел шанс не потратиться — модификатор навыка
+    -- впятеро, до 75% на полностью вложенном. Механики больше нет: за
+    -- применение уходит ровно одна штука, всегда.
+    check("шанса сберечь предмет больше нет", SB.Items.GetThriftChance, nil)
+    checkTrue("и броска в списании тоже",
+              ReadFile("Core/Items.lua"):find("уцелел (Наука)", 1, true) == nil)
 
-    -- И ровно впятеро от модификатора — а не «по три», как всё остальное.
-    _G.SpellbreakerCharDB.skills = { ["Наука"] = 4, ["Искусность"] = 1 }
-    check("шанс — модификатор впятеро",
-          SB.Items.GetThriftChance(), SB.Attributes.GetModifier("Наука") * 5)
-
-    -- ПОТОЛОК — СОТНЯ, и только баффом: вложенным навыком выше 60 не выйти.
-    SB.Data.Spells["t_sci_up"] = { id = "t_sci_up", name = "Проба науки",
-        class = "Эффект", level = 0, isContainer = true,
-        effect = { kind = "buff", stats = { ["Наука"] = 9 } } }
-    SB.ActiveEffects.Add("t_sci_up", 5, false)
-    check("баффом шанс упирается в сотню", SB.Items.GetThriftChance(), 100)
-    ResetEffects()
-
-    -- ── И РАСХОД ПРАВДА МЕНЯЕТСЯ ────────────────────────────
     do
         _G.SpellbreakerCharDB.configLocked = false
         SB.Data.Spells["t_thrift"] = { id = "t_thrift", name = "Проба расхода",
             class = "Предмет", level = 0, isItem = true, profession = "alchemy",
             distance = 1.5, resistable = false, stack = 5 }
 
-        -- ЛЮБОЙ ПРЕДМЕТ, А НЕ ТОЛЬКО ЗЕЛЬЕ. Проверка стоит в NoteUsed —
-        -- единственной точке, через которую списывается всё из сумки, — и
-        -- ремесла не спрашивает вовсе.
-        SB.Data.Spells["t_thrift_any"] = { id = "t_thrift_any",
-            name = "Проба не-зелья", class = "Предмет", level = 0,
-            isItem = true, profession = "alchemy", distance = 2.5,
-            resistable = false, stack = 5, key = "Яд" }
+        -- ДАЖЕ ПРИ ПОЛНОСТЬЮ ВЛОЖЕННОЙ «НАУКЕ» И БАФФЕ ПОВЕРХ: раньше
+        -- это была стопроцентная бережливость, теперь — обычный расход.
+        SB.Data.Spells["t_sci_up"] = { id = "t_sci_up", name = "Проба науки",
+            class = "Эффект", level = 0, isContainer = true,
+            effect = { kind = "buff", stats = { ["Наука"] = 9 } } }
         _G.SpellbreakerCharDB.skills = { ["Наука"] = 5, ["Искусность"] = 1 }
-        SB.Items.ClearPrepared()
-        SB.Items.Prepare("t_thrift_any")
-        checkTrue("шанс работает и на не-зелье", SB.Items.GetThriftChance() > 0)
-        SB.Items.ClearPrepared()
+        SB.ActiveEffects.Add("t_sci_up", 5, false)
 
-        -- Шанс НОЛЬ — тратится всегда.
-        _G.SpellbreakerCharDB.skills = { ["Наука"] = 1, ["Искусность"] = 1 }
         SB.Items.ClearPrepared()
         SB.Items.Prepare("t_thrift")
         SB.Items.NoteUsed("t_thrift")
-        check("без Науки склянка тратится", SB.Items.CountOf("t_thrift"), 4)
+        check("склянка тратится при любой Науке", SB.Items.CountOf("t_thrift"), 4)
+        for _ = 1, 4 do SB.Items.NoteUsed("t_thrift") end
+        check("и пачка честно кончается", SB.Items.CountOf("t_thrift"), 0)
 
-        -- Шанс СОТНЯ — не тратится никогда.
-        SB.ActiveEffects.Add("t_sci_up", 5, false)
-        check("шанс поднят до потолка", SB.Items.GetThriftChance(), 100)
-        SB.Items.ClearPrepared()
-        SB.Items.Prepare("t_thrift")
-        for _ = 1, 20 do SB.Items.NoteUsed("t_thrift") end
-        check("при сотне пачка цела после двадцати применений",
-              SB.Items.CountOf("t_thrift"), 5)
         ResetEffects()
         SB.Items.ClearPrepared()
+        SB.Data.Spells["t_sci_up"] = nil
+    end
+
+    -- САМ НАВЫК ОСТАЛСЯ, и это не недосмотр: «Наука» — источник
+    -- скейлинга у трёх десятков заклинаний, и вынуть её из
+    -- характеристик значило бы выбить у Мага опору.
+    do
+        local uses = 0
+        for id, sp in pairs(SB.Data.Spells) do
+            if ShippedSpells[id] and type(sp.scaling) == "table" then
+                for _, src in pairs(sp.scaling) do
+                    if type(src) == "table" and src["Наука"] then uses = uses + 1 end
+                end
+            end
+        end
+        checkTrue("«Наука» осталась источником скейлинга", uses >= 20)
+        checkTrue("и живёт среди навыков Интеллекта", (function()
+            for _, a in ipairs(SB.Data.Attributes) do
+                if a.key == "Интеллект" then
+                    for _, sk in ipairs(a.skills or {}) do
+                        if sk == "Наука" then return true end
+                    end
+                end
+            end
+            return false
+        end)())
     end
 
     -- ── НАВЫК ОБЪЯСНЁН ИГРОКУ ───────────────────────────────
@@ -8199,10 +8194,13 @@ do
         checkTrue("у «" .. name .. "» есть описание эффекта",
                   type(tip) == "string" and #tip > 0)
     end
-    -- И говорит про ПРЕДМЕТ, а не про склянку: механика общая на всю
-    -- сумку, и обещать одну алхимию было бы неправдой.
-    checkTrue("описание «Науки» говорит о предмете",
-              SB.Data.SkillEffects["Наука"]:find("ПРЕДМЕТ", 1, true) ~= nil)
+    -- И НЕ ОБЕЩАЕТ ТОГО, ЧЕГО НЕТ: механику бережливости убрали, и
+    -- описание обязано было уехать следом — иначе игрок вкладывает
+    -- очки в строку, за которой ничего не стоит.
+    checkTrue("описание «Науки» не обещает бережливости",
+              SB.Data.SkillEffects["Наука"]:find("Шанс НЕ ПОТРАТИТЬ", 1, true) == nil)
+    checkTrue("а честно говорит, что своей механики нет",
+              SB.Data.SkillEffects["Наука"]:find("механики", 1, true) ~= nil)
 
     _G.SpellbreakerCharDB.skills     = savedSkills
     _G.SpellbreakerCharDB.attributes = savedAttrs
@@ -10788,6 +10786,87 @@ do
     AE.Add("t_will_deb", 9, false, "Зольц", 3)
     AE.LoadFromDB()
     check("после перезахода цена та же", AE.WillCostOf("t_will_deb"), 3)
+
+    -- ── ОЖЕРЕЛЬЕ ДАЁТ ОЧКО ВОЛИ ────────────────────────────
+    --
+    -- Шея в «Ношение брони» не входит и брони не даёт: ожерелье не
+    -- держит удар. Зато держит оберег — и прибавка идёт сюда.
+    ResetEffects()
+    SB.Skills.RestoreWill()
+    local savedNeck = stub.world.equipped[2]
+    stub.world.equipped[2] = nil
+    local bare = SB.Skills.GetWillBase()
+    stub.world.equipped[2] = { 4, 0 }
+    check("надетое ожерелье — плюс очко", SB.Skills.GetWillBase() - bare,
+          SB.Data.GearStatBonuses[2].value)
+    check("и его видно в самом навыке",
+          SB.Skills.GetEffective("Воля") - SB.Skills.Get("Воля"),
+          SB.Data.GearStatBonuses[2].value)
+    check("брони шея при этом не даёт", (SB.Skills.GetEquippedArmorTiers())[0], nil)
+    stub.world.equipped[2] = savedNeck
+
+    -- ── ОБЕРЕГ НА ВОЛЮ РАБОТАЕТ КАК ОБЕРЕГ НА БРОНЮ ────────
+    --
+    -- Половины две: надетая (навык, оружие, ожерелье) и наведённая
+    -- (висящие эффекты). Расход у каждой свой, тратится сперва оберег —
+    -- ровно как у доспеха, и тем же движком.
+    SB.Data.Spells["t_will_ward"] = { id = "t_will_ward", name = "Оберег стойкости",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff", stats = { ["Воля"] = 2 } } }
+
+    ResetEffects()
+    SB.Skills.Set("Воля", 5)
+    SB.Skills.RestoreWill()
+    local base = SB.Skills.GetWillLeft()
+    AE.Add("t_will_ward", 10, false)
+    check("оберег поднял запас", SB.Skills.GetWillLeft(), base + 2)
+
+    -- ТРАТИТСЯ СПЕРВА ОБЕРЕГ: надетое возвращает только Долгий Отдых, а
+    -- оберег — повторный каст, и порядок бережёт то, что дороже вернуть.
+    checkTrue("списали два очка", SB.Skills.SpendWill(2))
+    check("и ушли они из оберега", AE.GetPoolUsed("will"), 2)
+    check("а надетое не тронуто",  SB.Skills.PoolBaseSpent("will"), 0)
+    check("остаток — прежний надетый", SB.Skills.GetWillLeft(), base)
+
+    -- ОБЕРЕГ СПАЛ — ЕГО РАСХОД СПАЛ ВМЕСТЕ С НИМ, а не остался долгом.
+    AE.Remove("t_will_ward", true)
+    check("свой запас ушёл с оберегом", SB.Skills.GetWillLeft(), base)
+    -- И ПЕРЕВЕШЕННЫЙ ОБЕРЕГ ВОЗВРАЩАЕТ СВОИ СРЫВЫ, а не чужие: ровно
+    -- затем его и перекладывают.
+    AE.Add("t_will_ward", 10, false)
+    check("перевешенный оберег снова полон", SB.Skills.GetWillLeft(), base + 2)
+
+    -- ЗА ОБЕРЕГОМ ТРАТИТСЯ НАДЕТОЕ, и вот ЕГО перевешивание не вернёт.
+    ResetEffects()
+    SB.Skills.RestoreWill()
+    checkTrue("тратим из надетого", SB.Skills.SpendWill(3))
+    check("расход лёг на надетое", SB.Skills.PoolBaseSpent("will"), 3)
+    AE.Add("t_will_ward", 10, false)
+    check("оберег поверх потраченного добавляет своё",
+          SB.Skills.GetWillLeft(), base - 3 + 2)
+
+    -- МИНУС ОБЕРЕГА ПРОСАЖИВАЕТ ЗАПАС: «Сломленная воля» обязана
+    -- отнимать срывы, а не просто висеть.
+    SB.Data.Spells["t_will_broken"] = { id = "t_will_broken", name = "Проба слома",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "debuff", stats = { ["Воля"] = -4 } } }
+    ResetEffects()
+    SB.Skills.RestoreWill()
+    AE.Add("t_will_broken", 5, false, "Зольц", 1)
+    check("сломленная воля отнимает срывы", SB.Skills.GetWillMax(), base - 4)
+
+    -- ── ДВИЖОК ОДИН НА ОБА ЗАПАСА ──────────────────────────
+    local sk = ReadFile("Core/Skills.lua")
+    checkTrue("броня считается тем же счётом",
+              sk:find('return SB.Skills.PoolLeft("armor")', 1, true) ~= nil)
+    checkTrue("и тратится тем же",
+              sk:find('SB.Skills.SpendFromPool("armor"', 1, true) ~= nil)
+    checkTrue("а различия между запасами лежат в данных",
+              ReadFile("Core/Database.lua"):find("SB.Data.Pools = {", 1, true) ~= nil)
+
+    SB.Data.Spells["t_will_ward"], SB.Data.Spells["t_will_broken"] = nil, nil
+    ResetEffects()
+    SB.Skills.RestoreWill()
 
     SB.Data.Spells["t_will_cheap"] = nil
     ResetEffects()

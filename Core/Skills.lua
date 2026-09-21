@@ -162,7 +162,31 @@ function SB.Skills.GetEffective(skillName)
     if SB.Skills.GetWeaponStatBonus then
         base = base + (SB.Skills.GetWeaponStatBonus(skillName))
     end
+    -- И НАДЕТОЕ ПОМИМО ОРУЖИЯ — ожерелье в шею (см. GetGearStatBonus).
+    -- Тем же слагаемым и по той же причине: это свойство снаряжения, а
+    -- значит двигает само значение навыка, а не один какой-то расчёт.
+    if SB.Skills.GetGearStatBonus then
+        base = base + (SB.Skills.GetGearStatBonus(skillName))
+    end
     return base
+end
+
+--- Прибавка к характеристике от НАДЕТОГО (не от оружия): шея.
+---
+--- Читает слоты через GetItemInfoInstant? Нет — здесь достаточно факта
+--- «слот занят»: ожерелье даёт свою единицу любым, а не «правильным».
+--- Разбирать его класс значило бы заводить список допустимых ожерелий
+--- там, где в клиенте и так ровно один вид вещей в этот слот.
+--- @return number
+function SB.Skills.GetGearStatBonus(statName)
+    if not statName or not GetInventoryItemLink then return 0 end
+    local total = 0
+    for slot, def in pairs(SB.Data.GearStatBonuses or {}) do
+        if def.stat == statName and GetInventoryItemLink("player", slot) then
+            total = total + (tonumber(def.value) or 0)
+        end
+    end
+    return total
 end
 
 --- Потолок навыка — значение его атрибута-родителя. Берётся ЧЕРНОВИК
@@ -998,28 +1022,13 @@ end
 -- а расход оставался прежним. Свести это в одно число нельзя — «пробили
 -- щит» и «пробили латы» из общей суммы не различить, и любая попытка
 -- вернуть щит из общего запаса чинила бы заодно и латы.
-local function BaseSpent()
-    local d = db()
-    if not d then return 0 end
-    -- Прижато к НАДЕТОМУ, а не к полному запасу: иначе снятый бафф брони
-    -- оставлял бы лишний расход долгом, который всплывал бы обратно,
-    -- стоит бафф вернуть.
-    return math.min(math.max(0, tonumber(d.armorSpent) or 0), SB.Skills.GetArmorBase())
-end
+-- СЧЁТ ОБЩИЙ, а не свой: и броня, и Воля устроены одинаково, и держать
+-- две копии одного счёта — значит однажды поправить одну из них
+-- (см. SB.Skills.PoolLeft и врезку о запасах в Core/Database.lua).
 
---- Сколько брони отдали обереги. Ноль, если модель ещё не загрузилась.
-local function EffectSpent()
-    if SB.ActiveEffects and SB.ActiveEffects.GetArmorUsed then
-        return SB.ActiveEffects.GetArmorUsed()
-    end
-    return 0
-end
-
---- Сколько брони осталось прямо сейчас — оба запаса вместе.
+--- Сколько брони осталось прямо сейчас — обе половины вместе.
 function SB.Skills.GetArmorPoints()
-    local base = SB.Skills.GetArmorBase() - BaseSpent()
-    local eff  = SB.Skills.GetArmorFromEffects() - EffectSpent()
-    return math.max(0, base + eff)
+    return SB.Skills.PoolLeft("armor")
 end
 
 --- Сколько единиц брони уже израсходовано (до Долгого Отдыха).
@@ -1054,20 +1063,9 @@ function SB.Skills.AbsorbDamage(dmg)
     -- Пусти мы удар сперва по латам, и щит висел бы нетронутым ровно до
     -- того мига, когда чинить уже нечего: игрок платил бы невозвратным
     -- запасом, держа в руках возвратный.
-    local cost = absorbed * ARMOR_PER_DR
-    if SB.ActiveEffects and SB.ActiveEffects.SpendArmor then
-        cost = cost - SB.ActiveEffects.SpendArmor(cost)
-    end
-    if cost > 0 then
-        local d = db()
-        if d then
-            -- От УЖЕ ПРИЖАТОГО значения и с потолком по надетому: долг
-            -- сверх того, что на персонаже есть, всплыл бы обратно при
-            -- первом же переодевании.
-            d.armorSpent = math.min(SB.Skills.GetArmorBase(), BaseSpent() + cost)
-        end
-    end
-    FireChanged("Ношение брони")
+    -- Порядок «сперва обереги» живёт в SpendFromPool — он общий на все
+    -- запасы, и причина у него одна (см. там же).
+    SB.Skills.SpendFromPool("armor", absorbed * ARMOR_PER_DR)
     return absorbed
 end
 
@@ -1156,11 +1154,11 @@ end
 --- Вернуть весь запас брони. Долгий Отдых, и только он: Короткий Отдых
 --- чинит раны, а не доспех.
 function SB.Skills.ResetArmor()
-    local d = db()
-    if d then d.armorSpent = 0 end
-    -- И расход оберегов заодно: запасов два, а Долгий Отдых один.
-    if SB.ActiveEffects and SB.ActiveEffects.ResetArmorUsed then
-        SB.ActiveEffects.ResetArmorUsed()
+    SB.Skills.ResetPool("armor")
+    -- И расход оберегов заодно: половин две, а Долгий Отдых один.
+    -- Чистится он сразу по всем запасам — у оберегов сброс общий.
+    if SB.ActiveEffects and SB.ActiveEffects.ResetPoolUsed then
+        SB.ActiveEffects.ResetPoolUsed("armor")
     end
     FireChanged("Ношение брони")
 end
@@ -1190,29 +1188,10 @@ function SB.Skills.AdjustArmor(delta)
         -- обереги. Молот паладина правит железо, а не чужие чары, и
         -- починка обязана доставать до того запаса, который иначе ждёт
         -- Долгого Отдыха.
-        local left = delta
-        local d    = db()
-        if d then
-            local spent = BaseSpent()
-            local back  = math.min(spent, left)
-            d.armorSpent = spent - back
-            left = left - back
-        end
-        if left > 0 and SB.ActiveEffects and SB.ActiveEffects.RestoreArmor then
-            SB.ActiveEffects.RestoreArmor(left)
-        end
+        SB.Skills.RestoreToPool("armor", delta)
     else
         -- МНЁМ В ТОМ ЖЕ ПОРЯДКЕ, В КОТОРОМ ТРАТИТ УДАР: сперва обереги.
-        local left = -delta
-        if SB.ActiveEffects and SB.ActiveEffects.SpendArmor then
-            left = left - SB.ActiveEffects.SpendArmor(left)
-        end
-        if left > 0 then
-            local d = db()
-            if d then
-                d.armorSpent = math.min(SB.Skills.GetArmorBase(), BaseSpent() + left)
-            end
-        end
+        SB.Skills.SpendFromPool("armor", -delta)
     end
 
     -- СЧИТАЕМ ФАКТ, А НЕ НАМЕРЕНИЕ (то же правило, что у здоровья в
@@ -1352,20 +1331,152 @@ end
 -- максимумом» перезаряжал бы запас от одного бафа на Волю.
 -- ============================================================
 
---- Сколько срывов даёт вложенная Воля.
-function SB.Skills.GetWillMax()
-    return math.max(0, SB.Skills.GetEffective("Воля") - MIN_SKILL)
+-- ── ОБЩИЙ СЧЁТ ЗАПАСА: НАДЕТОЕ + НАВЕДЁННОЕ ──────────────────
+--
+-- Обе половины и оба расхода считаются здесь, по описанию запаса из
+-- SB.Data.Pools. Броня пришла сюда первой и жила отдельной копией
+-- этого же счёта; теперь копия одна, а разница между бронёй и Волей —
+-- три поля данных.
+--
+-- ПОЧЕМУ ПОЛОВИН ДВЕ. Расход надетого возвращает только Долгий Отдых,
+-- расход оберега спадает вместе с самим оберегом. Свести их в одно
+-- число нельзя: «пробили щит» и «пробили латы» из суммы не различить,
+-- и любая попытка вернуть щит чинила бы заодно латы. С Волей ровно то
+-- же: перевешенный «Оберег от страха» обязан вернуть СВОИ срывы, а не
+-- те, что персонаж истратил из собственной стойкости.
+
+--- Расход НАДЕТОЙ половины, прижатый к ней же: долг сверх того, что на
+--- персонаже есть, всплыл бы обратно при первом переодевании.
+function SB.Skills.PoolBaseSpent(pool)
+    local d   = db()
+    local def = SB.Data.Pools and SB.Data.Pools[pool]
+    if not d or not def then return 0 end
+    return math.min(math.max(0, tonumber(d[def.spentKey]) or 0),
+                    SB.Skills.PoolBase(pool))
 end
 
---- Сколько потрачено за сцену.
-function SB.Skills.GetWillSpent()
-    local d = db()
-    return math.max(0, tonumber(d and d.willSpent) or 0)
+--- Надетая половина запаса.
+function SB.Skills.PoolBase(pool)
+    if pool == "armor" then return SB.Skills.GetArmorBase() end
+    if pool == "will"  then return SB.Skills.GetWillBase()  end
+    return 0
 end
+
+--- Наведённая половина — то, что дали висящие эффекты (со знаком).
+function SB.Skills.PoolFromEffects(pool)
+    local def = SB.Data.Pools and SB.Data.Pools[pool]
+    if not def or not (SB.ActiveEffects and SB.ActiveEffects.GetStatMod) then return 0 end
+    if def.source == "stats" then
+        return (SB.ActiveEffects.GetStatMod(def.key))
+    end
+    return (SB.ActiveEffects.GetMod(def.key))
+end
+
+--- Полный запас: надетое плюс обереги. Минус оберега просаживает
+--- максимум — «Сломленная воля» обязана отнимать срывы.
+function SB.Skills.PoolMax(pool)
+    return math.max(0, SB.Skills.PoolBase(pool) + SB.Skills.PoolFromEffects(pool))
+end
+
+--- Сколько осталось прямо сейчас — обе половины со своими расходами.
+function SB.Skills.PoolLeft(pool)
+    local base = SB.Skills.PoolBase(pool) - SB.Skills.PoolBaseSpent(pool)
+    local eff  = SB.Skills.PoolFromEffects(pool)
+                 - ((SB.ActiveEffects and SB.ActiveEffects.GetPoolUsed
+                     and SB.ActiveEffects.GetPoolUsed(pool)) or 0)
+    return math.max(0, base + eff)
+end
+
+--- Списать amount единиц. СПЕРВА ОБЕРЕГИ, потом надетое — тем же
+--- порядком и по той же причине, что у доспеха: надетое возвращает
+--- только Долгий Отдых, оберег — повторный каст, и порядок бережёт то,
+--- что дороже восстановить.
+--- @return number  сколько реально списано
+function SB.Skills.SpendFromPool(pool, amount)
+    amount = math.max(0, math.floor(tonumber(amount) or 0))
+    if amount <= 0 then return 0 end
+    local def = SB.Data.Pools and SB.Data.Pools[pool]
+    if not def then return 0 end
+
+    local left = math.min(amount, SB.Skills.PoolLeft(pool))
+    if left <= 0 then return 0 end
+    local want = left
+
+    if SB.ActiveEffects and SB.ActiveEffects.SpendPool then
+        left = left - SB.ActiveEffects.SpendPool(pool, left)
+    end
+    if left > 0 then
+        local d = db()
+        if d then
+            d[def.spentKey] = math.min(SB.Skills.PoolBase(pool),
+                                       SB.Skills.PoolBaseSpent(pool) + left)
+        end
+    end
+    FireChanged(def.skill)
+    return want
+end
+
+--- Вернуть amount единиц. СПЕРВА НАДЕТОЕ — зеркально расходу, который
+--- первым тратит обереги. Молот паладина правит железо, а не чужие
+--- чары, и починка обязана доставать до того запаса, который иначе
+--- ждёт Долгого Отдыха.
+--- @return number  сколько реально возвращено
+function SB.Skills.RestoreToPool(pool, amount)
+    amount = math.max(0, math.floor(tonumber(amount) or 0))
+    if amount <= 0 then return 0 end
+    local def = SB.Data.Pools and SB.Data.Pools[pool]
+    if not def then return 0 end
+
+    local left = amount
+    local d    = db()
+    if d then
+        local spent = SB.Skills.PoolBaseSpent(pool)
+        local back  = math.min(spent, left)
+        if back > 0 then
+            d[def.spentKey] = spent - back
+            left = left - back
+        end
+    end
+    if left > 0 and SB.ActiveEffects and SB.ActiveEffects.RestorePool then
+        left = left - SB.ActiveEffects.RestorePool(pool, left)
+    end
+    FireChanged(def.skill)
+    return amount - left
+end
+
+--- Забыть весь расход надетой половины. Обереги чистит вызывающий
+--- (ResetPoolUsed): у них один общий сброс на все запасы сразу.
+function SB.Skills.ResetPool(pool)
+    local d   = db()
+    local def = SB.Data.Pools and SB.Data.Pools[pool]
+    -- nil, а не ноль: не копим в сохранёнке поле, которое значит
+    -- «ничего не потрачено».
+    if d and def then d[def.spentKey] = nil end
+end
+
+--- Надетая Воля: сам навык, оружие и ожерелье. БЕЗ эффектов — у них
+--- своя половина запаса и свой расход.
+function SB.Skills.GetWillBase()
+    local v = SB.Skills.Get("Воля") - MIN_SKILL
+    if SB.Skills.GetWeaponStatBonus then
+        v = v + (SB.Skills.GetWeaponStatBonus("Воля"))
+    end
+    if SB.Skills.GetGearStatBonus then
+        v = v + (SB.Skills.GetGearStatBonus("Воля"))
+    end
+    return math.max(0, v)
+end
+
+--- Сколько срывов даёт Воля целиком — надетая и наведённая.
+function SB.Skills.GetWillMax()  return SB.Skills.PoolMax("will")  end
 
 --- Сколько очков срыва осталось прямо сейчас.
-function SB.Skills.GetWillLeft()
-    return math.max(0, SB.Skills.GetWillMax() - SB.Skills.GetWillSpent())
+function SB.Skills.GetWillLeft() return SB.Skills.PoolLeft("will") end
+
+--- Сколько потрачено — считается разницей, а не хранится: слагаемых
+--- два, и третье число рядом разъехалось бы на первом снятом обереге.
+function SB.Skills.GetWillSpent()
+    return math.max(0, SB.Skills.GetWillMax() - SB.Skills.GetWillLeft())
 end
 
 --- Потратить очки срыва. false — не хватило, и тогда НИЧЕГО не списано:
@@ -1376,21 +1487,17 @@ function SB.Skills.SpendWill(cost)
     cost = math.max(0, math.floor(tonumber(cost) or 0))
     if cost <= 0 then return false end
     if SB.Skills.GetWillLeft() < cost then return false end
-    local d = db()
-    if not d then return false end
-    d.willSpent = SB.Skills.GetWillSpent() + cost
-    SB.Events.Fire("STATUS_CHANGED")
-    return true
+    return SB.Skills.SpendFromPool("will", cost) == cost
 end
 
 --- Вернуть запас целиком. Зовётся Долгим Отдыхом (PM.FullReset) — и
 --- больше ниоткуда: Воля восстанавливается ровно тем же, чем броня и
 --- попытки побега, то есть концом сцены.
 function SB.Skills.RestoreWill()
-    local d = db()
-    -- nil, а не ноль: не копим в сохранёнке поле, которое значит
-    -- «ничего не потрачено».
-    if d then d.willSpent = nil end
+    SB.Skills.ResetPool("will")
+    if SB.ActiveEffects and SB.ActiveEffects.ResetPoolUsed then
+        SB.ActiveEffects.ResetPoolUsed("will")
+    end
 end
 
 -- ============================================================
@@ -1590,10 +1697,10 @@ SB.Data.SkillEffects = {
                          "от растянутого вливанием, и округляется вверх: " ..
                          "одноходовому баффу любое вложение даёт ровно ход. " ..
                          "Дебаффы не продлевает.",
-    ["Наука"]          = "Шанс НЕ ПОТРАТИТЬ ПРЕДМЕТ при применении — 15% за каждое " ..
-                         "вложенное очко (до 75% на полностью вложенном). Работает на " ..
-                         "любой расходуемый предмет в сумке, не только на зелья. " ..
-                         "Баффы на навык поднимают шанс выше, вплоть до 100%.",
+    ["Наука"]          = "Своей механики в бою нет. Навык работает в проверках " ..
+                         "и как источник скейлинга у заклинаний, которые от него " ..
+                         "считаются, — а таких тридцать три, и тридцать из них у " ..
+                         "Мага. УБРАНО: шанс не потратить ПРЕДМЕТ при применении.",
     ["Скрытность"]     = "Для того, кто целится ВРЕДОНОСНЫМ заклинанием, ты " ..
                          "на 1 метр дальше за каждое очко: чтобы достать, " ..
                          "ему придётся подойти. Лечение, баффы и касты помеченных " ..
