@@ -145,4 +145,7 @@ UI\Attributes.lua
 UI\Logs.lua
 UI\Overlay.lua
 UI\Options.lua
+# Родной тултип предмета: клиентская броня подменяется нашей.
+# После Core\Skills.lua — правило и числа берутся оттуда.
+UI\Tooltips.lua
 MinimapButton.lua

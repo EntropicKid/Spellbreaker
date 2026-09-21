@@ -134,6 +134,10 @@ stub.world = {
     -- черта. Удочка (подкласс 20) слот занимает, а вида оружия у неё
     -- нет — ничего не двигает. Проверки экипировки задают руки сами.
     equipped   = { [16] = { 2, 20 }, [17] = { 2, 20 } },
+    -- ВЕЩИ ПО ССЫЛКЕ, а не по слоту: { classID, subclassID, equipLoc }.
+    -- Нужны всему, что спрашивает о НЕ надетом предмете — тултипу в
+    -- первую очередь (см. G.GetItemInfoInstant ниже).
+    items      = {},
 }
 
 local W = stub.world
@@ -282,11 +286,19 @@ function G.GetInventoryItemLink(unit, slot)
     return W.equipped[slot] and ("item:slot" .. slot) or nil
 end
 function G.GetItemInfoInstant(link)
-    local slot = tonumber(tostring(link):match("^item:slot(%d+)$"))
-    local item = slot and W.equipped[slot]
+    -- ВЕЩЬ МОЖЕТ БЫТЬ И НЕ НАДЕТОЙ. Тултип спрашивают о том, что лежит
+    -- в сумке или приехало ссылкой из чата, и номера слота у такой вещи
+    -- нет вовсе. Поэтому сначала смотрим в именной список stub.world.items
+    -- ({ classID, subclassID, equipLoc }), и только потом — в экипировку.
+    local item = W.items and W.items[link]
+    if not item then
+        local slot = tonumber(tostring(link):match("^item:slot(%d+)$"))
+        item = slot and W.equipped[slot]
+    end
     if not item then return nil end
-    -- Порядок возврата — как у клиента: classID шестой, subclassID седьмой.
-    return link, nil, nil, nil, nil, item[1], item[2]
+    -- Порядок возврата — как у клиента: код экипировки четвёртый,
+    -- classID шестой, subclassID седьмой.
+    return link, nil, nil, item[3], nil, item[1], item[2]
 end
 -- Скорость юнита: задаётся как stub.world.units[unit].speed (ярды в
 -- секунду). Шагомер спрашивает её и у игрока, и у транспорта, который

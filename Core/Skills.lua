@@ -821,6 +821,114 @@ function SB.Skills.GetEquippedArmorTiers()
     return tiers
 end
 
+-- ============================================================
+-- ЧТО ЭТА ВЕЩЬ ДАЁТ ПО НАШИМ ПРАВИЛАМ
+--
+-- Родная броня предмета к нашему расчёту отношения не имеет вовсе: у
+-- аддона своя шкала, где латная часть стоит ЧЕТЫРЕ единицы, а не
+-- восемьсот. Пока в тултипе стояло клиентское число, игрок читал его
+-- как действующее и выбирал вещи по цифре, которая здесь не значит
+-- ничего (см. UI/Tooltips.lua — там это число и подменяется).
+--
+-- ПРАВИЛО ЖИВЁТ ЗДЕСЬ, А НЕ В ТУЛТИПЕ. Считают его та же таблица
+-- ARMOR_TIERS и тот же список слотов, что и надетый запас
+-- (GetArmorBase ниже): второй копии, которая однажды разойдётся с
+-- первой, быть не должно. Тултип получает ГОТОВЫЕ СТРОКИ и не знает о
+-- тирах ничего.
+--
+-- ВОСЕМЬ СЛОТОВ, А НЕ ВСЕ. Плащ, рубаха и накидка в ARMOR_SLOTS не
+-- входят и брони не дают — и сказать это тултип обязан прямо, иначе
+-- тканевый плащ обещал бы единицу, которой не будет.
+-- ============================================================
+
+--- Куда надевается предмет: код экипировки клиента → номер слота.
+--- Перечислены ровно те, что считает GetArmorBase; всё прочее (плащ,
+--- рубаха, накидка, кольца, безделушки) отсутствует здесь намеренно.
+local EQUIP_SLOT = {
+    INVTYPE_HEAD     = 1,
+    INVTYPE_SHOULDER = 3,
+    INVTYPE_CHEST    = 5,
+    INVTYPE_ROBE     = 5,   -- «кольчужная роба» — та же грудь
+    INVTYPE_WAIST    = 6,
+    INVTYPE_LEGS     = 7,
+    INVTYPE_FEET     = 8,
+    INVTYPE_WRIST    = 9,
+    INVTYPE_HAND     = 10,
+}
+
+--- Что предмет даёт по правилам аддона. nil — это не броня вовсе
+--- (оружие, зелье, ресурс): тултипу такого трогать незачем.
+--- @param link string  ссылка или id предмета
+--- @return table|nil
+---   kind      "tier" — доспех в считаемом слоте;
+---             "shield" — щит (его броня идёт от бонусов оружия);
+---             "none" — броня по классу, но запаса не даёт.
+---   points    единиц брони
+---   tier      1..4 у "tier"
+---   tierName  «латы»
+---   needSkill сколько нужно «Ношения брони»
+---   enough    хватает ли навыка ПРЯМО СЕЙЧАС
+function SB.Skills.DescribeArmorItem(link)
+    if not link or not GetItemInfoInstant then return nil end
+    local _, _, _, equipLoc, _, classID, subclassID = GetItemInfoInstant(link)
+    if classID ~= ARMOR_CLASS_ID then return nil end
+
+    -- ЩИТ — ЭТО ВЕЩЬ В РУКАХ, а не надетый доспех: его броня приходит
+    -- из таблицы бонусов оружия и навыка не требует (см. GetArmorBase).
+    if subclassID == SHIELD_SUBCLASS then
+        local def = SB.Data.WeaponBonuses and SB.Data.WeaponBonuses.shield
+        return { kind = "shield", tierName = "щит", enough = true,
+                 needSkill = 0, points = (def and tonumber(def.value)) or 0 }
+    end
+
+    local def = ARMOR_TIERS[subclassID]
+    if not def then
+        -- «Разное»: кольца, безделушки, шея. Брони у них нет и в клиенте.
+        return { kind = "none", points = 0, needSkill = 0, enough = true }
+    end
+    if not EQUIP_SLOT[equipLoc or ""] then
+        return { kind = "none", points = 0, tier = subclassID,
+                 tierName = def.name, needSkill = def.needSkill, enough = true }
+    end
+
+    local skill = SB.Skills.GetEffective("Ношение брони")
+    return {
+        kind      = "tier",
+        points    = def.bonus,
+        tier      = subclassID,
+        tierName  = def.name,
+        needSkill = def.needSkill,
+        enough    = (skill > MIN_SKILL) and (skill >= def.needSkill),
+    }
+end
+
+--- Готовые строки для тултипа. nil — предмет не про броню.
+--- @return table|nil  { replace = "Броня: 4", note = "..."|nil, good = boolean }
+function SB.Skills.ArmorTooltipLines(link)
+    local info = SB.Skills.DescribeArmorItem(link)
+    if not info then return nil end
+
+    -- ЧИСЛО В СТРОКЕ — ДЕЙСТВУЮЩЕЕ, а не возможное. Неосвоенный доспех
+    -- не даёт НИЧЕГО (GetArmorBase просто не считает его тир), и «Броня:
+    -- 4» на нём была бы обещанием, которого расчёт не сдержит. Сколько
+    -- он будет давать — в приписке, словами.
+    local shown = (info.kind == "none" or not info.enough) and 0 or info.points
+    local out   = { replace = "Броня: " .. shown, good = (shown > 0) }
+
+    if info.kind == "none" then
+        -- СЛОВАМИ, а не одним нулём: «Броня: 0» на латном плаще читается
+        -- как поломка аддона, а не как правило.
+        out.note = info.tierName
+            and "Плащи, рубахи и накидки запаса брони не дают."
+            or  "Эта вещь брони не даёт."
+    elseif not info.enough then
+        out.note = "Не освоено: нужно «Ношение брони» " .. info.needSkill ..
+                   " — сейчас " .. SB.Skills.GetEffective("Ношение брони") ..
+                   ". Даст " .. info.points .. "."
+    end
+    return out
+end
+
 --- НАДЕТЫЙ запас брони: экипировка, навык «Ношение брони», щит и
 --- профили расы/класса. БЕЗ эффектов — у них свой запас и свой счёт
 --- расхода (см. врезку о двух запасах ниже).

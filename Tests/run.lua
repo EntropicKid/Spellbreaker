@@ -17763,6 +17763,121 @@ do
 end
 
 -- ============================================================
+-- ТУЛТИП ПРЕДМЕТА ГОВОРИТ НАШИМИ ЧИСЛАМИ
+--
+-- Клиентская броня («Броня: 800» на латных поножах) к расчёту аддона
+-- отношения не имеет: у нас латная часть стоит четыре единицы запаса.
+-- Число в родном тултипе подменяется на наше — правило считает
+-- Core/Skills.lua, подставляет UI/Tooltips.lua.
+-- ============================================================
+do
+    local SK = SB.Skills
+    local savedSkill = _G.SpellbreakerCharDB.skills["Ношение брони"]
+    stub.world.items = {}
+
+    local function Item(link, classID, subclassID, equipLoc)
+        stub.world.items[link] = { classID, subclassID, equipLoc }
+        return link
+    end
+
+    -- Броня (classID 4): ткань 1, кожа 2, кольчуга 3, латы 4.
+    Item("item:cloth", 4, 1, "INVTYPE_CHEST")
+    Item("item:leather", 4, 2, "INVTYPE_LEGS")
+    Item("item:mail", 4, 3, "INVTYPE_HEAD")
+    Item("item:plate", 4, 4, "INVTYPE_LEGS")
+    Item("item:cloak", 4, 1, "INVTYPE_CLOAK")   -- плащ: тир есть, слот не считается
+    Item("item:ring",  4, 0, "INVTYPE_FINGER")  -- «разное»
+    Item("item:shield", 4, 6, "INVTYPE_SHIELD")
+    Item("item:sword",  2, 7, "INVTYPE_WEAPONMAINHAND")
+
+    -- ── ОРУЖИЕ ТУЛТИП НЕ ТРОГАЕТ ────────────────────────────
+    check("меч — не броня", SK.DescribeArmorItem("item:sword"), nil)
+    check("и строк для него нет", SK.ArmorTooltipLines("item:sword"), nil)
+    check("незнакомая ссылка тоже молчит", SK.DescribeArmorItem("item:нет"), nil)
+
+    -- ── ТИР ЧИТАЕТСЯ ИЗ ПОДКЛАССА ───────────────────────────
+    _G.SpellbreakerCharDB.skills["Ношение брони"] = 5
+    for link, want in pairs({ ["item:cloth"] = 1, ["item:leather"] = 2,
+                              ["item:mail"] = 3, ["item:plate"] = 4 }) do
+        local d = SK.DescribeArmorItem(link)
+        check(link .. ": единиц брони", d and d.points, want)
+        check(link .. ": навык освоен", d and d.enough, true)
+    end
+    check("и число уходит в строку", SK.ArmorTooltipLines("item:plate").replace,
+          "Броня: 4")
+    check("а приписки при освоенном нет", SK.ArmorTooltipLines("item:plate").note, nil)
+
+    -- ── НЕОСВОЕННОЕ НЕ ДАЁТ НИЧЕГО ──────────────────────────
+    --
+    -- Не «даст, когда научишься»: GetArmorBase такой тир просто не
+    -- считает, и «Броня: 4» на нём была бы обещанием, которое расчёт не
+    -- сдержит. Число — ноль, а сколько будет — приписка словами.
+    _G.SpellbreakerCharDB.skills["Ношение брони"] = 2
+    local low = SK.DescribeArmorItem("item:plate")
+    check("латы на навыке 2 не освоены", low.enough, false)
+    check("а кожа — освоена",            SK.DescribeArmorItem("item:leather").enough, true)
+    local lines = SK.ArmorTooltipLines("item:plate")
+    check("в строке ноль", lines.replace, "Броня: 0")
+    checkTrue("и приписка называет требование",
+              lines.note and lines.note:find("Ношение брони» 4", 1, true) ~= nil)
+    checkTrue("и говорит, сколько будет",
+              lines.note and lines.note:find("Даст 4", 1, true) ~= nil)
+
+    -- Совсем без навыка не работает даже ткань.
+    _G.SpellbreakerCharDB.skills["Ношение брони"] = 0
+    check("без навыка и ткань не носится",
+          SK.DescribeArmorItem("item:cloth").enough, false)
+    _G.SpellbreakerCharDB.skills["Ношение брони"] = 5
+
+    -- ── ВОСЕМЬ СЛОТОВ, А НЕ ВСЕ ─────────────────────────────
+    local cloak = SK.DescribeArmorItem("item:cloak")
+    check("плащ брони не даёт",  cloak.points, 0)
+    check("и это отдельный род", cloak.kind, "none")
+    checkTrue("а тултип объясняет почему",
+              SK.ArmorTooltipLines("item:cloak").note ~= nil)
+    check("кольцо тоже пустое", SK.DescribeArmorItem("item:ring").points, 0)
+
+    -- ── ЩИТ СЧИТАЕТСЯ ПО БОНУСАМ ОРУЖИЯ ─────────────────────
+    -- Его броня — вещь в руках, а не надетый доспех, и навыка не требует.
+    local sh = SK.DescribeArmorItem("item:shield")
+    check("щит опознан",       sh.kind, "shield")
+    check("и даёт своё число", sh.points, SB.Data.WeaponBonuses.shield.value)
+    check("навыка не требует", sh.enough, true)
+
+    -- ── ЧИСЛА ТЕ ЖЕ, ЧТО В РАСЧЁТЕ ──────────────────────────
+    -- Вторая табличка «ткань = 1» в тултипе разошлась бы с ARMOR_TIERS
+    -- на первой же правке баланса.
+    for tier, def in pairs(SB.Data.ArmorTiers) do
+        local link = Item("item:t" .. tier, 4, tier, "INVTYPE_CHEST")
+        check("тир " .. tier .. " берёт число из таблицы",
+              SK.DescribeArmorItem(link).points, def.bonus)
+    end
+
+    -- ── САМ ФАЙЛ ТУЛТИПА ГРУЗИТСЯ И ПРАВИЛ НЕ ДЕРЖИТ ────────
+    local chunk, err = loadfile("UI/Tooltips.lua")
+    checkTrue("UI/Tooltips.lua грузится", chunk ~= nil)
+    if not chunk then print("          " .. tostring(err)) end
+    local src = ReadFile("UI/Tooltips.lua")
+    checkTrue("и спрашивает правило у Skills",
+              src:find("SB.Skills.ArmorTooltipLines", 1, true) ~= nil)
+    -- Своей таблицы тиров в тултипе быть не должно: разошлась бы с
+    -- ARMOR_TIERS на первой же правке баланса. Ищем обращение к ней, а
+    -- не слово «ткань» — оно законно стоит во врезке, объясняющей запрет.
+    checkTrue("а своей таблицы тиров не заводит",
+              src:find("ARMOR_TIERS", 1, true) == nil
+              and src:find("ArmorTiers", 1, true) == nil)
+    checkTrue("строку ищет по шаблону клиента, а не по русским буквам",
+              src:find("ARMOR_TEMPLATE", 1, true) ~= nil)
+    checkTrue("и защищён от повторной приписки",
+              src:find("sbArmorDone", 1, true) ~= nil)
+    checkTrue("файл подключён в .toc",
+              ReadFile("Spellbreaker.toc"):find("UI\\Tooltips.lua", 1, true) ~= nil)
+
+    stub.world.items = {}
+    _G.SpellbreakerCharDB.skills["Ношение брони"] = savedSkill
+end
+
+-- ============================================================
 -- БАФФ НА ХАРАКТЕРИСТИКИ ДОХОДИТ ДО СУЩЕСТВА
 --
 -- Ведущий сообщил, что «баффы на характеристики на НПС не работают».
