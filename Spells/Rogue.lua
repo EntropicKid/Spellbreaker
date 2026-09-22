@@ -15,9 +15,6 @@ Add({
 	resistable = true,
 	duration = 1,
 	container = "eff_shadow_step",
-	scaling = {
-		hit    = { ["Скрытность"] = 1 },
-	},
 })
 -- ==========================================
 -- БОЕВЫЕ ПРИЕМЫ И АТАККИ (УРОН: canCrit = true, resistable = true)
@@ -39,8 +36,9 @@ Add({
     canCrit = true,
     distance = 2.5,
 	scaling = {
-		hit    = { ["Ловкость рук"] = 2 },
-		crit   = { ["Точность"] = 1 },
+		hit    = { ["Акробатика"] = 1 },
+		crit   = { ["Точность"] = 0.5 },
+		damage = { ["Ловкость"] = 0.75 },
 	},
 })
 
@@ -50,7 +48,7 @@ Add({
     requirement = "melee",
     key = "Скрытность",
     icon = "Interface\\Icons\\Ability_backstab",
-    level = 0,
+    level = 1,
     class = "Разбойник",
     damageType = "physical",
     -- caura = 22,
@@ -62,7 +60,7 @@ Add({
 	scaling = {
 		hit    = { ["Скрытность"] = 1 },
 		crit   = { ["Точность"] = 1 },
-		damage = { ["Ловкость"] = 0.5 },
+		damage = { ["Ловкость"] = 1 },
 	},
 })
 
@@ -82,8 +80,8 @@ Add({
     canCrit = true,
     distance = 2.5,
 	scaling = {
-		hit    = { ["Ловкость рук"] = 1 },
-		crit   = { ["Точность"] = 1.5 },
+		hit    = { ["Акробатика"] = 1 },
+		crit   = { ["Точность"] = 1 },
 		damage = { ["Ловкость"] = 1.5 },
 	},
 })
@@ -104,7 +102,7 @@ Add({
     distance = 2.5,
     duration = 2,
 	scaling = {
-		hit    = { ["Скрытность"] = 1, ["Искусность"] = 1 },
+		hit    = { ["Скрытность"] = 1, ["Ловкость рук"] = 1 },
 	},
 })
 
@@ -126,7 +124,7 @@ Add({
     distance = 2.5,
     duration = 5,
 	scaling = {
-		hit    = { ["Искусность"] = 1.5 },
+		hit    = { ["Ловкость рук"] = 1.5 },
 		damage = { ["Ловкость"] = 0.5 },
 	},
 })
@@ -221,7 +219,7 @@ Add({
     duration = 3,
     debuff = "eff_sap",
 	scaling = {
-		hit    = { ["Скрытность"] = 1, ["Мощь"] = 0.5 },
+		hit    = { ["Скрытность"] = 1, ["Ловкость рук"] = 0.5 },
 	},
 })
 
@@ -259,9 +257,11 @@ Add({
     resistable = true,
     canCrit = true,
     distance = 2.5,
+    duration = 2,
+	debuff = "eff_kick",
 	scaling = {
-		hit    = { ["Акробатика"] = 1, ["Мощь"] = 0.5 },
-		crit   = { ["Ловкость"] = 1 },
+		hit    = { ["Акробатика"] = 2 },
+		crit   = { ["Точность"] = 1 },
 	},
 })
 
@@ -303,7 +303,7 @@ Add({
     resistable = true,
 	container = "eff_vanish",
     distance = 0,
-    duration = 1,
+    duration = 2,
 	scaling = {
 		hit    = { ["Скрытность"] = 1, ["Концентрация"] = 0.5 },
 	},
@@ -331,15 +331,14 @@ Add({
     name = "Ложный выпад",
     key = "Бойня",
     icon = "Interface\\Icons\\Ability_rogue_cheatdeath",
-    level = 1,
+    level = 0,
     class = "Разбойник",
     -- caura = 22,
     description = "Обманное движение телом, мимикой или оружием. Ваша предрасположенность к изощренным ментальным манипуляциям и блефу: разбойник может виртуозно лгать, искусно имитировать панику, страх или полное подчинение во время допроса/переговоров, чтобы усыпить бдительность оппонента и заставить его раскрыть свои истинные карты.",
     isCantrip = false,
     resistable = true,
 	container = "eff_feint",
-    distance = 0,
-    duration = 2,
+    duration = 1,
 	scaling = {
 		hit    = { ["Акробатика"] = 1, ["Ловкость рук"] = 0.5 },
 	},
@@ -358,7 +357,7 @@ Add({
     resistable = true,
 	container = "eff_sprint",
     distance = 0,
-    duration = 2,
+    duration = 1,
 	scaling = {
 		hit    = { ["Акробатика"] = 1, ["Ловкость"] = 0.5 },
 	},
@@ -385,7 +384,7 @@ Add({
     duration = 5,
     debuff = "eff_poisoned_blade",
     scaling = {
-        hit    = { ["Искусность"] = 1 },
+        hit    = { ["Ловкость рук"] = 1 },
         crit = { ["Точность"] = 0.5 },
         damage = { ["Ловкость"] = 1 },
     },
@@ -424,9 +423,9 @@ Add({
     canCrit = true,
     distance = 2.5,
     scaling = {
-        hit    = { ["Скрытность"] = 1, ["Мощь"] = 0.5 },
+        hit    = { ["Скрытность"] = 1 },
         crit   = { ["Скрытность"] = 1, ["Точность"] = 1 },
-        damage = { ["Ловкость"] = 1.2 },
+        damage = { ["Ловкость"] = 1.25 },
     },
 })
 
@@ -447,7 +446,7 @@ Add({
     duration = 2,
     debuff = "eff_bleeding_blade_flurry",
     scaling = {
-        hit    = { ["Ловкость рук"] = 1 },
+        hit    = { ["Акробатика"] = 1 },
         crit   = { ["Точность"] = 0.5 },
         damage = { ["Ловкость"] = 0.7 },
     },
@@ -474,6 +473,7 @@ Add({
 Add({
     id = "deadly_throw",
     name = "Смертельный бросок",
+    requirement = "melee",
     key = "Бойня",
     icon = "Interface\\Icons\\Inv_throwingknife_06",
     level = 2,
@@ -485,7 +485,7 @@ Add({
     canCrit = true,
     distance = 25,
     scaling = {
-        hit    = { ["Ловкость рук"] = 1.5 },
+        hit    = { ["Акробатика"] = 1.5 },
         crit   = { ["Точность"] = 2 },
         damage = { ["Ловкость"] = 1 },
     },
@@ -502,7 +502,7 @@ Add({
     isCantrip = false,
     resistable = false,
     distance = 0,
-    duration = 3,
+    duration = 2,
     container = "eff_cloak_of_shadows",
 	caura = 806,
     scaling = {
@@ -564,7 +564,7 @@ Add({
     duration = 5,
     debuff = "eff_envenom",
     scaling = {
-        hit    = { ["Ловкость"] = 1, ["Искусность"] = 1 },
+        hit    = { ["Ловкость рук"] = 1 },
         crit   = { ["Точность"] = 1 },
         damage = { ["Ловкость"] = 1 },
     },
@@ -642,11 +642,12 @@ Add({
     isCantrip = true,
     resistable = true,
     canCrit = true,
-    distance = 10,
+    distance = 20,
 	debuff = "eff_pistolshot",
 	duration = 2,
 	scaling = {
-		crit   = { ["Точность"] = 3 },
+		crit   = { ["Точность"] = 1 },
+        damage = { ["Ловкость"] = 0.75 },
 	},
 })
 
@@ -663,7 +664,7 @@ Add({
     isCantrip = true,
     resistable = true,
     canCrit = true,
-    distance = 10,
+    distance = 20,
 	debuff = "eff_between_the_eyes",
 	duration = 1,
 	scaling = {

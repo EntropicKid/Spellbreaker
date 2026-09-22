@@ -1283,8 +1283,30 @@ local function BuildMainFrame()
 
     SB.Events.On("ACTIVE_EFFECTS_CHANGED", UpdateEffColumnShown)
 
+    -- ── И СУМКУ ТОЖЕ — ПО ТОМУ ЖЕ ПРАВИЛУ ─────────────────
+    --
+    -- Пустая колонка не должна ни занимать место в докнутой раскладке,
+    -- ни висеть пустым плавающим окном на экране. У эффектов это было с
+    -- самого начала, а сумка висела всегда — и чаще всего пустой: ячейки
+    -- наполняются кастом (сотворённое) или сбором перед выходом, а у
+    -- большинства персонажей в сцене нет ни того, ни другого.
+    --
+    -- СЧИТАЕМ ПАЧКИ, А НЕ ЯЧЕЙКИ: GetMaxPrepared у всех три всегда, и по
+    -- нему колонка не спряталась бы никогда.
+    local function UpdateItemColumnShown()
+        local hasItems = (SB.Items and SB.Items.CountPrepared
+                          and SB.Items.CountPrepared() or 0) > 0
+        itemColumn._hidden = not hasItems
+        if hasItems then itemColumn:Show() else itemColumn:Hide() end
+        itemColumn:SetDockHeight(hasItems and SB.UI.GetItemsColumnHeight() or nil)
+        RecalcLayout()
+    end
+
+    SB.Events.On(SB.E.PREPARED_ITEMS_CHANGED, UpdateItemColumnShown)
+
     RecalcLayout()
     UpdateEffColumnShown()
+    UpdateItemColumnShown()
  
     -- ── Пикер круга ───────────────────────────────────────────
     slotFrame = SB.Theme.Frame("SB_SlotSelectFrame", UIParent, "Выбор порядка", 200, 180)

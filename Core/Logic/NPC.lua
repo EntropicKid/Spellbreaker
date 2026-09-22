@@ -76,12 +76,11 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
     -- ослеплённый волк обязан уворачиваться хуже, и считается это тем же
     -- каналом defense, что у игрока (см. Core/NPCEffects.lua).
     local guaranteed = SB.Logic.IsGuaranteed(spell)
-    -- ПРОТИВ КРИТА СУЩЕСТВО НЕ БРОСАЕТ — ровно до тех пор, пока итогу
-    -- броска некуда примениться. Правило и довод целиком те же, что в
-    -- ПвП (см. skipDefense в HandlePvpAttackReceived): попадание крит
-    -- решил сам, а нужен итог только заклинанию с дебаффом — им меряется
-    -- закрепление чар. Нет дебаффа — нет и смысла катить куб.
-    local skipDefense = guaranteed or (isCrit and not spell.debuff)
+    -- ПРОТИВ КРИТА СУЩЕСТВО НЕ БРОСАЕТ ВОВСЕ — то же правило, что в ПвП
+    -- (см. skipDefense в HandlePvpAttackReceived). Оговорка «кроме
+    -- заклинаний с дебаффом» ушла вместе со вторым броском: закрепление
+    -- чар итогом защиты больше не меряется.
+    local skipDefense = guaranteed or isCrit
     local defMod, defParts = 0, {}
     local defRoll, defTotal = 0, 0
     if not skipDefense then
@@ -127,29 +126,17 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
     end
 
     -- ── Дебафф от попадания ───────────────────────────────
-    -- ТА ЖЕ РАЗВИЛКА, ЧТО В ПвП (см. врезку о дебаффе в
-    -- HandlePvpAttackReceived): удар проходит и урон снимается, но
-    -- зацепиться за стойкого чары могут не всегда. Отличие ровно одно —
-    -- «Волю» берём из записи существа, а не из сетевого статуса, и
-    -- считаем её здесь же, у атакующего: своего клиента у существа нет.
-    --
-    -- «ВНУШЕНИЕ» ПРИБАВЛЯЕТСЯ ИМЕННО К ЭТОЙ ПРОВЕРКЕ, а не к попаданию —
-    -- по той же причине, что и в ПвП: иначе развитый навык поднимал бы
-    -- урон каждого уронного заклинания, у которого дописан дебафф.
-    local debuffLanded, debuffResisted = false, false
+    -- ПОПАЛ — ЗНАЧИТ ЗАЦЕПИЛОСЬ, и второй проверки больше нет: ровно то
+    -- же правило, что в ПвП (см. врезку о дебаффе в
+    -- HandlePvpAttackReceived). Здесь стоял свой бросок на закрепление,
+    -- и существо могло стряхнуть чары, уже пропустив удар.
+    local debuffLanded = false
     if spell.debuff and landed then
-        local persuade = (SB.Skills and SB.Skills.GetPersuasionDebuffBonus)
-            and SB.Skills.GetPersuasionDebuffBonus(spell) or 0
-        local will = SB.NPC.WillBonus(stats, "target")
-        if guaranteed or (total + persuade > defTotal + will) then
-            local turns = SB.Logic.GetEffectDuration(spell.debuff, spell, slotLevel)
-            -- Своё имя в эффект: если дебафф провоцирует, приковано
-            -- существо именно к нам (см. SB.NPC.TauntPenaltyOf).
-            debuffLanded = SB.NPC.AddEffect("target", spell.debuff, turns,
-                                            UnitName("player"))
-        else
-            debuffResisted = true
-        end
+        local turns = SB.Logic.GetEffectDuration(spell.debuff, spell, slotLevel)
+        -- Своё имя в эффект: если дебафф провоцирует, приковано
+        -- существо именно к нам (см. SB.NPC.TauntPenaltyOf).
+        debuffLanded = SB.NPC.AddEffect("target", spell.debuff, turns,
+                                        UnitName("player"))
     end
 
     -- ── Собственный контейнер заклинателя ─────────────────
@@ -186,17 +173,18 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
     -- ── Строка боя ────────────────────────────────────────
     local link    = SB.UI.MakeSpellLink(spell)
     local critTxt = ""   -- крит — голой гранью (см. rollTxt ниже)
-    -- Крит с дебаффом бросает защиту ради закрепления, но на месте
-    -- защиты её не показываем — отбить крит нельзя (та же правка, что в
-    -- HandlePvpAttackReceived). Бросок уходит к исходу дебаффа.
-    local critNoDefense = isCrit and not guaranteed and not skipDefense
-    local resistRoll = critNoDefense
-        and (" " .. SB.UI.RollLine(defRoll, defMod, defTotal, G)) or ""
-    local defTxt  = (skipDefense or critNoDefense)
+    -- ЗАЩИТА ЧИТАЕТСЯ ТЕМ ЖЕ ВИДОМ, ЧТО И АТАКА. Здесь она собиралась
+    -- вручную — «[2] + [+5] (итог 7)», — и в одной строке рядом стояли
+    -- два разных написания одного и того же: атака через RollLine, а
+    -- защита словами. Теперь обе через RollLine: «[7][+21]=28 vs
+    -- Защита: [2][+5]=7».
+    --
+    -- Крит защиты не бросает вовсе: отбить его нельзя, а закреплять
+    -- дебафф броском больше не нужно (см. врезку выше).
+    local defTxt  = skipDefense
         and (G .. (guaranteed and " (существо не сопротивляется)"
                                or  " (крит — защиты нет)"))
-        or  (G .. " vs Защита: |r" .. SB.UI.RollText(defRoll) .. G .. " + |r" ..
-             SB.UI.ModText(defMod) .. G .. " (итог " .. defTotal .. ")")
+        or  (G .. " vs Защита: |r" .. SB.UI.RollLine(defRoll, defMod, defTotal, G))
 
     -- ЧЕМ ЗАКРЫЛОСЬ — той же короткой припиской, что у игрока
     -- (см. guardTxt в HandlePvpAttackReceived). Без неё сопротивление
@@ -228,17 +216,10 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
     end
 
 
-    -- ИМЯ ЭФФЕКТА В СТРОКУ НЕ ИДЁТ, только факт — ровно как в ПвП:
-    -- заклинание в этой же строке названо кликабельной ссылкой, и что
-    -- оно вешает, написано в его карточке.
-    -- Через « | », как у игрока: без черты исход прилипал к урону —
-    -- «Урон: 2 ХП Эффект отведён».
-    local rr = (resistRoll ~= "") and (G .. " (сопротивление" .. resistRoll .. G .. ")") or ""
-    if debuffLanded then
-        outcome = outcome .. G .. " | |r" .. SB.Theme.MSG_BAD .. "эффект наложен|r" .. rr
-    elseif debuffResisted then
-        outcome = outcome .. G .. " | |r" .. SB.Theme.MSG_GOOD .. "эффект отведён|r" .. rr
-    end
+    -- ЗДЕСЬ БЫЛИ ПРИПИСКИ «эффект наложен» и «эффект отведён» — ровно
+    -- как в ПвП, и убраны по той же причине: у дебаффа больше нет своего
+    -- броска, и рассказывать нечего. Попал — чары легли, уклонилось —
+    -- не легли, и это следует из самого исхода удара в этой же строке.
 
     SB.Events.Fire(SB.E.BROADCAST_LOG,
         SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. UnitName("player") ..
