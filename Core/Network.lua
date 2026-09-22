@@ -796,7 +796,8 @@ end
 local function ParseAOEEFF(t)
     if not SB.Logic or not SB.Logic.HandleAoeEffectReceived then return end
     SB.Logic.HandleAoeEffectReceived(t.caster, t.spellID, t.effectID, t.radius, nil,
-        t.roll, t.mod, t.total, UnpackEpicenter(t), CasterCallsMeFriend(t))
+        t.roll, t.mod, t.total, UnpackEpicenter(t), CasterCallsMeFriend(t),
+        tonumber(t.enc) or 0)
 end
 
 --- Очередь ходов от Ведущего. Проверка ровно одна и она здесь: пакет
@@ -1717,16 +1718,37 @@ end
 --- и присылал их). Вместе с ней ушли упаковщик SlimParts и распаковщик
 --- UnslimParts. Честность каста теперь сверяется по ФОНОВОМУ статусу,
 --- который и так рассылается: см. SB.Logic.VerifyIncomingCast.
---- persuade — «Внушение» атакующего. Едет ОТДЕЛЬНЫМ числом, а не внутри
---- mod, потому что прибавляется не к попаданию, а только к закреплению
---- дебаффа, и проверяет его цель у себя, вместе со своей «Волей»
---- (см. SB.Skills.GetPersuasionDebuffBonus). Ноль не отправляем вовсе:
---- у подавляющего большинства ударов дебаффа нет, и поле было бы
---- балластом в каждом боевом пакете.
+--- persuade — «Внушение» атакующего, В ОЧКАХ. Едет отдельным числом, а
+--- не внутри mod, потому что к попаданию оно не прибавляется вовсе: оно
+--- продлевает СРОК дебаффа, а срок собирает получатель. Ноль не
+--- отправляем: у подавляющего большинства ударов дебаффа нет, и поле
+--- было бы балластом в каждом боевом пакете.
 --- @param npcName string|nil  бьём ОТ ЛИЦА существа с таким именем.
 ---        Принимающая сторона возьмёт его только от лидера группы
 ---        (см. ParsePVPATK).
+--- «ВНУШЕНИЕ» ПРИЦЕПЛЯЕТСЯ ЗДЕСЬ, РОВНО КАК У БАФФА (см. SendBuff).
+---
+--- ПОЧЕМУ ОНО ВООБЩЕ ЕДЕТ. Срок дебаффа собирает ПОЛУЧАТЕЛЬ: заклинание
+--- с уроном разрешается у цели (см. HandlePvpAttackReceived), и именно
+--- она зовёт GetEffectDuration. Своего «Внушения» у неё нет — а без
+--- присланного числа GetEffectDuration принимал отсутствие прибавки за
+--- свой каст и подставлял навык САМОЙ ЦЕЛИ. То есть развитое «Внушение»
+--- продлевало дебаффы, которые вешают на тебя.
+---
+--- НАРУЖУ ЭТО ВЫГЛЯДЕЛО ТАК: «Удар по почкам» срок продлевает, а
+--- «Выстрел из пистоли» — нет. Разница ровно в уроне: у первого его нет,
+--- и он уходит обычным эффектом через SendBuff, где число прицеплено с
+--- самого начала; у второго урон есть, и он идёт этим путём.
+---
+--- ОТ ЛИЦА СУЩЕСТВА — НЕ СЧИТАЕТСЯ: Ведущий одалживает волку руки, а не
+--- свой навык (то же правило, что в SendBuff).
 function SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, slot, persuade, npcName)
+    local sp = SB.Data.Spells[spellID]
+    if not npcName and sp and sp.debuff and SB.Logic and SB.Logic.EncouragementFor then
+        persuade = SB.Logic.EncouragementFor(sp.debuff)
+    else
+        persuade = 0
+    end
     if not IsInGroup() then return end
 
     local t = {
@@ -1751,8 +1773,16 @@ end
 --- цели; здесь целей заранее нет, их определяет дистанция у получателя.
 --- @param epi table|nil  эпицентр площади (см. SB.Logic.GetAoeEpicenter)
 --- @param persuade number|nil  «Внушение» заклинателя — см. SendPvpAttack
-function SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, radius, slot, epi, persuade)
+--- «Внушение» прицепляется ЗДЕСЬ, тем же правилом, что в SendPvpAttack:
+--- площадной удар с дебаффом разрешается у каждого задетого, и срок
+--- чар собирает он же (HandleAoeAttackReceived передаёт число дальше, в
+--- HandlePvpAttackReceived).
+function SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, radius, slot, epi)
     if not IsInGroup() then return end
+
+    local sp = SB.Data.Spells[spellID]
+    local persuade = (sp and sp.debuff and SB.Logic and SB.Logic.EncouragementFor)
+        and SB.Logic.EncouragementFor(sp.debuff) or 0
 
     local t = {
         action   = "AOEATK",
@@ -1777,8 +1807,15 @@ end
 ---        так площадной эффект вёл себя раньше (закреплялся у всех
 ---        безусловно), и старые клиенты продолжат работать по-прежнему.
 --- @param epi   table|nil  эпицентр площади (см. SB.Logic.GetAoeEpicenter)
+--- «ВООДУШЕВЛЕНИЕ»/«ВНУШЕНИЕ» — ТЕМ ЖЕ ПРАВИЛОМ, ЧТО У ОДИНОЧНОГО
+--- ЭФФЕКТА (см. SendBuff). Срок площадного эффекта собирает каждый
+--- задетый у себя, и без присланного числа он подставлял бы СВОЙ навык
+--- вместо навыка заклинателя: конус холода держался бы дольше на том,
+--- кто вложился во «Внушение», то есть навык работал бы против хозяина.
 function SB.Net.SendAoeEffect(spellID, effectID, radius, slot, roll, mod, total, epi)
     if not IsInGroup() then return end
+    local enc = (SB.Logic and SB.Logic.EncouragementFor)
+        and SB.Logic.EncouragementFor(effectID) or 0
     SendToGroup(PackFriends(PackEpicenter({
         action   = "AOEEFF",
         caster   = UnitName("player"),
@@ -1788,6 +1825,9 @@ function SB.Net.SendAoeEffect(spellID, effectID, radius, slot, roll, mod, total,
         roll     = roll,
         mod      = mod,
         total    = total,
+        -- Ноль не везём: лишнее поле в каждом пакете ради навыка,
+        -- которого у большинства нет.
+        enc      = (enc > 0) and enc or nil,
     }, epi)), "NORMAL")
 end
 

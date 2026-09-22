@@ -1112,6 +1112,125 @@ do
 end
 
 -- ============================================================
+-- ПОДПИСЬ ОСТАТКА НЕ ПРЫГАЕТ ВВЕРХ
+--
+-- Живая жалоба: «в свободном режиме плавно снижает длительность, а
+-- затем на мгновение скачок на +5 секунд и заново опускается».
+--
+-- Подпись складывается из двух величин ИЗ РАЗНЫХ МЕСТ: ходы берутся у
+-- самого эффекта, доля текущего хода — из общей отметки последнего
+-- тика. Пока обе двигаются вместе, всё сходится. Но эффект может тик
+-- ПРОПУСТИТЬ, а отметка встанет всё равно: тогда ходы прежние, доля
+-- обнулилась — и подпись подскакивает почти на целый ход, раз в шесть
+-- секунд, вечно.
+--
+-- Пропустить тик эффект может законно: он в skip (только что наложен),
+-- или счётчик ему ведёт не наш клиент — так у эффектов существа и
+-- союзника, которые приезжают пакетом.
+-- ============================================================
+do
+    ResetEffects()
+    SB.TurnOrder.ApplyRemoteState({ active = false, mode = "all", round = 0,
+        index = 0, slots = {}, acted = {} })
+    _G.SpellbreakerAccountDB.realtimeEffects = true
+    local per = SB.Data.SecondsPerTurn
+
+    SB.Data.Spells["t_sec"] = { id = "t_sec", name = "Проба секунд",
+        class = "Эффект", level = 0, isContainer = true, icon = "x",
+        effect = { kind = "buff", mods = { attack = 1 } } }
+    SB.ActiveEffects.Add("t_sec", 10, false, nil, 0)
+
+    local function Eff()
+        for _, e in ipairs(SB.ActiveEffects.GetAll()) do
+            if e.spellID == "t_sec" then return e end
+        end
+    end
+
+    -- ── СВОЙ ЭФФЕКТ: РОВНОЕ УБЫВАНИЕ ЧЕРЕЗ ТИК ──────────────
+    --
+    -- Снимаем подпись по секунде на протяжении двух ходов. Ни одно
+    -- значение не должно оказаться БОЛЬШЕ предыдущего — это и есть
+    -- «не прыгает вверх», сформулированное числом.
+    local prev, jumps = nil, 0
+    for round = 1, 2 do
+        SB.ActiveEffects.TickAll(nil, true)
+        for _ = 1, per do
+            stub.world.time = stub.world.time + 1
+            local e = Eff()
+            local now = e and SB.ActiveEffects.SecondsLeft(e.uses, e.tickSeq)
+            if prev and now and now > prev then jumps = jumps + 1 end
+            prev = now
+        end
+    end
+    check("свой эффект убывает и ни разу не подскакивает", jumps, 0)
+
+    -- ── ЧУЖОЙ СПИСОК: СЧЁТЧИК СТАРЕЕТ, ПОДПИСЬ СТОИТ ───────
+    --
+    -- Ровно тот случай из жалобы. Счётчик эффекта союзника обновляется
+    -- пакетом, а наша отметка тика встаёт каждые шесть секунд. Пока
+    -- подпись брала долю нашего хода, она убывала шесть секунд и
+    -- возвращалась назад — пила с зубом почти в целый ход.
+    --
+    -- Снимаем по секунде через три тика, НЕ трогая счётчик: так и
+    -- выглядит запоздавший пакет. Ни одно значение не должно оказаться
+    -- больше предыдущего.
+    local foreignUses = 8
+    local fPrev, fJumps = nil, 0
+    for _ = 1, 3 do
+        SB.ActiveEffects.TickAll(nil, true)
+        for _ = 1, per do
+            stub.world.time = stub.world.time + 1
+            local now = SB.ActiveEffects.SecondsLeft(foreignUses, -1)
+            if fPrev and now > fPrev then fJumps = fJumps + 1 end
+            fPrev = now
+        end
+    end
+    check("чужая подпись ни разу не подскочила", fJumps, 0)
+
+    -- И ТА ЖЕ ПРОВЕРКА БЕЗ ФАЗЫ — та самая пила. Без неё легко поверить,
+    -- что пилы не было вовсе и чинить было нечего.
+    local oPrev, oJumps = nil, 0
+    for _ = 1, 3 do
+        SB.ActiveEffects.TickAll(nil, true)
+        for _ = 1, per do
+            stub.world.time = stub.world.time + 1
+            local now = SB.ActiveEffects.SecondsLeft(foreignUses)
+            if oPrev and now > oPrev then oJumps = oJumps + 1 end
+            oPrev = now
+        end
+    end
+    checkTrue("а по-старому подскакивала на каждом тике", oJumps > 0)
+
+    -- ── ЧУЖОЙ СПИСОК ФАЗЫ НЕ ЗНАЕТ ВОВСЕ ───────────────────
+    --
+    -- Счётчик эффектов существа и союзника ведём не мы: он приезжает
+    -- пакетом. Интерфейс помечает такие записи заведомо чужим номером
+    -- фазы (см. Foreign в UI/Overlay.lua) — прогон интерфейс не грузит,
+    -- поэтому проверяем и правило, и то, что оно там применено.
+    check("чужой записи — целые ходы, без доли",
+          SB.ActiveEffects.SecondsLeft(5, -1), 5 * per)
+    local ov = ReadFile("UI/Overlay.lua")
+    checkTrue("существу проставляют чужую фазу",
+              ov:find("Foreign(SB.NPC.GetEffects(\"target\"))", 1, true) ~= nil)
+    checkTrue("союзнику тоже",
+              ov:find("Foreign(st.activeEffects or {})", 1, true) ~= nil)
+    checkTrue("и подпись иконки эту фазу спрашивает",
+              ov:find("SecondsLeft(b._uses, b._seq)", 1, true) ~= nil)
+    -- Без номера в подписи состава перекладки не случится, и _seq на
+    -- иконке останется прошлым.
+    checkTrue("а перекладка замечает смену фазы",
+              ov:find("tostring(eff.tickSeq)", 1, true) ~= nil)
+
+    -- ── БЕССРОЧНОМУ ОТСЧЁТА НЕТ ────────────────────────────
+    check("бессрочный секунд не считает",
+          SB.ActiveEffects.SecondsLeft(SB.ActiveEffects.INFINITE, nil), nil)
+
+    _G.SpellbreakerAccountDB.realtimeEffects = false
+    SB.Data.Spells["t_sec"] = nil
+    ResetEffects()
+end
+
+-- ============================================================
 -- ЛОКАЛЬНУЮ ФУНКЦИЮ НЕ ЗОВУТ ДО ЕЁ ОБЪЯВЛЕНИЯ
 --
 -- Живая ошибка: «attempt to call global SpellLevel (a nil value)» на
@@ -10288,9 +10407,16 @@ do
     local bonus = 5 * step
 
     -- ── БРОСОК НАВЫК БОЛЬШЕ НЕ ДВИГАЕТ ────────────────────
-    check("прибавки к броску у «Внушения» нет",
-          SB.Skills.GetPersuasionDebuffBonus(), 0)
-    check("а очки он отдаёт целыми", SB.Skills.GetPersuasionBonus(), 5)
+    --
+    -- И ЗАГЛУШКИ «ВЕРНИ НОЛЬ» ТОЖЕ БОЛЬШЕ НЕТ. Она продержалась одну
+    -- правку и обошлась дорого: её звали три отправителя боевых
+    -- пакетов, все трое честно слали ноль, «Внушение» перестало
+    -- доезжать до цели вовсе — а раз число не приехало, получатель
+    -- считал каст своим и подставлял СВОЙ навык. Дебаффы на тебе висели
+    -- дольше ровно за то, что ты вложился во «Внушение».
+    checkTrue("заглушки прибавки к броску не осталось",
+              SB.Skills.GetPersuasionDebuffBonus == nil)
+    check("а очки навык отдаёт целыми", SB.Skills.GetPersuasionBonus(), 5)
 
     -- ── И ЭТО ЗЕРКАЛО «ВООДУШЕВЛЕНИЯ» ─────────────────────
     --
@@ -10334,23 +10460,39 @@ do
 
     SB.Data.Spells["t_pers_deb"], SB.Data.Spells["t_pers_buf"] = nil, nil
 
-    local debuffSpell = { id = "x", debuff = "t_pain" }
-    local strikeSpell = { id = "x", debuff = "t_pain", canCrit = true }
     local stanceSpell = { id = "x", container = "t_eff" }
     local buffSpell   = { id = "x", buff = "t_eff" }
-    local healSpell   = { id = "x", debuff = "t_pain", isHeal = true }
-
-    -- ЗАГЛУШКА ОТВЕЧАЕТ НУЛЁМ КОМУ УГОДНО: число ещё возят по сети
-    -- старые сборки, а читать его теперь незачем.
-    check("уронному дебаффу — ноль",
-          SB.Skills.GetPersuasionDebuffBonus(strikeSpell), 0)
-    check("и безуронному тоже",
-          SB.Skills.GetPersuasionDebuffBonus(debuffSpell), 0)
-    check("лечение остаётся за «Милосердием»",
-          SB.Skills.GetPersuasionDebuffBonus(healSpell), 0)
     -- Стойка и бафф — не вред, и «Внушение» их не касается в принципе:
     -- решает это род эффекта в EncouragementFor (проверено выше).
     check("стойка и бафф мимо", stanceSpell.debuff or buffSpell.debuff, nil)
+
+    -- ── ЧИСЛО ПРИЦЕПЛЯЕТ ОТПРАВИТЕЛЬ, И ВСЕ ТРОЕ ──────────
+    --
+    -- Срок дебаффа собирает ПОЛУЧАТЕЛЬ. Уронное заклинание
+    -- разрешается у цели, площадное — у каждого задетого, и своего
+    -- «Внушения» у них нет: без присланного числа GetEffectDuration
+    -- принимает отсутствие прибавки за свой каст и подставляет навык
+    -- САМОЙ ЦЕЛИ. Отправок три, и забыть одну — значит снова получить
+    -- «„Удар по почкам“ срок продлевает, а „Выстрел из пистоли“ нет».
+    -- Интерфейс прогон не грузит, сеть тоже — проверка по исходнику.
+    local net = ReadFile("Core/Network.lua")
+    for _, sender in ipairs({ "SendBuff", "SendPvpAttack",
+                              "SendAoeAttack", "SendAoeEffect" }) do
+        local at = net:find("function SB.Net." .. sender, 1, true)
+        local stop = net:find("\nend", at or 1, true) or #net
+        local body = at and net:sub(at, stop) or ""
+        checkTrue(sender .. " прицепляет навык к пакету",
+                  body:find("EncouragementFor", 1, true) ~= nil)
+    end
+
+    -- И ПОЛУЧАТЕЛИ ЭТО ЧИСЛО ЧИТАЮТ, а не выбрасывают: без второй
+    -- половины первая бессмысленна.
+    local lg  = ReadFile("Core/Logic.lua")
+    local aoe = ReadFile("Core/Logic/Aoe.lua")
+    checkTrue("одиночный размен кладёт его в срок дебаффа",
+              lg:find("tonumber(atkPersuade) or 0, attackerName", 1, true) ~= nil)
+    checkTrue("площадной эффект — тоже",
+              aoe:find("tonumber(enc) or 0, casterName", 1, true) ~= nil)
 
     -- ── Живой размен: ПОПАЛ — ЗНАЧИТ ЗАЦЕПИЛОСЬ ────────────
     --

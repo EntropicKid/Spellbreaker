@@ -416,12 +416,6 @@ function SB.Logic.InitiateAoeAttack(spellID, slotLevel)
     pendingAoe = { spellID = spellID, atkTotal = total, isCrit = isCrit,
                    emoteSent = false, at = GetTime() }
 
-    -- «Внушение» едет отдельным числом и работает только на закреплении
-    -- дебаффа у задетых — ровно как в одиночном размене, см.
-    -- SB.Logic.InitiatePvpAttack.
-    local persuade = (SB.Skills and SB.Skills.GetPersuasionDebuffBonus)
-        and SB.Skills.GetPersuasionDebuffBonus(spell) or 0
-
     -- ШАПКА ЗАЛПА — ОДНА на всё. Раньше их было две подряд («применяет…»
     -- и «обрушивает на всё вокруг…»), да ещё каждый задетый писал ПОЛНЫЙ
     -- абзац с тем же самым броском. Теперь бросок объявляется ровно один
@@ -461,7 +455,7 @@ function SB.Logic.InitiateAoeAttack(spellID, slotLevel)
             "решает Ведущий.|r")
     end
 
-    SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, radius, slotLevel, epi, persuade)
+    SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, radius, slotLevel, epi)
 
     -- Тот же собственный контейнер, что и у одиночной атаки, и той же
     -- функцией: правило про него живёт в одном месте на все пять путей
@@ -603,8 +597,15 @@ end
 ---        старого клиента либо путь через Ведущего (ProcessRollAndCast →
 ---        InitiateAoeEffect): там броска нет, и эффект ложится безусловно,
 ---        ровно как работало раньше.
+--- @param enc number|nil  «Воодушевление»/«Внушение» заклинателя в
+---        очках. Считает его отправитель (SB.Net.SendAoeEffect): срок
+---        собирает каждый задетый у себя, и без присланного числа он
+---        подставил бы СВОЙ навык вместо навыка заклинателя — то есть
+---        конус холода держался бы дольше на том, кто вложился во
+---        «Внушение». Ноль в пакете не везут, поэтому nil здесь значит
+---        «прибавки нет», а не «считай свою».
 function SB.Logic.HandleAoeEffectReceived(casterName, spellID, effectID, radius, slotLevel,
-                                          roll, mod, total, epi, imFriend)
+                                          roll, mod, total, epi, imFriend, enc)
     if casterName == UnitName("player") then return end
     if DownedIgnoresAoe() then return end
     -- Вредит ли эффект — спрашиваем у него самого, а не у заклинания:
@@ -646,7 +647,9 @@ function SB.Logic.HandleAoeEffectReceived(casterName, spellID, effectID, radius,
     if success then
         -- fromOther: залп чужой, концентрацию держит заклинатель.
         -- casterName — он же и провокатор, если залп провоцирует.
-        SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, true, nil, casterName)
+        -- enc — его же навык на срок (см. описание параметра выше).
+        SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, true,
+                             tonumber(enc) or 0, casterName)
     end
 
     -- Своё сообщение в чат НЕ печатаем (в отличие от HandleBuffReceived):

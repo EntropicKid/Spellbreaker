@@ -1051,10 +1051,48 @@ end
 local function AuraSignature(list)
     local parts = {}
     for _, eff in ipairs(list or {}) do
+        -- ФАЗА ТИКА — ТОЖЕ ЧАСТЬ ПОДПИСИ. Она решает, положена ли
+        -- иконке доля текущего хода (см. SB.ActiveEffects.SecondsLeft), а
+        -- меняться может и без смены счётчика ходов — у эффекта
+        -- существа, которому счёт ведёт Ведущий. Без неё перекладка не
+        -- случилась бы, _seq на иконке остался бы прошлым, и подпись
+        -- врала бы ровно на ту долю хода, ради которой фаза и заведена.
         parts[#parts + 1] = tostring(eff.spellID) .. ":" .. tostring(eff.uses) ..
-            (eff.isConc and "c" or "")
+            ":" .. tostring(eff.tickSeq) .. (eff.isConc and "c" or "")
     end
     return table.concat(parts, "|")
+end
+
+-- ============================================================
+-- ЧУЖОЙ СПИСОК ЭФФЕКТОВ ФАЗУ НАШЕГО ТИКА НЕ ПОЛУЧАЕТ
+--
+-- Подпись остатка складывается из двух величин: ходы берутся у эффекта,
+-- а доля текущего хода — из отметки нашего последнего тика
+-- (см. SB.ActiveEffects.SecondsLeft). Для СВОИХ эффектов обе двигаются
+-- вместе, и подпись убывает ровно.
+--
+-- А вот счётчик эффектов существа и союзника ведём не мы: он приезжает
+-- пакетом и обновляется когда обновляется. Наша отметка при этом встаёт
+-- каждые шесть секунд — и подпись начинала прыгать вверх почти на целый
+-- ход, а потом снова плавно опускаться. Ровно на это и жаловались:
+-- «плавно снижается, потом на мгновение скачок на +5 секунд».
+--
+-- Поэтому чужим записям проставляем заведомо чужой номер фазы: они
+-- получают подпись в ЦЕЛЫХ ходах — ровную и честную. Знать, сколько
+-- прошло внутри чужого хода, мы всё равно не можем.
+--
+-- Копией, а не правкой на месте: список принадлежит не нам.
+-- ============================================================
+local FOREIGN_SEQ = -1
+
+local function Foreign(list)
+    local out = {}
+    for i, eff in ipairs(list or {}) do
+        out[i] = { spellID = eff.spellID, uses = eff.uses,
+                   isConc = eff.isConc, src = eff.src, lvl = eff.lvl,
+                   tickSeq = FOREIGN_SEQ }
+    end
+    return out
 end
 
 --- Подпись остатка на одной иконке — «сколько ещё висит», временем и в
@@ -1073,7 +1111,7 @@ local function SetAuraCount(b)
     local txt = ""
     if b._uses >= 0 then
         local left = SB.ActiveEffects and SB.ActiveEffects.SecondsLeft
-            and SB.ActiveEffects.SecondsLeft(b._uses)
+            and SB.ActiveEffects.SecondsLeft(b._uses, b._seq)
         txt = left and SB.UI.SecondsAsTimeShort(left)
             or SB.UI.TurnsAsTimeShort(b._uses)
     end
@@ -1112,6 +1150,10 @@ local function LayoutAuraHost(host, list)
 
             b._spellID = spellID
             b._uses    = tonumber(eff.uses)
+            -- Номер тика — рядом со счётчиком и по той же причине, что
+            -- он сам: без него подпись не отличит эффект, убавившийся в
+            -- этом тике, от пропустившего его (см. AuraSignature выше).
+            b._seq     = tonumber(eff.tickSeq)
             b._isConc  = eff.isConc == true
             -- Юнит запоминаем только у существа: ПКМ по иконке снимает
             -- эффект, и снимать его можно ровно с него (см. MakeAuraIcon).
@@ -1285,7 +1327,7 @@ local function TargetAddonAuras()
     if not UnitIsPlayer("target") then
         if not (SB.NPC and SB.NPC.GetEffects and SB.NPC.HasState) then return nil end
         if not SB.NPC.HasState("target") then return nil end
-        return SB.NPC.GetEffects("target")
+        return Foreign(SB.NPC.GetEffects("target"))
     end
 
     if UnitIsUnit("target", "player") then
@@ -1297,7 +1339,7 @@ local function TargetAddonAuras()
     -- Запись есть — значит аддон у неё есть и список актуален; пустой
     -- список означает «эффектов нет», а не «данных нет».
     if not st then return nil end
-    return st.activeEffects or {}
+    return Foreign(st.activeEffects or {})
 end
 
 --- Тот же принцип, что у чисел: накладываем заново каждый тик, потому

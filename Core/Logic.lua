@@ -3846,12 +3846,10 @@ function SB.Logic.InitiatePvpAttack(spellID, slotLevel)
     -- события (Воин копит с попадания, ОнД — только с промаха).
     pendingPvpSpells[targetName] = { spellID = spellID, isCrit = isCrit, atkTotal = total }
 
-    -- «Внушение» — прибавка не к попаданию, а к ЗАКРЕПЛЕНИЮ дебаффа
-    -- (см. SB.Skills.GetPersuasionDebuffBonus). Проверяет её цель, у себя,
-    -- вместе со своей «Волей» — значит число обязано доехать в пакете:
-    -- своих навыков она не видит так же, как не видит наш урон.
-    local persuade = (SB.Skills and SB.Skills.GetPersuasionDebuffBonus)
-        and SB.Skills.GetPersuasionDebuffBonus(spell) or 0
+    -- «Внушение» прицепляет сама SB.Net.SendPvpAttack — там же, где
+    -- «Воодушевление» прицепляется к баффу (см. SendBuff). Считать его
+    -- здесь значило бы завести вторую точку правды: отправок дебаффа
+    -- несколько, и одну из них однажды забывают.
 
     -- Атака больше НЕ печатает своё отдельное сообщение в лог/чат.
     -- Единое финальное сообщение (атака + защита + итог) собирает
@@ -3862,7 +3860,7 @@ function SB.Logic.InitiatePvpAttack(spellID, slotLevel)
     -- РАЗБИВКА нашего модификатора: сообщение о бое собирает
     -- защищающаяся сторона, и без разбивки в тултипе на модификаторе
     -- атакующего значилось «Нет данных о разбивке» — у обоих игроков.
-    SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, slotLevel, persuade)
+    SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, slotLevel)
 
     -- СОБСТВЕННЫЙ КОНТЕЙНЕР АТАКУЮЩЕГО (буря вокруг себя, стойка, аура).
     -- В ПвЕ его вешает ProcessRollAndCast, а здесь этой ветки нет — и
@@ -4334,7 +4332,20 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
         -- наложил, а здесь он известен точно и бесплатно — это довод в
         -- пользу самого этого пути (см. врезку «ПРОВОКАЦИЯ» в
         -- Core/ActiveEffects.lua).
-        SB.Logic.ApplyEffect(spell.debuff, spell, atkSlot, nil, nil, attackerName)
+        --
+        -- «ВНУШЕНИЕ» НАПАДАЮЩЕГО — ПЯТЫМ АРГУМЕНТОМ, И ЭТО НЕ МЕЛОЧЬ.
+        -- Срок дебаффа собираем МЫ, у себя; без присланного числа
+        -- GetEffectDuration принимал отсутствие прибавки за свой каст и
+        -- подставлял навык ЦЕЛИ — то есть вложенное «Внушение»
+        -- продлевало дебаффы, которые вешают на тебя. Наружу это
+        -- выглядело так: «Удар по почкам» срок продлевает (урона нет,
+        -- и он идёт обычным баффом, где число прицеплено), а «Выстрел
+        -- из пистоли» — нет.
+        --
+        -- tonumber(...) or 0, а не голое atkPersuade: ноль в пакете не
+        -- везут, и nil здесь значит «прибавки нет», а не «считай мою».
+        SB.Logic.ApplyEffect(spell.debuff, spell, atkSlot, nil,
+                             tonumber(atkPersuade) or 0, attackerName)
         debuffLanded = true
     end
 

@@ -1405,12 +1405,12 @@ end
 --- ЖИВЁТ ОТДЕЛЬНО ОТ ПЕРЕРИСОВКИ, как и её двойник на рамке цели
 --- (SetAuraCount в UI/Overlay.lua): перерисовка случается на смену
 --- состава, то есть раз в ход, а подпись обязана убывать каждую секунду.
-local function SetSlotCounter(s, uses)
+local function SetSlotCounter(s, uses, seq)
     if uses == INFINITE then
         if s.counterFS:GetText() ~= "беск." then s.counterFS:SetText("беск.") end
         return
     end
-    local left = SB.ActiveEffects.SecondsLeft(uses)
+    local left = SB.ActiveEffects.SecondsLeft(uses, seq)
     local txt  = left and SB.UI.SecondsAsTimeShort(left)
                       or SB.UI.TurnsAsTimeShort(uses)
     if s.counterFS:GetText() ~= txt then s.counterFS:SetText(txt) end
@@ -1422,7 +1422,7 @@ local function RefreshCounters()
     for _, eff in ipairs(effects) do
         for _, s in ipairs(slots) do
             if s._spID == eff.spellID and s:IsShown() then
-                SetSlotCounter(s, eff.uses)
+                SetSlotCounter(s, eff.uses, eff.tickSeq)
                 break
             end
         end
@@ -2713,6 +2713,11 @@ function SB.ActiveEffects.DecrementOne(spellID)
         if eff.spellID == spellID then
             -- Бессрочный эффект ходами не расходуется, но тикать —
             -- тикает: «кровотечение до конца сцены» должно капать.
+            --
+            -- ОТМЕТКА ФАЗЫ — ЭФФЕКТУ, а не только в общую переменную:
+            -- по ней подпись отличает «убавился в этом тике» от
+            -- «пропустил» (см. врезку у SecondsLeft).
+            eff.tickSeq = tickSeq
             local expired = false
             if eff.uses ~= INFINITE then
                 eff.uses = eff.uses - 1
@@ -2765,12 +2770,44 @@ end
 -- столько, сколько его отыгрывают, — минуту, десять. Секундная стрелка
 -- показывала бы выдуманное время и добежала бы до нуля, пока эффект ещё
 -- висит. Там подпись остаётся в ходах, как и была.
+--
+-- ── ФАЗА ОБЩАЯ, А СЧЁТЧИК У КАЖДОГО СВОЙ ────────────────────
+--
+-- И вот на этом стыке подпись умела ПРЫГАТЬ ВВЕРХ. Формула складывает
+-- две величины из РАЗНЫХ мест: ходы берутся у самого эффекта, а
+-- доля текущего хода — из общей отметки последнего тика. Пока обе
+-- двигаются вместе, всё сходится: перед тиком «48», после тика ходов на
+-- один меньше, зато доля полная — снова «48».
+--
+-- Но эффект может тик ПРОПУСТИТЬ, а отметка встанет всё равно. Тогда
+-- ходы у него прежние, доля обнулилась — и подпись подскакивает почти
+-- на целый ход (при шести секундах на ход это «+5» на глаз), после чего
+-- снова плавно опускается. Раз в шесть секунд, вечно. Пропустить тик
+-- эффект может законно: он стоит в skip (только что наложен), или
+-- счётчик ему считает не наш клиент вовсе — так у эффектов существа,
+-- которые тикает Ведущий, а рисуем мы.
+--
+-- ПОЭТОМУ ФАЗА ИМЕНОВАНА. Каждый тик поднимает счётчик tickSeq, а
+-- DecrementOne записывает его эффекту. Доля текущего хода достаётся
+-- только тем, у кого отметка СВЕЖАЯ, — то есть кто в этом тике и правда
+-- убавился. Остальным подпись стоит на целых ходах и не шевелится: она
+-- честно говорит «столько ещё осталось», просто не притворяется, что
+-- знает, сколько из текущего хода уже прошло.
 local lastTickAt = nil
+local tickSeq    = 0
+
+--- Номер текущего тика. Пишется эффекту в момент его убавления
+--- (см. DecrementOne) и спрашивается подписью (см. SecondsLeft).
+function SB.ActiveEffects.TickSeq() return tickSeq end
 
 --- Сколько секунд осталось эффекту.
 --- @param uses number  счётчик ходов (отрицательный — бессрочный)
+--- @param seq number|nil  номер тика, в котором эффект убавился
+---        последний раз. Не совпал с текущим — значит эффект этот тик
+---        пропустил, и доля хода ему не причитается (см. врезку выше).
+---        nil — спрашивающий про фазу не знает; считаем по-старому.
 --- @return number|nil  nil — отсчёт не ведётся (бессрочный или пошаговый)
-function SB.ActiveEffects.SecondsLeft(uses)
+function SB.ActiveEffects.SecondsLeft(uses, seq)
     uses = tonumber(uses) or 0
     if uses < 0 then return nil end
 
@@ -2784,6 +2821,12 @@ function SB.ActiveEffects.SecondsLeft(uses)
     -- SB.UI.TurnsAsTimeShort, которая сама выбирает форму по режиму.
     if not realtime or not lastTickAt then return nil end
 
+    -- ПРОПУСТИЛ ТИК — ДОЛИ НЕТ. Иначе подпись подскочила бы почти на
+    -- целый ход (см. врезку выше): доля обнулилась, а ходы остались.
+    if seq ~= nil and seq ~= tickSeq then
+        return math.max(0, uses * per)
+    end
+
     -- Прошедшее внутри текущего хода. Зажимаем сверху длиной хода: если
     -- тик задержался (лаг, выпавший из группы Ведущий), стрелка замирает
     -- на нуле вместо того, чтобы уйти в минус и отнять лишний ход.
@@ -2795,6 +2838,7 @@ function SB.ActiveEffects.TickAll(skip, realtime)
     -- ОТМЕТКУ СТАВИМ ДО САМОГО ТИКА: подписи, которые перерисуются по
     -- ходу обхода, должны увидеть уже новую фазу, а не прошлую.
     lastTickAt = GetTime()
+    tickSeq    = tickSeq + 1
 
     -- ЗДЕСЬ ЖЕ СТАРЕЕТ ЗАПИСКА О ЧУЖОЙ ЧАСТИЦЕ СВЕТА. Она лежит у
     -- заклинателя, а сама частица — у носителя, и часы у них обязаны
@@ -3206,6 +3250,10 @@ function SB.ActiveEffects.GetAll()
             -- SourceOf по каждому id.
             src     = eff.src,
             lvl     = eff.lvl,
+            -- И НОМЕР ТИКА: подпись остатка живёт снаружи (панель,
+            -- иконки на рамках) и без него не отличит убавившийся
+            -- эффект от пропустившего тик (см. SecondsLeft).
+            tickSeq = eff.tickSeq,
         }
     end
     return copy
