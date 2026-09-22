@@ -542,6 +542,15 @@ function SB.ActiveEffects.GetEffectLines(spellID)
         table.insert(lines, "|cFFFFD100" .. head .. ":|r " .. (what or "срабатывает"))
     end
 
+    -- ОБЕЗОРУЖИВАНИЕ — СВОЕЙ СТРОКОЙ, и обязательно: каналами оно не
+    -- выражается вовсе, и без подписи «Разоружение» выглядело бы как
+    -- минус два физического урона — то есть карточка молчала бы ровно о
+    -- том, ради чего эффект и вешают (см. SB.Skills.IsDisarmed).
+    if type(def) == "table" and def.disarm == true then
+        table.insert(lines, "|cFFFFD100Обезоружен:|r " ..
+            "приёмы, которым нужно оружие, не применить")
+    end
+
     -- ЧАСТИЦА — СВОЕЙ СТРОКОЙ. Ни в mods, ни в tick она не выражается:
     -- это правило про ЧУЖОЙ каст, а не про носителя, и без подписи
     -- карточка показывала бы у неё один прибавленный запас здоровья —
@@ -805,6 +814,28 @@ function SB.ActiveEffects.ShakeOff(spellID)
 
     SB.ActiveEffects.Remove(spellID, true)
     return true
+end
+
+--- Обезоружен ли персонаж чарами — то есть считается ли он безоружным
+--- независимо от того, что у него в руках.
+---
+--- ОБЪЯВЛЯЕТСЯ В ДАННЫХ: `disarm = true` у эффекта. Каналами mods это
+--- не выражается и выражаться не должно — «Разоружение» не сдвигает
+--- число, оно меняет ОТВЕТ НА ВОПРОС «есть ли у тебя меч», а вопрос
+--- этот задаёт требование заклинания (см. SB.Data.EquipRequirements).
+---
+--- ЧИТАЕМ СЫРОЕ ОБЪЯВЛЕНИЕ, а не GetEffectDef: та отдаёт приведённую к
+--- числам выжимку и всё, что не параметр, по дороге теряет.
+--- @return boolean, string|nil  обезоружен ли и чем именно
+function SB.ActiveEffects.IsDisarmed()
+    for _, eff in ipairs(effects) do
+        local sp  = SB.Data.Spells[eff.spellID]
+        local def = sp and sp.effect
+        if type(def) == "table" and def.disarm == true then
+            return true, (sp.name or eff.spellID)
+        end
+    end
+    return false, nil
 end
 
 --- Наложен ли этот эффект кем-то другим (не нами).

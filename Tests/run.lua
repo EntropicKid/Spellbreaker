@@ -17611,8 +17611,14 @@ do
               table.concat(L.GetSpellScalingLines(SB.Data.Spells["heroic_strike"]), "\n")
                   :find("При применении", 1, true) == nil)
 
-    local disp = table.concat(L.GetSpellScalingLines(SB.Data.Spells["cure_blind"]), "\n")
-    checkTrue("рассеивание называет число", disp:find("1 эффект", 1, true) ~= nil)
+    -- ЧИСЛО БЕРЁМ У РАСЧЁТА, а не пишем литералом: сколько снимает
+    -- рассеивание, зависит от его круга, а круг — авторское число и
+    -- меняется рукой. Литерал сделал бы проверку сторожем чужой правки
+    -- данных вместо сторожа самой строки.
+    local cure = SB.Data.Spells["cure_blind"]
+    local disp = table.concat(L.GetSpellScalingLines(cure), "\n")
+    checkTrue("рассеивание называет число",
+              disp:find(tostring(L.GetDispelCount(cure, cure.level)), 1, true) ~= nil)
     checkTrue("и школы, которые снимает",   disp:find("Магия", 1, true) ~= nil)
 end
 
@@ -18059,6 +18065,97 @@ do
     SB.Data.Spells["t_src_conc"]   = nil
     SB.Data.Spells["t_src_dispel"] = nil
     ResetEffects()
+end
+
+-- ============================================================
+-- ОБЕЗОРУЖЕН: РУКИ ПОЛНЫ, А ОРУЖИЯ НЕТ
+--
+-- «Разоружение» воина отнимало два физического урона и ничего больше:
+-- обезоруженный преспокойно бил «Ударом в спину» и стрелял из лука, а
+-- описание обещало, что он «теряет возможность пользоваться своим
+-- оружием». Теперь эффект объявляет `disarm = true`, и требование к
+-- оружию отвечает «нечем» — сколько бы клинков ни висело в слотах.
+-- ============================================================
+do
+    local AE, SK = SB.ActiveEffects, SB.Skills
+    local savedEquip = stub.world.equipped
+
+    SB.Data.Spells["t_dis"] = { id = "t_dis", name = "Проба разоружения",
+        class = "Эффект", level = 0, isContainer = true,
+        icon = "Interface" .. string.char(92) .. "Icons" ..
+               string.char(92) .. "INV_Misc_QuestionMark",
+        effect = { kind = "debuff", disarm = true, mods = { damagePhysical = -2 } } }
+    SB.Data.Spells["t_dis_plain"] = { id = "t_dis_plain", name = "Проба помехи",
+        class = "Эффект", level = 0, isContainer = true,
+        icon = "Interface" .. string.char(92) .. "Icons" ..
+               string.char(92) .. "INV_Misc_QuestionMark",
+        effect = { kind = "debuff", mods = { damagePhysical = -2 } } }
+
+    -- Кинжал в правой руке, щит в левой (классы клиента: 2/15 и 4/6).
+    stub.world.equipped = { [16] = { 2, 15 }, [17] = { 4, 6 } }
+    SB.Skills.ResetEquipCache()
+    ResetEffects()
+
+    checkTrue("кинжал в руках виден",      SK.HasWeaponKind("dagger"))
+    checkTrue("и щит тоже",                SK.HasShield())
+    check("а обезоруженным не считается",  SK.IsDisarmed(), false)
+
+    -- ── ПОКА ВИСИТ — РУКИ СЧИТАЮТСЯ ПУСТЫМИ ─────────────────
+    AE.Add("t_dis", 3, false, "Зольц", 1)
+    local dis, by = SK.IsDisarmed()
+    check("эффект обезоруживает",     dis, true)
+    check("и называет, чем именно",   by, "Проба разоружения")
+    check("кинжала больше нет",       SK.HasWeaponKind("dagger"), false)
+    check("и категории тоже",         SK.HasWeaponKind("melee"), false)
+
+    -- ЩИТ ОСТАЁТСЯ: обезоружить — значит отнять ОРУЖИЕ, а щит не
+    -- оружие. «Удар щитом» потерявшему меч как раз и остаётся.
+    check("щит при этом на месте", SK.HasShield(), true)
+
+    -- ── ТРЕБОВАНИЕ ЗАКЛИНАНИЯ ОТКАЗЫВАЕТ ────────────────────
+    --
+    -- Через ту же дверь, что и каст: SB.Data.EquipRequirements собирает
+    -- все требования одним циклом, и проверка у них общая.
+    check("требование кинжала не выполнено",
+          SB.Data.EquipRequirements["dagger"].check(), false)
+    check("а требование щита — выполнено",
+          SB.Data.EquipRequirements["shield"].check(), true)
+
+    -- ОТКАЗ ЧИТАЕТСЯ ЧЕСТНО. «Нужен кинжал (в руках: кинжал)» выглядел
+    -- бы поломкой аддона, а не правилом.
+    checkTrue("в руках — «обезоружен», а не кинжал",
+              (SK.EquippedWeaponsText() or ""):find("обезоружен", 1, true) ~= nil)
+
+    -- ── И ЭТО ВИДНО НА КАРТОЧКЕ ─────────────────────────────
+    -- Каналами обезоруживание не выражается: без строки эффект выглядел
+    -- бы как минус два урона и молчал бы о главном.
+    checkTrue("карточка называет обезоруживание",
+              table.concat(AE.GetEffectLines("t_dis"), "\n")
+                  :find("Обезоружен", 1, true) ~= nil)
+
+    -- ── СПАЛ — И ОРУЖИЕ ВЕРНУЛОСЬ ───────────────────────────
+    AE.Remove("t_dis", true)
+    check("после снятия кинжал снова в руках", SK.HasWeaponKind("dagger"), true)
+    check("и обезоруженным не считается",      SK.IsDisarmed(), false)
+
+    -- ОБЫЧНЫЙ ДЕБАФФ ОРУЖИЯ НЕ ОТНИМАЕТ: поле объявительное, и молча
+    -- обезоруживать всё подряд оно не должно.
+    AE.Add("t_dis_plain", 3, false, "Зольц", 1)
+    check("дебафф без поля не обезоруживает", SK.IsDisarmed(), false)
+    check("и кинжал на месте",                SK.HasWeaponKind("dagger"), true)
+    ResetEffects()
+
+    -- ── И ЭТО РАБОТАЕТ НА ЖИВЫХ ДАННЫХ ──────────────────────
+    local live = SB.Data.Spells["eff_disarm"]
+    checkTrue("«Разоружение» воина объявлено обезоруживающим",
+              live and live.effect and live.effect.disarm == true)
+    AE.Add("eff_disarm", 3, false, "Зольц", 1)
+    check("и оно правда отнимает оружие", SK.HasWeaponKind("dagger"), false)
+    ResetEffects()
+
+    SB.Data.Spells["t_dis"], SB.Data.Spells["t_dis_plain"] = nil, nil
+    stub.world.equipped = savedEquip
+    SB.Skills.ResetEquipCache()
 end
 
 -- ============================================================
