@@ -433,9 +433,11 @@ function SB.Logic.InitiateAoeAttack(spellID, slotLevel)
         " обрушивает |r" .. SB.UI.MakeSpellLink(spell) ..
         G .. string.format(" на всё %s (радиус %g м",
             SB.Logic.AoeEpicenterLabel(epi), radius) ..
-        ((slotLevel or 0) > 0
-            and (", " .. SB.PlayerModel.GetResourceName() .. " x" .. slotLevel)
-            or "") ..
+        -- ВЛОЖЕННОГО В ШАПКЕ БОЛЬШЕ НЕТ. Приписка «Мана x3» означала
+        -- ВЛИВАНИЕ сверх круга — решение игрока, о котором стоило
+        -- сказать всем. Вливания больше нет (см. врезку о нём в
+        -- Core/Logic.lua), и число стало бы просто кругом заклинания,
+        -- который и так виден в его карточке.
         -- Цена каста — в шапку, а не строкой над ней (см. TakeCastPayload).
         PayloadTxt(spellID) ..
         "). Атака: |r" ..
@@ -559,9 +561,11 @@ function SB.Logic.ResolveAoeEffectCast(spellID, slotLevel)
         " накрывает |r" .. SB.UI.MakeSpellLink(spell) ..
         G .. string.format(" всё %s (радиус %g м",
             SB.Logic.AoeEpicenterLabel(epi), radius) ..
-        ((slotLevel or 0) > 0
-            and (", " .. SB.PlayerModel.GetResourceName() .. " x" .. slotLevel)
-            or "") ..
+        -- ВЛОЖЕННОГО В ШАПКЕ БОЛЬШЕ НЕТ. Приписка «Мана x3» означала
+        -- ВЛИВАНИЕ сверх круга — решение игрока, о котором стоило
+        -- сказать всем. Вливания больше нет (см. врезку о нём в
+        -- Core/Logic.lua), и число стало бы просто кругом заклинания,
+        -- который и так виден в его карточке.
         -- Цена каста — в шапку, а не строкой над ней (см. TakeCastPayload).
         PayloadTxt(spellID) ..
         "): |r" .. SB.UI.RollLine(roll, mod, total, G) ..
@@ -737,9 +741,11 @@ function SB.Logic.ResolveAoeHeal(spellID, slotLevel)
         (isCrit and (" " .. SB.Theme.MSG_GOOD .. "(КРИТ!)|r") or "") ..
         G .. string.format(" на всё %s (радиус %g м",
             SB.Logic.AoeEpicenterLabel(epi), radius) ..
-        ((slotLevel or 0) > 0
-            and (", " .. SB.PlayerModel.GetResourceName() .. " x" .. slotLevel)
-            or "") ..
+        -- ВЛОЖЕННОГО В ШАПКЕ БОЛЬШЕ НЕТ. Приписка «Мана x3» означала
+        -- ВЛИВАНИЕ сверх круга — решение игрока, о котором стоило
+        -- сказать всем. Вливания больше нет (см. врезку о нём в
+        -- Core/Logic.lua), и число стало бы просто кругом заклинания,
+        -- который и так виден в его карточке.
         -- Цена каста — в шапку, а не строкой над ней (см. TakeCastPayload).
         PayloadTxt(spellID) ..
         "): |r" .. SB.UI.RollLine(roll, mod, total, G) ..

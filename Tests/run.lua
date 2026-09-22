@@ -14867,43 +14867,42 @@ end
 end
 
 -- ============================================================
--- АПКАСТ РАСТЯГИВАЕТ ДЛИТЕЛЬНОСТЬ РОВНО
+-- СРОК ЭФФЕКТА НЕ РАСТЯГИВАЕТСЯ НИЧЕМ
 --
--- Было 2 × «кругов сверх» — то есть 2 / 4 / 6, и на заговоре в 3 хода
--- игрок видел 3 / 6 / 12 / 18. Каждый следующий круг стоил столько же,
--- а давал вдвое больше предыдущего: вливать имело смысл только по
--- максимуму, промежуточные варианты не выбирал никто.
+-- Здесь проверялся множитель вливания: заговор в 3 хода давал
+-- 3 / 6 / 9 / 12 по вложенным кругам. Вливания больше нет — срок у
+-- эффекта ровно тот, что записан в заклинании, плюс доля
+-- «Воодушевления» (см. врезку о вливании в Core/Logic.lua).
 -- ============================================================
 do
-    local cantrip = { level = 0, duration = 3 }
-    check("заговор заговором — без растяжки",
-          SB.Logic.GetUpcastMultiplier(cantrip, 0), 1)
-    check("круг сверх — вдвое",   SB.Logic.GetUpcastMultiplier(cantrip, 1), 2)
-    check("два сверх — втрое",    SB.Logic.GetUpcastMultiplier(cantrip, 2), 3)
-    check("три сверх — вчетверо", SB.Logic.GetUpcastMultiplier(cantrip, 3), 4)
+    local L = SB.Logic
+    check("множителя вливания больше нет", L.GetUpcastMultiplier, nil)
+    check("и разбора «что даст круг» тоже", L.CanUpcast, nil)
 
-    -- То, что видит игрок в окне выбора круга: 3 / 6 / 9 / 12.
-    SB.Data.Spells["t_upcast_eff"] = { id = "t_upcast_eff", name = "Проверочная длительность",
+    SB.Data.Spells["t_nu_eff"] = { id = "t_nu_eff", name = "Проба срока",
         class = "Эффект", level = 0, isContainer = true,
-        effect = { kind = "buff", mods = { defense = 2 } } }
-    SB.Data.Spells["t_upcast"] = { id = "t_upcast", name = "Проверочный заговор",
-        class = "Маг", level = 0, distance = 0, duration = 3,
-        container = "t_upcast_eff" }
+        icon = "Interface" .. string.char(92) .. "Icons" ..
+               string.char(92) .. "INV_Misc_QuestionMark",
+        effect = { kind = "debuff", family = "Оглушение", mods = { attack = -1 } } }
+    local src = { id = "t_nu_src", name = "Проба каста", class = "Маг",
+                  level = 1, duration = 3, debuff = "t_nu_eff" }
 
-    local sp = SB.Data.Spells["t_upcast"]
-    local got = {}
-    for slot = 0, 3 do
-        got[#got + 1] = SB.Logic.GetEffectDuration("t_upcast_eff", sp, slot)
-    end
-    check("лесенка длительности ровная",
-          table.concat(got, "/"), "3/6/9/12")
+    -- ЧТО БЫ НИ ПРИСЛАЛИ ЧЕТВЁРТЫМ АРГУМЕНТОМ — срок один и тот же.
+    -- Аргумент остался в подписи ради двух десятков вызовов и пакетов
+    -- старых сборок, но на число он больше не влияет.
+    check("свой круг — три хода",  L.GetEffectDuration("t_nu_eff", src, 1, 0), 3)
+    check("третий круг — те же три", L.GetEffectDuration("t_nu_eff", src, 3, 0), 3)
+    check("и пятый — тоже",          L.GetEffectDuration("t_nu_eff", src, 5, 0), 3)
 
-    -- Считается от СОБСТВЕННОГО круга заклинания, а не от нуля: каст в
-    -- свой круг растяжки не даёт, каким бы высоким тот ни был.
-    local third = { level = 3, duration = 4 }
-    check("свой круг растяжки не даёт", SB.Logic.GetUpcastMultiplier(third, 3), 1)
-    check("и недокаст тоже",            SB.Logic.GetUpcastMultiplier(third, 1), 1)
-    check("а круг сверх — вдвое",       SB.Logic.GetUpcastMultiplier(third, 4), 2)
+    -- И УРОН НЕ РАСТЁТ: множитель скейлинга читает круг ЗАКЛИНАНИЯ.
+    SB.Data.Spells["t_nu_dmg"] = { id = "t_nu_dmg", name = "Проба урона",
+        class = "Маг", level = 1, canCrit = true, distance = 30,
+        scaling = { damage = { ["Сила"] = 1 } } }
+    local dmg = SB.Data.Spells["t_nu_dmg"]
+    check("вложенное на урон не влияет",
+          L.GetSpellScaling(dmg, "damage", 3), L.GetSpellScaling(dmg, "damage", 1))
+
+    SB.Data.Spells["t_nu_eff"], SB.Data.Spells["t_nu_dmg"] = nil, nil
 end
 
 -- ============================================================
@@ -16542,14 +16541,16 @@ do
     check("свой дебафф навыком не тянется",
           L.GetEffectDuration("t_enc_debuff", dsrc, 1), 3)
 
-    -- ПРИБАВКА НЕ УМНОЖАЕТСЯ ВЛОЖЕННЫМ РЕСУРСОМ. Иначе очко навыка
-    -- стоило бы вчетверо больше на третьем круге, чем на первом.
-    -- Доля считается от БАЗЫ (3 хода), а не от растянутых девяти: иначе
-    -- одно и то же очко стоило бы втрое больше на третьем круге.
-    local upcast = L.GetEffectDuration("t_enc_buff", src, 3, 0)
-    check("вливание растягивает своё", upcast, 9)
+    -- ЧЕТВЁРТЫЙ АРГУМЕНТ НИЧЕГО НЕ МЕНЯЕТ. Прежде здесь проверялось,
+    -- что доля навыка считается от БАЗЫ, а не от растянутых вливанием
+    -- девяти ходов. Вливания больше нет, растягивать нечем — но
+    -- проверка остаётся сторожем того, что «круг каста» в расчёт срока
+    -- больше не попадает ни с какой стороны.
+    local base = L.GetEffectDuration("t_enc_buff", src, 1, 0)
+    check("круг каста на срок не влияет",
+          L.GetEffectDuration("t_enc_buff", src, 3, 0), base)
     check("а доля навыка считается от базы",
-          L.GetEffectDuration("t_enc_buff", src, 3, 3), upcast + 2)
+          L.GetEffectDuration("t_enc_buff", src, 3, 3), base + 2)
 
     -- Бесконечное не продлевается: «до конца сцены» плюс ход — это всё
     -- та же «до конца сцены».
@@ -18693,192 +18694,26 @@ do
 end
 
 -- ============================================================
--- ВЛИВАТЬ ПРЕДЛАГАЕМ ТОЛЬКО ТАМ, ГДЕ ЭТО ЧТО-ТО ДАЁТ
+-- ЗДЕСЬ ПРОВЕРЯЛОСЬ, ДАЁТ ЛИ ВЛИВАНИЕ ХОТЬ ЧТО-НИБУДЬ
 --
--- Окно выбора круга предлагало влить ресурс в ЛЮБОЕ заклинание, включая
--- бессрочные стойки и облики: игрок видел «Мана x 3» над «Боевой
--- стойкой», платил и получал ту же самую бесконечную стойку.
---
--- Правило выведено из арифметики резолва, а не из списка заклинаний:
--- от вложенного зависят ровно две вещи — множитель скейлинга канала
--- damage и растяжение срока эффекта.
+-- Окно выбора круга предлагало влить ресурс в любое заклинание, и
+-- SB.Logic.CanUpcast отвечал, изменится ли от этого хоть одно число.
+-- Вливания больше нет, окна больше нет, отвечать не на что.
 -- ============================================================
 do
     local L = SB.Logic
+    check("разбора вливания больше нет", L.CanUpcast, nil)
 
-    -- ── ЧТО ДАЁТ, А ЧТО НЕТ ────────────────────────────────
-    --
-    -- Правило СЧИТАЕТ, а не рассуждает о признаках, и считает от текущего
-    -- персонажа: у одного Сила 3, и вливание ему даёт, у другого Сила 5 —
-    -- и не даёт. Поэтому характеристики здесь выставляются явно.
-    local savedAttrs = _G.SpellbreakerCharDB.attributes
-    ResetEffects()
-
-    check("мусор на входе не роняет", L.CanUpcast(nil), false)
-    check("голое заклинание ничего не получает", L.CanUpcast({}), false)
-
-    -- СИЛА ИМЕННО 3, И ЭТО НЕ ПРОИЗВОЛ. При Силе 2 то же самое
-    -- заклинание вливанием НЕ усиливается: 2 вложенных очка дают 1.0, а
-    -- 1.0 x 1.45 = 1.45 — та же единица после усечения. При Силе 3
-    -- выходит 1.5 и 2.175, то есть 1 и 2. Разница между этими двумя
-    -- строчками и есть причина, по которой правило считает, а не
-    -- рассуждает о признаках.
-    _G.SpellbreakerCharDB.attributes = { ["Сила"] = 3 }
-    SB.Data.Spells["t_up_dmg"] = { id = "t_up_dmg", name = "Проба урона",
-        class = "Воин", level = 0, canCrit = true,
-        scaling = { damage = { ["Сила"] = 1 } } }
-    checkTrue("канал урона на подходящей характеристике — даёт",
-              L.CanUpcast(SB.Data.Spells["t_up_dmg"]))
-
-    _G.SpellbreakerCharDB.attributes = { ["Сила"] = 2 }
-    check("а на соседнем значении — уже нет",
-          L.CanUpcast(SB.Data.Spells["t_up_dmg"]), false)
-
-    -- ТА ЖЕ САМАЯ ПРОБА, НО НА ДРУГОЙ СИЛЕ, — и ответ другой. Ровно из-за
-    -- этого правило и пришлось считать: угадать по признакам, переползёт
-    -- ли произведение через целое, нельзя.
-    _G.SpellbreakerCharDB.attributes = { ["Сила"] = 1 }
-    check("на невложенной характеристике — не даёт",
-          L.CanUpcast(SB.Data.Spells["t_up_dmg"]), false)
-    SB.Data.Spells["t_up_dmg"] = nil
-
-    -- Срок эффекта растягивается независимо от характеристик.
-    SB.Data.Spells["t_up_eff"] = { id = "t_up_eff", name = "Проба срока",
-        class = "Воин", level = 0, duration = 3, container = "eff_battle_stance" }
-    checkTrue("конечный срок растягивается", L.CanUpcast(SB.Data.Spells["t_up_eff"]))
-    SB.Data.Spells["t_up_eff"].duration = -1
-    check("бессрочный — нет", L.CanUpcast(SB.Data.Spells["t_up_eff"]), false)
-    SB.Data.Spells["t_up_eff"] = nil
-
-    -- ПО canCrit И isHeal СУДИТЬ НЕЛЬЗЯ: база урона и база лечения от
-    -- вложенного не растут (DamagePerMana = 0), они только множатся
-    -- скейлингом. Без канала damage получается ровно ноль.
-    SB.Data.Spells["t_up_bare"] = { id = "t_up_bare", name = "Проба пустая",
-        class = "Воин", level = 0, canCrit = true, isHeal = true }
-    check("уронное и лечащее без канала damage — ничего",
-          L.CanUpcast(SB.Data.Spells["t_up_bare"]), false)
-    SB.Data.Spells["t_up_bare"] = nil
-
-    _G.SpellbreakerCharDB.attributes = savedAttrs
-
-    -- ── ЖИВЫЕ ДАННЫЕ ───────────────────────────────────────
-    local stance = SB.Data.Spells["battle_stance"]
-    checkTrue("«Боевая стойка» на месте", stance ~= nil)
-    check("вливать в неё нечего", L.CanUpcast(stance), false)
-    check("потому что она бессрочна", stance.duration, -1)
-
-    -- Живые уронные заклинания здесь не проверяем поимённо: помогает им
-    -- вливание или нет, зависит от характеристик КОНКРЕТНОГО персонажа,
-    -- и прибитое ожидание тут врало бы через одно. Их всех разом
-    -- накрывает зеркальный инвариант ниже.
-
-    -- И правило совпадает с самой арифметикой: у того, кому вливать
-    -- нечего, числа на своём круге и на круге выше обязаны сойтись.
-    local dur0 = L.GetEffectDuration("eff_battle_stance", stance, 0)
-    local dur3 = L.GetEffectDuration("eff_battle_stance", stance, 3)
-    check("срок от вливания не меняется", dur3, dur0)
-
-    -- ── РАССЕИВАНИЕ: ВЛИВАТЬ НЕКУДА ────────────────────────
-    --
-    -- Прежде каждая единица сверх круга снимала ещё один эффект, и
-    -- выбор круга у рассеиваний был всей их ценой. Теперь число снимаемого
-    -- равно кругу заклинания — и выбор круга пропадает сам, по той же
-    -- арифметике, по которой его нет у стоек.
-    checkTrue("рассеиванию вливать больше нечего",
-              not L.CanUpcast({ dispel = { "magic" }, level = 1 }))
-    -- ВЫБИРАЕМ ДЕТЕРМИНИРОВАННО И С ЗАПАСОМ ПО КРУГАМ. Первая версия
-    -- брала первое попавшееся рассеивание перебором pairs — а порядок
-    -- там непредсказуем, и раз в несколько прогонов попадалось
-    -- рассеивание ТРЕТЬЕГО круга. Вливать ему некуда: потолок реалма
-    -- тоже третий, — и правило честно отвечало «нет», роняя проверку.
-    -- Плавающая проверка хуже упавшей: она приучает не верить прогону.
-    local cap = SB.Data.GetRealmMaxOrder and SB.Data.GetRealmMaxOrder() or 3
-    local purge
-    do
-        local ids = {}
-        for id, sp in pairs(SB.Data.Spells) do
-            if ShippedSpells[id] and L.GetDispelSchools(sp)
-               and (tonumber(sp.level) or 0) < cap then
-                ids[#ids + 1] = id
-            end
-        end
-        table.sort(ids)                       -- порядок один и тот же всегда
-        purge = ids[1] and SB.Data.Spells[ids[1]]
-    end
-    checkTrue("рассеивание с запасом по кругам в библиотеке есть", purge ~= nil)
-    if purge then
-        -- Число снимаемого привязано к кругу заклинания, и вливать в
-        -- рассеивание больше незачем: выбора круга у него нет.
-        check("число снимаемого от вливания не растёт",
-              L.GetDispelCount(purge, (purge.level or 0) + 1),
-              L.GetDispelCount(purge, purge.level or 0))
-        if not (purge.container or purge.buff or purge.debuff)
-           and not purge.repairArmor and not (purge.scaling and purge.scaling.damage) then
-            checkTrue("и выбора круга у чистого рассеивания нет", not L.CanUpcast(purge))
-        end
-    end
-
-    -- ── ГЛАВНЫЙ ИНВАРИАНТ: ЗЕРКАЛО ПРАВИЛА ─────────────────
-    --
-    -- Считаем то же самое ЗДЕСЬ, независимо от CanUpcast, и требуем
-    -- совпадения на всей библиотеке. Проверка сторожит не число, а
-    -- ПОДХОД: вернись правило к рассуждению о признаках («есть канал
-    -- damage — значит поможет»), и она укажет на каждое заклинание, где
-    -- признак разошёлся с арифметикой. Именно так и нашлись рассеивание
-    -- (правило молчало) и «Засада» (правило обещало впустую: круг второй,
-    -- потолок реалма третий, и единственный шаг не меняет урон ни при
-    -- какой Ловкости).
-    --
-    -- Пять чисел — по одному на каждый известный рычаг. Появится шестой,
-    -- о котором CanUpcast узнает, а зеркало нет, — проверка сломается и
-    -- потребует дописать её тоже. Это дешевле тихого расхождения.
-    local topLvl = SB.Data.GetRealmMaxOrder and SB.Data.GetRealmMaxOrder() or 5
-    local function Mirror(sp, lvl)
-        local eff = sp.container or sp.buff or sp.debuff
-        return table.concat({
-            L.GetSpellScaling(sp, "damage", lvl),
-            eff and L.GetEffectDuration(eff, sp, lvl) or 0,
-            L.GetDispelSchools(sp) and L.GetDispelCount(sp, lvl) or 0,
-            L.GetSpellRepair(sp, lvl),
-            (sp.isHeal and L.GetHealPower or L.GetCastPower)(sp, lvl),
-        }, "/")
-    end
-
-    local wrong, checked = {}, 0
-    for id, sp in pairs(SB.Data.Spells) do
-        if ShippedSpells[id] and not sp.isContainer and not sp.isItem and sp.class then
-            local lvl = tonumber(sp.level) or 0
-            checked = checked + 1
-            local changes = false
-            for up = lvl + 1, topLvl do
-                if Mirror(sp, up) ~= Mirror(sp, lvl) then changes = true break end
-            end
-            if changes ~= L.CanUpcast(sp) then
-                wrong[#wrong + 1] = (sp.name or id) ..
-                    (changes and " (числа меняются, а правило молчит)"
-                             or " (правило обещает, а числа те же)")
-            end
-        end
-    end
-    table.sort(wrong)
-    check("правило сходится с арифметикой на всей библиотеке",
-          table.concat(wrong, "; "), "")
-    checkTrue("и проверено на всей библиотеке, а не на горстке", checked > 300)
-
-    -- ── ПИКЕР СПРАШИВАЕТ ЭТО ЖЕ ПРАВИЛО ────────────────────
-    --
-    -- По исходнику: окно живёт в UI, который прогон не грузит. Важно,
-    -- что оно спрашивает ОБЩУЮ функцию, а не свою копию условия, —
-    -- разойдись они, пикер предлагал бы то, чего резолв не даст.
+    -- ОКНО ЗАКРЫВАЕТСЯ САМО. Вариант в нём теперь всегда один — свой
+    -- круг заклинания, — и срабатывает прежний короткий путь «один
+    -- вариант = каст сразу».
     local mf = ReadFile("UI/MainFrame.lua")
-    checkTrue("пикер спрашивает CanUpcast",
-              mf:find("SB.Logic.CanUpcast(spell)", 1, true) ~= nil)
-    checkTrue("и объясняет, почему выбора нет",
-              mf:find("ничего не добавляет", 1, true) ~= nil)
-    -- Своим кругом заклинание платит в любом случае: потолок перебора
-    -- опускается до него, а не отменяет перебор.
-    checkTrue("потолок опускается до своего круга, а не до нуля",
-              mf:find("or spellLvl", 1, true) ~= nil)
+    checkTrue("пикер больше не спрашивает про вливание",
+              mf:find("CanUpcast", 1, true) == nil)
+    checkTrue("а потолок перебора — собственный круг",
+              mf:find("local topOrder = spellLvl", 1, true) ~= nil)
+    checkTrue("и один вариант кастуется без окна",
+              mf:find("if #options == 1 and not options[1].passTurn then", 1, true) ~= nil)
 end
 
 -- ============================================================
