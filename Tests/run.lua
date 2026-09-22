@@ -893,13 +893,17 @@ do
 end
 
 -- ============================================================
--- ПУТЬ ОБНУЛЯЕТСЯ КОНЦОМ СВОЕГО ХОДА, А НЕ НОВЫМ КРУГОМ
+-- ОКНО ПЕРЕДВИЖЕНИЯ — ЧУЖИЕ ХОДЫ, СВОЙ ХОД НЕПОДВИЖЕН
 --
--- Баг-репорт: «Кей ходит первым, Юра вторым. Кей в ход Юры пробежит хоть
--- 30 метров сверх лимита — его ход не скипнется. Юра в ход Кея убежит
--- сверх лимита — скипнется». Сброс на новом круге стирал метры первого
--- раньше, чем доходил его черёд, а метры последнего — нет. Черта у
--- каждого своя: конец своего хода.
+-- Баг-репорт: «бойцы ближнего боя в пошаговом режиме не могут физически
+-- никого догнать, даже используя рывки». Дело не в числе метров, а в
+-- том, КОГДА они выдавались: прежняя черта — конец своего хода, то есть
+-- запас приходил ровно в тот миг, когда заклинатель отыграл. Он бил и
+-- тут же уходил на полный предел, а догоняющий свои метры уже потратил,
+-- подходя.
+--
+-- Теперь запас прикалывается к нулю на своём ходу и наливается доверху,
+-- когда ход закрыт. Бегут все в одни и те же окна — чужие ходы.
 -- ============================================================
 do
     local me   = stub.world.playerName
@@ -909,42 +913,208 @@ do
             acted = acted or {} })
     end
     _G.SpellbreakerCharDB.health = 10
+    local cap = SB.Movement.GetCap()
+    checkTrue("предел есть и он больше нуля",
+              cap ~= SB.Movement.NO_LIMIT and cap > 0)
 
-    -- ── КЕЙ: ПЕРВЫЙ В ОЧЕРЕДИ ───────────────────────────────
+    -- ── СВОЙ ХОД: ЗАПАСА НЕТ ────────────────────────────────
     State(1)
-    _G.SpellbreakerCharDB.moveDistance = 7
-    State(1, { [me] = true }, 2)                -- походил
-    check("свой ход закрылся — путь обнулён", SB.Movement.GetDistance(), 0)
+    checkTrue("дошла очередь — запас приколот", SB.Movement.IsPinned())
+    check("и счётчик показывает полный предел", SB.Movement.GetDistance(), cap)
+    check("идти нечем", SB.Movement.GetRemaining(), 0)
 
-    -- Бежит в ход Юры — это уже запас на свой следующий ход.
+    -- ДЕЙСТВОВАТЬ ПРИ ЭТОМ МОЖНО, и это главное отличие прикола от
+    -- честного упора: свой ход для того и наступил.
+    checkTrue("но действие не запрещено", not SB.Movement.BlocksAction())
+
+    -- ── ПОХОДИЛ — ЗАПАС ПОЛОН ───────────────────────────────
+    _G.SpellbreakerCharDB.moveDistance = 7      -- шагнул в свой ход (усталость)
+    State(1, { [me] = true }, 2)                -- походил, очередь ушла
+    checkTrue("ход закрылся — прикол снят", not SB.Movement.IsPinned())
+    check("и запас налит доверху", SB.Movement.GetDistance(), 0)
+
+    -- Бежит в ход Юры — вот его окно, и метры копятся честно.
     _G.SpellbreakerCharDB.moveDistance = 9
     State(1, { [me] = true }, 2)                -- повторный пакет того же круга
-    check("повторная отметка того же хода путь не трогает", SB.Movement.GetDistance(), 9)
-    State(2)                                    -- новый круг
-    check("новый круг НЕ стирает пройденное после своего хода",
-          SB.Movement.GetDistance(), 9)
+    check("повторный пакет запас не наливает заново", SB.Movement.GetDistance(), 9)
 
-    -- ── ЮРА: ПОСЛЕДНИЙ — ТО ЖЕ ПРАВИЛО ──────────────────────
-    -- Метры, пройденные в чужой ход до своего, тоже идут в свой запас:
-    -- правило одно для любого места в очереди.
+    -- ── НОВЫЙ КРУГ: СНОВА СВОЙ ХОД — СНОВА ПРИКОЛ ───────────
+    -- Метры, набранные в чужие ходы, на своём ходу не помогают: окно
+    -- кончилось. Ровно это и отнимает у заклинателя «ударил и убежал».
+    State(2)
+    checkTrue("свой ход снова прикалывает", SB.Movement.IsPinned())
+    check("и недобеганные метры на своём ходу не помогают",
+          SB.Movement.GetRemaining(), 0)
+
+    -- ── ЗАПАС В НОГАХ ПРИКОЛ НЕ ТРОГАЕТ ─────────────────────
+    -- Побег бросается в свой ход, то есть ровно под приколом, и считает
+    -- он НЕ выхоженное (см. SB.Movement.GetReserve). По GetRemaining
+    -- прибавка была бы всегда нулевой.
+    check("а в ногах осталось непройденное", SB.Movement.GetReserve(), cap - 9)
+    local _, fleeBonus = SB.Logic.GetFleeOdds()
+    check("и побег считает именно его", fleeBonus, math.floor(cap - 9))
+
     State(2, { [me] = true }, 2)
-    check("и снова обнуляет только закрытие своего хода", SB.Movement.GetDistance(), 0)
+    check("закрытие хода снова наливает запас", SB.Movement.GetDistance(), 0)
 
-    -- ── /RELOAD ПОСЛЕ СВОЕГО ХОДА ЧЕРТУ НЕ ПЕРЕНОСИТ ────────
+    -- ── /RELOAD ПОСРЕДИ СВОЕГО ХОДА ЗАПАСА НЕ ДАРИТ ────────
+    -- Прикол лежит в сохранёнке рядом с путём: перезаход не должен
+    -- возвращать метры, которых в этом окне нет.
     _G.SpellbreakerCharDB.moveDistance = 5
     State(2, { [me] = true }, 2)
-    check("восстановленная отметка не стирает путь повторно", SB.Movement.GetDistance(), 5)
+    check("повторная отметка путь не трогает", SB.Movement.GetDistance(), 5)
+    State(3)
+    checkTrue("а свой ход прикалывает и после перезахода",
+              SB.Movement.IsPinned())
 
-    -- ── НЕ СТОЯЛ В ОЧЕРЕДИ — ЧЕРТА НА КОНЦЕ КРУГА ──────────
+    -- ── НЕ СТОЯЛ В ОЧЕРЕДИ — ЧЕРТА ПО КОНЦУ КРУГА ──────────
+    --
+    -- Подключившегося посреди сцены в слотах нет: своего хода у него
+    -- нет, значит нет и окна, которое можно закрыть. Без черты путь
+    -- копился бы без конца, и первый же выданный ему ход начинался бы
+    -- с упора, — поэтому такому черта прежняя, по концу круга.
+    --
+    -- И ПРИКОЛ С НЕГО СНИМАЕТСЯ. Ведущий волен вынуть игрока из очереди
+    -- прямо посреди его хода; приколотый запас остался бы приколотым
+    -- навсегда, то есть персонаж перестал бы ходить вовсе.
     SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 3,
         session = 7, index = 1, slots = { { "Юра" } }, acted = {} })
+    checkTrue("вынули из очереди — прикол снят", not SB.Movement.IsPinned())
     _G.SpellbreakerCharDB.moveDistance = 6
     SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 4,
         session = 7, index = 1, slots = { { "Юра" } }, acted = {} })
-    check("круг без своего хода закрывается концом круга", SB.Movement.GetDistance(), 0)
+    check("а круг без своего хода закрывается концом круга",
+          SB.Movement.GetDistance(), 0)
+
+    -- ── «ВСЕ СРАЗУ» ЭТОГО ПРАВИЛА НЕ ЗНАЕТ ─────────────────
+    -- Своих ходов там нет, а значит нет и окна, которое можно закрыть:
+    -- прикалывать пришлось бы весь круг целиком.
+    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = 1,
+        session = 8, index = 1, slots = { { me } }, acted = {} })
+    checkTrue("в режиме «все сразу» прикола нет", not SB.Movement.IsPinned())
 
     SB.TurnOrder.ApplyRemoteState({ active = false, mode = "all", round = 0,
         index = 0, slots = {}, acted = {} })
+    _G.SpellbreakerCharDB.moveDistance = 0
+end
+
+-- ============================================================
+-- ВХОД В ПОШАГОВЫЙ РЕЖИМ НАЛИВАЕТ ЗАПАС, НО НЕ СРАЗУ
+--
+-- Объявление «Пошаговый режим» игрок должен успеть прочитать, а шаги,
+-- сделанные по инерции в эти секунды, хода стоить не должны: персонаж
+-- шёл по миру, когда Ведущий нажал кнопку. Поэтому запас наливается
+-- через SB.Movement.ENTRY_GRACE секунд, а не в тот же кадр.
+-- ============================================================
+do
+    local me = stub.world.playerName
+    ResetEffects()
+    SB.TurnOrder.ApplyRemoteState({ active = false, mode = "player", round = 0,
+        session = 92, index = 0, slots = {}, acted = {} })
+
+    checkTrue("отсрочка задана и она не мгновенная",
+              (SB.Movement.ENTRY_GRACE or 0) > 0)
+
+    -- Свой ход НЕ занимаем: иначе запас обнулил бы прикол, и проверялась
+    -- бы не отсрочка, а он.
+    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 1,
+        session = 92, index = 1, slots = { { "Юра" }, { me } }, acted = {} })
+    -- Бежит по инерции сразу после команды Ведущего.
+    _G.SpellbreakerCharDB.moveDistance = 8
+    check("метры этих секунд пока на счётчике", SB.Movement.GetDistance(), 8)
+
+    stub.RunTimers()
+    check("а по истечении отсрочки запас налит", SB.Movement.GetDistance(), 0)
+
+    -- ОТСРОЧКА НЕ ЛЬЁТ В ВЫКЛЮЧЕННЫЙ РЕЖИМ. Ведущий передумал за эти
+    -- секунды — лить уже нечего, и стирать чужие метры незачем.
+    SB.TurnOrder.ApplyRemoteState({ active = false, mode = "player", round = 0,
+        session = 92, index = 0, slots = {}, acted = {} })
+    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 1,
+        session = 93, index = 1, slots = { { "Юра" }, { me } }, acted = {} })
+    SB.TurnOrder.ApplyRemoteState({ active = false, mode = "player", round = 0,
+        session = 93, index = 0, slots = {}, acted = {} })
+    _G.SpellbreakerCharDB.moveDistance = 4
+    stub.RunTimers()
+    check("режим выключили — отсрочка молчит", SB.Movement.GetDistance(), 4)
+
+    _G.SpellbreakerCharDB.moveDistance = 0
+end
+
+-- ============================================================
+-- ШАГ В СВОЙ ХОД СТОИТ УСТАЛОСТИ
+--
+-- Аддон не может отнять у игрока клавиши: шаг под приколом возможен
+-- физически. Без цены правило «свой ход неподвижен» было бы украшением —
+-- подошёл бы вплотную и ударил, ничего не потратив. Цена та же, что у
+-- любого метра сверх предела (см. SB.Movement.AddOverrun).
+-- ============================================================
+do
+    local me, PM = stub.world.playerName, SB.PlayerModel
+    ResetEffects()
+    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 1,
+        session = 94, index = 1, slots = { { me }, { "Юра" } }, acted = {} })
+    checkTrue("свой ход, запас приколот", SB.Movement.IsPinned())
+
+    _G.SpellbreakerCharDB.moveDistance = 0
+    _G.SpellbreakerCharDB.moveOver, _G.SpellbreakerCharDB.moveFatiguePaid = 0, 0
+    _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
+    local hp = PM.GetHealth()
+
+    -- Кадр шагомера: бежим секунду. Скорость в ярдах, шагомер переводит
+    -- в метры сам; хватает с запасом на один шаг усталости.
+    local realSpeed = _G.GetUnitSpeed
+    _G.GetUnitSpeed = function() return 14 end
+    SB.Movement.Step(1.0)
+    _G.GetUnitSpeed = realSpeed
+
+    checkTrue("метры под приколом ушли в перебег", SB.Movement.GetOverrun() > 0)
+    checkTrue("и стоили здоровья", PM.GetHealth() < hp)
+    -- А счётчик остался полным: прикол — это ноль запаса, и расти ему
+    -- некуда.
+    check("счётчик всё так же полон",
+          SB.Movement.GetDistance(), SB.Movement.GetCap())
+
+    SB.TurnOrder.ApplyRemoteState({ active = false, mode = "all", round = 0,
+        index = 0, slots = {}, acted = {} })
+    _G.SpellbreakerCharDB.moveDistance = 0
+    _G.SpellbreakerCharDB.moveOver, _G.SpellbreakerCharDB.moveFatiguePaid = 0, 0
+    _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
+end
+
+-- ============================================================
+-- ПОДСКАЗКА КНОПКИ НА ПАНЕЛИ — БЕЗ РОЛЕВОГО ОПИСАНИЯ
+--
+-- Панель открывают в бою и наводятся на неё, чтобы свериться с числами.
+-- Абзац художественного текста («пистоли — не самое меткое оружие,
+-- ущерб от них мал…») выдавливал их за край экрана, а прочитать его там
+-- было негде: он и так целиком лежит в карточке, которую открывает ПКМ.
+-- Интерфейс в прогоне не грузится — проверка по исходнику.
+-- ============================================================
+do
+    local sb = ReadFile("UI/SpellBar.lua")
+    local st = ReadFile("Core/Strings.lua")
+
+    checkTrue("панель просит тултип без описания",
+              sb:find("noDesc = true", 1, true) ~= nil)
+    checkTrue("а общий сборщик такую просьбу понимает",
+              st:find("if not opts.noDesc and spell.description", 1, true) ~= nil)
+    -- ОПЦИИ ТАБЛИЦЕЙ, А НЕ ЧЕРЕДОЙ ФЛАГОВ: позиционный булев хвост на
+    -- месте вызова не читается ничем.
+    checkTrue("опции едут таблицей",
+              st:find("function SB.UI.StartSpellTooltip(owner, spell, anchor, opts)",
+                      1, true) ~= nil)
+
+    -- ОСТАЛЬНЫЕ ЗОВУЩИЕ ОПИСАНИЕ НЕ ТЕРЯЮТ: карточка библиотеки, иконка
+    -- эффекта, панель Ведущего — там абзац на своём месте.
+    local keepers = { "Core/ActiveEffects.lua", "Core/CustomSpells.lua",
+                      "Core/ResourceGrant.lua", "UI/GMPanel.lua" }
+    local stripped = 0
+    for _, path in ipairs(keepers) do
+        local body = ReadFile(path)
+        if body:find("noDesc", 1, true) then stripped = stripped + 1 end
+    end
+    check("описание убрано только с панели", stripped, 0)
 end
 
 -- ============================================================
@@ -6524,12 +6694,12 @@ do
 end
 
 -- ============================================================
--- АВТОПРОПУСК НЕ ОБЪЯВЛЯЕТ ТОГО, ЧЕГО НЕ СДЕЛАЛ
+-- ТЕМП В ПОШАГОВОМ РЕЖИМЕ НЕ ДЕРЖИТ ДЕЙСТВИЕ
 --
--- Пропуск упирался в шесть секунд общего темпа, молча возвращался, а
--- сообщение «ход пропущен» печаталось всё равно. Игрок читал, что ход
--- ушёл, и оставался с открытым ходом, которым не мог воспользоваться:
--- действовать не давал предел, а пропуск «уже случился».
+-- Очередь выдала ход, а шесть секунд общего темпа его не пускали.
+-- В пошаговом режиме сдерживает только очередь (см. врезку в
+-- Core/Cooldowns.lua); свободный бросок темп держит по-прежнему — он
+-- хода не тратит, и очередь его не видит.
 -- ============================================================
 do
     local me = stub.world.playerName
@@ -6562,21 +6732,18 @@ do
         index = 1, slots = { { me } }, acted = {} })
     _G.SpellbreakerCharDB.moveDistance = SB.Movement.GetCap()
 
-    -- ── АВТОПРОПУСК НЕ ОБЪЯВЛЯЕТ ТОГО, ЧЕГО НЕ СДЕЛАЛ ───────
+    -- ── АВТОПРОПУСКА БОЛЬШЕ НЕТ ВОВСЕ ──────────────────────
     --
-    -- Отказать пропуску может не только темп: очередь, павший, будущие
-    -- правила. Печатать «ход пропущен», не закрыв ход, нельзя ни в одном
-    -- из этих случаев — игрок остаётся с ходом, которым не может
-    -- воспользоваться, и не знает об этом.
-    local realSpend = SB.Logic.SpendTurnManually
-    SB.Logic.SpendTurnManually = function() end   -- отказался молча
-    checkTrue("пропуск не состоялся — и объявлять нечего",
-              not SB.Movement.AutoSkipIfExhausted())
-    checkTrue("ход остался открытым", not SB.TurnOrder.HasActed(me))
-    SB.Logic.SpendTurnManually = realSpend
-
-    checkTrue("а настоящий пропуск проходит", SB.Movement.AutoSkipIfExhausted())
-    checkTrue("и ход закрыт", SB.TurnOrder.HasActed(me))
+    -- Выбранный запас закрывал ход сам, и это отнимало ходы на ровном
+    -- месте: достаточно было выходить метры в чужой черёд, вдоль стены
+    -- или обходя союзника, — и свой ход исчезал, не начавшись.
+    checkTrue("функции автопропуска не осталось",
+              SB.Movement.AutoSkipIfExhausted == nil)
+    checkTrue("упёртый в предел ход остаётся открытым",
+              not SB.TurnOrder.HasActed(me))
+    -- Действовать он при этом по-прежнему не может: упор запрещает
+    -- ДЕЙСТВИЕ, и этого довольно — закрывать ход за игрока незачем.
+    checkTrue("но действовать упёртый не может", SB.Movement.BlocksAction())
 
     _G.SpellbreakerCharDB.moveDistance = 0
     SB.TurnOrder.Stop()
@@ -6593,20 +6760,26 @@ do
     local savedGroup = stub.world.inGroup
     ResetEffects()
 
+    -- СВОЯ СЦЕНА, А НЕ ЧУЖАЯ. Черта запаса помнит «сцену:круг», в
+    -- котором ход закрылся, и лежит она в сохранёнке (см.
+    -- SB.Movement.NoteTurnClosed). Без своего номера сессии блок читал
+    -- бы черту, оставленную предыдущими проверками, и держался бы на
+    -- том, в каком порядке их запускают.
     local function Round(n, acted)
         SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = n,
-            index = 1, slots = { { me } }, acted = acted or {} })
+            session = 91, index = 1, slots = { { me } }, acted = acted or {} })
     end
 
-    Round(1)
-    check("новый круг начинается с чистого счётчика",
-          SB.Movement.GetDistance(), 0)
+    -- Первый круг закрываем своим ходом: дальше меряется именно то, что
+    -- копится ПОСЛЕ черты.
+    Round(1, { [me] = true })
+    check("свой ход закрылся — счётчик чистый", SB.Movement.GetDistance(), 0)
 
     _G.SpellbreakerCharDB.moveDistance = 7
     -- ПАКЕТ ВНУТРИ КРУГА НЕ СБРАСЫВАЕТ. Состояние очереди рассылается и
     -- посреди круга (кто-то походил, Ведущий поправил слоты) — приняв
     -- это за новый круг, счётчик обнулялся бы по чужому действию.
-    Round(1)
+    Round(1, { [me] = true })
     check("состояние внутри круга путь не трогает",
           SB.Movement.GetDistance(), 7)
 
@@ -6615,35 +6788,31 @@ do
     Round(2, { [me] = true })
     check("закрытие своего хода обнуляет", SB.Movement.GetDistance(), 0)
 
-    -- ── ЗАПАС КОНЧИЛСЯ — ХОД ПРОПУЩЕН ───────────────────────
+    -- ── ЗАПАС КОНЧИЛСЯ — НО ХОД ОСТАЁТСЯ ПРИ ИГРОКЕ ─────────
+    --
+    -- Раньше упор закрывал ход сам. Правило снято целиком: оно отнимало
+    -- ходы на ровном месте, а с неподвижным своим ходом (см. блок ниже)
+    -- превратилось бы в машину пропусков — запас обнуляется у каждого и
+    -- каждый круг.
     Round(3)
     local cap = SB.Movement.GetCap()
     checkTrue("предел есть", cap ~= SB.Movement.NO_LIMIT and cap > 0)
 
     _G.SpellbreakerCharDB.moveDistance = cap
-    -- Темп отпускаем явно: автопропуск его уважает (см. отдельную
-    -- проверку ниже), а здесь мы меряем сам пропуск, а не темп.
     stub.world.time = stub.world.time + 10
     checkTrue("упёрся в предел", SB.Movement.IsExhausted())
-    checkTrue("до автопропуска ход открыт", not SB.TurnOrder.HasActed(me))
-    checkTrue("автопропуск сработал", SB.Movement.AutoSkipIfExhausted())
-    checkTrue("и ход закрыт", SB.TurnOrder.HasActed(me))
+    checkTrue("ход при этом не отобрали", not SB.TurnOrder.HasActed(me))
+    -- Запрет остался ровно один и ровно тот, что нужен: действовать
+    -- нельзя. Закрыть ход игрок волен сам.
+    checkTrue("а действие упор запрещает", SB.Movement.BlocksAction())
 
-    -- ВТОРОЙ РАЗ НЕ СРАБАТЫВАЕТ: ход уже закрыт, закрывать его нечем.
-    checkTrue("повторно не пропускает", not SB.Movement.AutoSkipIfExhausted())
-
-    -- НЕ УПЁРСЯ — НЕ ТРОГАЕМ.
+    -- НЕ УПЁРСЯ — НИЧЕГО НЕ ЗАПРЕЩЕНО.
     Round(4)
     _G.SpellbreakerCharDB.moveDistance = 1
-    checkTrue("с запасом ход не отбирают", not SB.Movement.AutoSkipIfExhausted())
-    checkTrue("и он открыт", not SB.TurnOrder.HasActed(me))
+    checkTrue("с запасом ход открыт", not SB.TurnOrder.HasActed(me))
+    checkTrue("и действие разрешено", not SB.Movement.BlocksAction())
 
-    -- ВНЕ ПОШАГОВОГО РЕЖИМА ХОДОВ НЕТ — и пропускать нечего.
     SB.TurnOrder.ApplyRemoteState({ active = false })
-    _G.SpellbreakerCharDB.moveDistance = 99
-    checkTrue("в свободной игре ход не пропускается",
-              not SB.Movement.AutoSkipIfExhausted())
-
     stub.world.inGroup = savedGroup
     _G.SpellbreakerCharDB.moveDistance = 0
     SB.TurnOrder.Stop()

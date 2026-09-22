@@ -825,7 +825,16 @@ local function BuildMainFrame()
         GameTooltip:AddDoubleLine("Попыток побега", fleeLeft .. "/" .. fleeMax,
             0.9,0.9,0.9, 1,1,1)
         GameTooltip:AddLine(" ")
-        if SB.Movement.BlocksAction() then
+        -- ПРИКОЛ ОБЪЯСНЯЕМ ПЕРВЫМ. Счётчик в этот миг показывает полный
+        -- предел и краснеет — ровно как при выхоженном запасе, — а
+        -- значит совсем другое: идти нечем, действовать можно. Без
+        -- строки игрок читает красную цифру как запрет и жмёт «пропустить».
+        if SB.Movement.IsPinned and SB.Movement.IsPinned() then
+            GameTooltip:AddLine("Ваш ход — передвижения нет: запас тратится в чужие ходы.",
+                1, 0.82, 0, true)
+            GameTooltip:AddLine("Способность применить можно; шаг обойдётся усталостью.",
+                0.6, 0.6, 0.6, true)
+        elseif SB.Movement.BlocksAction() then
             GameTooltip:AddLine("Предел выбран — применить способность нельзя.", 1, 0.4, 0.4, true)
         elseif SB.Movement.IsExhausted() then
             -- Метры кончились, но предел срезан — значит действие при
@@ -837,7 +846,7 @@ local function BuildMainFrame()
             GameTooltip:AddLine("Выберете предел — до конца хода останется только пропустить ход.",
                 0.6, 0.6, 0.6, true)
         end
-        GameTooltip:AddLine("Любое действие обнуляет путь: каст, лечение, отдых.",
+        GameTooltip:AddLine("Запас наливается доверху, когда свой ход закрыт.",
             0.6, 0.6, 0.6, true)
         GameTooltip:AddLine(" ")
         GameTooltip:AddLine("|cFFFFD100ЛКМ|r — пропустить ход: путь обнуляется, +1 " ..

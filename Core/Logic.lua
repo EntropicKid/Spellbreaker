@@ -1546,9 +1546,18 @@ function SB.Logic.GetFleeOdds()
     -- уровень в пороге нужен, вражда (isDebuff) здесь ни при чём.
     local threshold = SB.Logic.EffectThreshold("player", false, false)
 
+    -- ЗАПАС В НОГАХ, А НЕ ОСТАТОК ОКНА (SB.Movement.GetReserve).
+    --
+    -- Бежать можно только в свой ход, а свой ход неподвижен: запас на
+    -- это время приколот к нулю (см. врезку в Core/Movement.lua). По
+    -- GetRemaining прибавка здесь была бы ВСЕГДА нулевой, и правило
+    -- «не потратил метры — легче оторваться» выключилось бы целиком,
+    -- ни разу об этом не сказав. Прикол — про очередь, а не про
+    -- усталость, и к тому, сколько в человеке осталось бега, отношения
+    -- не имеет.
     local bonus = 0
-    if SB.Movement and SB.Movement.GetRemaining then
-        local left = SB.Movement.GetRemaining()
+    if SB.Movement and SB.Movement.GetReserve then
+        local left = SB.Movement.GetReserve()
         -- NO_LIMIT (-1) — это «предела нет», а не «осталось минус метр».
         if left and left > 0 then bonus = math.floor(left) end
     end

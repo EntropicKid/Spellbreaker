@@ -222,7 +222,13 @@ end
 local function ButtonTooltip(self)
     local sp = SpellOf(self)
     if not sp then return end
-    if not SB.UI.StartSpellTooltip(self, sp, "ANCHOR_TOP") then return end
+    -- БЕЗ РОЛЕВОГО ОПИСАНИЯ. Панель открывают в бою и наводятся на неё,
+    -- чтобы свериться с числами; абзац художественного текста
+    -- выдавливал их за край экрана, а прочитать его было негде — он и
+    -- так целиком лежит в карточке, которую открывает ПКМ.
+    if not SB.UI.StartSpellTooltip(self, sp, "ANCHOR_TOP", { noDesc = true }) then
+        return
+    end
 
     -- Те же строки, что на карточке в библиотеке: итоговые числа этого
     -- персонажа, а не коэффициенты (см. SB.Logic.GetSpellScalingLines).

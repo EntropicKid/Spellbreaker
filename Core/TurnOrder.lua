@@ -175,29 +175,75 @@ local function NotifyTransitions()
 
     if lastActive ~= nil and lastActive ~= active then
         SB.UI.ScreenNotice(active and "Пошаговый режим" or "Свободный ход")
+        -- ВХОД В РЕЖИМ НАЛИВАЕТ ЗАПАС, НО НЕ СРАЗУ. Пара секунд даётся
+        -- на то, чтобы прочитать объявление: метры, пройденные по
+        -- инерции сразу после команды Ведущего, хода стоить не должны
+        -- (см. SB.Movement.FillAfterEntry).
+        if active and SB.Movement and SB.Movement.FillAfterEntry then
+            SB.Movement.FillAfterEntry()
+        end
     end
-    -- Именно false, а не «не true»: nil означает «первый расчёт за
-    -- сессию», и объявлять по нему нечего.
-    -- ПУТЬ ОБНУЛЯЕТСЯ, КОГДА ЗАКРЫВАЕТСЯ СВОЙ ХОД, А НЕ НА НОВОМ КРУГЕ.
+    -- ============================================================
+    -- ОКНО ПЕРЕДВИЖЕНИЯ — ЧУЖИЕ ХОДЫ, СВОЙ ХОД НЕПОДВИЖЕН
     --
-    -- Сброс у всех разом на новом круге ставил игроков в неравное
-    -- положение по месту в очереди. Первый в круге бегал после своего
-    -- хода даром: круг кончался и стирал его метры до того, как доходил
-    -- его черёд. Последний платил за всё, что пробежал в чужой ход до
-    -- своего, — и пропускал ход. Теперь черта у каждого своя — конец
-    -- своего хода (см. SB.Movement.NoteTurnClosed), и место в очереди
-    -- ничего не решает.
+    -- Правило целиком расписано в шапке Core/Movement.lua; здесь только
+    -- то место, где оно включается. Дошла очередь — запас прикалывается
+    -- к нулю, походил — наливается доверху.
     --
-    -- «Закрылся» — это отметка acted: её ставит и своё действие, и
-    -- пропуск, и передача очереди Ведущим (пропущенные тоже «походили»,
-    -- см. TO.Advance).
-    if active and SB.Movement and SB.Movement.NoteTurnClosed then
+    -- СЧИТАЕМ ПО СОСТОЯНИЮ, А НЕ ПО ПЕРЕХОДУ, и сравниваем с тем, что
+    -- уже стоит в сохранёнке (SB.Movement.IsPinned). Так /reload посреди
+    -- своего хода ничего не ломает, а повторные пакеты от Ведущего — их
+    -- в круге приходит несколько — не наливают запас заново.
+    --
+    -- НЕ ЧЕРЕЗ CanActLocal: тот отвечает false ещё и пока в пути заявка
+    -- Ведущему или итог своего удара, и запас наливался бы на середине
+    -- собственного хода. Спрашиваем очередь напрямую: мой слот и я ещё
+    -- не отмечен походившим.
+    --
+    -- «ВСЕ СРАЗУ» ЖИВЁТ ПО-СТАРОМУ: своих ходов там нет, прикалывать
+    -- нечего, и черта остаётся прежней — конец своего хода
+    -- (см. SB.Movement.NoteTurnClosed).
+    -- ============================================================
+    local me = UnitName("player")
+    -- ЕСТЬ ЛИ Я В ОЧЕРЕДИ ВООБЩЕ. Подключившийся посреди сцены в слотах
+    -- не стоит: своего хода у него нет, значит нет и окна, которое
+    -- можно закрыть, — а без черты путь копился бы без конца, и первый
+    -- же свой ход начинался бы с упора. Такому черта прежняя, по концу
+    -- круга, ровно как в режиме «все сразу».
+    local listed = false
+    for _, slot in ipairs(state.slots) do
+        for _, n in ipairs(slot) do
+            if n == me then listed = true end
+        end
+    end
+
+    local ordered = active and state.mode ~= "all" and listed
+    local pin = ordered and TO.IsCurrent(me) and not state.acted[me] or false
+
+    -- СВЕРЯЕМ ВСЕГДА, А НЕ ТОЛЬКО В СВОЕЙ ВЕТКЕ. Ведущий может вынуть
+    -- игрока из очереди, переключить режим или выключить сцену прямо
+    -- посреди его хода — и приколотый запас остался бы приколотым
+    -- навсегда, то есть персонаж перестал бы ходить вовсе.
+    if SB.Movement and SB.Movement.PinTurn then
+        if pin and not SB.Movement.IsPinned() then
+            SB.Movement.PinTurn()
+        elseif not pin and SB.Movement.IsPinned() then
+            SB.Movement.FillBudget()
+        end
+    end
+
+    if ordered then
+        -- НОМЕР КРУГА ВЕДЁМ И ЗДЕСЬ, хотя сами по нему ничего не решаем:
+        -- Ведущий волен переключить режим посреди сцены, и вторая ветка
+        -- должна увидеть настоящий прошлый круг, а не пустоту.
+        lastRoundKey = (state.session or 0) .. ":" .. (state.round or 0)
+    elseif active and SB.Movement and SB.Movement.NoteTurnClosed then
         local key = (state.session or 0) .. ":" .. (state.round or 0)
         if lastRoundKey and lastRoundKey ~= key then
             SB.Movement.NoteRoundPassed(lastRoundKey)
         end
         lastRoundKey = key
-        if state.acted[UnitName("player")] then
+        if state.acted[me] then
             SB.Movement.NoteTurnClosed(key)
         end
     elseif not active then
@@ -206,14 +252,6 @@ local function NotifyTransitions()
 
     if myTurn and lastMyTurn == false then
         SB.UI.ScreenNotice("Ваш ход")
-        -- НАЧАЛ ХОД БЕЗ ЗАПАСА ПЕРЕДВИЖЕНИЯ — ХОД ПРОПУЩЕН. Метры
-        -- кончились ещё до своего черёда, а действовать выбравшись из
-        -- предела нельзя (см. SB.Movement.CheckCanAct): держать такой
-        -- ход открытым значит заставлять игрока нажимать «пропустить»
-        -- вручную и держать очередь.
-        if SB.Movement and SB.Movement.AutoSkipIfExhausted then
-            SB.Movement.AutoSkipIfExhausted()
-        end
     end
 
     lastActive, lastMyTurn = active, myTurn

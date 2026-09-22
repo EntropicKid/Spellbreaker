@@ -399,16 +399,29 @@ end
 -- (осталось применений, статус эффекта, ЛКМ/ПКМ-подсказки и т.п.),
 -- а завершить обязан сам вызовом GameTooltip:Show().
 -- Возвращает false, если spell отсутствует (тултип не открыт).
+--
+-- ОПЦИИ ТАБЛИЦЕЙ, А НЕ ЧЕРЕДОЙ ФЛАГОВ. Их две, и обе про то, какие
+-- строки печатать; позиционными булевыми хвостами «(owner, sp, anchor,
+-- true, nil, true)» на месте вызова не прочитать ни одной.
+--   • opts.showKey — дописать spell.key (ключ дескриптора);
+--   • opts.noDesc  — НЕ печатать ролевое описание.
+--
+-- ЗАЧЕМ ПРЯТАТЬ ОПИСАНИЕ. Оно у заклинаний длинное и намеренно
+-- художественное — абзац на пять-шесть строк, — и на своём месте, в
+-- карточке библиотеки, читается. А в подсказке кнопки на панели оно
+-- выдавливает всё остальное: панель открывают в бою, и нужны там числа
+-- («Атака −40, Урон 1»), а не рассказ о том, как пистоли неудобны.
 -- ============================================================
-function SB.UI.StartSpellTooltip(owner, spell, anchor, showKey)
+function SB.UI.StartSpellTooltip(owner, spell, anchor, opts)
     if not spell then return false end
+    opts = opts or {}
     GameTooltip:SetOwner(owner, anchor or "ANCHOR_RIGHT")
     SB.Theme.StyleTooltip(GameTooltip)
     GameTooltip:SetText(spell.name or "?", 1, 0.82, 0, true)
-    if spell.description and spell.description ~= "" then
+    if not opts.noDesc and spell.description and spell.description ~= "" then
         GameTooltip:AddLine(spell.description, 0.85, 0.85, 0.85, true)
     end
-    if showKey and spell.key then
+    if opts.showKey and spell.key then
         GameTooltip:AddLine(spell.key, 0.8, 0.8, 0.8)
     end
     return true
