@@ -2061,7 +2061,33 @@ local SLOT_TEXT_PAD = 26   -- воздух вокруг текста внутр�
 -- временем (см. SB.UI.TurnsAsTime), а сокращения «мин.»/«сек.» не
 -- склоняются вовсе — правило исчезло вместе с надобностью в нём.
 
-function SB.UI.ShowSlotPicker(spellID)
+-- ============================================================
+-- ОКНО ПОДТВЕРЖДЕНИЯ
+--
+-- ЗДЕСЬ БЫЛ ПИКЕР КРУГА. Он спрашивал «за какую плату применить», и
+-- вместе с вливанием ресурса (см. врезку о нём в Core/Logic.lua) этот
+-- вопрос исчез. Но окно делало и вторую работу, о которой нигде не
+-- было написано: оно ПОДТВЕРЖДАЛО НАМЕРЕНИЕ. Когда пикер убрали,
+-- игроки первым делом сказали, что им не хватает подтверждения, —
+-- значит вторая работа и была главной.
+--
+-- ПОЭТОМУ ОКНО ОСТАЛОСЬ, а вопрос в нём сменился. Теперь он всегда
+-- осмыслен, потому что вторая кнопка есть ВСЕГДА: до сих пор послать
+-- заявку Ведущему вручную было нельзя вообще никак — она уходила
+-- только автоматически, когда система сама не справилась. Бывает и
+-- наоборот: система разрулила бы, а за столом хотят, чтобы рассудил
+-- человек.
+--
+-- МИНИМАЛИЗМ НАМЕРЕННЫЙ. Две кнопки и ничего больше: что заклинание
+-- сделает, написано в его карточке, и пересказывать её здесь значило
+-- бы завести второе место, где те же числа однажды разойдутся с
+-- первым.
+--
+-- ОТКАЗЫ ОКНО ПО-ПРЕЖНЕМУ ОБЪЯСНЯЕТ. Не хватает ресурса, ранг не
+-- открыл круг, выбран предел передвижения — кнопки каста нет, вместо
+-- неё строка словами. Игрок узнаёт причину там же, где нажал.
+-- ============================================================
+function SB.UI.ShowCastConfirm(spellID)
     local spell = GetSpellData(spellID)
     if not spell then return end
 
@@ -2070,163 +2096,39 @@ function SB.UI.ShowSlotPicker(spellID)
     if slotFrame._hintFS then slotFrame._hintFS:Hide() end
 
     local PM       = SB.PlayerModel
-    -- Не MaxOrderFor(ранг), а потолок С УЧЁТОМ КЛАССА заклинания: у чужой
-    -- школы он на круг ниже, и пикер обязан показывать ровно те круги,
-    -- которые примет ConfirmCast — иначе кнопка есть, а каст отбивается.
-    local maxOrder = PM.GetMaxPrepareOrder(spell.class)
-    local zeal     = PM.GetCastResource()
-    local resName  = PM.GetResourceName()
     local spellLvl = spell.level or 0
+    -- Потолок С УЧЁТОМ КЛАССА заклинания: у чужой школы он на круг
+    -- ниже, и окно обязано отказывать ровно там же, где откажет
+    -- ConfirmCast, — иначе кнопка есть, а каст отбивается.
+    local maxOrder = PM.GetMaxPrepareOrder(spell.class)
 
-    -- Что именно даст вложенный ресурс на этом уровне. Раньше здесь
-    -- стояло глухое «(+Эффект)», по которому нельзя было понять ни
-    -- сколько именно, ни во что оно уходит — а у кастера и некастера
-    -- ресурс работает по-разному (см. SB.Logic.GetCastPower).
-    --
-    -- Скейлинг обязательно считаем ЗДЕСЬ же, с тем самым level: у
-    -- кастера вложенная мана давно не прибавляет урон плоско, она
-    -- множит скейлинг (см. SB.Logic.GetDamageScaleMultiplier). Без
-    -- этого пикер показывал бы одну и ту же базовую единицу на всех
-    -- кругах и обещал бы, что вливать бессмысленно.
-    local function GainTag(level)
-        -- База у лечения своя и есть на любом круге (см.
-        -- SB.Logic.GetHealPower): считать её здесь по урону значило бы
-        -- обещать в пикере «2 ХП» там, где резолв восстановит 3.
-        local dmg, hit = (spell.isHeal and SB.Logic.GetHealPower or SB.Logic.GetCastPower)(spell, level)
-        if hit > 0 then
-            return string.format(" (+%d атака)", hit)
-        end
-        -- ПРИБАВКА ОТ ВИСЯЩИХ ЭФФЕКТОВ — ТА ЖЕ, ЧТО УЙДЁТ В БРОСОК.
-        --
-        -- Её здесь не было вовсе, и пикер занижал: жрец под «Внутренним
-        -- огнём» видел в выборе порядка одну цифру, а бил другой.
-        -- Расхождение читалось как поломка тем вернее, чем больше
-        -- усилений на персонаже.
-        --
-        -- РАЗВИЛКА ТА ЖЕ, ЧТО В КАРТОЧКЕ (см. GetSpellScalingLines):
-        -- у лечения свой канал mods.heal, у урона — школьный
-        -- GetDamageMod, и «+2 огню» на ледяной стреле не работает.
-        -- Третий ответ на тот же вопрос завёлся бы ровно здесь.
-        local effBonus = 0
-        if spell.isHeal then
-            -- Тем же ответом, что уйдёт в резолв и в карточку: у лечения
-            -- слагаемых два, эффекты и профиль класса, и складывает их
-            -- одно место (см. SB.Logic.GetHealBonus). Пока здесь стоял
-            -- голый канал эффектов, пикер занижал бы жрецу ровно на его
-            -- классовую единицу — тем же способом, каким уже занижал под
-            -- «Внутренним огнём».
-            effBonus = SB.Logic.GetHealBonus()
-        else
-            effBonus = (SB.ActiveEffects and SB.ActiveEffects.GetDamageMod)
-                and SB.ActiveEffects.GetDamageMod(spell) or 0
-        end
-        local scaled = dmg + SB.Logic.GetSpellScaling(spell, "damage", level)
-                       + effBonus
-        if spell.isHeal then
-            return string.format(" (%d ХП)", scaled)
-        end
-        if spell.canCrit then
-            -- Нижняя грань та же, что в резолве (Config.MinDamageOnHit):
-            -- одна единица проходит всегда, даже если база с скейлингом
-            -- дали ноль. Без неё пикер обещал «0 урона» там, где удар
-            -- снимет 1 — и вливание выглядело единственным способом
-            -- нанести хоть что-то.
-            local floorDmg = SB.Data.Config.MinDamageOnHit or 1
-            return string.format(" (%d урона)", math.max(floorDmg, scaled))
-        end
-        return ""
-    end
-
-    -- Длительность эффекта. ЗДЕСЬ БЫЛ РАСЧЁТ ПО УРОВНЮ ВЛИВАНИЯ; сейчас
-    -- круг у заклинания один и подпись не меняется от строки к строке —
-    -- функция осталась ради отказов, которые окно ещё показывает.
-    -- Прежняя врезка: ресурс растягивал
-    -- эффект (см. SB.Logic.GetEffectDuration), и без этой подписи выбор
-    -- между «влить 1» и «влить 3» для чистого баффа выглядел бы
-    -- одинаково бессмысленным в обоих случаях.
-    local effectID = spell.container or spell.buff or spell.debuff
-    local function DurationTag(level)
-        if not effectID or not SB.Data.Spells[effectID] then return "" end
-        local turns = SB.Logic.GetEffectDuration(effectID, spell, level)
-        if turns == SB.ActiveEffects.INFINITE then return " | беск." end
-        return " | " .. SB.UI.TurnsAsTime(turns)
-    end
-
-    -- ── Собираем ТОЛЬКО доступные варианты ──────────────────
-    -- Верхняя граница перебора — не ранг игрока, а потолок реалма:
-    -- иначе не отличить «круг не открыт рангом» от «такого круга нет».
-    local realmMaxOrder = SB.Data.GetRealmMaxOrder()
-    local options = {}
-    local lackResource, lackRank = false, false
-
-    -- ПРЕДЕЛ ПЕРЕДВИЖЕНИЯ ВЫБРАН. Кругов не показываем вовсе: ни один из
-    -- них не пройдёт (ConfirmCast отобьёт каст), а нажимаемая кнопка,
-    -- которая молча ничего не делает, — худшее, что может быть.
-    --
-    -- Вместо этого в пикере остаётся ровно одно действие, которое СЕЙЧАС
-    -- имеет смысл, и подпись под ним объясняет, почему. Именно поэтому
-    -- отказ и не пишется в чат (см. SB.Movement.CheckCanAct): игрок
-    -- узнаёт причину там же, где нажал, и тут же может её устранить.
-    -- BlocksAction, а не IsExhausted: под замедлением метры кончились,
-    -- но действие осталось (см. врезку в Core/Movement.lua).
+    -- ПРЕДЕЛ ПЕРЕДВИЖЕНИЯ ВЫБРАН. Кнопки каста не даём вовсе: ни одна
+    -- не пройдёт. BlocksAction, а не IsExhausted: под замедлением метры
+    -- кончились, но действие осталось (см. врезку в Core/Movement.lua).
     local exhausted = SB.Movement and SB.Movement.BlocksAction()
 
+    local options, hint = {}, nil
     if exhausted then
-        table.insert(options, { label = "Пропустить ход", passTurn = true })
+        options[1] = { label = "Пропустить ход", passTurn = true }
+        hint = "Предел передвижения выбран — действовать нельзя."
+    elseif spellLvl > maxOrder then
+        -- IsOwnClassSpell, а не сравнение классов: у мультикласса своих
+        -- школ несколько, и причина потолка у чужой — не ранг, а сам
+        -- мультикласс. «Откроется с рангом» там было бы неправдой.
+        hint = (not PM.IsOwnClassSpell(spell.class))
+               and ("Чужая школа: круг " .. spellLvl .. " вам недоступен.")
+               or  ("Ваш ранг не открывает круг " .. spellLvl .. ".")
+    elseif spellLvl > 0 and PM.GetCastResource() < spellLvl then
+        hint = "Не хватает ресурса «" .. PM.GetResourceName() .. "»."
     else
-        if spellLvl == 0 then
-            table.insert(options, {
-                label = SB.Logic.GetCantripLabel(spell.class) .. GainTag(0) .. DurationTag(0),
-                level = 0,
-            })
-        end
-
-        -- ВЫШЕ СВОЕГО КРУГА ПРЕДЛАГАЕМ ТОЛЬКО ТОМУ, КОМУ ЭТО ЧТО-ТО ДАЁТ.
-        --
-        -- Раньше перебирались все круги до потолка реалма, и над «Боевой
-        -- стойкой» висело «Мана x 3» — выбор, который ничего не менял:
-        -- стойка бессрочна, канала урона у неё нет. Игрок платил и не
-        -- получал ничего, а предложенный выбор, который ничего не решает,
-        -- читается как поломка аддона.
-        --
-        -- ВЛИВАНИЯ БОЛЬШЕ НЕТ ВОВСЕ (см. врезку о нём в Core/Logic.lua),
-        -- и круг у заклинания ровно один — свой. Перебор остаётся: он
-        -- заодно решает, хватает ли ресурса и открыт ли круг рангом, и
-        -- рисует отказ словами. Просто вариант в нём теперь всегда один,
-        -- и окно закрывается само, не показавшись (см. ниже).
-        local topOrder = spellLvl
-
-        for lvl = 1, topOrder do
-            if lvl >= spellLvl then
-                if lvl > maxOrder then
-                    lackRank = true
-                elseif zeal < lvl then
-                    lackResource = true
-                else
-                    table.insert(options, {
-                        label = resName .. " x " .. lvl .. GainTag(lvl) .. DurationTag(lvl),
-                        level = lvl,
-                    })
-                end
-            end
-        end
-    end
-
-    -- ВЫБИРАТЬ НЕ ИЗ ЧЕГО — КАСТУЕМ СРАЗУ. Окно с единственной кнопкой —
-    -- это лишний клик, а не выбор: у рассеивания круг один, у мага с
-    -- одной маной вливать нечего. Кнопку «Пропустить ход» так не жмём:
-    -- там окно объясняет, почему действовать нельзя, и пропустить ход
-    -- молча по клику на заклинание было бы хуже лишнего клика.
-    if #options == 1 and not options[1].passTurn then
-        slotFrame:Hide()
-        SB.Logic.ConfirmCast(spellID, options[1].level)
-        return
+        options[1] = { label = "Применить",        cast = true }
+        options[2] = { label = "Заявка Ведущему",  toGM = true }
     end
 
     -- ── Ширина по самой длинной подписи ─────────────────────
     -- Меряем ОТДЕЛЬНОЙ строкой без переноса, а не текстом кнопки: у
     -- кнопки FontString растянут SetAllPoints, поэтому длинная подпись
-    -- успевает перенестись внутри ещё старой (170px) ширины, и измерение
+    -- успевает перенестись внутри ещё старой ширины, и измерение
     -- вернуло бы ширину переноса вместо ширины строки.
     local measure = slotFrame._measureFS
     if not measure then
@@ -2236,79 +2138,41 @@ function SB.UI.ShowSlotPicker(spellID)
         measure:Hide()
         slotFrame._measureFS = measure
     end
-
     local btnW = SLOT_BTN_MIN
     for _, opt in ipairs(options) do
         measure:SetText(opt.label)
         local w = measure:GetStringWidth() + SLOT_TEXT_PAD
         if w > btnW then btnW = w end
     end
-    btnW = math.min(SLOT_BTN_MAX, math.ceil(btnW))
-    -- «Пропустить ход» — подпись короткая, а пояснение под ней длинное.
-    -- По ширине кнопки окно вышло бы узким столбцом на шесть строк, и
-    -- расчёт высоты (GetStringHeight на ещё не разложенном тексте) не
-    -- поспел бы за переносами. Даём тексту нормальную строку.
-    if exhausted then btnW = math.max(btnW, 160) end
-
-    -- ── Кнопки: создаём/переиспользуем ──────────────────────
-    for i, opt in ipairs(options) do
-        local b = slotFrame._slotBtns[i]
-        if not b then
-            b = SB.Theme.Button(slotFrame, opt.label, SLOT_BTN_MIN, SLOT_BTN_H, "primary")
-            b._fs:SetWordWrap(false)
-            slotFrame._slotBtns[i] = b
-        end
-        b:SetText(opt.label)
-        b:Enable()
-    end
+    if btnW > SLOT_BTN_MAX then btnW = SLOT_BTN_MAX end
 
     local yBase = slotFrame.contentY - 4
     for i, opt in ipairs(options) do
         local b = slotFrame._slotBtns[i]
+        if not b then
+            -- ВТОРАЯ КНОПКА — НЕ primary. Обе одинаково яркими читались
+            -- бы как равные, а применить заклинание игрок хочет в
+            -- девяти случаях из десяти.
+            b = SB.Theme.Button(slotFrame, opt.label, SLOT_BTN_MIN, SLOT_BTN_H,
+                                (i == 1) and "primary" or "secondary")
+            slotFrame._slotBtns[i] = b
+        end
         b:SetWidth(btnW)
         b:ClearAllPoints()
         b:SetPoint("TOPLEFT", slotFrame, "TOPLEFT", SLOT_PAD_L,
                    yBase - (i - 1) * (SLOT_BTN_H + SLOT_GAP))
+        b:SetText(opt.label)
         b:SetScript("OnClick", function()
             slotFrame:Hide()
             if opt.passTurn then
                 SB.Logic.SpendTurnManually()
+            elseif opt.toGM then
+                SB.Logic.ConfirmCast(spellID, spellLvl, { toGM = true })
             else
-                SB.Logic.ConfirmCast(spellID, opt.level)
+                SB.Logic.ConfirmCast(spellID, spellLvl)
             end
         end)
         b:Show()
-    end
-
-    -- ── Пояснение, если что-то скрыто ───────────────────────
-    -- Пропавшая кнопка сама по себе ничего не объясняет, поэтому
-    -- причина называется словами — но одной строкой, а не четырьмя
-    -- серыми заглушками, как было раньше.
-    local hint
-    -- Для чужой школы причина потолка не в ранге, а в мультиклассе, и
-    -- «откроются с повышением ранга» там просто неправда: Эксперт уже
-    -- на максимуме, а третий круг чужого класса ему всё равно закрыт.
-    local foreign  = not PM.IsOwnClassSpell(spell.class)
-    local rankNote = foreign
-        and ("Чужая школа: круги выше " .. maxOrder .. "-го закрыты мультиклассом.")
-        or  ("Круги выше " .. maxOrder .. "-го откроются с повышением ранга.")
-    if exhausted then
-        hint = string.format(
-            "Пройдено %.0f м из %.0f — ход выбран передвижением, на действие сил не осталось.\n" ..
-            "Пропуск хода обнулит путь и вернёт 1 %s.",
-            SB.Movement.GetDistance(), SB.Movement.GetCap(), resName)
-    elseif #options == 0 then
-        hint = lackResource
-            and ("Не хватает ресурса «" .. resName .. "» ни на один круг.")
-            or  (foreign
-                 and ("Чужая школа: круг " .. spellLvl .. " вам недоступен.")
-                 or  ("Ваш ранг не открывает круг " .. spellLvl .. "."))
-    elseif lackResource and lackRank then
-        hint = "Выше — не хватает ресурса, дальше круг закрыт."
-    elseif lackResource then
-        hint = "Не хватает ресурса «" .. resName .. "»."
-    elseif lackRank then
-        hint = rankNote
     end
 
     local contentH = #options * (SLOT_BTN_H + SLOT_GAP)
@@ -2331,6 +2195,9 @@ function SB.UI.ShowSlotPicker(spellID)
     slotFrame:SetHeight(-slotFrame.contentY + contentH + 20)
     slotFrame:Show()
 end
+
+-- Прежнее имя — чтобы три места вызова не правились поодиночке.
+SB.UI.ShowSlotPicker = SB.UI.ShowCastConfirm
  
 -- ============================================================
 -- ПРОЧИЕ ПУБЛИЧНЫЕ ФУНКЦИИ

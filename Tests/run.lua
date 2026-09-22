@@ -14232,43 +14232,18 @@ end
 -- GetDamageMod, и подставить один вместо другого значит пообещать
 -- «+2 огню» на ледяной стреле.
 -- ============================================================
+-- ЗДЕСЬ ПРОВЕРЯЛАСЬ ПОДПИСЬ ПИКЕРА (GainTag)
+--
+-- Окно выбора круга писало на кнопке, что даст вложенный ресурс, и
+-- проверка следила, чтобы оно считало лечение каналом лечения, а урон —
+-- школьным. Вливания больше нет, кнопки с числами тоже: окно
+-- подтверждения минималистично и чисел не пересказывает — они в
+-- карточке заклинания (см. SB.UI.ShowCastConfirm).
+-- ============================================================
 do
     local src = ReadFile("UI/MainFrame.lua")
-    local tag = src:match("local function GainTag%(level%)(.-)" ..
-                          string.char(10) .. "    end")
-    checkTrue("GainTag нашлась", tag ~= nil and #tag > 0)
-    if tag then
-        -- ИЩЕМ ВЫЗОВ, А НЕ ИМЯ. Рядом стоит комментарий, где та же
-        -- функция названа словами, — и проверка по голому имени
-        -- находила его, оставаясь зелёной на коде, из которого вызов
-        -- вырезан начисто.
-        checkTrue("урон учитывает школьную прибавку эффектов",
-                  tag:find("GetDamageMod(spell)", 1, true) ~= nil)
-        checkTrue("лечение учитывает свой канал И профиль класса",
-                  tag:find("GetHealBonus()", 1, true) ~= nil)
-    end
-
-    -- И ТА ЖЕ РАЗВИЛКА В КАРТОЧКЕ — она в Core и проверяется живьём.
-    -- Если карточка и пикер разойдутся, игрок увидит два разных ответа
-    -- на один вопрос в двух окнах одного аддона.
-    ResetEffects()
-    SB.Data.Spells["t_pick_fire"] = { id = "t_pick_fire", name = "Проба огня",
-        class = "Маг", level = 1, canCrit = true, distance = 19,
-        damageType = "fire" }
-    SB.Data.Spells["t_pick_ice"] = { id = "t_pick_ice", name = "Проба льда",
-        class = "Маг", level = 1, canCrit = true, distance = 19,
-        damageType = "frost" }
-    SB.Data.Spells["t_pick_buff"] = { id = "t_pick_buff", name = "Проба клейма",
-        class = "Эффект", level = 0, isContainer = true,
-        effect = { kind = "buff", mods = { damageFire = 3 } } }
-
-    local before = SB.ActiveEffects.GetDamageMod(SB.Data.Spells["t_pick_fire"])
-    SB.ActiveEffects.Add("t_pick_buff", 5, false)
-    check("прибавка школе видна расчёту",
-          SB.ActiveEffects.GetDamageMod(SB.Data.Spells["t_pick_fire"]), before + 3)
-    check("а чужой школе — нет",
-          SB.ActiveEffects.GetDamageMod(SB.Data.Spells["t_pick_ice"]), 0)
-    ResetEffects()
+    checkTrue("подписи вложенного ресурса больше нет",
+              src:find("local function GainTag", 1, true) == nil)
 end
 
 -- ============================================================
@@ -14864,6 +14839,54 @@ end
 
     -- Цена хода читается из одного места, а не зашита в формулу.
     check("ход стоит шесть секунд", SB.Data.SecondsPerTurn, 6)
+end
+
+-- ============================================================
+-- КРУГ НЕ ЕЗДИТ ПО СЕТИ
+--
+-- Поле slot было в каждом боевом пакете и имело смысл, пока было
+-- вливание: сколько влил игрок, знал только его клиент. Вливания нет,
+-- круг стал свойством ЗАКЛИНАНИЯ, а id заклинания в пакете и так едет.
+-- Получатель берёт круг у себя: тот же eff_chilling от «Ледяной
+-- стрелы» стоит одного очка Воли, а от «Конуса холода» — трёх.
+-- ============================================================
+do
+    local net = ReadFile("Core/Network.lua")
+    checkTrue("поля slot в пакетах нет",
+              net:find("slot%s*=%s*tonumber") == nil)
+    checkTrue("и присланного круга никто не читает",
+              net:find("t.slot", 1, true) == nil and net:find("t.slotLevel", 1, true) == nil)
+    checkTrue("а круг берётся из своей библиотеки",
+              net:find("local function SpellLevel(spellID)", 1, true) ~= nil)
+
+    -- И ПО ДЕЛУ: цена срыва считается по кругу ЗАКЛИНАНИЯ-ИСТОЧНИКА,
+    -- а не по тому, что прислали. Один и тот же эффект от разных
+    -- заклинаний стоит разного — ровно как в примере выше.
+    local AE = SB.ActiveEffects
+    SB.Data.Spells["t_ns_eff"] = { id = "t_ns_eff", name = "Проба стужи",
+        class = "Эффект", level = 0, isContainer = true,
+        icon = "Interface" .. string.char(92) .. "Icons" ..
+               string.char(92) .. "INV_Misc_QuestionMark",
+        effect = { kind = "debuff", family = "Замедление", mods = { movePct = -30 } } }
+    SB.Data.Spells["t_ns_cheap"] = { id = "t_ns_cheap", name = "Проба стрелы",
+        class = "Маг", level = 1, canCrit = true, distance = 30,
+        duration = 3, debuff = "t_ns_eff" }
+    SB.Data.Spells["t_ns_dear"] = { id = "t_ns_dear", name = "Проба конуса",
+        class = "Маг", level = 3, canCrit = true, distance = 10,
+        duration = 3, debuff = "t_ns_eff" }
+
+    ResetEffects()
+    -- Четвёртым аргументом — nil: ровно то, что теперь приходит по сети.
+    SB.Logic.ApplyEffect("t_ns_eff", SB.Data.Spells["t_ns_cheap"], nil, true, 0, "Зольц")
+    check("от заклинания первого круга — одно очко", AE.WillCostOf("t_ns_eff"), 1)
+    ResetEffects()
+    SB.Logic.ApplyEffect("t_ns_eff", SB.Data.Spells["t_ns_dear"], nil, true, 0, "Зольц")
+    check("от третьего — три",                       AE.WillCostOf("t_ns_eff"), 3)
+    ResetEffects()
+
+    SB.Data.Spells["t_ns_eff"]   = nil
+    SB.Data.Spells["t_ns_cheap"] = nil
+    SB.Data.Spells["t_ns_dear"]  = nil
 end
 
 -- ============================================================
@@ -17397,15 +17420,50 @@ end
 -- объясняет, почему действовать нельзя. Интерфейс в прогоне не грузится,
 -- поэтому проверка по исходнику.
 -- ============================================================
+-- ОКНО ПОДТВЕРЖДЕНИЯ: ДВЕ КНОПКИ И НИЧЕГО БОЛЬШЕ
+--
+-- Пикер круга спрашивал «за какую плату», и с вливанием этот вопрос
+-- исчез. Но окно делало и вторую работу — подтверждало намерение, — и
+-- когда пикер убрали, игроки первым делом сказали, что подтверждения
+-- не хватает. Окно осталось, вопрос в нём сменился: применить самому
+-- или отдать Ведущему.
+--
+-- Интерфейс в прогоне не грузится, поэтому проверка по исходнику.
+-- ============================================================
 do
     local src  = ReadFile("UI/MainFrame.lua")
-    local body = src:match("function SB%.UI%.ShowSlotPicker%(spellID%)(.-)\nend\n") or ""
-    local autoAt = body:find("if #options == 1 and not options[1].passTurn then", 1, true)
-    local drawAt = body:find("Ширина по самой длинной подписи", 1, true)
-    checkTrue("единственный вариант кастуется до отрисовки окна",
-              autoAt ~= nil and drawAt ~= nil and autoAt < drawAt)
-    checkTrue("и уходит тем же ConfirmCast, что и кнопка",
-              body:find("SB.Logic.ConfirmCast(spellID, options[1].level)", 1, true) ~= nil)
+    local body = src:match("function SB%.UI%.ShowCastConfirm%(spellID%)(.-)\nend\n") or ""
+    checkTrue("окно подтверждения найдено", #body > 0)
+
+    checkTrue("кнопка «Применить» есть",       body:find('"Применить"', 1, true) ~= nil)
+    checkTrue("и кнопка заявки Ведущему тоже", body:find('"Заявка Ведущему"', 1, true) ~= nil)
+    checkTrue("обе уходят одним ConfirmCast",
+              body:find("SB.Logic.ConfirmCast(spellID, spellLvl, { toGM = true })", 1, true) ~= nil
+              and body:find("SB.Logic.ConfirmCast(spellID, spellLvl)", 1, true) ~= nil)
+
+    -- ЧИСЕЛ ЗАКЛИНАНИЯ ОКНО НЕ ПЕРЕСКАЗЫВАЕТ: они в карточке, и второе
+    -- место с теми же числами однажды разошлось бы с первым.
+    checkTrue("подписей с уроном и сроком в окне нет",
+              body:find("GainTag", 1, true) == nil
+              and body:find("DurationTag", 1, true) == nil)
+
+    -- ОТКАЗЫ ОСТАЛИСЬ: ранг, ресурс и выбранный предел передвижения.
+    checkTrue("окно объясняет нехватку ресурса",
+              body:find("Не хватает ресурса", 1, true) ~= nil)
+    checkTrue("и закрытый рангом круг",
+              body:find("Ваш ранг не открывает круг", 1, true) ~= nil)
+    checkTrue("и выбранный предел передвижения",
+              body:find("BlocksAction", 1, true) ~= nil)
+
+    -- ПРЕЖНЕЕ ИМЯ ОСТАВЛЕНО: его зовут из библиотеки и панели иконок.
+    checkTrue("старое имя ведёт на новое окно",
+              src:find("SB.UI.ShowSlotPicker = SB.UI.ShowCastConfirm", 1, true) ~= nil)
+
+    -- И ПРИНУДИТЕЛЬНАЯ ЗАЯВКА ПРАВДА ЕСТЬ В РЕЗОЛВЕ: до сих пор послать
+    -- её вручную было нельзя вообще никак.
+    local lg = ReadFile("Core/Logic.lua")
+    checkTrue("ConfirmCast умеет отдать каст Ведущему",
+              lg:find("if opts.toGM then", 1, true) ~= nil)
 end
 
 -- ============================================================
@@ -18710,10 +18768,8 @@ do
     local mf = ReadFile("UI/MainFrame.lua")
     checkTrue("пикер больше не спрашивает про вливание",
               mf:find("CanUpcast", 1, true) == nil)
-    checkTrue("а потолок перебора — собственный круг",
-              mf:find("local topOrder = spellLvl", 1, true) ~= nil)
-    checkTrue("и один вариант кастуется без окна",
-              mf:find("if #options == 1 and not options[1].passTurn then", 1, true) ~= nil)
+    checkTrue("и круга в окне подтверждения не спрашивает",
+              mf:find("SB.Logic.ConfirmCast(spellID, spellLvl)", 1, true) ~= nil)
 end
 
 -- ============================================================

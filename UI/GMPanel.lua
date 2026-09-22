@@ -867,10 +867,10 @@ function SB.UI.UpdateGMQueue()
         row.approveBtn:SetScript("OnClick", function()
             local dc       = row.dcInput:GetText()
             if dc == "" then dc = "0" end
-            local baseLvl  = spell and spell.level or 0
-            local scaleDmg = (tonumber(req.slotLevel) > baseLvl) and "SCALE" or "0"
-            SB.Net.SendGMApproval(capturedReq.caster, capturedReq.spellID,
-                                  dc, capturedReq.slotLevel, scaleDmg)
+            -- «SCALE» означало, что игрок влил ресурс СВЕРХ круга и урон
+            -- надо домножить. Вливания больше нет (см. врезку о нём в
+            -- Core/Logic.lua): круг всегда собственный, домножать нечего.
+            SB.Net.SendGMApproval(capturedReq.caster, capturedReq.spellID, dc, "0")
             removeReq(); SB.UI.UpdateGMQueue()
         end)
         row.rejectBtn:SetScript("OnClick",  function()

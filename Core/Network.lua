@@ -278,21 +278,21 @@ local MarkStatusDirty
 local function ParseREQ(t)
     -- Я получаю REQ если: я лидер группы, ИЛИ я не в группе (тестирую соло).
     if UnitIsGroupLeader("player") or not IsInGroup() then
-        SB.Events.Fire("GM_REQUEST_RECEIVED", t.caster, t.spellID, t.slotLevel, t.targetLabel, t.mod)
+        SB.Events.Fire("GM_REQUEST_RECEIVED", t.caster, t.spellID, SpellLevel(t.spellID), t.targetLabel, t.mod)
     end
 end
 
 local function ParseRES(sender, t)
     if not IsFromLeader(sender) then return end
     if t.target == UnitName("player") then
-        SB.Logic.ProcessRollAndCast(t.spellID, t.dc, t.slotLevel, t.scale == true, true)
+        SB.Logic.ProcessRollAndCast(t.spellID, t.dc, SpellLevel(t.spellID), t.scale == true, true)
     end
 end
 
 local function ParseFORCE(sender, t)
     if not IsFromLeader(sender) then return end
     if t.target == UnitName("player") then
-        SB.Logic.ExecuteForcedOutcome(t.spellID, t.outcomeIndex, t.slotLevel)
+        SB.Logic.ExecuteForcedOutcome(t.spellID, t.outcomeIndex, SpellLevel(t.spellID))
     end
 end
 
@@ -442,6 +442,34 @@ local function ActorOf(sender, t)
     return sender
 end
 
+-- ============================================================
+-- КРУГ НЕ ЕЗДИТ ПО СЕТИ
+--
+-- В каждом боевом пакете ехало поле slot — «в какой круг применили».
+-- Оно имело смысл, пока было вливание ресурса сверх круга: игрок
+-- выбирал, сколько влить, и знать об этом мог только его клиент.
+-- Вливание убрано (см. врезку о нём в Core/Logic.lua), и круг стал
+-- свойством ЗАКЛИНАНИЯ — а id заклинания в пакете и так едет.
+--
+-- ПОЭТОМУ ПОЛЕ СНЯТО СО ВСЕХ ПАКЕТОВ, а получатель берёт круг из своей
+-- библиотеки. Пример: на вас лёг eff_chilling. Если его наложила
+-- «Ледяная стрела» — это первый круг, и срыв Волей стоит одно очко;
+-- если «Конус холода» — третий, и стоит три. Оба числа получатель
+-- находит у себя, не веря на слово никому.
+--
+-- ЭТО НЕ ТОЛЬКО ЭКОНОМИЯ. Число, приехавшее из чужого пакета, надо
+-- сверять (см. VerifyIncomingCast) — а число, взятое из своей
+-- библиотеки, подделать нельзя в принципе.
+-- ============================================================
+
+--- Круг заклинания из СВОЕЙ библиотеки. Панель Ведущего и резолв
+--- по-прежнему хотят число; брать его теперь неоткуда, кроме как
+--- отсюда (см. врезку выше).
+local function SpellLevel(spellID)
+    local sp = spellID and SB.Data.Spells[spellID]
+    return tonumber(sp and sp.level) or 0
+end
+
 local function ParsePVPATK(sender, t)
     if t.target ~= UnitName("player") then return end
     if not (SB.Logic and SB.Logic.HandlePvpAttackReceived) then return end
@@ -457,7 +485,7 @@ local function ParsePVPATK(sender, t)
     -- применяется, потому что цифры существа назначил тот самый лидер,
     -- от которого пакет и принят (см. SB.Logic.VerifyIncomingDamage).
     SB.Logic.HandlePvpAttackReceived(shown, t.spellID, t.roll, t.mod, t.total,
-        t.isCrit == true, t.dmgBonus or 0, t.baseDmg, t.slot, nil, t.persuade,
+        t.isCrit == true, t.dmgBonus or 0, t.baseDmg, nil, nil, t.persuade,
         (t.npc ~= nil and t.npc ~= ""))
 end
 
@@ -550,7 +578,7 @@ local function ParseBUFF(sender, t)
     local shown = ActorOf(sender, t)
     if not shown then return end
     if SB.Logic and SB.Logic.HandleBuffReceived then
-        SB.Logic.HandleBuffReceived(shown, t.spellID, t.effectID, t.slot,
+        SB.Logic.HandleBuffReceived(shown, t.spellID, t.effectID, nil,
             t.roll, t.mod, t.total, sender, tonumber(t.enc) or 0)
     end
 end
@@ -583,7 +611,7 @@ local function ParseSTEAL(sender, t)
     if not shown then return end
     if not (SB.Logic and SB.Logic.HandleStealReceived) then return end
 
-    SB.Logic.HandleStealReceived(shown, t.spellID, tonumber(t.slot) or 0,
+    SB.Logic.HandleStealReceived(shown, t.spellID, nil,
         t.roll, t.mod, t.total, sender)
 end
 
@@ -605,7 +633,7 @@ end
 local function ParseAOEATK(sender, t)
     if not SB.Logic or not SB.Logic.HandleAoeAttackReceived then return end
     SB.Logic.HandleAoeAttackReceived(sender or t.caster, t.spellID, t.roll, t.mod, t.total,
-        t.isCrit == true, t.dmgBonus or 0, t.baseDmg, t.radius, t.slot,
+        t.isCrit == true, t.dmgBonus or 0, t.baseDmg, t.radius, nil,
         UnpackEpicenter(t), CasterCallsMeFriend(t), t.persuade)
 end
 
@@ -735,7 +763,7 @@ local function ParseDISPEL(t)
     local friend = (t.friend ~= false)
 
     SB.Logic.HandleDispelReceived(t.caster, t.spellID, schools,
-        tonumber(t.count) or 1, t.effectID, tonumber(t.slot) or 0, friend)
+        tonumber(t.count) or 1, t.effectID, nil, friend)
 end
 
 --- Площадное лечение. Как и площадная атака, уходит всей группе: в
@@ -744,7 +772,7 @@ end
 local function ParseAOEHL(t)
     if not SB.Logic or not SB.Logic.HandleAoeHealReceived then return end
     SB.Logic.HandleAoeHealReceived(t.caster, t.spellID, t.effectID, t.radius,
-        t.slot, t.roll, t.mod, t.total, t.amount, UnpackEpicenter(t),
+        nil, t.roll, t.mod, t.total, t.amount, UnpackEpicenter(t),
         CasterCallsMeFriend(t))
 end
 
@@ -759,7 +787,7 @@ end
 --- Площадной эффект: аура или площадной дебафф.
 local function ParseAOEEFF(t)
     if not SB.Logic or not SB.Logic.HandleAoeEffectReceived then return end
-    SB.Logic.HandleAoeEffectReceived(t.caster, t.spellID, t.effectID, t.radius, t.slot,
+    SB.Logic.HandleAoeEffectReceived(t.caster, t.spellID, t.effectID, t.radius, nil,
         t.roll, t.mod, t.total, UnpackEpicenter(t), CasterCallsMeFriend(t))
 end
 
@@ -1443,17 +1471,20 @@ SB.Net:RegisterComm(COMM_PREFIX, OnCommReceived)
 ---        SB.Logic.FairDC): своих характеристик и эффектов у него нет.
 ---        Клиент старой версии его не пришлёт — поле у Ведущего просто
 ---        останется пустым, как было раньше.
+--- Круг в пакете не едет: Ведущий берёт его из своей библиотеки
+--- (см. врезку «КРУГ НЕ ЕЗДИТ ПО СЕТИ» выше). В подписи он остался —
+--- её зовёт подписка на CAST_REQUEST, а событие объявлено давно.
 function SB.Net.SendCastRequest(spellID, slotLevel, targetLabel, mod)
     if not IsInGroup() or UnitIsGroupLeader("player") then
         SB.Events.Fire("GM_REQUEST_RECEIVED", UnitName("player"), spellID,
-            slotLevel, targetLabel, mod)
+            tonumber(SB.Data.Spells[spellID] and SB.Data.Spells[spellID].level) or 0,
+            targetLabel, mod)
         return
     end
     SendToGroup({
         action      = "REQ",
         caster      = UnitName("player"),
         spellID     = spellID,
-        slotLevel   = slotLevel,
         targetLabel = targetLabel or "",
         mod         = tonumber(mod),
     }, "NORMAL")
@@ -1461,9 +1492,13 @@ function SB.Net.SendCastRequest(spellID, slotLevel, targetLabel, mod)
 end
 
 --- Отправить решение ГМа игроку.
-function SB.Net.SendGMApproval(targetPlayer, spellID, dc, slotLevel, scaleDamage)
+--- Круг в подписи больше не нужен: получатель берёт его из своей
+--- библиотеки (см. врезку «КРУГ НЕ ЕЗДИТ ПО СЕТИ» выше).
+function SB.Net.SendGMApproval(targetPlayer, spellID, dc, scaleDamage)
     if not IsInGroup() or targetPlayer == UnitName("player") then
-        SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, scaleDamage == "SCALE", true)
+        SB.Logic.ProcessRollAndCast(spellID, dc,
+            tonumber(SB.Data.Spells[spellID] and SB.Data.Spells[spellID].level) or 0,
+            scaleDamage == "SCALE", true)
         return
     end
     SendToPlayer({
@@ -1471,7 +1506,6 @@ function SB.Net.SendGMApproval(targetPlayer, spellID, dc, slotLevel, scaleDamage
         target    = targetPlayer,
         spellID   = spellID,
         dc        = dc,
-        slotLevel = slotLevel,
         scale     = (scaleDamage == "SCALE"),
     }, targetPlayer, "NORMAL")
 end
@@ -1699,7 +1733,6 @@ function SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, dmg
         isCrit   = isCrit and true or false,
         dmgBonus = dmgBonus or 0,
         baseDmg  = baseDmg,
-        slot     = tonumber(slot) or 0,
     }
     if (tonumber(persuade) or 0) > 0 then t.persuade = persuade end
     SendToPlayer(t, targetName, "NORMAL")
@@ -1724,7 +1757,6 @@ function SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseD
         dmgBonus = dmgBonus or 0,
         baseDmg  = baseDmg,
         radius   = radius or 0,
-        slot     = tonumber(slot) or 0,
     }
     if (tonumber(persuade) or 0) > 0 then t.persuade = persuade end
     SendToGroup(PackFriends(PackEpicenter(t, epi)), "NORMAL")
@@ -1745,7 +1777,6 @@ function SB.Net.SendAoeEffect(spellID, effectID, radius, slot, roll, mod, total,
         spellID  = spellID,
         effectID = effectID,
         radius   = radius or 0,
-        slot     = tonumber(slot) or 0,
         roll     = roll,
         mod      = mod,
         total    = total,
@@ -1790,7 +1821,6 @@ function SB.Net.SendBuff(targetName, spellID, effectID, slot, npcName, roll, mod
         target   = targetName,
         spellID  = spellID,
         effectID = effectID,
-        slot     = tonumber(slot) or 0,
         roll     = roll,
         mod      = mod,
         total    = total,
@@ -1827,7 +1857,6 @@ function SB.Net.SendSteal(targetName, spellID, slotLevel, roll, mod, total)
         caster  = UnitName("player"),
         target  = targetName,
         spellID = spellID,
-        slot    = tonumber(slotLevel) or 0,
         roll    = roll,
         mod     = mod,
         total   = total,
@@ -1929,7 +1958,6 @@ function SB.Net.SendDispel(targetName, spellID, schools, count, effectID, slot, 
         schools  = schools,
         count    = count or 1,
         effectID = effectID,
-        slot     = tonumber(slot) or 0,
         friend   = friend and true or false,
     }, targetName, "NORMAL")
 end
@@ -1947,7 +1975,6 @@ function SB.Net.SendAoeHeal(spellID, effectID, radius, slot, roll, mod, total, a
         spellID  = spellID,
         effectID = effectID,
         radius   = radius or 0,
-        slot     = tonumber(slot) or 0,
         roll     = roll,
         mod      = mod,
         total    = total,
@@ -2417,6 +2444,7 @@ function SB.Net.SendActiveEffectsTo(playerName)
     if payload then SendToPlayer(payload, playerName, "BULK") end
 end
 
+--- slotLevel в подписи остался ради вызывающих; в пакете его нет.
 function SB.Net.SendForceOutcome(targetName, spellID, outcomeIndex, slotLevel)
     if not IsInGroup() or targetName == UnitName("player") then
         if SB.Logic.ExecuteForcedOutcome then
@@ -2429,7 +2457,6 @@ function SB.Net.SendForceOutcome(targetName, spellID, outcomeIndex, slotLevel)
         target       = targetName,
         spellID      = spellID,
         outcomeIndex = outcomeIndex,
-        slotLevel    = slotLevel,
     }, targetName, "NORMAL")
 end
 

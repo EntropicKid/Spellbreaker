@@ -3165,6 +3165,29 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
     local dualHealsTarget = spell.isHeal and spell.canCrit
         and targetName and SB.Data.IsFriend(targetName)
 
+    -- ── ИГРОК САМ ПОПРОСИЛ ВЕДУЩЕГО ────────────────────────
+    --
+    -- Развилка ниже разбирает каст сама и обращается к Ведущему только
+    -- тогда, когда не справилась. Но бывает наоборот: система разрулила
+    -- бы, а за столом хотят, чтобы рассудил человек, — и до сих пор
+    -- сказать об этом было нечем.
+    --
+    -- Флаг ставит окно подтверждения (см. SB.UI.ShowCastConfirm), и
+    -- стоит он ЗДЕСЬ, после всех списаний и проверок: заявка — это уже
+    -- потраченный ход и потраченный ресурс, ровно как обычный каст.
+    if opts.toGM then
+        local d = spell.distance
+        local targetLabel = (not d or d <= 0)
+            and "На себя"
+            or (pendingTargetName ~= "" and pendingTargetName or "Неопознанная цель")
+        SB.Events.Fire("CAST_PENDING", spellID)
+        SB.Events.Fire("CAST_REQUEST", spellID, slotLevel, targetLabel,
+            SB.Logic.GetCastModifier(spell, slotLevel))
+        SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID))
+        PM.SetLocked(false)
+        return
+    end
+
     -- ТОЛЬКО ЧИСТОЕ СОТВОРЕНИЕ, а не всё, что кладёт вещь в сумку.
     --
     -- Раньше здесь стояло просто `spell.creates`, и ветка перехватывала
