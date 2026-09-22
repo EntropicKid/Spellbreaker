@@ -1438,6 +1438,16 @@ SB.Events.On(SB.E.ACTIVE_EFFECTS_CHANGED, PM.SyncToMaximums)
 function PM.IsOwnClassSpell(spellClass)
     if not spellClass or spellClass == "" then return true end
     if spellClass == "Эффект" then return true end
+    -- ЧУЖАЯ ВЫУЧКА, ЗАКРЫТАЯ РЕАЛМОМ, СВОЕЙ НЕ СЧИТАЕТСЯ — даже при
+    -- живом ранге по уровню. Ранг у неё есть всегда (некастерская школа
+    -- открыта всем), и без этой оговорки книга разбойника выглядела бы
+    -- у воина «своей»: подпись класса не красилась бы чужим цветом, а
+    -- отказ подготовить ссылался бы на ранг, который тут ни при чём
+    -- (см. SB.Data.ForeignNonCasterCapFor).
+    if SB.Data.ForeignNonCasterCapFor
+       and SB.Data.ForeignNonCasterCapFor(spellClass) then
+        return false
+    end
     -- «Своё» теперь значит «открытое», а не «совпадает с классом
     -- персонажа»: жрец с паладинским предметом готовит паладинские
     -- заклинания в полную силу (см. врезку о мультиклассе выше).
@@ -1458,7 +1468,20 @@ function PM.GetMaxPrepareOrder(spellClass)
     end
 
     local rank = PM.GetClassRank(spellClass)
-    if rank then return SB.Data.MaxOrderFor(rank) end
+    if rank then
+        local order = SB.Data.MaxOrderFor(rank)
+        -- ЧУЖАЯ НЕКАСТЕРСКАЯ ШКОЛА — ТОЛЬКО ПРИЁМЫ, если реалм так
+        -- решил. Ранг по уровню у неё есть всегда, и без этого зажима
+        -- воин к середине прокачки держал бы почти всю книгу
+        -- разбойника (см. врезку «ЧУЖАЯ ВЫУЧКА» в Core/Database.lua).
+        --
+        -- ЗАЖИМ, А НЕ ЗАМЕНА: если ранг и так открывает меньше, меньше
+        -- и остаётся. Потолок — это предел, а не выдача.
+        local cap = SB.Data.ForeignNonCasterCapFor
+            and SB.Data.ForeignNonCasterCapFor(spellClass)
+        if cap then order = math.min(order, cap) end
+        return order
+    end
 
     -- ЗАКРЫТАЯ ШКОЛА НЕДОСТУПНА ЦЕЛИКОМ, а не «на круг ниже». Минус
     -- единица, а не ноль: ноль — это круг заговоров, вполне рабочий, и

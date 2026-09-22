@@ -102,6 +102,10 @@ SB.Data.REFERENCE_MAX_LEVEL = 25
 --                    НЕКАСТЕРОВ (у кастеров ранг всегда от предмета).
 --                    Реалм без неё пользуется общими порогами по
 --                    эталонной шкале — см. SB.Data.GetMasteryForLevel.
+--   foreignNonCasterOrder
+--                  — потолок круга в ЧУЖОЙ НЕКАСТЕРСКОЙ школе. nil —
+--                    правила нет, школа открывается обычной чужой
+--                    лестницей (см. SB.Data.ForeignNonCasterOrderCap).
 SB.Data.RealmProfiles = {
     { id = "Sanctuary", match = "sanctuary", maxLevel = 100, restrictClasses = false,
       maxMastery = 5,
@@ -109,8 +113,10 @@ SB.Data.RealmProfiles = {
           { 10, "Неофит" }, { 35, "Адепт" }, { 60, "Эксперт" },
           { 75, "Мастер" }, { 90, "Герой"  },
       } },
-    { id = "Origins",   match = "origins",   maxLevel = 25,  restrictClasses = true, maxMastery = 3 },
-    { id = "Origins",   match = "aviana",    maxLevel = 25,  restrictClasses = true, maxMastery = 3 },
+    { id = "Origins",   match = "origins",   maxLevel = 25,  restrictClasses = true, maxMastery = 3,
+      foreignNonCasterOrder = 0 },
+    { id = "Origins",   match = "aviana",    maxLevel = 25,  restrictClasses = true, maxMastery = 3,
+      foreignNonCasterOrder = 0 },
 }
 
 -- Профиль для реалма, который не опознан ни по одному ключевому
@@ -362,6 +368,50 @@ end
 
 function SB.Data.IsOriginsRealm()
     return SB.Data.GetRealm().restrictClasses == true
+end
+
+-- ============================================================
+-- ЧУЖАЯ ВЫУЧКА — ТОЛЬКО ПРИЁМЫ
+--
+-- Кастерская школа закрыта чужому наглухо: чтобы её открыть, нужен
+-- предмет ранга, и без него класс не существует вовсе (см.
+-- PM.GetClassRank). А некастерская открыта ВСЕМ и всегда — это выучка,
+-- а не магия, и растёт она с уровнем. Отставание было только в темпе:
+-- чужая лестница идёт позади своей (GetForeignMasteryForLevel).
+--
+-- НА ORIGINS ТЕМПА НЕ ХВАТАЕТ. Рангов там три, кругов мало, и «позади
+-- на ступень» означает, что к середине прокачки воин держит почти всю
+-- книгу разбойника и охотника впридачу. Класс перестаёт быть выбором:
+-- взять чужое ничего не стоит, потому что чужое ничем не закрыто.
+--
+-- Поэтому чужая некастерская школа открывается ровно до ПРИЁМОВ —
+-- нулевого круга. Ноль, а не −1: приём чужой школы это общее место
+-- боя (подсечка, окрик), и отбирать его незачем; закрывается ровно то,
+-- что делает класс классом, — его круги.
+--
+-- СВОЯ ШКОЛА ПРАВИЛА НЕ ЗНАЕТ: воин открывает свои круги как обычно.
+--
+-- Поле реалма, а не константа: на Sanctuary рангов пять, лестница
+-- длинная, и там мультикласс задуман — см. SB.Data.RealmProfiles.
+-- ============================================================
+
+--- Потолок круга в ЧУЖОЙ НЕКАСТЕРСКОЙ школе на текущем реалме.
+--- @return number|nil  nil — реалм такого правила не знает
+function SB.Data.ForeignNonCasterOrderCap()
+    return SB.Data.GetRealm().foreignNonCasterOrder
+end
+
+--- Режет ли реалм эту школу для этого игрока: она некастерская, она не
+--- его, и потолок задан. Спрашивают и расчёт потолка, и подписи в
+--- интерфейсе — правило должно быть одно на обоих.
+--- @param className string|nil
+--- @return number|nil  потолок круга, либо nil — правило не про эту школу
+function SB.Data.ForeignNonCasterCapFor(className)
+    if not className or className == "" then return nil end
+    if not SB.Data.NonCasterClasses[className] then return nil end
+    local PM = SB.PlayerModel
+    if PM and PM.GetClass and PM.GetClass() == className then return nil end
+    return SB.Data.ForeignNonCasterOrderCap()
 end
 
 -- ============================================================

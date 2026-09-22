@@ -2044,7 +2044,16 @@ function SB.UI.PrepareSpell(spell)
         -- У чужого класса потолок на круг ниже, и без этой оговорки
         -- сообщение выглядело бы враньём: игрок видит у себя открытый
         -- 3-й круг, а ему отвечают «не выше 2-го».
-        if PM.IsOwnClassSpell(spell.class) then
+        -- ЗАКРЫТАЯ РЕАЛМОМ ВЫУЧКА — СВОЯ ПРИЧИНА. «Доступны на круг
+        -- ниже: не выше 0-го» читается как сбой счёта, да и неправда:
+        -- круг здесь не отстаёт, а не открывается вовсе и никогда.
+        local capped = SB.Data.ForeignNonCasterCapFor
+            and SB.Data.ForeignNonCasterCapFor(spell.class)
+        if capped then
+            print(string.format(
+                "|cFFFF0000[Spellbreaker]: «%s» — чужая выучка (%s). Из неё доступны только приёмы: круги чужого класса не открываются.|r",
+                spell.name or "Заклинание", spell.class or "—"))
+        elseif PM.IsOwnClassSpell(spell.class) then
             print(string.format(
                 "|cFFFF0000[Spellbreaker]: Ваш ранг (%s) не может подготавливать заклинания выше %d-го порядка!|r",
                 PM.GetMastery(), maxOrder))
@@ -2160,9 +2169,15 @@ function SB.UI.ShowCastConfirm(spellID)
         -- IsOwnClassSpell, а не сравнение классов: у мультикласса своих
         -- школ несколько, и причина потолка у чужой — не ранг, а сам
         -- мультикласс. «Откроется с рангом» там было бы неправдой.
-        hint = (not PM.IsOwnClassSpell(spell.class))
-               and ("Чужая школа: круг " .. spellLvl .. " вам недоступен.")
-               or  ("Ваш ранг не открывает круг " .. spellLvl .. ".")
+        -- Та же развилка, что в отказе подготовить: закрытая реалмом
+        -- выучка не «отстаёт на круг», она не открывается никогда.
+        local capped = SB.Data.ForeignNonCasterCapFor
+            and SB.Data.ForeignNonCasterCapFor(spell.class)
+        hint = capped
+               and ("Чужая выучка: из неё доступны только приёмы.")
+               or  ((not PM.IsOwnClassSpell(spell.class))
+                    and ("Чужая школа: круг " .. spellLvl .. " вам недоступен.")
+                    or  ("Ваш ранг не открывает круг " .. spellLvl .. "."))
     elseif spellLvl > 0 and PM.GetCastResource() < spellLvl then
         hint = "Не хватает ресурса «" .. PM.GetResourceName() .. "»."
     else

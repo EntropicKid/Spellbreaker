@@ -560,6 +560,16 @@ initFrame:SetScript("OnEvent", function(self, event, loadedAddon)
             " (ваш — " .. SB.PlayerModel.GetMastery() ..
             ", круг до " .. ownOrder ..
             ", у чужих классов — до " .. foreignOrder .. ").|r")
+        -- ЧУЖАЯ ВЫУЧКА — ОТДЕЛЬНОЙ СТРОКОЙ, и только там, где правило
+        -- действует. Это единственная команда, по которой Ведущий
+        -- сверяет, что аддон понял реалм правильно, а молчание о
+        -- закрытых кругах выглядело бы как их отсутствие
+        -- (см. врезку «ЧУЖАЯ ВЫУЧКА» в Core/Database.lua).
+        local nonCasterCap = SB.Data.ForeignNonCasterOrderCap()
+        if nonCasterCap then
+            print(T .. G .. "чужая некастерская выучка: круг до |r|cFFFFD100" ..
+                nonCasterCap .. "|r" .. G .. " (свою школу правило не трогает).|r")
+        end
         if SpellbreakerAccountDB.realmOverride then
             print(T .. G .. "задано вручную. Вернуть автоопределение: |r/sb realm auto")
         else

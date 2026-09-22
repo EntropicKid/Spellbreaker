@@ -15026,15 +15026,23 @@ do
     checkTrue("второй круг мага скрыт",     Vis(Spell("Маг", 2)))
     checkTrue("третий круг мага скрыт",     Vis(Spell("Маг", 3)))
 
-    -- ── ВОИН-АДЕПТ: ВИДИТ ДО ВТОРОГО ───────────────────────
-    -- Некастерская школа чужая магу, ранг в ней растёт от уровня.
-    -- Семнадцатый, а не потолок: чужая некастерская школа даёт
-    -- адепта на 15-м и эксперта на 21-м, а нам нужна середина лестницы.
+    -- ── ЧУЖАЯ ВЫУЧКА: ТОЛЬКО ПРИЁМЫ ────────────────────────
+    --
+    -- Некастерская школа чужая магу, и ранг в ней по-прежнему растёт от
+    -- уровня — но на Origins круги чужой выучки не открываются НИКОГДА
+    -- (см. врезку «ЧУЖАЯ ВЫУЧКА» в Core/Database.lua). Рангов там три,
+    -- кругов мало, и «позади на ступень» означало, что маг к середине
+    -- прокачки держит почти всю книгу воина.
     stub.world.level = 18
     PM.RefreshMastery()
     check("ранг воина у мага 18 уровня", PM.GetClassRank("Воин"), "Адепт")
-    checkTrue("второй круг воина виден", not Vis(Spell("Воин", 2)))
-    checkTrue("третий круг воина скрыт",     Vis(Spell("Воин", 3)))
+    checkTrue("приём воина магу доступен",  not Vis(Spell("Воин", 0)))
+    checkTrue("а первый круг воина — нет",      Vis(Spell("Воин", 1)))
+    checkTrue("и второй тоже",                  Vis(Spell("Воин", 2)))
+    -- РАНГ ТУТ НИ ПРИ ЧЁМ, и подпись обязана это знать: школа чужая,
+    -- сколько бы уровней ни набрал персонаж.
+    checkTrue("школа считается чужой", not PM.IsOwnClassSpell("Воин"))
+    check("и потолок у неё нулевой", PM.GetMaxPrepareOrder("Воин"), 0)
     -- И ЭТО РАЗНЫЕ ОТВЕТЫ В ОДИН И ТОТ ЖЕ МОМЕНТ: весь смысл правила в
     -- том, что потолок теперь у каждой школы свой.
     checkTrue("а второй круг мага у него всё ещё скрыт", Vis(Spell("Маг", 2)))
@@ -15050,6 +15058,56 @@ do
     -- ── ЗАКРЫТАЯ ШКОЛА СКРЫТА ЦЕЛИКОМ ──────────────────────
     checkTrue("шаман закрыт", PM.GetClassRank("Шаман") == nil)
     checkTrue("даже заговор шамана скрыт", Vis(Spell("Шаман", 0)))
+
+    -- ── А СВОЯ ВЫУЧКА ОТКРЫВАЕТСЯ КАК ОБЫЧНО ───────────────
+    --
+    -- Обратная сторона правила, и без неё «чужая выучка закрыта» легко
+    -- превратилось бы в «выучка закрыта». Воин открывает свои круги
+    -- рангом по уровню, а чужую выучку разбойника — нет.
+    stub.world.classToken = "WARRIOR"
+    stub.world.items      = {}
+    PM.RefreshMastery()
+    check("ранг воина за воина", PM.GetClassRank("Воин"), "Эксперт")
+    checkTrue("свой второй круг открыт",  not Vis(Spell("Воин", 2)))
+    checkTrue("и свой третий тоже",       not Vis(Spell("Воин", 3)))
+    checkTrue("своя школа своей и считается", PM.IsOwnClassSpell("Воин"))
+    -- А соседняя некастерская — закрыта выше приёмов.
+    checkTrue("приём разбойника доступен", not Vis(Spell("Разбойник", 0)))
+    checkTrue("а его первый круг — нет",       Vis(Spell("Разбойник", 1)))
+    check("потолок чужой выучки нулевой",
+          PM.GetMaxPrepareOrder("Разбойник"), 0)
+
+    -- ── И ПОДГОТОВИТЬ ЕГО НЕЛЬЗЯ, А НЕ ТОЛЬКО УВИДЕТЬ ──────
+    --
+    -- Библиотека — не единственный вход: карточку перетаскивают, а
+    -- кастомное заклинание приезжает по сети. Отказ живёт в
+    -- PM.PrepareSpell, и проверяется он там же.
+    SB.Data.Spells["t_org_rogue"] = { id = "t_org_rogue", name = "Проба приёма",
+        class = "Разбойник", level = 1, distance = 2.5 }
+    local savedPrep = _G.SpellbreakerCharDB.preparedSpells
+    _G.SpellbreakerCharDB.preparedSpells = {}
+    check("подготовить чужой круг нельзя",
+          PM.PrepareSpell("t_org_rogue"), "order_too_high")
+    SB.Data.Spells["t_org_rogue"] = nil
+    _G.SpellbreakerCharDB.preparedSpells = savedPrep
+
+    -- ── SANCTUARY ПРАВИЛА НЕ ЗНАЕТ ─────────────────────────
+    --
+    -- Там рангов пять, лестница длинная, и мультикласс задуман. Поле
+    -- реалма, а не константа, ровно для этого.
+    local savedRealmOv = SpellbreakerAccountDB.realmOverride
+    SpellbreakerAccountDB.realmOverride = "Sanctuary"
+    SB.Data.ResetRealmCache()
+    check("на Sanctuary потолка чужой выучки нет",
+          SB.Data.ForeignNonCasterCapFor("Разбойник"), nil)
+    SpellbreakerAccountDB.realmOverride = savedRealmOv
+    SB.Data.ResetRealmCache()
+    check("а на Origins он нулевой",
+          SB.Data.ForeignNonCasterCapFor("Разбойник"), 0)
+    check("своей школы правило не касается",
+          SB.Data.ForeignNonCasterCapFor("Воин"), nil)
+    check("и кастерской тоже",
+          SB.Data.ForeignNonCasterCapFor("Маг"), nil)
 
     stub.world.items      = savedItems
     stub.world.classToken = savedToken
