@@ -665,8 +665,12 @@ function SB.NpcCast.Confirm()
                 -- ДЕБАФФ ОТ ПОПАДАНИЯ — по тому же исходу, что урон, и
                 -- тем же правилом, что у игрока по существу.
                 if landed and spell.debuff then
+                    -- Ноль последним доводом — по той же причине, что
+                    -- выше у одиночного эффекта: Ведущий одалживает
+                    -- существу руки, а не своё «Внушение». Без числа
+                    -- GetEffectDuration принял бы это за свой каст.
                     local turns = SB.Logic.GetEffectDuration(spell.debuff, spell,
-                                                             spell.level)
+                                                             spell.level, 0)
                     SB.NPC.AddEffect(unit, spell.debuff, turns, pending.npcName)
                 end
                 local after = SB.NPC.GetState(unit)
@@ -711,7 +715,9 @@ function SB.NpcCast.Confirm()
                 end
                 local ok = guaranteed or (not isDebuff) or (total >= threshold)
                 if ok then
-                    local turns = SB.Logic.GetEffectDuration(effectID, spell, spell.level)
+                    -- Ноль последним доводом: см. соседнюю ветку —
+                    -- навык Ведущего существу не достаётся.
+                    local turns = SB.Logic.GetEffectDuration(effectID, spell, spell.level, 0)
                     ok = SB.NPC.AddEffect(unit, effectID, turns, pending.npcName)
                     if ok then landedOn = landedOn + 1 end
                 end

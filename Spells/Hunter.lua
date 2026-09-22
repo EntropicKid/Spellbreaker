@@ -71,7 +71,7 @@ Add({
     name = "Укус змеи",
     key = "Выстрелы",
     icon = "Interface\\Icons\\Ability_hunter_quickshot",
-    level = 2,
+    level = 1,
     class = "Охотник",
     damageType = "nature",
     -- caura = 4,
@@ -81,13 +81,11 @@ Add({
     canCrit = true,
 	debuff = "eff_bleeding_serpent_sting",
     distance = 30,
-    -- Восемь ходов: яд змеи работает дольше любого другого кровотечения
-    -- в библиотеке, и это его единственное отличие от них.
     duration = 8,
 	scaling = {
 		hit    = { ["Концентрация"] = 1 },
 		crit   = { ["Точность"] = 1 },
-		damage = { ["Выносливость"] = 0.7 },
+		damage = { ["Выносливость"] = 0.65 },
 	},
 })
 
@@ -371,16 +369,13 @@ Add({
     name = "Отскок",
     key = "Выслеживание",
     icon = "Interface\\Icons\\Ability_rogue_feint",
-    level = 1,
+    level = 0,
     class = "Охотник",
     description = "Охотник отталкивается и уходит спиной вперёд, не разворачиваясь и не теряя цель из вида. Приём для того, кому нужна дистанция, а не укрытие. В тесноте и на краю обрыва выполнять его не стоит.",
     isCantrip = false,
     resistable = false,
-    duration = 2,
+    duration = 1,
     container = "eff_evasion_disengage",
-    scaling = {
-    	hit    = { ["Акробатика"] = 1, ["Выживание"] = 0.5 },
-    },
 })
 
 Add({

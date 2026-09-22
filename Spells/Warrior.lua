@@ -23,7 +23,7 @@ Add({
 	scaling = {
 		hit    = { ["Искусность"] = 1.5 },
 		crit   = { ["Мощь"] = 1 },
-		damage = { ["Сила"] = 0.65 },
+		damage = { ["Сила"] = 0.85 },
 	},
 })
 
@@ -183,7 +183,7 @@ Add({
     resistable = true,
     canCrit = false,
     distance = 2.5,
-    duration = 3,
+    duration = 2,
     debuff = "eff_disarm",
 	scaling = {
 		hit    = { ["Искусность"] = 1, ["Мощь"] = 0.5 },
@@ -427,7 +427,7 @@ Add({
     duration = 3,
     debuff = "eff_taunt",
     scaling = {
-    	hit    = { ["Запугивание"] = 1.5, ["Внушение"] = 1 },
+    	hit    = { ["Запугивание"] = 2 },
     },
 })
 

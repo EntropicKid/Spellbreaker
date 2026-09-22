@@ -1528,7 +1528,7 @@ AddEffect({
     name = "Спринт",
     icon = "Interface\\Icons\\Ability_rogue_sprint",
     description = "Сорвался с места с удивительной легкостью и проворством. Как его теперь догнать то?",
-    effect = { kind = "buff", family = "Передвижение", mods = { movePct = 50 } },
+    effect = { kind = "buff", family = "Передвижение", mods = { movePct = 40 } },
 })
 
 AddEffect({
@@ -2432,7 +2432,7 @@ AddEffect({
     name = "Отскок",
     icon = "Interface\\Icons\\Ability_rogue_feint",
     description = "Тело движется раньше, чем разум успевает испугаться: удары проходят мимо.",
-    effect = { kind = "buff", family = "Передвижение", mods = { defense = 12, movePct = 40 } },
+    effect = { kind = "buff", family = "Передвижение", mods = { movePct = 20 } },
 })
 
 AddEffect({
@@ -3478,7 +3478,7 @@ AddEffect({
     name = "Последний рубеж",
     icon = "Interface\\Icons\\Spell_nature_focusedmind",
     description = "Тело помнит, что умеет терпеть больше, чем кажется.",
-    effect = { kind = "debuff", stats = { ["Живучесть"] = 8 }, stats = { ["Воля"] = 3 } },
+    effect = { kind = "debuff", stats = { ["Живучесть"] = 8, ["Воля"] = 3 } },
 })
 
 AddEffect({
@@ -3543,7 +3543,7 @@ AddEffect({
     name = "Рывок",
     icon = "Interface\\Icons\\Ability_warrior_charge",
     description = "Совершает рывок в сторону цели, полный решимости и воле к победе!",
-    effect = { kind = "buff", mods = { movePct = 40 }, family = "Передвижение", stats = { ["Лидерство"] = 2 } },
+    effect = { kind = "buff", mods = { movePct = 80 }, family = "Передвижение", stats = { ["Лидерство"] = 2 } },
 })
 
 AddEffect({
@@ -3559,7 +3559,7 @@ AddEffect({
     name = "Колено прострелены",
     icon = "Interface\\Icons\\Ability_rogue_pistolshot",
     description = "Свивец застрянет прямо в ноге, мешая нормальному передвижению.",
-    effect = { kind = "debuff", resist = "Ловкость", mods = { movePct = -25 } },
+    effect = { kind = "debuff", family = "Замедление", resist = "Ловкость", mods = { movePct = -35 } },
 })
 
 AddEffect({
@@ -3567,7 +3567,7 @@ AddEffect({
     name = "Пуля в черепе",
     icon = "Interface\\Icons\\Inv_weapon_rifle_01",
     description = "Прямо в яблочко!",
-    effect = { kind = "debuff", resist = "Выносливость", mods = { attack = -40, defense = -40 } },
+    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение", mods = { attack = -40, defense = -40 } },
 })
 
 AddEffect({
@@ -3592,7 +3592,7 @@ AddEffect({
     name = "Стойка берсерка",
     icon = "Interface\\Icons\\Ability_racial_avatar",
     description = "Руку начинает вести первобытная ярость и неотвратимая тяга к разрушению, игнорируя инстинкт самосохранения.",
-    effect = { kind = "buff", family = "Стойка", mods = { defense = -25 }, stats = { ["Мощь"] = 4, ["Сила"] = 2 }, suppress = { "Оглушение" } },
+    effect = { kind = "buff", family = "Стойка", mods = { defense = -25 }, stats = { ["Запугивание"] = 3, ["Сила"] = 3 } },
 })
 
 AddEffect({

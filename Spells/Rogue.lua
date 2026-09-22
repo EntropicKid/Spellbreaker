@@ -357,7 +357,7 @@ Add({
     resistable = true,
 	container = "eff_sprint",
     distance = 0,
-    duration = 1,
+    duration = 2,
 	scaling = {
 		hit    = { ["Акробатика"] = 1, ["Ловкость"] = 0.5 },
 	},
@@ -521,7 +521,7 @@ Add({
     isCantrip = false,
     resistable = true,
     distance = 0,
-    duration = 4,
+    duration = 3,
     container = "eff_concentration_preparation",
     scaling = {
         hit    = { ["Ловкость"] = 1, ["Концентрация"] = 0.5 },
@@ -646,7 +646,7 @@ Add({
 	debuff = "eff_pistolshot",
 	duration = 2,
 	scaling = {
-		crit   = { ["Точность"] = 1 },
+		crit   = { ["Точность"] = 0.5, ["Акробатика"] = 0.5 },
         damage = { ["Ловкость"] = 0.75 },
 	},
 })
@@ -668,7 +668,7 @@ Add({
 	debuff = "eff_between_the_eyes",
 	duration = 1,
 	scaling = {
-		crit   = { ["Точность"] = 3 },
-        damage = { ["Ловкость"] = 1, ["Точность"] = 1 },
+		crit   = { ["Точность"] = 1.5, ["Акробатика"] = 1.5 },
+        damage = { ["Ловкость"] = 1.5 },
 	},
 })

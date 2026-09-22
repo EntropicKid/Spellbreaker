@@ -1745,7 +1745,10 @@ end
 function SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, slot, persuade, npcName)
     local sp = SB.Data.Spells[spellID]
     if not npcName and sp and sp.debuff and SB.Logic and SB.Logic.EncouragementFor then
-        persuade = SB.Logic.EncouragementFor(sp.debuff)
+        -- С ИМЕНЕМ ЦЕЛИ: бить можно и помеченного своим (двойное
+        -- заклинание, недоразумение за столом), а «Внушение» на своих
+        -- не работает (см. врезку у SB.Logic.EncouragementFor).
+        persuade = SB.Logic.EncouragementFor(sp.debuff, targetName)
     else
         persuade = 0
     end
@@ -1857,9 +1860,14 @@ function SB.Net.SendBuff(targetName, spellID, effectID, slot, npcName, roll, mod
     --
     -- ОТ ЛИЦА СУЩЕСТВА — НЕ СЧИТАЕТСЯ. Ведущий, кастующий за волка,
     -- одалживает волку свои руки, а не свой навык (поле npc).
+    -- ИМЯ ПОЛУЧАТЕЛЯ ЕДЕТ В РАСЧЁТ: этим же пакетом уходит и помощь
+    -- союзнику, и порча врагу, а «Внушение» на своих не работает
+    -- (см. врезку у SB.Logic.EncouragementFor). Ровно этим путём
+    -- приходит «Небесный промысел» — помощь, помеченная вредом, чтобы
+    -- её нельзя было снять досрочно.
     local enc = 0
     if not npcName and SB.Logic and SB.Logic.EncouragementFor then
-        enc = SB.Logic.EncouragementFor(effectID)
+        enc = SB.Logic.EncouragementFor(effectID, targetName)
     end
 
     SendToPlayer({

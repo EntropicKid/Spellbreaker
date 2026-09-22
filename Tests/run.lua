@@ -1112,6 +1112,120 @@ do
 end
 
 -- ============================================================
+-- «ВНУШЕНИЕ» НЕ РАБОТАЕТ НА СВОИХ
+--
+-- Род эффекта отвечает на вопрос «что он делает», и обычно этого
+-- хватает. Но пара эффектов помечена вредом НАРОЧНО, ради совсем
+-- другого: помеченное вредом нельзя снять с себя досрочно (рассеивание
+-- снимает с друга дебаффы, с чужого баффы), и этим закрывают
+-- злоупотребление «повесил, снял, повесил заново».
+--
+-- «Последний рубеж» воина и «Небесный промысел» паладина — ровно такие:
+-- по механике это защита, по пометке вред. И «Внушение» честно
+-- продлевало их владельцу — то есть навык влияния на ЧУЖУЮ волю удлинял
+-- собственный кулдаун.
+--
+-- ПРОВЕРЯЕМ НА ЖИВЫХ ЗАКЛИНАНИЯХ, а не на пробных: пометка «вред» у них
+-- стоит ради баланса, и стоит её однажды снять — проверка обязана
+-- сказать об этом, а не молча измерить пустоту.
+-- ============================================================
+do
+    local me = stub.world.playerName
+    ResetEffects()
+    _G.SpellbreakerCharDB.attributes = _G.SpellbreakerCharDB.attributes or {}
+    _G.SpellbreakerCharDB.attributes["Характер"] = 5
+    SB.Skills.Set("Внушение", 5)
+    SB.Skills.Set("Воодушевление", 0)
+    checkTrue("«Внушение» вложено и что-то даёт",
+              SB.Skills.GetPersuasionBonus() > 0)
+
+    -- ── ПОМЕТКА ВРЕДА У ОБОИХ НА МЕСТЕ ──────────────────────
+    for _, id in ipairs({ "eff_last_stand", "eff_divine_intervention" }) do
+        check("«" .. id .. "» помечен вредом", SB.ActiveEffects.GetKind(id), "debuff")
+    end
+
+    -- ── СЕБЕ — ПРИБАВКИ НЕТ ─────────────────────────────────
+    check("«Последний рубеж» себе прибавки не получает",
+          SB.Logic.EncouragementFor("eff_last_stand", me), 0)
+    check("и «Небесный промысел» тоже",
+          SB.Logic.EncouragementFor("eff_divine_intervention", me), 0)
+
+    -- ── ПОМЕЧЕННОМУ ДРУГОМ — ТОЖЕ НЕТ ───────────────────────
+    -- Ровно тот же список «друзей», по которому разбирается рассеивание
+    -- и площадь (см. SB.Data.IsFriend).
+    SB.Data.SetFriend("Юра", true)
+    check("своему прибавки нет",
+          SB.Logic.EncouragementFor("eff_divine_intervention", "Юра"), 0)
+
+    -- ── А ЧУЖОМУ — ПОЛНЫЙ НАВЫК ─────────────────────────────
+    -- Иначе правило вышло бы за свои границы и выключило «Внушение»
+    -- целиком: оно для того и есть, чтобы держать чужих дольше.
+    check("чужому — все очки",
+          SB.Logic.EncouragementFor("eff_divine_intervention", "Чужой"),
+          SB.Skills.GetPersuasionBonus())
+    -- Имени нет вовсе — решает один род эффекта, как раньше: так зовут
+    -- с путей, где получатель неизвестен (существа, предпросмотр).
+    check("без имени — по роду эффекта",
+          SB.Logic.EncouragementFor("eff_divine_intervention"),
+          SB.Skills.GetPersuasionBonus())
+
+    -- ── И НА ЖИВОМ СРОКЕ, А НЕ ТОЛЬКО В РАСЧЁТЕ ─────────────
+    --
+    -- ApplyEffect вешает эффект ВСЕГДА на себя — значит получатель ей
+    -- известен точно, и спрашивать навык вслепую она не должна. Ровно
+    -- этим путём приходит контейнер «Последнего рубежа».
+    local last = SB.Data.Spells["last_stand"]
+    checkTrue("«Последний рубеж» на месте и вешает контейнер",
+              last ~= nil and last.container == "eff_last_stand")
+    ResetEffects()
+    _G.SpellbreakerCharDB.activeEffects = {}
+    SB.Logic.ApplyEffect(last.container, last, last.level)
+    local turns
+    for _, e in ipairs(SB.ActiveEffects.GetAll()) do
+        if e.spellID == "eff_last_stand" then turns = e.uses end
+    end
+    check("и держится ровно свой срок, без прибавки", turns, last.duration)
+
+    -- ── А ВРАЖЕСКИЙ ДЕБАФФ ПО-ПРЕЖНЕМУ ДЛИННЕЕ ──────────────
+    --
+    -- Обратная сторона: без неё «не работает на своих» легко
+    -- превратилось бы в «не работает вовсе».
+    local hex = { id = "t_fr_src", name = "Проба порчи", class = "Маг",
+                  level = 1, duration = 10, debuff = "t_fr_deb" }
+    SB.Data.Spells["t_fr_deb"] = { id = "t_fr_deb", name = "Проба вреда",
+        class = "Эффект", level = 0, isContainer = true, icon = "x",
+        effect = { kind = "debuff", mods = { attack = -1 } } }
+    local share = SB.Data.Config.EncouragementPerPoint
+    check("чужому сроку прибавка идёт",
+          SB.Logic.GetEffectDuration("t_fr_deb", hex, 1,
+              SB.Logic.EncouragementFor("t_fr_deb", "Чужой")),
+          10 + math.ceil(10 * share * SB.Skills.GetPersuasionBonus()))
+    check("а своему — нет",
+          SB.Logic.GetEffectDuration("t_fr_deb", hex, 1,
+              SB.Logic.EncouragementFor("t_fr_deb", me)), 10)
+
+    -- ── ОТПРАВИТЕЛИ СПРАШИВАЮТ С ИМЕНЕМ ─────────────────────
+    --
+    -- Пакет одиночного эффекта возит и помощь союзнику, и порчу врагу;
+    -- без имени получателя правило до сети не доедет, и «Небесный
+    -- промысел» на союзнике снова станет длиннее. Сеть прогон не
+    -- исполняет — проверка по исходнику.
+    local net = ReadFile("Core/Network.lua")
+    checkTrue("одиночный эффект спрашивает с именем цели",
+              net:find("EncouragementFor(effectID, targetName)", 1, true) ~= nil)
+    checkTrue("и одиночный удар тоже",
+              net:find("EncouragementFor(sp.debuff, targetName)", 1, true) ~= nil)
+    local lg = ReadFile("Core/Logic.lua")
+    checkTrue("а своё применение — с собственным именем",
+              lg:find("EncouragementFor(effectID, UnitName(\"player\"))", 1, true) ~= nil)
+
+    SB.Data.SetFriend("Юра", false)
+    SB.Data.Spells["t_fr_deb"] = nil
+    ResetEffects()
+    _G.SpellbreakerCharDB.activeEffects = {}
+end
+
+-- ============================================================
 -- ПОДПИСЬ ОСТАТКА НЕ ПРЫГАЕТ ВВЕРХ
 --
 -- Живая жалоба: «в свободном режиме плавно снижает длительность, а

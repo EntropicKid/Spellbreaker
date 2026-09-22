@@ -617,7 +617,11 @@ function SB.Logic.HandleAoeEffectReceived(casterName, spellID, effectID, radius,
     if not SB.Logic.IsInAoeEpicenter(epi, casterName, radius) then return end
 
     if not total then
-        SB.Logic.HandleBuffReceived(casterName, spellID, effectID, slotLevel)
+        -- enc едет дальше: без него ApplyEffect подставит ноль, и
+        -- навык заклинателя потеряется на безбросковой ветке залпа
+        -- (см. SB.Logic.HandleBuffReceived).
+        SB.Logic.HandleBuffReceived(casterName, spellID, effectID, slotLevel,
+                                    nil, nil, nil, nil, tonumber(enc) or 0)
         return
     end
 
