@@ -3548,15 +3548,29 @@ do
     checkTrue("рассеивание по цели не пошло к Ведущему", not requested)
     check("яд снят собственным кастом", #SB.ActiveEffects.GetAll(), 0)
 
-    -- А теперь без цели — то же заклинание обязано уйти заявкой.
+    -- А ТЕПЕРЬ БЕЗ ЦЕЛИ. Прежде такой каст уходил заявкой Ведущему —
+    -- игрок нажимал «Применить», а получал чужую очередь заявок. Теперь
+    -- кнопка «Применить» к Ведущему не ходит НИКОГДА: отказ на месте, и
+    -- ресурс возвращается.
     requested = false
     SB.ActiveEffects.Add("eff_t_poison", 5, false)
     stub.world.units["target"] = nil
     SB.PlayerModel.SetLocked(false)
     SB.Cooldowns.Start(SB.Cooldowns.TURN)
     stub.world.time = stub.world.time + 10
+    local manaBefore = SB.PlayerModel.GetCastResource()
     smoke("каст рассеивания без цели", function() SB.Logic.ConfirmCast("purify", 1) end)
-    checkTrue("без цели рассеивание ушло Ведущему", requested)
+    checkTrue("без цели «Применить» Ведущему не пишет", not requested)
+    check("и ресурс вернулся", SB.PlayerModel.GetCastResource(), manaBefore)
+
+    -- А ВОТ КНОПКА ЗАЯВКИ — ХОДИТ, и тем же кастом.
+    requested = false
+    SB.PlayerModel.SetLocked(false)
+    SB.Cooldowns.Start(SB.Cooldowns.TURN)
+    stub.world.time = stub.world.time + 10
+    smoke("заявка тем же заклинанием",
+          function() SB.Logic.ConfirmCast("purify", 1, { toGM = true }) end)
+    checkTrue("по кнопке заявка уходит", requested)
     check("и себя оно при этом не почистило", #SB.ActiveEffects.GetAll(), 1)
     stub.world.items = savedItemsD
     SB.ActiveEffects.Clear()
@@ -9963,12 +9977,12 @@ do
 end
 
 -- ============================================================
--- «ВНУШЕНИЕ» — ТОЛЬКО ДЕБАФФЫ
+-- «ВНУШЕНИЕ» ДЕРЖИТ ЧУЖОЙ ВРЕД ДОЛЬШЕ
 --
--- Навык давался за всё, что не бьёт и не лечит: за стойки, обликы и
--- ауры в том числе. Теперь условие одно — заклинание вешает дебафф, — а
--- у УРОННОГО заклинания прибавка идёт мимо броска: иначе развитое
--- «Внушение» поднимало бы ещё и шанс попасть, то есть урон.
+-- Навык поднимал БРОСОК на закрепление дебаффа — по три за очко. Не
+-- слабо, но тихо: развитый контролёр отличался от неразвитого только
+-- тем, что чуть чаще попадал. Теперь это зеркало «Воодушевления»: то
+-- тянет добро, которое ты наложил, это — вред, и доля у обоих одна.
 -- ============================================================
 do
     local PM = SB.PlayerModel
@@ -9983,24 +9997,70 @@ do
     -- включая первое (см. SB.Data.STAT_BASE).
     local bonus = 5 * step
 
+    -- ── БРОСОК НАВЫК БОЛЬШЕ НЕ ДВИГАЕТ ────────────────────
+    check("прибавки к броску у «Внушения» нет",
+          SB.Skills.GetPersuasionDebuffBonus(), 0)
+    check("а очки он отдаёт целыми", SB.Skills.GetPersuasionBonus(), 5)
+
+    -- ── И ЭТО ЗЕРКАЛО «ВООДУШЕВЛЕНИЯ» ─────────────────────
+    --
+    -- Один вопрос на оба навыка: SB.Logic.EncouragementFor решает, чьё
+    -- сейчас слово, по роду эффекта. Две функции разошлись бы.
+    SB.Data.Spells["t_pers_deb"] = { id = "t_pers_deb", name = "Проба порчи",
+        class = "Эффект", level = 0, isContainer = true,
+        icon = "Interface" .. string.char(92) .. "Icons" ..
+               string.char(92) .. "INV_Misc_QuestionMark",
+        effect = { kind = "debuff", mods = { attack = -2 } } }
+    SB.Data.Spells["t_pers_buf"] = { id = "t_pers_buf", name = "Проба помощи",
+        class = "Эффект", level = 0, isContainer = true,
+        icon = "Interface" .. string.char(92) .. "Icons" ..
+               string.char(92) .. "INV_Misc_QuestionMark",
+        effect = { kind = "buff", mods = { attack = 2 } } }
+
+    SB.Skills.Set("Воодушевление", 0)
+    check("дебафф тянет «Внушение»",
+          SB.Logic.EncouragementFor("t_pers_deb"), 5)
+    check("а бафф — «Воодушевление», и его нет",
+          SB.Logic.EncouragementFor("t_pers_buf"), 0)
+    SB.Skills.Set("Воодушевление", 5)
+    SB.Skills.Set("Внушение", 0)
+    check("и наоборот: бафф тянет «Воодушевление»",
+          SB.Logic.EncouragementFor("t_pers_buf"), 5)
+    check("а дебафф — «Внушение», и его нет",
+          SB.Logic.EncouragementFor("t_pers_deb"), 0)
+    SB.Skills.Set("Внушение", 5)
+
+    -- ── СРОК ПРАВДА РАСТЁТ, И НА ТУ ЖЕ ДОЛЮ ───────────────
+    local src = { id = "t_pers_src", name = "Проба каста", class = "Маг",
+                  level = 1, duration = 10, debuff = "t_pers_deb" }
+    local share = SB.Data.Config.EncouragementPerPoint
+    check("полностью вложенное «Внушение» держит вдвое",
+          SB.Logic.GetEffectDuration("t_pers_deb", src, 1),
+          10 + math.ceil(10 * share * 5))
+    SB.Skills.Set("Внушение", 0)
+    check("а без него — ровно свой срок",
+          SB.Logic.GetEffectDuration("t_pers_deb", src, 1), 10)
+    SB.Skills.Set("Внушение", 5)
+
+    SB.Data.Spells["t_pers_deb"], SB.Data.Spells["t_pers_buf"] = nil, nil
+
     local debuffSpell = { id = "x", debuff = "t_pain" }
     local strikeSpell = { id = "x", debuff = "t_pain", canCrit = true }
     local stanceSpell = { id = "x", container = "t_eff" }
     local buffSpell   = { id = "x", buff = "t_eff" }
     local healSpell   = { id = "x", debuff = "t_pain", isHeal = true }
 
-    check("дебафф без урона получает прибавку к броску",
-          SB.Skills.GetPersuasionBonus(debuffSpell), bonus)
-    check("уронный дебафф — не к броску",
-          SB.Skills.GetPersuasionBonus(strikeSpell), 0)
-    check("но к закреплению дебаффа — да",
-          SB.Skills.GetPersuasionDebuffBonus(strikeSpell), bonus)
-    check("стойка на себя не «внушение»",
-          SB.Skills.GetPersuasionBonus(stanceSpell), 0)
-    check("бафф союзнику тоже",
-          SB.Skills.GetPersuasionBonus(buffSpell), 0)
+    -- ЗАГЛУШКА ОТВЕЧАЕТ НУЛЁМ КОМУ УГОДНО: число ещё возят по сети
+    -- старые сборки, а читать его теперь незачем.
+    check("уронному дебаффу — ноль",
+          SB.Skills.GetPersuasionDebuffBonus(strikeSpell), 0)
+    check("и безуронному тоже",
+          SB.Skills.GetPersuasionDebuffBonus(debuffSpell), 0)
     check("лечение остаётся за «Милосердием»",
           SB.Skills.GetPersuasionDebuffBonus(healSpell), 0)
+    -- Стойка и бафф — не вред, и «Внушение» их не касается в принципе:
+    -- решает это род эффекта в EncouragementFor (проверено выше).
+    check("стойка и бафф мимо", stanceSpell.debuff or buffSpell.debuff, nil)
 
     -- ── Разница на живом размене ───────────────────────────
     -- Защитный бросок держим фиксированным: проверяем прибавку, а не
@@ -14839,6 +14899,42 @@ end
 
     -- Цена хода читается из одного места, а не зашита в формулу.
     check("ход стоит шесть секунд", SB.Data.SecondsPerTurn, 6)
+end
+
+-- ============================================================
+-- ЗАПАС ВОЛИ ВИДЕН ТАМ ЖЕ, ГДЕ ЗАПАС БРОНИ
+--
+-- Оба устроены одинаково (см. SB.Data.Pools), и читаться в подсказках
+-- должны одинаково: разный вид у одного и того же означал бы, что это
+-- разное. Интерфейс в прогоне не грузится — проверка по исходнику.
+-- ============================================================
+do
+    local mf = ReadFile("UI/MainFrame.lua")
+    local at = ReadFile("UI/Attributes.lua")
+
+    -- ── ПОДСКАЗКА МОДИФИКАТОРА ЗАЩИТЫ ──────────────────────
+    checkTrue("у защиты есть строка брони",
+              mf:find('AddDoubleLine("Броня"', 1, true) ~= nil)
+    checkTrue("и строка срывов Воли рядом",
+              mf:find('AddDoubleLine("Воля (срывы)"', 1, true) ~= nil)
+    checkTrue("остаток и запас берутся у расчёта",
+              mf:find("SB.Skills.GetWillLeft() .. \"/\" .. SB.Skills.GetWillMax()", 1, true) ~= nil)
+
+    -- ── ПОДСКАЗКА САМОГО НАВЫКА ────────────────────────────
+    checkTrue("у «Воли» своя опись запаса",
+              at:find('if skillName == "Воля"', 1, true) ~= nil)
+    checkTrue("и она называет запас словами",
+              at:find('AddDoubleLine("Запас срывов"', 1, true) ~= nil)
+    checkTrue("а цену срыва объясняет кругом",
+              at:find("каков круг заклинания", 1, true) ~= nil)
+    checkTrue("наведённую половину показывает отдельно",
+              at:find('PoolFromEffects("will")', 1, true) ~= nil)
+
+    -- И ЧИСЛА В НИХ — ЖИВЫЕ: функции, на которые ссылается интерфейс,
+    -- должны существовать, иначе подсказка молча покажет пустоту.
+    checkTrue("остаток считается", type(SB.Skills.GetWillLeft) == "function")
+    checkTrue("запас считается",   type(SB.Skills.GetWillMax) == "function")
+    checkTrue("наведённое считается", type(SB.Skills.PoolFromEffects) == "function")
 end
 
 -- ============================================================

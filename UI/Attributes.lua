@@ -614,6 +614,30 @@ local function BuildSkillRow(parent, attrKey, skillName, yOff)
             GameTooltip:AddLine("Изменение не подтверждено — бонус пока не работает.", 1, 0.82, 0, true)
         end
 
+        -- ЗАПАС СРЫВОВ — ТЕМ ЖЕ ВИДОМ, ЧТО ЗАПАС БРОНИ. Оба устроены
+        -- одинаково (надетое плюс наведённое, расход до Долгого Отдыха,
+        -- см. SB.Data.Pools), и читаться в подсказке должны одинаково:
+        -- разный вид у одного и того же означал бы, что это разное.
+        if skillName == "Воля" and SB.Skills.GetWillLeft then
+            local left, max = SB.Skills.GetWillLeft(), SB.Skills.GetWillMax()
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddDoubleLine("Запас срывов",
+                left .. " / " .. max .. " оч.", 1, 0.82, 0, 1, 0.82, 0)
+            GameTooltip:AddLine(
+                "Срыв снимает контроль целиком и стоит столько очков, " ..
+                "каков круг заклинания. Вернёт Долгий Отдых.",
+                0.6, 0.6, 0.6, true)
+            -- ЧЕМ ИМЕННО ПОДНЯТ ИЛИ СБИТ — только когда есть о чём.
+            -- «Оберег от страха» даёт свои срывы, «Покаяние» отнимает, и
+            -- увидеть это надо там же, где смотрят остаток.
+            local ward = SB.Skills.PoolFromEffects and SB.Skills.PoolFromEffects("will") or 0
+            if ward ~= 0 then
+                GameTooltip:AddLine(
+                    ((ward > 0) and "Чары прибавляют: +" or "Чары отнимают: ") .. ward,
+                    (ward > 0) and 0.4 or 1, (ward > 0) and 1 or 0.4, 0.4, true)
+            end
+        end
+
         -- Для «Ношения брони» дополнительно показываем, что реально
         -- надето прямо сейчас: иначе броня выглядит магией из воздуха.
         if skillName == "Ношение брони" and SB.Skills.GetEquippedArmorTiers then

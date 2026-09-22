@@ -1099,23 +1099,33 @@ function SB.Logic.GetEffectDuration(effectID, sourceSpell, slotLevel, extraTurns
     return math.max(1, turns + extra)
 end
 
---- Сколько ходов «Воодушевление» добавит ЭТОМУ эффекту.
+--- Сколько ОЧКОВ навыка продлевают этот эффект — и какого навыка.
 ---
---- ОДНО МЕСТО НА ВСЕ ПУТИ. Условие осталось одно: бафф ли это —
---- продлевать дебафф было бы прямо наоборот задуманному.
+--- ДВА НАВЫКА, ОДИН ВОПРОС. «Воодушевление» тянет добро, которое ты
+--- наложил, «Внушение» — вред: это зеркала, и решать, чьё сейчас
+--- слово, должно одно место. Пока их было два, «Внушение» вообще не
+--- умело двигать срок, а «Воодушевление» знало только про баффы.
 ---
---- НА СЕБЯ НАВЫК ТЕПЕРЬ РАБОТАЕТ ТОЖЕ. Прежде стойки, ауры и облики
---- собственного каста навык не видели вовсе, и «Воодушевление»
---- оказывалось умением, которое ничего не даёт тому, кто играет один
---- или держит ауру на себе. Разменом это не было: класс просто платил
---- за навык, которым не мог пользоваться половину сцены.
---- @return number
+--- ЧТО ИМЕННО ДЕЛАЮТ ОЧКИ — не здесь: срок считает GetEffectDuration,
+--- и доля у обоих навыков одна (Config.EncouragementPerPoint). Разные
+--- шкалы у зеркал означали бы, что одно очко в атаку и одно очко в
+--- защиту стоят разного, — а стоят они одинаково.
+---
+--- НА СЕБЯ «ВООДУШЕВЛЕНИЕ» РАБОТАЕТ ТОЖЕ. Прежде стойки, ауры и облики
+--- собственного каста навык не видели вовсе, и он оказывался умением,
+--- которое ничего не даёт тому, кто играет один или держит ауру на
+--- себе. Разменом это не было: класс просто платил за навык, которым
+--- не мог пользоваться половину сцены.
+--- @return number  очки; 0 — продлевать некому
 function SB.Logic.EncouragementFor(effectID)
-    if not (SB.Skills and SB.Skills.GetEncouragementBonus) then return 0 end
     local kind = SB.ActiveEffects and SB.ActiveEffects.GetKind
         and SB.ActiveEffects.GetKind(effectID) or "buff"
-    if kind ~= "buff" then return 0 end
-    return SB.Skills.GetEncouragementBonus()
+    if kind == "buff" then
+        return (SB.Skills and SB.Skills.GetEncouragementBonus
+                and SB.Skills.GetEncouragementBonus()) or 0
+    end
+    return (SB.Skills and SB.Skills.GetPersuasionBonus
+            and SB.Skills.GetPersuasionBonus()) or 0
 end
 
 -- ============================================================
@@ -3330,6 +3340,31 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
     elseif spell.resistable == false then
         -- Без сопротивления → бросаем сразу локально
         SB.Logic.ProcessRollAndCast(spellID, 0, slotLevel, slotLevel > (spell.level or 0))
+    elseif not opts.toGM then
+        -- ── НИ ОДНА ВЕТКА НЕ ПОДОШЛА, А ВЕДУЩЕГО НЕ ПРОСИЛИ ────
+        --
+        -- «Применить» означает «разреши систему», и уходить с этой
+        -- кнопки к Ведущему заклинание не должно НИКОГДА: игрок нажал
+        -- одно, а получил другое, и узнавал об этом по чужой очереди
+        -- заявок. Для Ведущего есть своя кнопка (см. opts.toGM выше).
+        --
+        -- Сюда каст попадает по одной причине: цель не годится ни для
+        -- чего из того, что система умеет, — нет цели у заклинания,
+        -- которому она нужна, или в цели не то, что оно берёт.
+        --
+        -- ВОЗВРАЩАЕМ ВСЁ, ЧТО УСПЕЛИ ВЗЯТЬ: ресурс назад, ход не
+        -- тратится. Темп при этом запускаем — иначе отказ можно было бы
+        -- щёлкать без конца, а он поднимает CAST_CONFIRMED и с ним
+        -- классовые механики (их откатить нечем: событие уже ушло).
+        if slotLevel > 0 then
+            PM.AdjustPool(PM.CastPool(), slotLevel)
+            SB.Events.Fire("STATUS_CHANGED")
+        end
+        if SB.Cooldowns then SB.Cooldowns.Start(SB.Cooldowns.TURN) end
+        print(SB.Theme.MSG_BAD .. "[Spellbreaker]: Неподходящая цель. " ..
+            "Если решает Ведущий — нажмите «Заявка Ведущему».|r")
+        PM.SetLocked(false)
+        return
     else
         -- Метка цели для заявки ГМу
         local d = spell.distance

@@ -687,6 +687,16 @@ local function BuildMainFrame()
             GameTooltip:AddDoubleLine("Броня",
                 SB.Skills.GetArmorPoints() .. "/" .. SB.Skills.GetArmorMax(),
                 0.9, 0.9, 0.9, 1, 1, 1)
+            -- ВОЛЯ — ТУДА ЖЕ, И ПО ТОЙ ЖЕ ПРИЧИНЕ. Это второй запас на
+            -- сцену, он тоже не прибавляется к броску и тоже отвечает на
+            -- «что будет, если всё-таки попадут»: броня держит удар,
+            -- Воля стряхивает чары. Своей плашки в шапке у неё нет, и
+            -- без этой строки остаток срывов негде увидеть.
+            if SB.Skills.GetWillLeft then
+                GameTooltip:AddDoubleLine("Воля (срывы)",
+                    SB.Skills.GetWillLeft() .. "/" .. SB.Skills.GetWillMax(),
+                    0.9, 0.9, 0.9, 1, 1, 1)
+            end
         end
         if scope == "attack" then
             GameTooltip:AddLine(" ")
