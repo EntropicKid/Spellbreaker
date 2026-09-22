@@ -825,14 +825,18 @@ local function BuildMainFrame()
         GameTooltip:AddDoubleLine("Попыток побега", fleeLeft .. "/" .. fleeMax,
             0.9,0.9,0.9, 1,1,1)
         GameTooltip:AddLine(" ")
-        -- ПРИКОЛ ОБЪЯСНЯЕМ ПЕРВЫМ. Счётчик в этот миг показывает полный
+        -- ЗАМОК ОБЪЯСНЯЕМ ПЕРВЫМ. Счётчик в этот миг показывает полный
         -- предел и краснеет — ровно как при выхоженном запасе, — а
-        -- значит совсем другое: идти нечем, действовать можно. Без
-        -- строки игрок читает красную цифру как запрет и жмёт «пропустить».
-        if SB.Movement.IsPinned and SB.Movement.IsPinned() then
-            GameTooltip:AddLine("Ваш ход — передвижения нет: запас тратится в чужие ходы.",
+        -- значит совсем другое: ход не ваш. Без строки игрок читает
+        -- красную цифру как «я всё выбегал» и идёт искать, куда делись
+        -- метры, которых он не тратил.
+        if SB.Movement.InEntryGrace and SB.Movement.InEntryGrace() then
+            GameTooltip:AddLine("Начало боя — пара секунд свободного хода.",
+                0.4, 1, 0.4, true)
+        elseif SB.Movement.IsPinned and SB.Movement.IsPinned() then
+            GameTooltip:AddLine("Не ваш ход — передвижения нет: весь предел даётся в свой ход.",
                 1, 0.82, 0, true)
-            GameTooltip:AddLine("Способность применить можно; шаг обойдётся усталостью.",
+            GameTooltip:AddLine("Шаг всё равно возможен, но обойдётся усталостью.",
                 0.6, 0.6, 0.6, true)
         elseif SB.Movement.BlocksAction() then
             GameTooltip:AddLine("Предел выбран — применить способность нельзя.", 1, 0.4, 0.4, true)
@@ -846,7 +850,7 @@ local function BuildMainFrame()
             GameTooltip:AddLine("Выберете предел — до конца хода останется только пропустить ход.",
                 0.6, 0.6, 0.6, true)
         end
-        GameTooltip:AddLine("Запас наливается доверху, когда свой ход закрыт.",
+        GameTooltip:AddLine("Счётчик обнуляется, когда доходит ваша очередь.",
             0.6, 0.6, 0.6, true)
         GameTooltip:AddLine(" ")
         GameTooltip:AddLine("|cFFFFD100ЛКМ|r — пропустить ход: путь обнуляется, +1 " ..

@@ -498,15 +498,19 @@ initFrame:SetScript("OnEvent", function(self, event, loadedAddon)
                 print(T .. G .. "предел передвижения: |r|cFFFFD100" .. CapText() ..
                     "|r" .. G .. " (0 — полное обездвиживание).|r")
             else
-                -- ПРИКОЛ СВОЕГО ХОДА НАЗЫВАЕМ СЛОВАМИ. Счётчик в этот миг
+                -- ЗАМОК ЧУЖОГО ХОДА НАЗЫВАЕМ СЛОВАМИ. Счётчик в этот миг
                 -- показывает полный предел, и «пройдено 17 из 17» у
                 -- человека, не сделавшего ни шага, читается как поломка
                 -- шагомера (см. врезку в Core/Movement.lua).
-                local pinned = SB.Movement.IsPinned and SB.Movement.IsPinned()
+                local note = ""
+                if SB.Movement.InEntryGrace and SB.Movement.InEntryGrace() then
+                    note = " (начало боя — свободный ход)"
+                elseif SB.Movement.IsPinned and SB.Movement.IsPinned() then
+                    note = " (не ваш ход — счётчик заперт)"
+                end
                 print(T .. G .. string.format(
                     "пройдено |r|cFFFFD100%.1f м|r%s из |r|cFFFFD100%s|r%s%s. Команды: reset / default / off / <метры>.|r",
-                    SB.Movement.GetDistance(), G, CapText(), G,
-                    pinned and " (ваш ход — запас приколот к нулю)" or ""))
+                    SB.Movement.GetDistance(), G, CapText(), G, note))
             end
             return
         end

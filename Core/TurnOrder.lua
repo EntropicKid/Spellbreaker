@@ -175,32 +175,33 @@ local function NotifyTransitions()
 
     if lastActive ~= nil and lastActive ~= active then
         SB.UI.ScreenNotice(active and "Пошаговый режим" or "Свободный ход")
-        -- ВХОД В РЕЖИМ НАЛИВАЕТ ЗАПАС, НО НЕ СРАЗУ. Пара секунд даётся
-        -- на то, чтобы прочитать объявление: метры, пройденные по
-        -- инерции сразу после команды Ведущего, хода стоить не должны
-        -- (см. SB.Movement.FillAfterEntry).
-        if active and SB.Movement and SB.Movement.FillAfterEntry then
-            SB.Movement.FillAfterEntry()
+        -- ВХОД В РЕЖИМ — ЭТО НЕ КОМАНДА «ЗАМРИ». Пара секунд даётся на
+        -- то, чтобы прочитать объявление и остановиться: метры этих
+        -- секунд не идут ни в счётчик, ни в усталость. По истечении
+        -- окна счётчик запирается у всех, кроме того, чей ход
+        -- (см. SB.Movement.StartEntryGrace).
+        if active and SB.Movement and SB.Movement.StartEntryGrace then
+            SB.Movement.StartEntryGrace()
         end
     end
     -- ============================================================
-    -- ОКНО ПЕРЕДВИЖЕНИЯ — ЧУЖИЕ ХОДЫ, СВОЙ ХОД НЕПОДВИЖЕН
+    -- ХОДИШЬ ТОЛЬКО В СВОЙ ХОД
     --
     -- Правило целиком расписано в шапке Core/Movement.lua; здесь только
-    -- то место, где оно включается. Дошла очередь — запас прикалывается
-    -- к нулю, походил — наливается доверху.
+    -- то место, где оно включается. Дошла очередь — счётчик обнуляется и
+    -- весь предел твой; походил или ещё не твой черёд — счётчик заперт.
     --
     -- СЧИТАЕМ ПО СОСТОЯНИЮ, А НЕ ПО ПЕРЕХОДУ, и сравниваем с тем, что
     -- уже стоит в сохранёнке (SB.Movement.IsPinned). Так /reload посреди
-    -- своего хода ничего не ломает, а повторные пакеты от Ведущего — их
-    -- в круге приходит несколько — не наливают запас заново.
+    -- сцены ничего не ломает, а повторные пакеты от Ведущего — их в
+    -- круге приходит несколько — не обнуляют счётчик заново.
     --
     -- НЕ ЧЕРЕЗ CanActLocal: тот отвечает false ещё и пока в пути заявка
-    -- Ведущему или итог своего удара, и запас наливался бы на середине
+    -- Ведущему или итог своего удара, и счётчик запирался бы на середине
     -- собственного хода. Спрашиваем очередь напрямую: мой слот и я ещё
     -- не отмечен походившим.
     --
-    -- «ВСЕ СРАЗУ» ЖИВЁТ ПО-СТАРОМУ: своих ходов там нет, прикалывать
+    -- «ВСЕ СРАЗУ» ЖИВЁТ ПО-СТАРОМУ: своих ходов там нет, запирать
     -- нечего, и черта остаётся прежней — конец своего хода
     -- (см. SB.Movement.NoteTurnClosed).
     -- ============================================================
@@ -218,12 +219,16 @@ local function NotifyTransitions()
     end
 
     local ordered = active and state.mode ~= "all" and listed
-    local pin = ordered and TO.IsCurrent(me) and not state.acted[me] or false
+    -- СВОЙ ХОД ОТКРЫТ — значит окно передвижения тоже. Закрылся он
+    -- отметкой acted (её ставит и действие, и пропуск, и передача
+    -- очереди Ведущим) или тем, что очередь ушла дальше.
+    local myTurnOpen = ordered and TO.IsCurrent(me) and not state.acted[me]
+    local pin = ordered and not myTurnOpen or false
 
     -- СВЕРЯЕМ ВСЕГДА, А НЕ ТОЛЬКО В СВОЕЙ ВЕТКЕ. Ведущий может вынуть
     -- игрока из очереди, переключить режим или выключить сцену прямо
-    -- посреди его хода — и приколотый запас остался бы приколотым
-    -- навсегда, то есть персонаж перестал бы ходить вовсе.
+    -- посреди сцены — и запертый счётчик остался бы запертым навсегда,
+    -- то есть персонаж перестал бы ходить вовсе.
     if SB.Movement and SB.Movement.PinTurn then
         if pin and not SB.Movement.IsPinned() then
             SB.Movement.PinTurn()
@@ -885,7 +890,15 @@ function TO.ApplyRemoteState(t)
     local wasActive = state.active
     state.active = t.active == true
     if wasActive ~= state.active and SB.Movement then
-        SB.Movement.ResetDistance()
+        -- FillBudget, а не ResetDistance: смена режима снимает и замок
+        -- чужого хода. В свободной игре его быть не должно вовсе, а на
+        -- входе в пошаговый он сейчас же встанет заново по очереди
+        -- (см. NotifyTransitions).
+        if SB.Movement.FillBudget then
+            SB.Movement.FillBudget()
+        else
+            SB.Movement.ResetDistance()
+        end
     end
     state.mode    = IsValidMode(t.mode) and t.mode or DEFAULT_MODE
     state.round   = tonumber(t.round) or 0

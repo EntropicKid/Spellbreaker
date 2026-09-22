@@ -893,23 +893,24 @@ do
 end
 
 -- ============================================================
--- ОКНО ПЕРЕДВИЖЕНИЯ — ЧУЖИЕ ХОДЫ, СВОЙ ХОД НЕПОДВИЖЕН
+-- ХОДИШЬ ТОЛЬКО В СВОЙ ХОД
 --
 -- Баг-репорт: «бойцы ближнего боя в пошаговом режиме не могут физически
 -- никого догнать, даже используя рывки». Дело не в числе метров, а в
--- том, КОГДА они выдавались: прежняя черта — конец своего хода, то есть
--- запас приходил ровно в тот миг, когда заклинатель отыграл. Он бил и
--- тут же уходил на полный предел, а догоняющий свои метры уже потратил,
--- подходя.
+-- том, КОГДА их разрешено тратить: запас был общим на круг, и уходить
+-- можно было НЕПРЕРЫВНО — заклинатель отступал в каждый чужой ход по
+-- чуть-чуть, а догоняющий приходил к цели с пустыми ногами.
 --
--- Теперь запас прикалывается к нулю на своём ходу и наливается доверху,
--- когда ход закрыт. Бегут все в одни и те же окна — чужие ходы.
+-- Теперь окно ровно одно — свой ход. Дошла очередь — счётчик обнулён и
+-- весь предел твой; походил или ещё не твой черёд — счётчик заперт.
 -- ============================================================
 do
     local me   = stub.world.playerName
+    -- ЮРА ПЕРВЫЙ, МЫ ВТОРЫЕ: так в одном блоке видны оба состояния —
+    -- и чужой ход, и свой.
     local function State(round, acted, index)
         SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = round,
-            session = 7, index = index or 1, slots = { { me }, { "Юра" } },
+            session = 7, index = index or 1, slots = { { "Юра" }, { me } },
             acted = acted or {} })
     end
     _G.SpellbreakerCharDB.health = 10
@@ -917,69 +918,72 @@ do
     checkTrue("предел есть и он больше нуля",
               cap ~= SB.Movement.NO_LIMIT and cap > 0)
 
-    -- ── СВОЙ ХОД: ЗАПАСА НЕТ ────────────────────────────────
-    State(1)
-    checkTrue("дошла очередь — запас приколот", SB.Movement.IsPinned())
-    check("и счётчик показывает полный предел", SB.Movement.GetDistance(), cap)
+    -- ── ЧУЖОЙ ХОД: СЧЁТЧИК ЗАПЕРТ ───────────────────────────
+    State(1, nil, 1)
+    -- Окно свободного хода на входе в режим закрываем сразу: в нём
+    -- замка нет ни у кого, а мерится здесь именно замок.
+    stub.RunTimers()
+    checkTrue("не наш черёд — счётчик заперт", SB.Movement.IsPinned())
+    check("и показывает полный предел", SB.Movement.GetDistance(), cap)
     check("идти нечем", SB.Movement.GetRemaining(), 0)
 
-    -- ДЕЙСТВОВАТЬ ПРИ ЭТОМ МОЖНО, и это главное отличие прикола от
-    -- честного упора: свой ход для того и наступил.
-    checkTrue("но действие не запрещено", not SB.Movement.BlocksAction())
+    -- ДЕЙСТВОВАТЬ ЗАМОК НЕ ЗАПРЕЩАЕТ: вне своего хода это и так нельзя,
+    -- и второй запрет сработал бы ровно тогда, когда ход наконец дойдёт.
+    checkTrue("но действие замком не запрещено", not SB.Movement.BlocksAction())
 
-    -- ── ПОХОДИЛ — ЗАПАС ПОЛОН ───────────────────────────────
-    _G.SpellbreakerCharDB.moveDistance = 7      -- шагнул в свой ход (усталость)
-    State(1, { [me] = true }, 2)                -- походил, очередь ушла
-    checkTrue("ход закрылся — прикол снят", not SB.Movement.IsPinned())
-    check("и запас налит доверху", SB.Movement.GetDistance(), 0)
+    -- ── ДОШЛА ОЧЕРЕДЬ — ВЕСЬ ПРЕДЕЛ ТВОЙ ────────────────────
+    _G.SpellbreakerCharDB.moveDistance = 7      -- шагал в чужой ход (усталость)
+    State(1, { ["Юра"] = true }, 2)             -- Юра отыграл, наш черёд
+    checkTrue("свой ход — замок снят", not SB.Movement.IsPinned())
+    check("и счётчик обнулён", SB.Movement.GetDistance(), 0)
+    check("весь предел в распоряжении", SB.Movement.GetRemaining(), cap)
 
-    -- Бежит в ход Юры — вот его окно, и метры копятся честно.
+    -- Ходит в свой ход — вот его единственное окно.
     _G.SpellbreakerCharDB.moveDistance = 9
-    State(1, { [me] = true }, 2)                -- повторный пакет того же круга
-    check("повторный пакет запас не наливает заново", SB.Movement.GetDistance(), 9)
+    State(1, { ["Юра"] = true }, 2)             -- повторный пакет того же круга
+    check("повторный пакет счётчик не обнуляет", SB.Movement.GetDistance(), 9)
 
-    -- ── НОВЫЙ КРУГ: СНОВА СВОЙ ХОД — СНОВА ПРИКОЛ ───────────
-    -- Метры, набранные в чужие ходы, на своём ходу не помогают: окно
-    -- кончилось. Ровно это и отнимает у заклинателя «ударил и убежал».
-    State(2)
-    checkTrue("свой ход снова прикалывает", SB.Movement.IsPinned())
-    check("и недобеганные метры на своём ходу не помогают",
+    -- ── ПОХОДИЛ — ЗАМОК ОБРАТНО ─────────────────────────────
+    -- Недоходенные метры сгорают: окно кончилось вместе с ходом. Ровно
+    -- это и отнимает у заклинателя «ударил и убежал».
+    State(1, { ["Юра"] = true, [me] = true }, 2)
+    checkTrue("ход закрыт — счётчик заперт", SB.Movement.IsPinned())
+    check("и недоходенные метры больше не помогают",
           SB.Movement.GetRemaining(), 0)
 
-    -- ── ЗАПАС В НОГАХ ПРИКОЛ НЕ ТРОГАЕТ ─────────────────────
-    -- Побег бросается в свой ход, то есть ровно под приколом, и считает
-    -- он НЕ выхоженное (см. SB.Movement.GetReserve). По GetRemaining
-    -- прибавка была бы всегда нулевой.
+    -- ── ЗАПАС В НОГАХ ЗАМОК НЕ ТРОГАЕТ ──────────────────────
+    -- Побег считает НЕ выхоженное (см. SB.Movement.GetReserve): в свой
+    -- ход оба ответа совпадают, но бросок могут дать и вне очереди, и
+    -- тогда прибавка обнулилась бы молча.
     check("а в ногах осталось непройденное", SB.Movement.GetReserve(), cap - 9)
     local _, fleeBonus = SB.Logic.GetFleeOdds()
     check("и побег считает именно его", fleeBonus, math.floor(cap - 9))
 
-    State(2, { [me] = true }, 2)
-    check("закрытие хода снова наливает запас", SB.Movement.GetDistance(), 0)
+    -- ── НОВЫЙ КРУГ: СНОВА ЧУЖОЙ ХОД, ПОТОМ СВОЙ ─────────────
+    State(2, nil, 1)
+    checkTrue("новый круг начинается с чужого хода", SB.Movement.IsPinned())
+    State(2, { ["Юра"] = true }, 2)
+    check("а свой снова обнуляет счётчик", SB.Movement.GetDistance(), 0)
 
-    -- ── /RELOAD ПОСРЕДИ СВОЕГО ХОДА ЗАПАСА НЕ ДАРИТ ────────
-    -- Прикол лежит в сохранёнке рядом с путём: перезаход не должен
-    -- возвращать метры, которых в этом окне нет.
+    -- ── /RELOAD ЗАМКА НЕ СНИМАЕТ ───────────────────────────
+    -- Флаг лежит в сохранёнке рядом с путём: перезаход в чужой ход не
+    -- должен выдавать метры, которых у персонажа сейчас нет.
     _G.SpellbreakerCharDB.moveDistance = 5
-    State(2, { [me] = true }, 2)
+    State(2, { ["Юра"] = true }, 2)
     check("повторная отметка путь не трогает", SB.Movement.GetDistance(), 5)
-    State(3)
-    checkTrue("а свой ход прикалывает и после перезахода",
+    State(3, nil, 1)
+    checkTrue("а чужой ход запирает и после перезахода",
               SB.Movement.IsPinned())
 
     -- ── НЕ СТОЯЛ В ОЧЕРЕДИ — ЧЕРТА ПО КОНЦУ КРУГА ──────────
     --
     -- Подключившегося посреди сцены в слотах нет: своего хода у него
-    -- нет, значит нет и окна, которое можно закрыть. Без черты путь
-    -- копился бы без конца, и первый же выданный ему ход начинался бы
-    -- с упора, — поэтому такому черта прежняя, по концу круга.
-    --
-    -- И ПРИКОЛ С НЕГО СНИМАЕТСЯ. Ведущий волен вынуть игрока из очереди
-    -- прямо посреди его хода; приколотый запас остался бы приколотым
-    -- навсегда, то есть персонаж перестал бы ходить вовсе.
+    -- нет, значит нет и окна, которое можно открыть. Запереть такого
+    -- навсегда нельзя — он вообще перестал бы ходить, — поэтому ему
+    -- черта прежняя, по концу круга.
     SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 3,
         session = 7, index = 1, slots = { { "Юра" } }, acted = {} })
-    checkTrue("вынули из очереди — прикол снят", not SB.Movement.IsPinned())
+    checkTrue("вынули из очереди — замок снят", not SB.Movement.IsPinned())
     _G.SpellbreakerCharDB.moveDistance = 6
     SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 4,
         session = 7, index = 1, slots = { { "Юра" } }, acted = {} })
@@ -987,11 +991,11 @@ do
           SB.Movement.GetDistance(), 0)
 
     -- ── «ВСЕ СРАЗУ» ЭТОГО ПРАВИЛА НЕ ЗНАЕТ ─────────────────
-    -- Своих ходов там нет, а значит нет и окна, которое можно закрыть:
-    -- прикалывать пришлось бы весь круг целиком.
+    -- Своих ходов там нет, а значит нет и окна, которое можно открыть:
+    -- запереть пришлось бы весь круг целиком.
     SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = 1,
         session = 8, index = 1, slots = { { me } }, acted = {} })
-    checkTrue("в режиме «все сразу» прикола нет", not SB.Movement.IsPinned())
+    checkTrue("в режиме «все сразу» замка нет", not SB.Movement.IsPinned())
 
     SB.TurnOrder.ApplyRemoteState({ active = false, mode = "all", round = 0,
         index = 0, slots = {}, acted = {} })
@@ -999,62 +1003,70 @@ do
 end
 
 -- ============================================================
--- ВХОД В ПОШАГОВЫЙ РЕЖИМ НАЛИВАЕТ ЗАПАС, НО НЕ СРАЗУ
+-- ВХОД В ПОШАГОВЫЙ РЕЖИМ — ПАРА СЕКУНД СВОБОДНОГО ХОДА
 --
--- Объявление «Пошаговый режим» игрок должен успеть прочитать, а шаги,
--- сделанные по инерции в эти секунды, хода стоить не должны: персонаж
--- шёл по миру, когда Ведущий нажал кнопку. Поэтому запас наливается
--- через SB.Movement.ENTRY_GRACE секунд, а не в тот же кадр.
+-- Вход в режим — это не команда «замри»: персонаж в этот миг куда-то
+-- шёл, а объявление «Пошаговый режим» надо ещё успеть прочитать. Поэтому
+-- ENTRY_GRACE секунд замка нет ни у кого и платить за метры не надо;
+-- по истечении окна счётчик стирается — прощая всё пройденное — и замок
+-- начинает действовать по обычному правилу.
 -- ============================================================
 do
-    local me = stub.world.playerName
+    local me, PM = stub.world.playerName, SB.PlayerModel
     ResetEffects()
     SB.TurnOrder.ApplyRemoteState({ active = false, mode = "player", round = 0,
         session = 92, index = 0, slots = {}, acted = {} })
 
-    checkTrue("отсрочка задана и она не мгновенная",
+    checkTrue("окно задано и оно не мгновенное",
               (SB.Movement.ENTRY_GRACE or 0) > 0)
 
-    -- Свой ход НЕ занимаем: иначе запас обнулил бы прикол, и проверялась
-    -- бы не отсрочка, а он.
+    -- Свой ход НЕ занимаем (первый в очереди Юра): иначе замка не было
+    -- бы и без всякого окна, и проверялось бы не оно.
     SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 1,
         session = 92, index = 1, slots = { { "Юра" }, { me } }, acted = {} })
-    -- Бежит по инерции сразу после команды Ведущего.
+
+    checkTrue("окно открыто", SB.Movement.InEntryGrace())
+    checkTrue("и замка в нём нет даже в чужой ход", not SB.Movement.IsPinned())
+    -- И ПЛАТЫ ТОЖЕ НЕТ: шаг, сделанный до объявления, не стоит здоровья.
+    checkTrue("усталость в окне выключена", not SB.Movement.IsFatigueOn())
     _G.SpellbreakerCharDB.moveDistance = 8
-    check("метры этих секунд пока на счётчике", SB.Movement.GetDistance(), 8)
 
     stub.RunTimers()
-    check("а по истечении отсрочки запас налит", SB.Movement.GetDistance(), 0)
+    checkTrue("окно закрылось", not SB.Movement.InEntryGrace())
+    -- СЧЁТЧИК СМОТРИМ СЫРОЙ: под замком GetDistance честно возвращает
+    -- полный предел (идти нечем), и прощённые метры по нему не увидеть.
+    check("пройденное в нём прощено", _G.SpellbreakerCharDB.moveDistance, 0)
+    checkTrue("и замок чужого хода встал", SB.Movement.IsPinned())
 
-    -- ОТСРОЧКА НЕ ЛЬЁТ В ВЫКЛЮЧЕННЫЙ РЕЖИМ. Ведущий передумал за эти
-    -- секунды — лить уже нечего, и стирать чужие метры незачем.
+    -- ВЫКЛЮЧЕННЫЙ РЕЖИМ ОКНО НЕ ОТКРЫВАЕТ: закрываться нечему, и стирать
+    -- метры свободной игры незачем.
     SB.TurnOrder.ApplyRemoteState({ active = false, mode = "player", round = 0,
         session = 92, index = 0, slots = {}, acted = {} })
-    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 1,
-        session = 93, index = 1, slots = { { "Юра" }, { me } }, acted = {} })
-    SB.TurnOrder.ApplyRemoteState({ active = false, mode = "player", round = 0,
-        session = 93, index = 0, slots = {}, acted = {} })
+    stub.RunTimers()
     _G.SpellbreakerCharDB.moveDistance = 4
     stub.RunTimers()
-    check("режим выключили — отсрочка молчит", SB.Movement.GetDistance(), 4)
+    check("в свободной игре счётчик никто не трогает",
+          SB.Movement.GetDistance(), 4)
 
     _G.SpellbreakerCharDB.moveDistance = 0
 end
 
 -- ============================================================
--- ШАГ В СВОЙ ХОД СТОИТ УСТАЛОСТИ
+-- ШАГ В ЧУЖОЙ ХОД СТОИТ УСТАЛОСТИ
 --
--- Аддон не может отнять у игрока клавиши: шаг под приколом возможен
--- физически. Без цены правило «свой ход неподвижен» было бы украшением —
--- подошёл бы вплотную и ударил, ничего не потратив. Цена та же, что у
--- любого метра сверх предела (см. SB.Movement.AddOverrun).
+-- Аддон не может отнять у игрока клавиши: шаг под замком возможен
+-- физически. Без цены правило «ходишь только в свой ход» было бы
+-- украшением — можно было бы уходить в каждый чужой ход бесплатно.
+-- Цена та же, что у любого метра сверх предела (см.
+-- SB.Movement.AddOverrun).
 -- ============================================================
 do
     local me, PM = stub.world.playerName, SB.PlayerModel
     ResetEffects()
     SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 1,
-        session = 94, index = 1, slots = { { me }, { "Юра" } }, acted = {} })
-    checkTrue("свой ход, запас приколот", SB.Movement.IsPinned())
+        session = 94, index = 1, slots = { { "Юра" }, { me } }, acted = {} })
+    stub.RunTimers()                       -- закрываем окно на входе
+    checkTrue("чужой ход, счётчик заперт", SB.Movement.IsPinned())
 
     _G.SpellbreakerCharDB.moveDistance = 0
     _G.SpellbreakerCharDB.moveOver, _G.SpellbreakerCharDB.moveFatiguePaid = 0, 0
@@ -1068,18 +1080,117 @@ do
     SB.Movement.Step(1.0)
     _G.GetUnitSpeed = realSpeed
 
-    checkTrue("метры под приколом ушли в перебег", SB.Movement.GetOverrun() > 0)
+    checkTrue("метры под замком ушли в перебег", SB.Movement.GetOverrun() > 0)
     checkTrue("и стоили здоровья", PM.GetHealth() < hp)
-    -- А счётчик остался полным: прикол — это ноль запаса, и расти ему
+    -- А счётчик остался полным: замок — это ноль запаса, и расти ему
     -- некуда.
     check("счётчик всё так же полон",
           SB.Movement.GetDistance(), SB.Movement.GetCap())
+
+    -- ── А В СВОЙ ХОД ТЕ ЖЕ МЕТРЫ БЕСПЛАТНЫ ─────────────────
+    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 1,
+        session = 94, index = 2, slots = { { "Юра" }, { me } },
+        acted = { ["Юра"] = true } })
+    checkTrue("дошла очередь — замок снят", not SB.Movement.IsPinned())
+    _G.SpellbreakerCharDB.moveOver, _G.SpellbreakerCharDB.moveFatiguePaid = 0, 0
+    _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
+    hp = PM.GetHealth()
+
+    _G.GetUnitSpeed = function() return 14 end
+    SB.Movement.Step(1.0)
+    _G.GetUnitSpeed = realSpeed
+
+    check("перебега в свой ход нет", SB.Movement.GetOverrun(), 0)
+    check("и здоровье цело", PM.GetHealth(), hp)
+    checkTrue("а счётчик растёт", SB.Movement.GetDistance() > 0)
 
     SB.TurnOrder.ApplyRemoteState({ active = false, mode = "all", round = 0,
         index = 0, slots = {}, acted = {} })
     _G.SpellbreakerCharDB.moveDistance = 0
     _G.SpellbreakerCharDB.moveOver, _G.SpellbreakerCharDB.moveFatiguePaid = 0, 0
     _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
+end
+
+-- ============================================================
+-- ЛОКАЛЬНУЮ ФУНКЦИЮ НЕ ЗОВУТ ДО ЕЁ ОБЪЯВЛЕНИЯ
+--
+-- Живая ошибка: «attempt to call global SpellLevel (a nil value)» на
+-- каждой заявке Ведущему. Функция лежала внизу Core/Network.lua, рядом
+-- со своей врезкой, а ParseREQ/ParseRES/ParseFORCE зовут её вверху.
+--
+-- ЛОКАЛЬНАЯ ПЕРЕМЕННАЯ В LUA ВИДНА ТОЛЬКО ПОСЛЕ СВОЕГО ОБЪЯВЛЕНИЯ.
+-- Код выше захватывает не её, а одноимённую ГЛОБАЛЬНУЮ — то есть nil, —
+-- и падает не при загрузке, а при вызове. Прогон этого не ловил: он
+-- дёргает не все пути, а ошибка сидит ровно в недёрнутых.
+--
+-- ЛОВИМ ПО ИСХОДНИКУ, потому что загрузка файла тут ни при чём. Для
+-- каждого «local function ИМЯ» ищем вызов «ИМЯ(» ВЫШЕ этой строки:
+-- нашли — значит там висит та же мина.
+--
+-- ЧТО ПРИШЛОСЬ ОТСЕЯТЬ, иначе проверка кричала бы на здоровый код:
+--   • комментарии — «-- SpellLevel» во врезке не вызов, а рассказ;
+--   • «a.ИМЯ(» и «a:ИМЯ(» — это поле чужой таблицы, а не наша локальная
+--     (SB.ActiveEffects.PayloadText и local PayloadText — разные вещи);
+--   • сами объявления — строка «function X.ИМЯ(» не вызов;
+--   • ВЛОЖЕННЫЕ локальные функции: они живут внутри чужого тела, и
+--     одноимённая файловая ниже к ним отношения не имеет. Берём только
+--     объявления с НУЛЕВЫМ отступом — мина водится ровно там.
+-- ============================================================
+do
+    local files = {
+        "Core/Network.lua", "Core/Logic.lua", "Core/Movement.lua",
+        "Core/TurnOrder.lua", "Core/ActiveEffects.lua", "Core/Skills.lua",
+        "Core/Items.lua", "Core/PlayerModel.lua", "Core/NPC.lua",
+        "Core/Logic/NPC.lua", "Core/Logic/Aoe.lua",
+    }
+
+    local early = {}
+    for _, path in ipairs(files) do
+        local body = ReadFile(path)
+        if body then
+            -- Строки — по номерам, без комментариев: «-- SpellLevel» в
+            -- врезке не вызов, а рассказ о нём.
+            local lines, defs = {}, {}
+            local n = 0
+            for raw in (body .. "\n"):gmatch("([^\n]*)\n") do
+                n = n + 1
+                lines[n] = (raw:gsub("%-%-.*$", ""))
+                local name = lines[n]:match("^local%s+function%s+([%w_]+)%s*%(")
+                -- ТОЛЬКО ПЕРВОЕ объявление: одно имя может быть
+                -- переобъявлено ниже, и мина — именно у первого.
+                if name and not defs[name] then defs[name] = n end
+            end
+
+            for name, defLine in pairs(defs) do
+                for i = 1, defLine - 1 do
+                    local line = lines[i]
+                    -- «name(» как отдельное слово и НЕ через точку или
+                    -- двоеточие: «SpellLevel(» ловим, «MySpellLevel(» и
+                    -- «SB.Foo.SpellLevel(» — нет.
+                    local at = line:find("[^%w_.:]" .. name .. "%s*%(")
+                             or line:find("^" .. name .. "%s*%(")
+                    -- Объявление — не вызов.
+                    if at and line:find("function%s") then at = nil end
+                    if at then
+                        early[#early + 1] = path .. ":" .. i .. " зовёт " ..
+                            name .. ", объявленную на " .. defLine
+                        break
+                    end
+                end
+            end
+        end
+    end
+
+    if #early > 0 then print("[порядок] " .. table.concat(early, "; ")) end
+    check("вызовов локальной функции до её объявления", #early, 0)
+
+    -- И САМ ВИНОВНИК — ОТДЕЛЬНОЙ СТРОКОЙ, чтобы проверка не молчала,
+    -- если общий обход однажды ослабнет.
+    local net = ReadFile("Core/Network.lua")
+    local def = net:find("local function SpellLevel", 1, true)
+    local use = net:find("SpellLevel(t.spellID)", 1, true)
+    checkTrue("SpellLevel объявлена выше своих парсеров",
+              def ~= nil and use ~= nil and def < use)
 end
 
 -- ============================================================
@@ -2248,8 +2359,18 @@ check("здоровье не тронуто", SB.PlayerModel.GetHealth(), 10)
 -- Обычная сцена: предел действует, значит действует и усталость. Своей
 -- галочки у неё нет намеренно — иначе ПвП сводится к «убегаю и не
 -- отвечаю» (см. SB.Movement.IsFatigueOn).
+-- ОКНО НА ВХОДЕ В РЕЖИМ ЗАКРЫВАЕМ СРАЗУ. Первые секунды пошагового
+-- режима все ходят свободно и бесплатно (см. SB.Movement.StartEntryGrace),
+-- и усталости в них не бывает — а здесь мерится именно она. В игре окно
+-- закрывает таймер; в прогоне таймеры надо крутить руками.
+stub.RunTimers()
 SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = 1,
     index = 1, slots = { { stub.world.playerName } }, acted = {} })
+-- ОКНО НА ВХОДЕ В РЕЖИМ ЗАКРЫВАЕМ СРАЗУ. Первые секунды пошагового
+-- режима все ходят свободно и бесплатно (см. SB.Movement.StartEntryGrace),
+-- и усталости в них не бывает — а здесь мерится именно она. В игре окно
+-- закрывает таймер; в прогоне таймеры надо крутить руками.
+stub.RunTimers()
 checkTrue("по умолчанию усталость действует", SB.Movement.IsFatigueOn())
 
 _G.SpellbreakerCharDB.moveOver, _G.SpellbreakerCharDB.moveFatiguePaid = 0, 0
@@ -13228,6 +13349,9 @@ do
     stub.world.isLeader = true
     SB.TurnOrder.SetMoveFree(false)
     SB.TurnOrder.Start()
+    -- Окно свободного хода на входе в режим закрываем сразу: здесь
+    -- мерится усталость, а в окне её не бывает (см. StartEntryGrace).
+    stub.RunTimers()
     SB.Movement.ResetDistance()
     _G.SpellbreakerCharDB.health = 10
 
