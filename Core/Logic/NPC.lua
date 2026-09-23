@@ -64,9 +64,9 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
     mod = mod + hitBonus
     for _, p in ipairs(hitParts) do table.insert(modParts, p) end
 
-    local roll   = SB.Logic.Roll()
+    local roll, _, rollMax = SB.Logic.Roll()
     local total  = roll + mod
-    local isCrit = roll >= SB.Logic.GetCritThreshold(critBonus, 100)
+    local isCrit = roll >= SB.Logic.GetCritThreshold(critBonus, rollMax)
 
     -- ── Бросок защиты существа ────────────────────────────
     -- «Без сопротивления» действует и здесь: заклинание, которому нельзя
@@ -76,19 +76,18 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
     -- ослеплённый волк обязан уворачиваться хуже, и считается это тем же
     -- каналом defense, что у игрока (см. Core/NPCEffects.lua).
     local guaranteed = SB.Logic.IsGuaranteed(spell)
-    -- ПРОТИВ КРИТА СУЩЕСТВО НЕ БРОСАЕТ — ровно до тех пор, пока итогу
-    -- броска некуда примениться. Правило и довод целиком те же, что в
-    -- ПвП (см. skipDefense в HandlePvpAttackReceived): попадание крит
-    -- решил сам, а нужен итог только заклинанию с дебаффом — им меряется
-    -- закрепление чар. Нет дебаффа — нет и смысла катить куб.
-    local skipDefense = guaranteed or (isCrit and not spell.debuff)
+    -- ПРОТИВ КРИТА СУЩЕСТВО НЕ БРОСАЕТ ВОВСЕ — то же правило, что в ПвП
+    -- (см. skipDefense в HandlePvpAttackReceived). Оговорка «кроме
+    -- заклинаний с дебаффом» ушла вместе со вторым броском: закрепление
+    -- чар итогом защиты больше не меряется.
+    local skipDefense = guaranteed or isCrit
     local defMod, defParts = 0, {}
     local defRoll, defTotal = 0, 0
     if not skipDefense then
         -- versus — мы сами: провокация на существе не мешает ему
         -- уворачиваться от того, кто её и наложил.
         defMod, defParts = SB.NPC.DefenseModifier(stats, "target", UnitName("player"))
-        defRoll  = SB.Logic.Roll()
+        defRoll  = SB.Logic.RollPlain()
         defTotal = defRoll + defMod
     end
     -- КРИТ ПОПАДАЕТ ВСЕГДА — то же правило, что в ПвП.
@@ -127,29 +126,17 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
     end
 
     -- ── Дебафф от попадания ───────────────────────────────
-    -- ТА ЖЕ РАЗВИЛКА, ЧТО В ПвП (см. врезку о дебаффе в
-    -- HandlePvpAttackReceived): удар проходит и урон снимается, но
-    -- зацепиться за стойкого чары могут не всегда. Отличие ровно одно —
-    -- «Волю» берём из записи существа, а не из сетевого статуса, и
-    -- считаем её здесь же, у атакующего: своего клиента у существа нет.
-    --
-    -- «ВНУШЕНИЕ» ПРИБАВЛЯЕТСЯ ИМЕННО К ЭТОЙ ПРОВЕРКЕ, а не к попаданию —
-    -- по той же причине, что и в ПвП: иначе развитый навык поднимал бы
-    -- урон каждого уронного заклинания, у которого дописан дебафф.
-    local debuffLanded, debuffResisted = false, false
+    -- ПОПАЛ — ЗНАЧИТ ЗАЦЕПИЛОСЬ, и второй проверки больше нет: ровно то
+    -- же правило, что в ПвП (см. врезку о дебаффе в
+    -- HandlePvpAttackReceived). Здесь стоял свой бросок на закрепление,
+    -- и существо могло стряхнуть чары, уже пропустив удар.
+    local debuffLanded = false
     if spell.debuff and landed then
-        local persuade = (SB.Skills and SB.Skills.GetPersuasionDebuffBonus)
-            and SB.Skills.GetPersuasionDebuffBonus(spell) or 0
-        local will = SB.NPC.WillBonus(stats, "target")
-        if guaranteed or (total + persuade > defTotal + will) then
-            local turns = SB.Logic.GetEffectDuration(spell.debuff, spell, slotLevel)
-            -- Своё имя в эффект: если дебафф провоцирует, приковано
-            -- существо именно к нам (см. SB.NPC.TauntPenaltyOf).
-            debuffLanded = SB.NPC.AddEffect("target", spell.debuff, turns,
-                                            UnitName("player"))
-        else
-            debuffResisted = true
-        end
+        local turns = SB.Logic.GetEffectDuration(spell.debuff, spell, slotLevel)
+        -- Своё имя в эффект: если дебафф провоцирует, приковано
+        -- существо именно к нам (см. SB.NPC.TauntPenaltyOf).
+        debuffLanded = SB.NPC.AddEffect("target", spell.debuff, turns,
+                                        UnitName("player"))
     end
 
     -- ── Собственный контейнер заклинателя ─────────────────
@@ -185,12 +172,19 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
 
     -- ── Строка боя ────────────────────────────────────────
     local link    = SB.UI.MakeSpellLink(spell)
-    local critTxt = isCrit and (" " .. SB.Theme.MSG_BAD .. "(КРИТ!)|r") or ""
+    local critTxt = ""   -- крит — голой гранью (см. rollTxt ниже)
+    -- ЗАЩИТА ЧИТАЕТСЯ ТЕМ ЖЕ ВИДОМ, ЧТО И АТАКА. Здесь она собиралась
+    -- вручную — «[2] + [+5] (итог 7)», — и в одной строке рядом стояли
+    -- два разных написания одного и того же: атака через RollLine, а
+    -- защита словами. Теперь обе через RollLine: «[7][+21]=28 vs
+    -- Защита: [2][+5]=7».
+    --
+    -- Крит защиты не бросает вовсе: отбить его нельзя, а закреплять
+    -- дебафф броском больше не нужно (см. врезку выше).
     local defTxt  = skipDefense
         and (G .. (guaranteed and " (существо не сопротивляется)"
                                or  " (крит — защиты нет)"))
-        or  (G .. " vs Защита: |r" .. SB.UI.RollText(defRoll) .. G .. " + |r" ..
-             SB.UI.ModText(defMod) .. G .. " (итог " .. defTotal .. ")")
+        or  (G .. " vs Защита: |r" .. SB.UI.RollLine(defRoll, defMod, defTotal, G))
 
     -- ЧЕМ ЗАКРЫЛОСЬ — той же короткой припиской, что у игрока
     -- (см. guardTxt в HandlePvpAttackReceived). Без неё сопротивление
@@ -216,36 +210,25 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
             ((resisted > 0) and "Удар выдержан целиком!" or "Шкура выдержала удар целиком!") ..
             "|r" .. guardTxt
     else
-        outcome = SB.Theme.MSG_BAD .. "Урон: |r" .. SB.UI.AmountText("dmg", dmg)
-        if hpAfter and hpMax then
-            outcome = outcome .. string.format(SB.Theme.MSG_BAD .. " ХП (%d/%d)|r",
-                hpAfter, hpMax)
-        else
-            outcome = outcome .. SB.Theme.MSG_BAD .. " ХП|r"
-        end
-        outcome = outcome .. guardTxt
+        -- Без «(7/42)»: здоровье существа видно на его рамке.
+        outcome = SB.Theme.MSG_BAD .. "Урон: |r" .. SB.UI.AmountText("dmg", dmg) ..
+            SB.Theme.MSG_BAD .. " ХП|r" .. guardTxt
     end
 
-    -- ПОЧЕМУ УДАР ПРОШЁЛ, ХОТЯ ЗАЩИТА ВЫИГРАЛА — та же приписка и тот же
-    -- довод, что в ПвП: без неё строка читается как сбой счёта.
-    if landed and isCrit and not skipDefense and not (total > defTotal) then
-        outcome = outcome .. G .. " | |r" .. SB.Theme.MSG_BAD .. "крит пробил защиту|r"
-    end
 
-    -- ИМЯ ЭФФЕКТА В СТРОКУ НЕ ИДЁТ, только факт — ровно как в ПвП:
-    -- заклинание в этой же строке названо кликабельной ссылкой, и что
-    -- оно вешает, написано в его карточке.
-    if debuffLanded then
-        outcome = outcome .. G .. " Эффект наложен.|r"
-    elseif debuffResisted then
-        outcome = outcome .. G .. " Эффект отведён.|r"
-    end
+    -- ЗДЕСЬ БЫЛИ ПРИПИСКИ «эффект наложен» и «эффект отведён» — ровно
+    -- как в ПвП, и убраны по той же причине: у дебаффа больше нет своего
+    -- броска, и рассказывать нечего. Попал — чары легли, уклонилось —
+    -- не легли, и это следует из самого исхода удара в этой же строке.
 
     SB.Events.Fire(SB.E.BROADCAST_LOG,
         SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. UnitName("player") ..
         " — |r" .. link .. critTxt .. G .. " по " .. npcName ..
-        G .. ": |r" .. SB.UI.RollLine(roll, mod, total, G) .. defTxt ..
-        G .. ". |r" .. outcome, SB.LogRank.ACTION)
+        G .. ": |r" ..
+        ((isCrit and not guaranteed)
+            and (SB.UI.RollText(roll) .. G .. ". |r" .. SB.Theme.MSG_BAD .. "КРИТ!|r ")
+            or  (SB.UI.RollLine(roll, mod, total, G) .. defTxt .. G .. ". |r")) ..
+        outcome, SB.LogRank.ACTION)
 
     SB.Logic.PlayOutcomeSound(landed)
 
@@ -349,11 +332,18 @@ function SB.Logic.ResolveNpcHeal(spellID, slotLevel)
         SB.NPC.AddEffect("target", spell.buff, turns)
     end
 
+    -- ЧАСТИЦА СВЕТА БЕРЁТ ДОЛЮ И С ЛЕЧЕНИЯ СУЩЕСТВА: «даже если
+    -- изначальной целью является кто-то иной» — союзный волк такой же
+    -- «кто-то иной», как и человек (см. SB.Logic.EchoBeacon). Число —
+    -- ДО истощения боя, как и по сети: его вычтет получатель.
+    if success then SB.Logic.EchoBeacon(npcName, amount) end
+
     SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID))
 
     local link    = SB.UI.MakeSpellLink(spell)
+    -- Гарантированное — без «(без сопротивления)»: броска не было.
     local rollTxt = guaranteed
-        and (G .. " (без сопротивления). |r")
+        and (G .. ": |r")
         or  (G .. ": |r" .. SB.UI.RollLine(roll, mod, total, G) ..
              G .. " против " .. threshold .. ". |r")
 
@@ -367,11 +357,7 @@ function SB.Logic.ResolveNpcHeal(spellID, slotLevel)
         local head = isCrit and (SB.Theme.MSG_GOOD .. "Критическое исцеление!|r ")
                              or (SB.Theme.MSG_GOOD .. "Исцеление удалось!|r ")
         outcome = head .. G .. npcName .. " восстанавливает |r" ..
-            SB.UI.AmountText("heal", healed) .. G .. " ХП"
-        if hpAfter and hpMax then
-            outcome = outcome .. string.format(" (%d/%d)", hpAfter, hpMax)
-        end
-        outcome = outcome .. ".|r" .. wearTxt
+            SB.UI.AmountText("heal", healed) .. G .. " ХП.|r" .. wearTxt
     end
 
     SB.Events.Fire(SB.E.BROADCAST_LOG,
@@ -463,16 +449,19 @@ function SB.Logic.ResolveNpcEffect(spellID, slotLevel)
     SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID))
 
     local link    = SB.UI.MakeSpellLink(spell)
+    -- Гарантированное — одной фразой, как у игрока (см. ResolveEffectCast).
     local rollTxt = guaranteed
-        and (G .. " (без сопротивления). |r")
+        and (G .. (success and ".|r" or ". |r"))
         or  (G .. ": |r" .. SB.UI.RollLine(roll, mod, total, G) ..
              G .. " против " .. threshold .. ". |r")
+    local quietOk = guaranteed and success
 
     SB.Events.Fire(SB.E.BROADCAST_LOG,
         SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. UnitName("player") ..
         " применяет к " .. npcName .. " заклинание |r" .. link .. rollTxt ..
-        (success and (SB.Theme.MSG_GOOD .. "Эффект наложен.|r")
-                 or  (SB.Theme.MSG_BAD  .. "Эффект отведён.|r")),
+        (quietOk and ""
+            or (success and (SB.Theme.MSG_GOOD .. "Эффект наложен.|r")
+                        or  (SB.Theme.MSG_BAD  .. "Эффект отведён.|r"))),
         SB.LogRank.ACTION)
 
     SB.Logic.PlayOutcomeSound(success)

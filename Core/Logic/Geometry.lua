@@ -59,6 +59,14 @@ function SB.Logic.GetSpellRange(spell)
     if base <= 0 then return 0 end
     local mod = (SB.ActiveEffects and SB.ActiveEffects.GetMod
                  and SB.ActiveEffects.GetMod("range")) or 0
+    -- ОРУЖИЕ — ПО ВИДУ ПРИЁМА, А НЕ ПО ВИДУ ОРУЖИЯ. Древковое удлиняет
+    -- только ближний бой (2.5 → 4 м), арбалет — только то, что и так
+    -- бьёт дальше вытянутой руки. Вид приёма решает записанная
+    -- дальность: эффект «удлинить руки» ближний бой дальним не делает.
+    if SB.Skills and SB.Skills.GetWeaponBonus then
+        local channel = (base <= MELEE_RANGE) and "meleeRange" or "rangedRange"
+        mod = mod + ((SB.Skills.GetWeaponBonus(channel)) or 0)
+    end
     if mod == 0 then return base end
     return math.max(MELEE_RANGE, base + mod)
 end
@@ -383,7 +391,13 @@ end
 -- собственной заявленной дальности, — карточка в этот момент врала бы.
 -- Разоблачение выражается снятием Скрытности, а не удлинением чужих рук.
 -- ============================================================
-local STEALTH_PER_POINT = 3
+-- ОДИН МЕТР, А НЕ ТРИ. При трёх Скрытность 7 (пять очков, кинжалы и
+-- эффект — набирается легко) отодвигала цель на 21 метр: заклинатель с
+-- дальностью в 30 м должен был подходить почти вплотную, то есть
+-- дальний бой против скрытного переставал быть дальним. Метр за очко
+-- оставляет «подойди ближе», но не «подойди в упор».
+local STEALTH_PER_POINT = 1
+SB.Logic.STEALTH_PER_POINT = STEALTH_PER_POINT
 
 --- Скрытность цели, как её видит целящийся.
 --- Своей таблицы у чужого персонажа нет: значение приезжает сетевым

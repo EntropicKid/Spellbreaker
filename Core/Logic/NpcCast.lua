@@ -295,9 +295,9 @@ function SB.NpcCast.RollFor(stats, unit, spell, versus)
         dmgBonus = dmgBonus + (SB.ActiveEffects.GetNpcDamageMod(unit, spell))
     end
 
-    local roll   = SB.Logic.Roll()
+    local roll, _, rollMax = SB.Logic.RollPlain()
     local total  = roll + mod
-    local isCrit = roll >= SB.Logic.GetCritThreshold(critBonus, 100)
+    local isCrit = roll >= SB.Logic.GetCritThreshold(critBonus, rollMax)
 
     -- База — по кругу самого заклинания. Вливать ресурс существу некуда:
     -- ресурс у него есть, но тратит его Ведущий вручную, а «во сколько
@@ -476,8 +476,10 @@ function SB.NpcCast.Confirm()
     -- ЮНИТ ИЩЕМ ЗАНОВО, по ключу: подсказка, сохранённая при отметке,
     -- к этому мигу уже могла указывать на соседа (см. UnitForKey).
     local npcs = {}
+    -- Ключ самого заклинателя: по нему цикл по существам узнаёт «себя».
+    local selfKey = pending.unit and SB.NPC.SpawnKey(pending.unit)
     for key, t in pairs(pending.npcTargets) do
-        npcs[#npcs + 1] = { unit = UnitForKey(key, t.unit), name = t.name }
+        npcs[#npcs + 1] = { unit = UnitForKey(key, t.unit), name = t.name, key = key }
     end
     table.sort(npcs, function(a, b) return a.name < b.name end)
 
@@ -622,16 +624,27 @@ function SB.NpcCast.Confirm()
         local unit, nm = t.unit, t.name
         local st = SB.NPC.GetState and SB.NPC.GetState(unit)
         local nstats = SB.NPC.StatsForUnit and SB.NPC.StatsForUnit(unit)
+        -- САМ СЕБЕ СОЮЗНИК. Двойное заклинание («Шок небес»: союзника
+        -- лечит, врага жжёт) шло по существу одной веткой — ударом, —
+        -- потому что канал урона проверяется первым (см. KindOf). Самого
+        -- себя существо им и било. У игрока развилку решает пометка
+        -- друга; у существа достоверно известно одно — сам он себе не
+        -- враг. Остальные цели того же залпа идут прежней веткой.
+        local tkind = kind
+        if kind == "attack" and SB.Logic.IsHealingCast(spell)
+           and t.key ~= nil and t.key == selfKey then
+            tkind = "heal"
+        end
         -- Особь могла исчезнуть между отметкой и подтверждением.
         if st and nstats then
-            if kind == "attack" then
+            if tkind == "attack" then
                 -- Против крита не бросаем — пока итогу некуда
                 -- примениться (см. skipDefense в Core/Logic/NPC.lua).
                 local skipDef = guaranteed or (isCrit and not spell.debuff)
                 -- versus — бьющее существо: от своего провокатора цель
                 -- уворачивается как обычно.
                 local defMod  = SB.NPC.DefenseModifier(nstats, unit, pending.npcName)
-                local defRoll = skipDef and 0 or SB.Logic.Roll()
+                local defRoll = skipDef and 0 or SB.Logic.RollPlain()
                 local defTot  = skipDef and 0 or (defRoll + defMod)
                 -- Крит попадает всегда — то же правило, что у игрока
                 -- (см. врезку у landed в HandlePvpAttackReceived).
@@ -652,8 +665,12 @@ function SB.NpcCast.Confirm()
                 -- ДЕБАФФ ОТ ПОПАДАНИЯ — по тому же исходу, что урон, и
                 -- тем же правилом, что у игрока по существу.
                 if landed and spell.debuff then
+                    -- Ноль последним доводом — по той же причине, что
+                    -- выше у одиночного эффекта: Ведущий одалживает
+                    -- существу руки, а не своё «Внушение». Без числа
+                    -- GetEffectDuration принял бы это за свой каст.
                     local turns = SB.Logic.GetEffectDuration(spell.debuff, spell,
-                                                             spell.level)
+                                                             spell.level, 0)
                     SB.NPC.AddEffect(unit, spell.debuff, turns, pending.npcName)
                 end
                 local after = SB.NPC.GetState(unit)
@@ -664,12 +681,12 @@ function SB.NpcCast.Confirm()
                     SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. nm .. ": |r" ..
                     (landed
                         and (SB.Theme.MSG_BAD .. "Урон " .. dmg .. "|r" .. G ..
-                             (after and (" (" .. after.hp .. "/" .. after.maxHp .. ")") or "") ..
+                             -- Без «(7/20)»: здоровье существа на его рамке.
                              ((#guard > 0) and (" — " .. table.concat(guard, ", ")) or "") .. ".|r")
                         or (SB.Theme.MSG_GOOD .. "Уклонилось.|r")),
                     SB.LogRank.ACTION)
 
-            elseif kind == "heal" then
+            elseif tkind == "heal" then
                 -- ЛЕЧЕНИЕ СУЩЕСТВА — от помощи не сопротивляются, порога
                 -- нет вовсе. Ровно та же поблажка, что у лечения игрока
                 -- (см. ветку heal выше): бросок там есть, но отвести его
@@ -683,10 +700,10 @@ function SB.NpcCast.Confirm()
                 SB.Events.Fire(SB.E.BROADCAST_LOG,
                     SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. nm .. ": |r" ..
                     SB.Theme.MSG_GOOD .. "Исцеление " .. amount .. "|r" .. G ..
-                    (after and (" (" .. after.hp .. "/" .. after.maxHp .. ").|r") or ".|r"),
+                    ".|r",
                     SB.LogRank.ACTION)
 
-            elseif kind == "effect" then
+            elseif tkind == "effect" then
                 -- ЭФФЕКТ. Бафф ложится без броска — сопротивляются
                 -- вмешательству, а не помощи; дебафф проверяет порог
                 -- существа, тот же, что у игрока по существу.
@@ -698,7 +715,9 @@ function SB.NpcCast.Confirm()
                 end
                 local ok = guaranteed or (not isDebuff) or (total >= threshold)
                 if ok then
-                    local turns = SB.Logic.GetEffectDuration(effectID, spell, spell.level)
+                    -- Ноль последним доводом: см. соседнюю ветку —
+                    -- навык Ведущего существу не достаётся.
+                    local turns = SB.Logic.GetEffectDuration(effectID, spell, spell.level, 0)
                     ok = SB.NPC.AddEffect(unit, effectID, turns, pending.npcName)
                     if ok then landedOn = landedOn + 1 end
                 end

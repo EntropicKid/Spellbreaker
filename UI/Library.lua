@@ -47,13 +47,13 @@ function SB.Library.GetMode() return libMode end
 --- вместо двух развилок в UpdateList и в сборке меню.
 --- @return table  массив строк-названий
 local function ModeSections()
-    -- РАЗДЕЛЫ РЕМЕСЛА — ЭТО ПРОФЕССИИ. Класс к предмету отношения не
-    -- имеет: зелье носит кто угодно (см. врезку в Core/Items.lua), и
-    -- выбирать здесь надо ремесло, а не школу.
+    -- У ПРЕДМЕТОВ РАЗДЕЛОВ НЕТ ВОВСЕ. Класс к предмету отношения не
+    -- имеет — вещь носит кто угодно, — а ремёсел, по которым их делили,
+    -- больше нет (см. врезку в Core/Items.lua). Один раздел на все:
+    -- выпадающий список с единственной строкой ничего не выбирает, но
+    -- и убирать его отдельной развилкой незачем — он просто не делит.
     if libMode == "items" then
-        local out = {}
-        for _, prof in ipairs(SB.Items.Professions) do out[#out + 1] = prof.name end
-        return out
+        return { "Предметы" }
     end
     if libMode == "npcs" then
         local out = {}
@@ -317,10 +317,7 @@ function SB.Library.UpdateList()
     -- только ОТБОР: что попадает в filtered.
     local itemsMode = (libMode == "items")
     local profID
-    if itemsMode then
-        local prof = SB.Items.Professions[currentClassIndex]
-        profID = prof and prof.id or "alchemy"
-    end
+
 
     -- Фильтрация
     local filtered = {}
@@ -334,7 +331,6 @@ function SB.Library.UpdateList()
         local pass
         if itemsMode then
             pass = SB.Items.IsItem(spell)
-                   and (spell.profession or "alchemy") == profID
         else
             pass = not spell.isContainer and spell.class ~= "Эффект"
                    and not SB.Data.IsSpellHiddenFromLibrary(spell)
@@ -560,24 +556,35 @@ function SB.Library.RefreshDetailButtons()
     -- ПОДПИСЬ ПО СУЩЕСТВУ ДЕЙСТВИЯ. «Подготовить» — про заклинание,
     -- которое держат в голове; склянку кладут в сумку, и называть это
     -- подготовкой значит смешивать две разные ячейки в одном слове.
-    if canPrepare then
-        local isItem = SB.Items.IsItem(spell)
-        f.prepareBtn:SetText(isItem and "В сумку" or "Подготовить")
-        f.unlearnBtn:SetText(isItem and "Выложить" or "Разучить")
-    end
-
     -- «Разучить» — ровно у того, что сейчас в пуле. У неподготовленного
     -- она была бы кнопкой без действия.
     -- У предмета своя сумка, и «Разучить» на нём значит «убрать из
     -- сумки» — кнопка та же, список другой.
+    local isItem = SB.Items.IsItem(spell)
     local prepared
-    if SB.Items.IsItem(spell) then
+    if isItem then
         prepared = SB.Items.IsPrepared(spell.id)
     else
         prepared = canPrepare and SB.PlayerModel.IsPrepared
                    and SB.PlayerModel.IsPrepared(spell.id)
     end
-    f.unlearnBtn:SetShown(prepared and true or false)
+    prepared = prepared and true or false
+    f.unlearnBtn:SetShown(prepared)
+
+    -- ПОДГОТОВЛЕННОЕ ПРИМЕНЯЮТ, А НЕ ГОТОВЯТ ВТОРОЙ РАЗ. Прежде на уже
+    -- подготовленном стояла «Подготовить», и нажатие отвечало только
+    -- «уже подготовлено» — кнопка без действия на самом видном месте.
+    -- Теперь та же кнопка делает то, ради чего открыли карточку: то же,
+    -- что ЛКМ по карточке в колонке (выбор круга) или по ячейке сумки.
+    f._castMode = prepared
+    if canPrepare then
+        if prepared then
+            f.prepareBtn:SetText("Применить")
+        else
+            f.prepareBtn:SetText(isItem and "В сумку" or "Подготовить")
+        end
+        f.unlearnBtn:SetText(isItem and "Выложить" or "Разучить")
+    end
 
     f.editBtn:SetShown(spell.isCustom and true or false)
 
@@ -723,8 +730,10 @@ function SB.Library.ShowDetail(spell)
     -- Длительность (левая колонка, под дескриптором)
     -- -1 значит бессрочно (снимается только Долгим Отдыхом): раньше здесь
     -- стояло «Отсутствует», и карточка прямо противоречила расчёту.
-    -- Положительное число — БАЗОВАЯ длина при касте в свой круг; апкаст
-    -- удваивает её за каждый круг сверх (SB.Logic.GetUpcastMultiplier).
+    -- Положительное число — длина в ходах, и она же окончательная:
+    -- вливания, которое её растягивало, больше нет (см. врезку о нём в
+    -- Core/Logic.lua). Сдвинуть срок может только «Воодушевление»
+    -- заклинателя, и считается оно долей от этого же числа.
     local dur = spell.duration
     local durStr
     if dur == -1 then
@@ -907,7 +916,21 @@ function SB.Library.ShowDetail(spell)
         f.outcomeBox.editBox:SetText(SB.SpellOutcomes.Get(spell.id) or "")
     end
 
-    f.prepareBtn:SetScript("OnClick", function()
+    f.prepareBtn:SetScript("OnClick", function(self)
+        -- Подготовленное — применить (см. врезку у RefreshDetailButtons).
+        if f._castMode then
+            if SB.Items.IsItem(spell) then
+                -- Меню выпадает от самой кнопки, поэтому карточку не
+                -- закрываем: якорь должен остаться на месте.
+                SB.UI.ShowItemUseMenu(self, spell)
+            elseif SB.UI.ShowSlotPicker then
+                -- Карточка своё отработала, а окно выбора круга не должно
+                -- оказаться под ней.
+                f:Hide()
+                SB.UI.ShowSlotPicker(spell.id)
+            end
+            return
+        end
         -- ПРЕДМЕТ КЛАДЁТСЯ В СУМКУ, а не в ячейки заклинаний: у него свои
         -- три места и свой потолок (см. Core/Items.lua). Кнопка одна и та
         -- же — разница только в том, куда кладём.

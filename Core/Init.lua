@@ -97,6 +97,30 @@ end
 
 -- ============================================================
 -- AceDB defaults
+--
+-- УМОЛЧАНИЕ У AceDB — НЕ «ЗАПАСНОЕ ЗНАЧЕНИЕ», А ЧАСТЬ ФОРМАТА ФАЙЛА.
+-- Три свойства, на каждом из которых аддон уже спотыкался:
+--
+--  1. При выходе AceDB ВЫРЕЗАЕТ из файла всё, что совпадает с
+--     умолчанием, а при входе подставляет его обратно. Значит, поменять
+--     умолчание — значит поменять сохранённое значение у каждого, у
+--     кого оно совпадало со старым. Так «1» у атрибутов стала
+--     фантомным очком, когда база сменилась на ноль (миграция v14).
+--
+--  2. Умолчание приходит МЕТАТАБЛИЦЕЙ: pairs() его не видит, rawget —
+--     тоже. Миграция, обходящая таблицу через pairs, пропустит всё, что
+--     лежит в умолчании (так v12 не сдвинула атрибуты на единице).
+--
+--  3. Таблицу с умолчаниями ВНУТРИ нельзя заменять новой: у новой нет
+--     метатаблицы, и до /reload она читается без умолчаний, а после —
+--     с ними. В сессии одно, после перезахода другое.
+--
+-- Поэтому: в умолчания — только то, что не меняет смысла со временем
+-- (пустые таблицы, флаги «ещё не делали», позиции окон). Игровые числа,
+-- которые могут поменяться вместе с правилами, — нет: их базу держит
+-- код (SB.Attributes.Get и родня), а не файл. Проверка прогона гоняет
+-- обе таблицы через настоящую AceDB — выход и вход — и сверяет, что
+-- всё читается как до перезахода.
 -- ============================================================
 local CHAR_DEFAULTS = {
     firstRunDone = false,
@@ -124,8 +148,15 @@ local CHAR_DEFAULTS = {
     -- одной строкой в готовом виде (метки времени, цвета, ссылки) и
     -- обрезан теми же ~24k символов, что и сам EditBox — см. UI/Logs.lua.
     logHistory     = "",
-    attributes     = { ["Сила"] = 1, ["Ловкость"] = 1, ["Выносливость"] = 1,
-                       ["Интеллект"] = 1, ["Характер"] = 1, ["Дух"] = 1 },
+    -- АТРИБУТЫ БЕЗ ЗНАЧЕНИЙ ПО УМОЛЧАНИЮ. Здесь стояли единицы — база
+    -- до 3.1.3, — и после перехода на ноль они стали фантомными очками.
+    -- AceDB при выходе вырезает из файла всё, что совпадает с умолчанием,
+    -- а при входе подставляет его обратно. Сброс писал attributes = {},
+    -- невложенное заново в файл не попадало — и после /reload каждый
+    -- такой атрибут всплывал единицей: «очков на три меньше, чем должно».
+    -- Пустое место и так читается базой (SB.Attributes.Get), и
+    -- подставлять туда нечего. См. миграцию v14.
+    attributes     = {},
     skills         = {},
 	spellOutcomes  = {},
     -- zeal инициализируются динамически ниже
@@ -143,13 +174,13 @@ local CHAR_DEFAULTS = {
 local STARTER_SPELLS = {
     ["Воин"]              = { "heroic_strike", "rend", "battle_shout" },
     ["Охотник"]           = { "raptor_strike", "hunters_mark", "steady_shot" },
-    ["Маг"]               = { "mage_shield", "ghost_sound", "fire_bolt" },
+    ["Маг"]               = { "mage_shield", "frost_bolt", "fire_bolt" },
     ["Разбойник"]         = { "backstab", "sinister_strike", "stealth" },
     ["Жрец"]              = { "inner_fire", "lesser_heal", "smite" },
     ["Чернокнижник"]      = { "corruption", "demonic_swarm", "shadow_bolt" },
     ["Паладин"]           = { "devotionaura", "divine_protection", "holy_light_paladin" },
     ["Друид"]             = { "druid_wrath", "circle_of_fang", "circle_of_paw" },
-    ["Шаман"]             = { "create_water", "earth_sculpting", "riptide" },
+    ["Шаман"]             = { "ritual_practices", "rock_toss", "riptide" },
     ["Охотник на демонов"] = { "chaos_strike", "throw_glaive", "blade_dance" },
     ["Рыцарь смерти"]     = { "death_strike", "rune_strike", "plague_strike" },
     ["Монах"]             = { "tiger_palm", "chi_wave", "blackout_kick" },
@@ -234,6 +265,11 @@ local ACCOUNT_DEFAULTS = {
     -- Секунд на ход. Больше TURN_TIME_MAX означает «ход не ограничен» —
     -- по умолчанию именно так: часы над головой нужны не каждой сцене
     -- (см. SB.TurnOrder.SetTurnTimeLimit).
+    --
+    -- ЛОВУШКА (см. врезку об умолчаниях): «301» значит «без лимита»
+    -- только пока TURN_TIME_MAX = 300. Поднимешь максимум — и у каждого
+    -- Ведущего, кто настройку не трогал, молча появится лимит на ход.
+    -- Держит проверка прогона: умолчание обязано быть выше максимума.
     turnTimeLimit      = 301,
     -- Снят ли предел передвижения на сцене. Решение Ведущего, живёт и
     -- здесь тоже: состояние очереди протухает за три часа, а «как мы
@@ -243,9 +279,16 @@ local ACCOUNT_DEFAULTS = {
     -- автоопределение по имени промахнулось — см. SB.Data.GetRealm
     -- в Core/Database.lua и команду «/sb realm».
     realmOverride      = false,
-    -- rollMin/rollMax здесь больше нет: кубик всегда d100, нижнюю грань
-    -- двигает только раса или класс (см. SB.Logic.GetRollRange).
+    -- rollMin/rollMax здесь больше нет: грани считает
+    -- SB.Logic.GetRollRange из расы, класса, оружия и эффектов.
 }
+
+-- Наружу — только для проверки прогона (круг «выход → вход» через
+-- настоящую AceDB, см. врезку над CHAR_DEFAULTS). Сам аддон читает базу
+-- через SpellbreakerCharDB/SpellbreakerAccountDB, а не отсюда.
+SB.Init = SB.Init or {}
+SB.Init.CHAR_DEFAULTS    = CHAR_DEFAULTS
+SB.Init.ACCOUNT_DEFAULTS = ACCOUNT_DEFAULTS
 
 -- ============================================================
 -- ADDON_LOADED handler
@@ -455,9 +498,19 @@ initFrame:SetScript("OnEvent", function(self, event, loadedAddon)
                 print(T .. G .. "предел передвижения: |r|cFFFFD100" .. CapText() ..
                     "|r" .. G .. " (0 — полное обездвиживание).|r")
             else
+                -- ЗАМОК ЧУЖОГО ХОДА НАЗЫВАЕМ СЛОВАМИ. Счётчик в этот миг
+                -- показывает полный предел, и «пройдено 17 из 17» у
+                -- человека, не сделавшего ни шага, читается как поломка
+                -- шагомера (см. врезку в Core/Movement.lua).
+                local note = ""
+                if SB.Movement.InEntryGrace and SB.Movement.InEntryGrace() then
+                    note = " (начало боя — свободный ход)"
+                elseif SB.Movement.IsPinned and SB.Movement.IsPinned() then
+                    note = " (не ваш ход — счётчик заперт)"
+                end
                 print(T .. G .. string.format(
-                    "пройдено |r|cFFFFD100%.1f м|r%s из |r|cFFFFD100%s|r%s. Команды: reset / default / off / <метры>.|r",
-                    SB.Movement.GetDistance(), G, CapText(), G))
+                    "пройдено |r|cFFFFD100%.1f м|r%s из |r|cFFFFD100%s|r%s%s. Команды: reset / default / off / <метры>.|r",
+                    SB.Movement.GetDistance(), G, CapText(), G, note))
             end
             return
         end
@@ -507,6 +560,16 @@ initFrame:SetScript("OnEvent", function(self, event, loadedAddon)
             " (ваш — " .. SB.PlayerModel.GetMastery() ..
             ", круг до " .. ownOrder ..
             ", у чужих классов — до " .. foreignOrder .. ").|r")
+        -- ЧУЖАЯ ВЫУЧКА — ОТДЕЛЬНОЙ СТРОКОЙ, и только там, где правило
+        -- действует. Это единственная команда, по которой Ведущий
+        -- сверяет, что аддон понял реалм правильно, а молчание о
+        -- закрытых кругах выглядело бы как их отсутствие
+        -- (см. врезку «ЧУЖАЯ ВЫУЧКА» в Core/Database.lua).
+        local nonCasterCap = SB.Data.ForeignNonCasterOrderCap()
+        if nonCasterCap then
+            print(T .. G .. "чужая некастерская выучка: круг до |r|cFFFFD100" ..
+                nonCasterCap .. "|r" .. G .. " (свою школу правило не трогает).|r")
+        end
         if SpellbreakerAccountDB.realmOverride then
             print(T .. G .. "задано вручную. Вернуть автоопределение: |r/sb realm auto")
         else

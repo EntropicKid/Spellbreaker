@@ -18,13 +18,11 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-    distance = 31,
+    distance = 30,
 	scaling = {
 		hit    = { ["Концентрация"] = 1 },
 		crit   = { ["Точность"] = 1 },
-		-- Урон урезан вдвое: выстрел считался от ДВУХ характеристик по
-		-- полному коэффициенту и обгонял всё, что стреляет.
-		damage = { ["Выносливость"] = 0.75, ["Интеллект"] = 0.75 },
+		damage = { ["Выносливость"] = 1 },
 	},
 })
 
@@ -32,7 +30,7 @@ Add({
     id = "raptor_strike",
     name = "Удар ящера",
     key = "Ближний бой",
-    icon = "Interface\\Icons\\Ability_meleedamage",
+    icon = "Interface\\Icons\\Ability_hunter_raptorstrike",
     level = 0,
     class = "Охотник",
     damageType = "physical",
@@ -73,7 +71,7 @@ Add({
     name = "Укус змеи",
     key = "Выстрелы",
     icon = "Interface\\Icons\\Ability_hunter_quickshot",
-    level = 2,
+    level = 1,
     class = "Охотник",
     damageType = "nature",
     -- caura = 4,
@@ -82,14 +80,12 @@ Add({
     resistable = true,
     canCrit = true,
 	debuff = "eff_bleeding_serpent_sting",
-    distance = 31,
-    -- Восемь ходов: яд змеи работает дольше любого другого кровотечения
-    -- в библиотеке, и это его единственное отличие от них.
+    distance = 30,
     duration = 8,
 	scaling = {
 		hit    = { ["Концентрация"] = 1 },
 		crit   = { ["Точность"] = 1 },
-		damage = { ["Выносливость"] = 0.7 },
+		damage = { ["Выносливость"] = 0.65 },
 	},
 })
 
@@ -110,11 +106,11 @@ Add({
     resistable = true,
     canCrit = false,
 	debuff = "eff_slowed_freezing_trap",
-	distance = 13,
+	distance = 20,
     aoe = { radius = 6 },
     duration = 3,
 	scaling = {
-		hit    = { ["Ремесло"] = 1, ["Выживание"] = 0.5 },
+		hit    = { ["Искусность"] = 1, ["Выживание"] = 0.5 },
 	},
 })
 
@@ -132,7 +128,7 @@ Add({
     resistable = true,
     canCrit = true,
 	debuff = "eff_concussive_shot",
-    distance = 31,
+    distance = 30,
     duration = 3,
 	scaling = {
 		hit    = { ["Концентрация"] = 1 },
@@ -153,7 +149,7 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = false,
-    distance = 19,
+    distance = 20,
     duration = 3,
     debuff = "eff_fear_scare_beast",
 	scaling = {
@@ -173,7 +169,7 @@ Add({
     resistable = true,
     canCrit = false,
 	debuff = "eff_demoralized_distracting_shot",
-    distance = 31,
+    distance = 30,
     duration = 3,
 	scaling = {
 		hit    = { ["Концентрация"] = 1 },
@@ -197,7 +193,6 @@ Add({
     isCantrip = true,
     resistable = true,
 	container = "eff_hunters_mark_track_creatures",
-    distance = 0,
     duration = -1,
 	scaling = {
 		hit    = { ["Выживание"] = 1, ["Интуиция"] = 0.5 },
@@ -246,7 +241,6 @@ Add({
     description = "Особый свист, жест или короткая команда, понятная лишь давно обученному зверю. Услышав зов хозяина, питомец немедленно прекращает свои занятия и спешит к нему, готовый защищать, выслеживать добычу или выполнять привычные команды.",
     isCantrip = true,
     resistable = true,
-    distance = 0,
 	duration = -1,
 	container = "eff_call_pet",
 	scaling = {
@@ -268,8 +262,8 @@ Add({
     isHeal = true,
     distance = 2.5,
 	scaling = {
-		hit    = { ["Выживание"] = 2 },
-		crit   = { ["Точность"] = 1 },
+		hit    = { ["Выживание"] = 3 },
+		crit   = { ["Искусность"] = 3 },
 	},
 })
 
@@ -284,7 +278,6 @@ Add({
     description = "Благодаря глубокой духовной связи охотник временно воспринимает мир через органы чувств своего питомца. Пока связь сохраняется, он видит, слышит и ощущает окружающее так, словно сам находится на месте своего зверя, что делает способность незаменимой для разведки и наблюдения.",
     isCantrip = false,
     resistable = true,
-    distance = 0,
     duration = 5,
     container = "eff_eyes_of_the_beast",
 	scaling = {
@@ -321,12 +314,12 @@ Add({
     description = "Охотник выпускает специальный сигнальный снаряд, который, медленно опускаясь, ярко освещает окружающую местность. Ровный свет рассеивает темноту, выдает скрывающихся существ и позволяет внимательно осмотреть территорию даже глубокой ночью или в густом тумане.",
     isCantrip = false,
     resistable = true,
-    distance = 31,
+    distance = 30,
     duration = 3,
     debuff = "eff_flare",
     aoe = { radius = 6 },
 	scaling = {
-		hit    = { ["Ремесло"] = 1, ["Выживание"] = 0.5 },
+		hit    = { ["Искусность"] = 1, ["Выживание"] = 0.5 },
 	},
 })
 
@@ -343,7 +336,8 @@ Add({
     class = "Охотник",
     description = "Охотник читает цель как след: как та переносит вес, куда смотрит, где у неё слабое место в снаряжении. Дальше он бьёт уже не в силуэт, а в найденную щель — и остальные, если он скажет вслух, тоже.",
     isCantrip = true,
-    distance = 41,
+    resistable = false,
+    distance = 50,
     duration = 5,
     debuff = "eff_hunters_mark",
     scaling = {
@@ -363,7 +357,7 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-    distance = 19,
+    distance = 20,
     scaling = {
     	hit    = { ["Концентрация"] = 2 },
 		crit   = { ["Точность"] = 1 },
@@ -376,17 +370,13 @@ Add({
     name = "Отскок",
     key = "Выслеживание",
     icon = "Interface\\Icons\\Ability_rogue_feint",
-    level = 1,
+    level = 0,
     class = "Охотник",
     description = "Охотник отталкивается и уходит спиной вперёд, не разворачиваясь и не теряя цель из вида. Приём для того, кому нужна дистанция, а не укрытие. В тесноте и на краю обрыва выполнять его не стоит.",
     isCantrip = false,
     resistable = false,
-    distance = 0,
-    duration = 2,
+    duration = 1,
     container = "eff_evasion_disengage",
-    scaling = {
-    	hit    = { ["Акробатика"] = 1, ["Выживание"] = 0.5 },
-    },
 })
 
 Add({
@@ -401,7 +391,7 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-    distance = 31,
+    distance = 30,
     aoe = { radius = 6 },
     scaling = {
     	hit    = { ["Концентрация"] = 0.5 },
@@ -420,7 +410,7 @@ Add({
     description = "Наконечник смазан вытяжкой, которая бьёт не по телу, а по способности сосредоточиться. Заклинатель теряет нить сотворяемого заклинания, а собранная сила рассеивается впустую. На тех, кто не колдует, яд действует лишь как жгучая боль.",
     isCantrip = false,
     resistable = true,
-    distance = 31,
+    distance = 30,
     duration = 4,
     debuff = "eff_viper_sting",
     scaling = {
@@ -440,7 +430,7 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-    distance = 41,
+    distance = 30,
     scaling = {
     	hit    = { ["Концентрация"] = 1 },
 		crit   = { ["Точность"] = 1 },
@@ -460,12 +450,12 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-    distance = 13,
+    distance = 20,
     aoe = { radius = 6 },
 	duration = 2,
 	debuff = "eff_explosive_trap",
     scaling = {
-    	hit    = { ["Ремесло"] = 1 },
+    	hit    = { ["Искусность"] = 1 },
     	damage = { ["Выносливость"] = 1 },
     },
 })
@@ -498,7 +488,7 @@ Add({
     description = "Охотник читает существо целиком: чем оно кормится, чего боится, где у него слепое пятно и как оно поведёт себя раненым. Знание работает и на охоте, и в разговоре — с тем, кто не человек, договариваются иначе.",
     isCantrip = false,
     resistable = false,
-    distance = 31,
+    distance = 30,
     duration = 10,
     container = "eff_owl_wisdom_beast_lore",
     scaling = {
@@ -518,7 +508,7 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-    distance = 41,
+    distance = 30,
     duration = 5,
     debuff = "eff_bleeding_black_arrow",
     scaling = {
@@ -557,7 +547,7 @@ Add({
     isCantrip = false,
     resistable = false,
     isConcentration = true,
-    distance = 19,
+    distance = 20,
     duration = 5,
     buff = "eff_hunters_mark_trueshot_aura",
     aoe = { radius = 18 },
@@ -578,7 +568,7 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-    distance = 41,
+    distance = 30,
     scaling = {
     	hit    = { ["Концентрация"] = 1, ["Анализ"] = 1 },
     	crit   = { ["Точность"] = 2 },
@@ -596,7 +586,7 @@ Add({
     description = "Охотник зовёт не одного зверя, а всё, что слышит его на этой земле. Отвечают не все и не сразу, но пришедшие бьются как за своё. Дважды в одном месте на этот зов уже никто не откликается.",
     isCantrip = false,
     resistable = false,
-    distance = 19,
+    distance = 20,
     duration = 4,
     buff = "eff_bloodlust_call_of_the_wild",
     aoe = { radius = 18 },

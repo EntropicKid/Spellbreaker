@@ -141,8 +141,9 @@ local INFO_SLOTS = {
         value = function()
             local cap = SB.Movement.GetCap()
             if cap == SB.Movement.NO_LIMIT then return "∞" end
-            return math.floor((SB.Movement.GetDistance() or 0) + 0.5)
-                .. "/" .. math.floor(cap + 0.5)
+            -- До десятой, как бейдж в шапке (см. SB.Movement.FormatMeters).
+            return SB.Movement.FormatMeters(SB.Movement.GetDistance() or 0)
+                .. "/" .. SB.Movement.FormatMeters(cap)
         end,
         -- Красным, когда предел выбран: в этот момент иконки рядом
         -- гаснут, и цвет объясняет почему.
@@ -221,7 +222,13 @@ end
 local function ButtonTooltip(self)
     local sp = SpellOf(self)
     if not sp then return end
-    if not SB.UI.StartSpellTooltip(self, sp, "ANCHOR_TOP") then return end
+    -- БЕЗ РОЛЕВОГО ОПИСАНИЯ. Панель открывают в бою и наводятся на неё,
+    -- чтобы свериться с числами; абзац художественного текста
+    -- выдавливал их за край экрана, а прочитать его было негде — он и
+    -- так целиком лежит в карточке, которую открывает ПКМ.
+    if not SB.UI.StartSpellTooltip(self, sp, "ANCHOR_TOP", { noDesc = true }) then
+        return
+    end
 
     -- Те же строки, что на карточке в библиотеке: итоговые числа этого
     -- персонажа, а не коэффициенты (см. SB.Logic.GetSpellScalingLines).

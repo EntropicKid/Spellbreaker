@@ -576,6 +576,11 @@ function PM.GetMaxPrepared()
     if SB.Skills and SB.Skills.GetEruditionPreparedBonus then
         total = total + SB.Skills.GetEruditionPreparedBonus()
     end
+    -- Предмет в левой руке (том, сфера) — под тем же потолком, что и всё
+    -- остальное: оружие не пробивает Config.MaxPreparedHard.
+    if SB.Skills and SB.Skills.GetWeaponBonus then
+        total = total + (SB.Skills.GetWeaponBonus("prepared"))
+    end
     local hard = tonumber(SB.Data.Config.MaxPreparedHard) or 15
     return math.max(1, math.min(hard, total))
 end
@@ -630,6 +635,12 @@ function PM.GetMaxZeal()
         base = base + (SB.ActiveEffects.GetMod("maxMana"))
                     + (SB.ActiveEffects.GetMod("maxCastResource"))
     end
+    -- Оружие — теми же двумя каналами, что и эффекты: адресным маны
+    -- (посох) и общим «ресурсом каста» (см. SB.Data.WeaponBonuses).
+    if SB.Skills and SB.Skills.GetWeaponBonus then
+        base = base + (SB.Skills.GetWeaponBonus("maxMana"))
+                    + (SB.Skills.GetWeaponBonus("maxCastResource"))
+    end
     -- Раса И класс разом: GetSoftBonus складывает оба профиля (см.
     -- SB.Data.GetSoftBonus). Здесь раньше стояло ещё и отдельное
     -- слагаемое GetClassProfile().resource — классовый сдвиг попадал
@@ -681,6 +692,12 @@ function PM.GetMaxClassResource()
     if SB.ActiveEffects and SB.ActiveEffects.GetMod then
         base = base + (SB.ActiveEffects.GetMod("maxResource"))
                     + (SB.ActiveEffects.GetMod("maxCastResource"))
+    end
+    -- Оружие — адресным каналом ресурса класса и общим «ресурсом каста».
+    -- Посоха здесь нет: он даёт ману, а не Ярость или Энергию.
+    if SB.Skills and SB.Skills.GetWeaponBonus then
+        base = base + (SB.Skills.GetWeaponBonus("maxResource"))
+                    + (SB.Skills.GetWeaponBonus("maxCastResource"))
     end
     -- Раса + класс одним слагаемым (см. комментарий в PM.GetMaxZeal).
     base = base + SB.Data.GetSoftBonus("resource")
@@ -970,6 +987,38 @@ end
 -- возвращать беглеца в строй.
 -- ============================================================
 
+-- ── ПОПЫТКИ ПОБЕГА ──────────────────────────────────────────
+--
+-- ХРАНИТСЯ ИСТРАЧЕННОЕ, А НЕ ОСТАТОК, — тот же приём, что у брони
+-- (см. врезку о расходе запаса в Core/Skills.lua). Потолок попыток
+-- двигает «Выживание», и остаток пришлось бы поджимать под него: подрос
+-- навык посреди сцены — и «остаток едет за потолком» выдал бы все
+-- попытки заново. От истраченного потолок просто вычитается, и новая
+-- ступень приходит свежей попыткой, а не полным комплектом.
+--
+-- В сохранёнке персонажа, а не в памяти: /reload посреди сцены не
+-- должен возвращать потраченные попытки.
+
+--- Сколько попыток побега уже потрачено (до Долгого Отдыха).
+function PM.GetFleeUsed()
+    return math.max(0, math.floor(tonumber(db().fleeUsed) or 0))
+end
+
+--- Сколько попыток осталось и сколько положено всего.
+--- @return number left, number max
+function PM.GetFleeAttempts()
+    local max = (SB.Skills and SB.Skills.GetFleeAttempts)
+                and SB.Skills.GetFleeAttempts() or 1
+    return math.max(0, max - PM.GetFleeUsed()), max
+end
+
+--- Записать потраченную попытку. Зовётся на КАЖДУЮ попытку — и на
+--- удачную, и на неудачную (см. SB.Logic.Flee).
+function PM.NoteFleeAttempt()
+    db().fleeUsed = PM.GetFleeUsed() + 1
+    SB.Events.Fire("PLAYER_MODEL_CHANGED")
+end
+
 --- Сбежал ли персонаж из текущей сцены.
 function PM.HasFled()
     return db().fled == true
@@ -1150,6 +1199,8 @@ function PM.GetIncomingHealMod()
     if SB.ActiveEffects and SB.ActiveEffects.GetMod then
         mod = mod + SB.ActiveEffects.GetMod("healTaken")
     end
+    -- Раса и класс — тем же ключом, что у эффектов (у Паладина +1).
+    mod = mod + (SB.Data.GetSoftBonus("healTaken") or 0)
     if SB.TurnOrder and SB.TurnOrder.GetHealWear then
         mod = mod - SB.TurnOrder.GetHealWear()
     end
@@ -1191,6 +1242,20 @@ end
 -- игру лечил бы игрока на величину его же собственных сохранённых баффов.
 -- ============================================================
 local lastMaxHealth, lastMaxResource
+-- Доля потолка ресурса, которую даёт оружие (посох). Отдельно — см.
+-- ветку «оружие двигает потолок, но не наливает» в PM.SyncToMaximums.
+local lastWeaponResource
+
+local function WeaponResource()
+    if SB.Skills and SB.Skills.GetWeaponBonus then
+        -- Та же сумма, что у потолка текущего пула (см. GetMaxZeal и
+        -- GetMaxClassResource): у кастера — мана, у некастера — свой.
+        local own = PM.IsCaster() and "maxMana" or "maxResource"
+        return ((SB.Skills.GetWeaponBonus(own)) or 0)
+             + ((SB.Skills.GetWeaponBonus("maxCastResource")) or 0)
+    end
+    return 0
+end
 
 --- Одна и та же арифметика для здоровья и для ресурса.
 --- @return number|nil newValue  nil, если менять нечего
@@ -1260,6 +1325,28 @@ function PM.SyncToMaximums()
             end
         end
     end
+
+    -- ОРУЖИЕ ДВИГАЕТ ПОТОЛОК, НО НЕ НАЛИВАЕТ. Бафф на максимум даёт и
+    -- запас — он стоит каста и снимается рассеиванием. Посох снимается и
+    -- надевается бесплатно, и поступи он так же, каждая пара «снял —
+    -- надел» приносила бы единицу маны: при 2/6 снять (2/5), надеть (3/6)
+    -- — и так до полного. Поэтому сдвиг от оружия переносит опорную точку
+    -- молча: надетый посох даёт место под ману, а саму ману — отдых.
+    -- Снятый срезает лишнее тем же правилом, что и любой спад потолка.
+    local wRes = WeaponResource()
+    if lastMaxResource and lastWeaponResource and wRes ~= lastWeaponResource then
+        local shift = wRes - lastWeaponResource
+        if shift < 0 then
+            local cur = d[resKey] or lastMaxResource
+            local newRes = FollowMax(cur, lastMaxResource, lastMaxResource + shift)
+            if newRes then
+                d[resKey] = math.max(0, newRes)
+                changed = true
+            end
+        end
+        lastMaxResource = lastMaxResource + shift
+    end
+    lastWeaponResource = wRes
 
     if lastMaxResource and maxRes ~= lastMaxResource then
         local newRes = FollowMax(d[resKey] or lastMaxResource, lastMaxResource, maxRes)
@@ -1351,6 +1438,16 @@ SB.Events.On(SB.E.ACTIVE_EFFECTS_CHANGED, PM.SyncToMaximums)
 function PM.IsOwnClassSpell(spellClass)
     if not spellClass or spellClass == "" then return true end
     if spellClass == "Эффект" then return true end
+    -- ЧУЖАЯ ВЫУЧКА, ЗАКРЫТАЯ РЕАЛМОМ, СВОЕЙ НЕ СЧИТАЕТСЯ — даже при
+    -- живом ранге по уровню. Ранг у неё есть всегда (некастерская школа
+    -- открыта всем), и без этой оговорки книга разбойника выглядела бы
+    -- у воина «своей»: подпись класса не красилась бы чужим цветом, а
+    -- отказ подготовить ссылался бы на ранг, который тут ни при чём
+    -- (см. SB.Data.ForeignNonCasterCapFor).
+    if SB.Data.ForeignNonCasterCapFor
+       and SB.Data.ForeignNonCasterCapFor(spellClass) then
+        return false
+    end
     -- «Своё» теперь значит «открытое», а не «совпадает с классом
     -- персонажа»: жрец с паладинским предметом готовит паладинские
     -- заклинания в полную силу (см. врезку о мультиклассе выше).
@@ -1371,7 +1468,20 @@ function PM.GetMaxPrepareOrder(spellClass)
     end
 
     local rank = PM.GetClassRank(spellClass)
-    if rank then return SB.Data.MaxOrderFor(rank) end
+    if rank then
+        local order = SB.Data.MaxOrderFor(rank)
+        -- ЧУЖАЯ НЕКАСТЕРСКАЯ ШКОЛА — ТОЛЬКО ПРИЁМЫ, если реалм так
+        -- решил. Ранг по уровню у неё есть всегда, и без этого зажима
+        -- воин к середине прокачки держал бы почти всю книгу
+        -- разбойника (см. врезку «ЧУЖАЯ ВЫУЧКА» в Core/Database.lua).
+        --
+        -- ЗАЖИМ, А НЕ ЗАМЕНА: если ранг и так открывает меньше, меньше
+        -- и остаётся. Потолок — это предел, а не выдача.
+        local cap = SB.Data.ForeignNonCasterCapFor
+            and SB.Data.ForeignNonCasterCapFor(spellClass)
+        if cap then order = math.min(order, cap) end
+        return order
+    end
 
     -- ЗАКРЫТАЯ ШКОЛА НЕДОСТУПНА ЦЕЛИКОМ, а не «на круг ниже». Минус
     -- единица, а не ноль: ноль — это круг заговоров, вполне рабочий, и
@@ -1520,6 +1630,48 @@ function PM.EvictUnjustifiedSpells()
     return #dropped
 end
 
+--- УДАЛЁННЫЕ ИЗ БИБЛИОТЕКИ — ВОН ИЗ ПОДГОТОВЛЕННЫХ.
+---
+--- Заклинание убрали из данных, а id в сохранёнке остался: в ряду
+--- висела невидимая карточка со знаком вопроса, и занимала она место в
+--- лимите подготовки. Встроенное неизвестное — значит удалённое: его
+--- id жил в файлах аддона, и никто его больше не пришлёт.
+---
+--- Кастомное (custom_…) НЕ ТРОГАЕМ: неизвестно оно может быть и
+--- потому, что ещё не приехало по сети. Судить о том, чего не видим,
+--- нельзя (та же оговорка, что в EvictUnjustifiedSpells).
+---
+--- Замок после каста здесь не действует: это не пересбор, а уборка
+--- того, чего нет.
+--- @return number  сколько убрано
+function PM.EvictDeletedSpells()
+    local d = db()
+    local list = d and d.preparedSpells
+    if type(list) ~= "table" or #list == 0 then return 0 end
+    local kept, dropped = {}, {}
+    for _, id in ipairs(list) do
+        if SB.Data.Spells[id] or tostring(id):match("^custom_") then
+            kept[#kept + 1] = id
+        else
+            dropped[#dropped + 1] = tostring(id)
+        end
+    end
+    if #dropped == 0 then return 0 end
+    d.preparedSpells = kept
+    print("|cFF9933FF[Spellbreaker]|r: |cFFFF4444убраны из подготовленных — " ..
+        "их больше нет в библиотеке: |r" .. table.concat(dropped, ", ") ..
+        "|cFFFF4444.|r")
+    SB.Events.Fire("PREPARED_SPELLS_CHANGED")
+    SB.Events.Fire(SB.E.STATUS_CHANGED)
+    return #dropped
+end
+
+-- Следующим кадром после старта: к этому моменту свои кастомные
+-- заклинания уже подняты из сохранёнки (SB.CustomSpells.Init).
+SB.Events.On("SB_INIT", function()
+    C_Timer.After(0, PM.EvictDeletedSpells)
+end)
+
 --- Полностью очищает список подготовленных заклинаний.
 --- Возвращает true при успехе, false если заблокировано (после каста —
 --- как и остальные изменения подготовки, требует предварительного отдыха).
@@ -1649,6 +1801,13 @@ function PM.FullReset()
     -- вообще всё, и персонаж, вставший после ночного привала уже упёртым
     -- в предел передвижения, был бы очевидной поломкой.
     if SB.Movement then SB.Movement.ResetDistance() end
+    -- Попытки побега — тоже запас на сцену, и возвращает их ровно то же,
+    -- что и доспех: Долгий Отдых, и больше ничего. nil, а не ноль: не
+    -- копим в сохранёнке поле, которое значит «ничего не потрачено».
+    db().fleeUsed = nil
+    -- Запас срывов Воли — третий запас на сцену рядом с бронёй и
+    -- побегом, и возвращает его то же самое (см. SB.Skills.RestoreWill).
+    if SB.Skills and SB.Skills.RestoreWill then SB.Skills.RestoreWill() end
     SB.Events.Fire("PLAYER_MODEL_CHANGED")
     PM.SetLocked(false)
 end

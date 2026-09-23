@@ -572,6 +572,18 @@ local function BuildSkillRow(parent, attrKey, skillName, yOff)
         -- этого ответа в подсказку и заглядывают.
         if SB.ActiveEffects and SB.ActiveEffects.GetStatMod then
             local delta, parts = SB.ActiveEffects.GetStatMod(skillName)
+            -- Оружие — строками той же разбивки («Меч ×2 +4»): игрок
+            -- должен видеть, откуда в значении прибавка, которую он не
+            -- вкладывал (см. SB.Skills.GetWeaponStatBonus).
+            if SB.Skills.GetWeaponStatBonus then
+                local wDelta, wParts = SB.Skills.GetWeaponStatBonus(skillName)
+                if wDelta ~= 0 then
+                    local merged = {}
+                    for _, p in ipairs(parts or {}) do merged[#merged + 1] = p end
+                    for _, p in ipairs(wParts) do merged[#merged + 1] = p end
+                    delta, parts = delta + wDelta, merged
+                end
+            end
             if delta ~= 0 then
                 GameTooltip:AddLine(" ")
                 GameTooltip:AddLine("|cFFFFD100Что на него влияет:|r", 1, 0.82, 0)
@@ -582,11 +594,16 @@ local function BuildSkillRow(parent, attrKey, skillName, yOff)
                 end
 
                 -- ПРЕДУПРЕЖДЕНИЕ О ШТРАФЕ — одной строкой и без отбивки.
-                -- Значение ниже единицы не просто «мало», а работает в
-                -- минус: по одному числу в строке этого не понять, «0»
-                -- выглядит как «ничего не даёт», а не как «отнимает».
-                if SB.Skills.GetEffective(skillName) < 1 then
-                    GameTooltip:AddLine("Ниже 1 навык работает в минус.",
+                -- Значение ниже базы не просто «мало», а работает в
+                -- минус: по одному числу в строке этого не понять, «−1»
+                -- выглядит как «чуть меньше ничего», а не как «отнимает».
+                --
+                -- ОТ ОБЩЕЙ БАЗЫ, а не от голой единицы (см.
+                -- SB.Data.STAT_BASE): с базой в ноль прежнее «< 1»
+                -- вешало бы это предупреждение на каждый невложенный
+                -- навык, то есть почти на весь лист.
+                if SB.Skills.GetEffective(skillName) < (SB.Data.STAT_BASE or 0) then
+                    GameTooltip:AddLine("Ниже нуля навык работает в минус.",
                         1, 0.4, 0.4, true)
                 end
             end
@@ -595,6 +612,30 @@ local function BuildSkillRow(parent, attrKey, skillName, yOff)
         if SB.Skills.GetPending(skillName) ~= SB.Skills.Get(skillName) then
             GameTooltip:AddLine(" ")
             GameTooltip:AddLine("Изменение не подтверждено — бонус пока не работает.", 1, 0.82, 0, true)
+        end
+
+        -- ЗАПАС СРЫВОВ — ТЕМ ЖЕ ВИДОМ, ЧТО ЗАПАС БРОНИ. Оба устроены
+        -- одинаково (надетое плюс наведённое, расход до Долгого Отдыха,
+        -- см. SB.Data.Pools), и читаться в подсказке должны одинаково:
+        -- разный вид у одного и того же означал бы, что это разное.
+        if skillName == "Воля" and SB.Skills.GetWillLeft then
+            local left, max = SB.Skills.GetWillLeft(), SB.Skills.GetWillMax()
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddDoubleLine("Запас срывов",
+                left .. " / " .. max .. " оч.", 1, 0.82, 0, 1, 0.82, 0)
+            GameTooltip:AddLine(
+                "Срыв снимает контроль целиком и стоит столько очков, " ..
+                "каков круг заклинания. Вернёт Долгий Отдых.",
+                0.6, 0.6, 0.6, true)
+            -- ЧЕМ ИМЕННО ПОДНЯТ ИЛИ СБИТ — только когда есть о чём.
+            -- «Оберег от страха» даёт свои срывы, «Покаяние» отнимает, и
+            -- увидеть это надо там же, где смотрят остаток.
+            local ward = SB.Skills.PoolFromEffects and SB.Skills.PoolFromEffects("will") or 0
+            if ward ~= 0 then
+                GameTooltip:AddLine(
+                    ((ward > 0) and "Чары прибавляют: +" or "Чары отнимают: ") .. ward,
+                    (ward > 0) and 0.4 or 1, (ward > 0) and 1 or 0.4, 0.4, true)
+            end
         end
 
         -- Для «Ношения брони» дополнительно показываем, что реально

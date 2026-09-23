@@ -165,9 +165,9 @@ end
 -- /reload очередь — это не событие, а обстановка.
 -- ============================================================
 local lastActive, lastMyTurn = nil, nil
--- Под каким кругом уже обнуляли путь. Через номер, а не через «пришёл
--- пакет»: состояние рассылается и внутри круга тоже.
-local lastRound = nil
+-- «Сцена:круг» на прошлом расчёте — чтобы заметить смену круга. Через
+-- номер, а не через «пришёл пакет»: состояние рассылается и внутри круга.
+local lastRoundKey = nil
 
 local function NotifyTransitions()
     local active = state.active
@@ -175,39 +175,97 @@ local function NotifyTransitions()
 
     if lastActive ~= nil and lastActive ~= active then
         SB.UI.ScreenNotice(active and "Пошаговый режим" or "Свободный ход")
+        -- ВХОД В РЕЖИМ — ЭТО НЕ КОМАНДА «ЗАМРИ». Пара секунд даётся на
+        -- то, чтобы прочитать объявление и остановиться: метры этих
+        -- секунд не идут ни в счётчик, ни в усталость. По истечении
+        -- окна счётчик запирается у всех, кроме того, чей ход
+        -- (см. SB.Movement.StartEntryGrace).
+        if active and SB.Movement and SB.Movement.StartEntryGrace then
+            SB.Movement.StartEntryGrace()
+        end
     end
-    -- Именно false, а не «не true»: nil означает «первый расчёт за
-    -- сессию», и объявлять по нему нечего.
-    -- ПУТЬ ОБНУЛЯЕТСЯ НА НОВОМ КРУГЕ, А НЕ В НАЧАЛЕ СВОЕГО ХОДА.
+    -- ============================================================
+    -- ХОДИШЬ ТОЛЬКО В СВОЙ ХОД
     --
-    -- Предел передвижения — запас на ВЕСЬ КРУГ, и тратит его игрок
-    -- когда угодно: до своего хода, во время и после. Пока сброс стоял
-    -- на начале собственного хода, метры делились на «до» и «после»
-    -- бесплатной чертой — отбежал после своего действия, и к своему
-    -- следующему ходу счётчик уже чист. То есть половина круга не
-    -- стоила ничего, и чем дальше игрок стоял в очереди, тем больше он
-    -- мог пройти даром.
+    -- Правило целиком расписано в шапке Core/Movement.lua; здесь только
+    -- то место, где оно включается. Дошла очередь — счётчик обнуляется и
+    -- весь предел твой; походил или ещё не твой черёд — счётчик заперт.
     --
-    -- Круг один на всех, и обнуляется он у всех разом: у Ведущего —
-    -- своим NewRound, у остальных — этим же местом по номеру круга из
-    -- его пакета.
-    if active and lastRound ~= state.round then
-        lastRound = state.round
-        if SB.Movement then SB.Movement.ResetDistance() end
+    -- СЧИТАЕМ ПО СОСТОЯНИЮ, А НЕ ПО ПЕРЕХОДУ, и сравниваем с тем, что
+    -- уже стоит в сохранёнке (SB.Movement.IsPinned). Так /reload посреди
+    -- сцены ничего не ломает, а повторные пакеты от Ведущего — их в
+    -- круге приходит несколько — не обнуляют счётчик заново.
+    --
+    -- НЕ ЧЕРЕЗ CanActLocal: тот отвечает false ещё и пока в пути заявка
+    -- Ведущему или итог своего удара, и счётчик запирался бы на середине
+    -- собственного хода. Спрашиваем очередь напрямую: мой слот и я ещё
+    -- не отмечен походившим.
+    --
+    -- «ВСЕ СРАЗУ» ЖИВЁТ ПО-СТАРОМУ: своих ходов там нет, запирать
+    -- нечего, и черта остаётся прежней — конец своего хода
+    -- (см. SB.Movement.NoteTurnClosed).
+    -- ============================================================
+    local me = UnitName("player")
+    -- ЕСТЬ ЛИ Я В ОЧЕРЕДИ ВООБЩЕ. Подключившийся посреди сцены в слотах
+    -- не стоит: своего хода у него нет, значит нет и окна, которое
+    -- можно закрыть, — а без черты путь копился бы без конца, и первый
+    -- же свой ход начинался бы с упора. Такому черта прежняя, по концу
+    -- круга, ровно как в режиме «все сразу».
+    local listed = false
+    for _, slot in ipairs(state.slots) do
+        for _, n in ipairs(slot) do
+            if n == me then listed = true end
+        end
+    end
+
+    local ordered = active and state.mode ~= "all" and listed
+    -- СВОЙ ХОД ОТКРЫТ — значит окно передвижения тоже. Закрылся он
+    -- отметкой acted (её ставит и действие, и пропуск, и передача
+    -- очереди Ведущим) или тем, что очередь ушла дальше.
+    local myTurnOpen = ordered and TO.IsCurrent(me) and not state.acted[me]
+    local pin = ordered and not myTurnOpen or false
+
+    -- СВЕРЯЕМ ВСЕГДА, А НЕ ТОЛЬКО В СВОЕЙ ВЕТКЕ. Ведущий может вынуть
+    -- игрока из очереди, переключить режим или выключить сцену прямо
+    -- посреди сцены — и запертый счётчик остался бы запертым навсегда,
+    -- то есть персонаж перестал бы ходить вовсе.
+    --
+    -- ЧЕРЕЗ IsTurnPinned, А НЕ IsPinned. Второй в первые секунды боя
+    -- отвечает «не заперто» ВСЕГДА — там окно, в которое ходят все, —
+    -- и сверка в эти секунды могла флаг только поставить, но не снять.
+    -- Достаточно было одного пакета, в котором черёд ещё не дошёл, и
+    -- первый ходящий встречал свой ход запертым (см. врезку «ДВА
+    -- ВОПРОСА» в Core/Movement.lua).
+    if SB.Movement and SB.Movement.PinTurn then
+        local locked = SB.Movement.IsTurnPinned and SB.Movement.IsTurnPinned()
+                    or SB.Movement.IsPinned()
+        if pin and not locked then
+            SB.Movement.PinTurn()
+        elseif not pin and locked then
+            SB.Movement.FillBudget()
+        end
+    end
+
+    if ordered then
+        -- НОМЕР КРУГА ВЕДЁМ И ЗДЕСЬ, хотя сами по нему ничего не решаем:
+        -- Ведущий волен переключить режим посреди сцены, и вторая ветка
+        -- должна увидеть настоящий прошлый круг, а не пустоту.
+        lastRoundKey = (state.session or 0) .. ":" .. (state.round or 0)
+    elseif active and SB.Movement and SB.Movement.NoteTurnClosed then
+        local key = (state.session or 0) .. ":" .. (state.round or 0)
+        if lastRoundKey and lastRoundKey ~= key then
+            SB.Movement.NoteRoundPassed(lastRoundKey)
+        end
+        lastRoundKey = key
+        if state.acted[me] then
+            SB.Movement.NoteTurnClosed(key)
+        end
     elseif not active then
-        lastRound = nil
+        lastRoundKey = nil
     end
 
     if myTurn and lastMyTurn == false then
         SB.UI.ScreenNotice("Ваш ход")
-        -- НАЧАЛ ХОД БЕЗ ЗАПАСА ПЕРЕДВИЖЕНИЯ — ХОД ПРОПУЩЕН. Метры
-        -- кончились ещё до своего черёда, а действовать выбравшись из
-        -- предела нельзя (см. SB.Movement.CheckCanAct): держать такой
-        -- ход открытым значит заставлять игрока нажимать «пропустить»
-        -- вручную и держать очередь.
-        if SB.Movement and SB.Movement.AutoSkipIfExhausted then
-            SB.Movement.AutoSkipIfExhausted()
-        end
     end
 
     lastActive, lastMyTurn = active, myTurn
@@ -412,8 +470,26 @@ function TO.HasPendingRequest()
     return pendingRequest == true
 end
 
+-- ИТОГ СВОЕГО УДАРА ДЕРЖИТ ХОД — тот же замок, что у заявки, но свой
+-- флаг: удар по игроку разрешается не у Ведущего, а у цели, и ход
+-- тратится, когда итог пришёл (см. SB.Logic.HoldTurnUntilResult).
+-- Пока ждём, второе действие закрыто: иначе можно было бы ударить
+-- дважды за один ход, пока первый ответ в пути.
+local awaitingResult = false
+
+function TO.IsAwaitingResult() return awaitingResult == true end
+
+--- @param v boolean
+function TO.SetAwaitingResult(v)
+    v = v and true or false
+    if awaitingResult == v then return end
+    awaitingResult = v
+    SB.Events.Fire(SB.E.TURN_ORDER_CHANGED)
+end
+
 function TO.CanActLocal()
     if state.active and pendingRequest then return false end
+    if state.active and awaitingResult then return false end
     return TO.CanAct(UnitName("player"))
 end
 
@@ -424,6 +500,8 @@ function TO.CheckCanAct()
     local key
     if state.active and pendingRequest then
         key = "turnRequestPending"
+    elseif state.active and awaitingResult then
+        key = "turnAwaitingResult"
     elseif TO.HasActed(UnitName("player")) then
         key = "turnAlreadyActed"
     else
@@ -821,7 +899,15 @@ function TO.ApplyRemoteState(t)
     local wasActive = state.active
     state.active = t.active == true
     if wasActive ~= state.active and SB.Movement then
-        SB.Movement.ResetDistance()
+        -- FillBudget, а не ResetDistance: смена режима снимает и замок
+        -- чужого хода. В свободной игре его быть не должно вовсе, а на
+        -- входе в пошаговый он сейчас же встанет заново по очереди
+        -- (см. NotifyTransitions).
+        if SB.Movement.FillBudget then
+            SB.Movement.FillBudget()
+        else
+            SB.Movement.ResetDistance()
+        end
     end
     state.mode    = IsValidMode(t.mode) and t.mode or DEFAULT_MODE
     state.round   = tonumber(t.round) or 0
@@ -1267,9 +1353,8 @@ function TO.Start()
     if SB.PlayerModel and SB.PlayerModel.SetFled then
         SB.PlayerModel.SetFled(false)
     end
-    -- Своего обнуления пути здесь больше нет: путь сбрасывается по
-    -- СМЕНЕ НОМЕРА КРУГА (см. NotifyTransitions), а TO.NewRound ниже
-    -- этот номер и двигает — одинаково у Ведущего и у остальных.
+    -- Своего обнуления пути здесь больше нет: путь сбрасывается, когда
+    -- закрывается свой ход (см. NotifyTransitions).
     Announce("Пошаговый режим включён (" .. TO.ModeLabel() .. ").")
     TO.NewRound(true)
 end
@@ -1280,7 +1365,15 @@ function TO.Stop()
     state.active = false
     state.slots, state.acted, state.skipped = {}, {}, {}
     state.index, state.round = 0, 0
-    if SB.Movement then SB.Movement.ResetDistance() end
+    -- FillBudget, а не ResetDistance: конец сцены снимает и ЗАМОК, не
+    -- только метры. ResetDistance замка не трогает намеренно (путь
+    -- стирают из полудюжины мест), и своего пакета Ведущий не получает —
+    -- значит флаг дожил бы у него до следующей сцены и запер бы его там
+    -- с первого же круга.
+    if SB.Movement then
+        if SB.Movement.FillBudget then SB.Movement.FillBudget()
+        else SB.Movement.ResetDistance() end
+    end
     Broadcast()
     Changed()
     Announce("Пошаговый режим выключен — ходят все и в любом порядке.")
@@ -1360,10 +1453,11 @@ function TO.Advance()
     -- «ХОД ПЕРЕХОДИТ ДАЛЬШЕ. ХОДИТ: ИРИНА.» — первая фраза целиком
     -- содержится во второй: если названа Ирина, то ход к ней и перешёл.
     -- Остаётся она только тогда, когда назвать некого.
+    -- Следующий по очереди тоже может лежать — пролистываем ДО
+    -- объявления (см. ту же правку в MarkActed).
+    if SkipDownedSlots() > 0 then return end
     local who = CurrentText()
     Announce(who and ("Ходит: " .. who .. ".") or "Ход переходит дальше.")
-    -- Следующий по очереди тоже может лежать.
-    SkipDownedSlots()
 end
 
 --- Отметить, что игрок походил. У Ведущего — точка сборки: сюда
@@ -1415,10 +1509,13 @@ function TO.MarkActed(name, quiet)
         Announce("Круг пройден.")
         return
     end
+    -- Ход мог достаться павшему — СНАЧАЛА пролистываем его, потом
+    -- объявляем. Наоборот выходило две строки об одном: «Ходит: Аудемира,
+    -- Уоренс.» и тут же «Без сознания, ход пропущен: Аудемира. Ходит:
+    -- Уоренс.». Пролистывание объявляет итог само.
+    if SkipDownedSlots() > 0 then return end
     local who = CurrentText()
     if who then Announce("Ходит: " .. who .. ".") end
-    -- Ход мог достаться павшему — его очередь пролистывается сама.
-    SkipDownedSlots()
 end
 
 -- ============================================================
@@ -1448,8 +1545,8 @@ local skippingDowned = false
 function SkipDownedSlots(announceNext)
     -- По умолчанию объявляем: молчит ровно один вызов — из нового круга.
     if announceNext == nil then announceNext = true end
-    if skippingDowned then return end          -- MarkActed ниже зовёт нас обратно
-    if not state.active or not AssertGM() then return end
+    if skippingDowned then return 0 end        -- MarkActed ниже зовёт нас обратно
+    if not state.active or not AssertGM() then return 0 end
     skippingDowned = true
 
     local closed, reason = {}, {}
@@ -1503,7 +1600,7 @@ function SkipDownedSlots(announceNext)
     end
 
     skippingDowned = false
-    if #closed == 0 then return end
+    if #closed == 0 then return 0 end
 
     -- MarkActed разослал их как «походивших» — поправляем на «пропущен».
     -- Пакет короткий (см. BroadcastMark), и он же чинит зеркала.
@@ -1536,6 +1633,9 @@ function SkipDownedSlots(announceNext)
     if #fled > 0 then
         Announce("Сбежал из боя, ход пропущен: " .. table.concat(fled, ", ") .. "." .. tail)
     end
+    -- Сколько пролистано: вызывающий по этому числу решает, объявлять ли
+    -- «Ходит» самому (объявили уже здесь, с итогом).
+    return #closed
 end
 
 --- Своё действие состоялось (зовётся из SB.Logic.SpendTurn — через неё

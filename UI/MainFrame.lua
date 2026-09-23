@@ -504,7 +504,7 @@ local function BuildMainFrame()
         -- КАЖДЫЙ ключ, встречающийся в профилях рас и классов, был здесь.
         -- Порядок остаётся ручным (он про читаемость), полнота — нет.
         local ROW_ORDER = {
-            "health", "resource", "attack", "defense", "heal",
+            "health", "resource", "attack", "defense", "heal", "healTaken",
             "prepared", "rollFloor", "armor", "skillPoints",
             "attrPoints", "moveCap",
         }
@@ -525,6 +525,7 @@ local function BuildMainFrame()
             -- выдаёт, а не то, что получает (см. SB.Logic.GetHealBonus).
             -- Без уточнения жрец читал бы это как «меня лучше лечат».
             heal     = "Исцеление (исходящее)",
+            healTaken = "Исцеление (получаемое)",
             -- Ресурс у каждого класса зовётся по-своему (Мана, Ярость,
             -- Фокус...) — обобщённое «Максимум ресурса» уместно только
             -- в расовом блоке, где класс ещё неизвестен.
@@ -576,6 +577,19 @@ local function BuildMainFrame()
         if hasRace then
             GameTooltip:AddLine(" ")
             ProfileBlock(UnitRace("player") .. " — расовые особенности:", raceProf)
+        end
+
+        -- ОРУЖИЕ — третьим блоком, рядом с кровью и классом: это тоже
+        -- «откуда у меня эта цифра», только снимается оно одной кнопкой
+        -- (см. SB.Data.WeaponBonuses). Пусто — блока нет.
+        local weaponRows = SB.Skills.DescribeWeaponBonuses and SB.Skills.DescribeWeaponBonuses() or {}
+        if #weaponRows > 0 then
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine("Оружие в руках:", 1, 0.82, 0)
+            for _, row in ipairs(weaponRows) do
+                GameTooltip:AddDoubleLine("  " .. row.label, row.text,
+                    0.9, 0.9, 0.9, 0.4, 1, 0.4)
+            end
         end
 
         GameTooltip:AddLine(" ")
@@ -665,6 +679,25 @@ local function BuildMainFrame()
         GameTooltip:AddLine(" ")
         local totalSign = (total >= 0) and "+" or ""
         GameTooltip:AddDoubleLine("Итого", totalSign .. total, 1, 0.82, 0, 1, 0.82, 0)
+        -- БРОНЯ — ОДНОЙ СТРОКОЙ У ЗАЩИТЫ. К броску она не прибавляется
+        -- (уворот — это Акробатика), но отвечает на соседний вопрос — «что
+        -- будет, если всё-таки попадут», — и своей плашки в шапке главного
+        -- окна у неё нет. Подробности — в подсказке «Ношения брони».
+        if scope == "defense" and SB.Skills and SB.Skills.GetArmorPoints then
+            GameTooltip:AddDoubleLine("Броня",
+                SB.Skills.GetArmorPoints() .. "/" .. SB.Skills.GetArmorMax(),
+                0.9, 0.9, 0.9, 1, 1, 1)
+            -- ВОЛЯ — ТУДА ЖЕ, И ПО ТОЙ ЖЕ ПРИЧИНЕ. Это второй запас на
+            -- сцену, он тоже не прибавляется к броску и тоже отвечает на
+            -- «что будет, если всё-таки попадут»: броня держит удар,
+            -- Воля стряхивает чары. Своей плашки в шапке у неё нет, и
+            -- без этой строки остаток срывов негде увидеть.
+            if SB.Skills.GetWillLeft then
+                GameTooltip:AddDoubleLine("Воля (срывы)",
+                    SB.Skills.GetWillLeft() .. "/" .. SB.Skills.GetWillMax(),
+                    0.9, 0.9, 0.9, 1, 1, 1)
+            end
+        end
         if scope == "attack" then
             GameTooltip:AddLine(" ")
             -- МАСТЕРСТВО ШКОЛЫ ЗДЕСЬ ЖЕ, среди условных слагаемых: с
@@ -779,14 +812,33 @@ local function BuildMainFrame()
         GameTooltip:AddDoubleLine("Пройдено", string.format("%.1f м", walked), 0.9,0.9,0.9, 1,1,1)
         if SB.Movement.HasLimit() then
             GameTooltip:AddDoubleLine("Предел",
-                string.format("%.0f м", SB.Movement.GetCap()), 0.9,0.9,0.9, 1,1,1)
+                SB.Movement.FormatMeters(SB.Movement.GetCap()) .. " м", 0.9,0.9,0.9, 1,1,1)
             GameTooltip:AddDoubleLine("Осталось",
                 string.format("%.1f м", SB.Movement.GetRemaining()), 0.9,0.9,0.9, 1, 0.82, 0)
         else
             GameTooltip:AddDoubleLine("Предел", "снят Ведущим", 0.9,0.9,0.9, 1, 0.82, 0)
         end
+        -- Одной строкой, в том же столбце, что метры: побег — тоже про
+        -- ноги, и искать его рядом с запасом хода естественно. Подробности
+        -- — в подсказке самой кнопки побега.
+        local fleeLeft, fleeMax = SB.PlayerModel.GetFleeAttempts()
+        GameTooltip:AddDoubleLine("Попыток побега", fleeLeft .. "/" .. fleeMax,
+            0.9,0.9,0.9, 1,1,1)
         GameTooltip:AddLine(" ")
-        if SB.Movement.BlocksAction() then
+        -- ЗАМОК ОБЪЯСНЯЕМ ПЕРВЫМ. Счётчик в этот миг показывает полный
+        -- предел и краснеет — ровно как при выхоженном запасе, — а
+        -- значит совсем другое: ход не ваш. Без строки игрок читает
+        -- красную цифру как «я всё выбегал» и идёт искать, куда делись
+        -- метры, которых он не тратил.
+        if SB.Movement.InEntryGrace and SB.Movement.InEntryGrace() then
+            GameTooltip:AddLine("Начало боя — пара секунд свободного хода.",
+                0.4, 1, 0.4, true)
+        elseif SB.Movement.IsPinned and SB.Movement.IsPinned() then
+            GameTooltip:AddLine("Не ваш ход — передвижения нет: весь предел даётся в свой ход.",
+                1, 0.82, 0, true)
+            GameTooltip:AddLine("Шаг всё равно возможен, но обойдётся усталостью.",
+                0.6, 0.6, 0.6, true)
+        elseif SB.Movement.BlocksAction() then
             GameTooltip:AddLine("Предел выбран — применить способность нельзя.", 1, 0.4, 0.4, true)
         elseif SB.Movement.IsExhausted() then
             -- Метры кончились, но предел срезан — значит действие при
@@ -798,7 +850,7 @@ local function BuildMainFrame()
             GameTooltip:AddLine("Выберете предел — до конца хода останется только пропустить ход.",
                 0.6, 0.6, 0.6, true)
         end
-        GameTooltip:AddLine("Любое действие обнуляет путь: каст, лечение, отдых.",
+        GameTooltip:AddLine("Счётчик обнуляется, когда доходит ваша очередь.",
             0.6, 0.6, 0.6, true)
         GameTooltip:AddLine(" ")
         GameTooltip:AddLine("|cFFFFD100ЛКМ|r — пропустить ход: путь обнуляется, +1 " ..
@@ -918,14 +970,21 @@ local function BuildMainFrame()
     -- Доступность считается при КАЖДОМ раскрытии, а не на обновлении
     -- окна: меню закрыто почти всегда, и трогать его кнопки незачем.
     local function RefreshSpecialMenu()
-        local fled = SB.PlayerModel.HasFled and SB.PlayerModel.HasFled()
+        local PM   = SB.PlayerModel
+        local fled = PM.HasFled and PM.HasFled()
         if fled then
             fleeItem:Disable()
             fleeItem:SetText("Вы вне боя")
-        else
-            fleeItem:Enable()
-            fleeItem:SetText("Побег из боя")
+            return
         end
+        -- СЧЁТЧИК ПРЯМО НА КНОПКЕ: решение «бежать или нет» принимается
+        -- ровно здесь, и узнать, сколько попыток осталось, надо до
+        -- нажатия, а не из отказа после него.
+        local left, max = PM.GetFleeAttempts()
+        fleeItem:SetText(string.format("Побег из боя (%d/%d)", left, max))
+        -- Кончились — кнопка гаснет, но счётчик остаётся: «0/2» говорит,
+        -- почему нельзя, а пустая серая кнопка — нет.
+        if left > 0 then fleeItem:Enable() else fleeItem:Disable() end
     end
 
     shortRestBtn:SetScript("OnClick", function()
@@ -1237,8 +1296,30 @@ local function BuildMainFrame()
 
     SB.Events.On("ACTIVE_EFFECTS_CHANGED", UpdateEffColumnShown)
 
+    -- ── И СУМКУ ТОЖЕ — ПО ТОМУ ЖЕ ПРАВИЛУ ─────────────────
+    --
+    -- Пустая колонка не должна ни занимать место в докнутой раскладке,
+    -- ни висеть пустым плавающим окном на экране. У эффектов это было с
+    -- самого начала, а сумка висела всегда — и чаще всего пустой: ячейки
+    -- наполняются кастом (сотворённое) или сбором перед выходом, а у
+    -- большинства персонажей в сцене нет ни того, ни другого.
+    --
+    -- СЧИТАЕМ ПАЧКИ, А НЕ ЯЧЕЙКИ: GetMaxPrepared у всех три всегда, и по
+    -- нему колонка не спряталась бы никогда.
+    local function UpdateItemColumnShown()
+        local hasItems = (SB.Items and SB.Items.CountPrepared
+                          and SB.Items.CountPrepared() or 0) > 0
+        itemColumn._hidden = not hasItems
+        if hasItems then itemColumn:Show() else itemColumn:Hide() end
+        itemColumn:SetDockHeight(hasItems and SB.UI.GetItemsColumnHeight() or nil)
+        RecalcLayout()
+    end
+
+    SB.Events.On(SB.E.PREPARED_ITEMS_CHANGED, UpdateItemColumnShown)
+
     RecalcLayout()
     UpdateEffColumnShown()
+    UpdateItemColumnShown()
  
     -- ── Пикер круга ───────────────────────────────────────────
     slotFrame = SB.Theme.Frame("SB_SlotSelectFrame", UIParent, "Выбор порядка", 200, 180)
@@ -1448,11 +1529,12 @@ function SB.UI.UpdateAll()
             -- Перебег в бейдже НЕ показываем: об усталости сообщает
             -- строка в чате, а «12/12 +6» в шапке — это второе число там,
             -- где решение принимает первое.
-            moveBadge.text:SetText(string.format("%.0f/%.0f", walked, SB.Movement.GetCap()))
+            moveBadge.text:SetText(SB.Movement.FormatMeters(walked) .. "/" ..
+                SB.Movement.FormatMeters(SB.Movement.GetCap()))
         else
             -- Предел снят Ведущим: показываем пройденное и бесконечность,
             -- иначе «12/-1» читалось бы как поломка.
-            moveBadge.text:SetText(string.format("%.0f/∞", walked))
+            moveBadge.text:SetText(SB.Movement.FormatMeters(walked) .. "/∞")
         end
         -- Красным, когда предел выбран: бейдж в этот момент перестаёт быть
         -- справкой и становится единственным, что можно нажать.
@@ -1837,8 +1919,8 @@ function SB.UI.UpdateSpellCards()
             -- (см. SB.Logic.GetSpellRange).
             table.insert(parts, "Дальность: " .. SB.Logic.FormatSpellRange(spell))
             -- Длительность. -1 значит бессрочно (до Долгого Отдыха);
-            -- положительное число — база при касте в свой круг, апкаст
-            -- растягивает её на круг сверх (см. GetUpcastMultiplier).
+            -- положительное число — окончательная длина в ходах:
+            -- вливания, которое её растягивало, больше нет.
             local dur = spell.duration
             if dur == -1 then
                 table.insert(parts, "Длительность: бессрочно")
@@ -1962,7 +2044,16 @@ function SB.UI.PrepareSpell(spell)
         -- У чужого класса потолок на круг ниже, и без этой оговорки
         -- сообщение выглядело бы враньём: игрок видит у себя открытый
         -- 3-й круг, а ему отвечают «не выше 2-го».
-        if PM.IsOwnClassSpell(spell.class) then
+        -- ЗАКРЫТАЯ РЕАЛМОМ ВЫУЧКА — СВОЯ ПРИЧИНА. «Доступны на круг
+        -- ниже: не выше 0-го» читается как сбой счёта, да и неправда:
+        -- круг здесь не отстаёт, а не открывается вовсе и никогда.
+        local capped = SB.Data.ForeignNonCasterCapFor
+            and SB.Data.ForeignNonCasterCapFor(spell.class)
+        if capped then
+            print(string.format(
+                "|cFFFF0000[Spellbreaker]: «%s» — чужая выучка (%s). Из неё доступны только приёмы: круги чужого класса не открываются.|r",
+                spell.name or "Заклинание", spell.class or "—"))
+        elseif PM.IsOwnClassSpell(spell.class) then
             print(string.format(
                 "|cFFFF0000[Spellbreaker]: Ваш ранг (%s) не может подготавливать заклинания выше %d-го порядка!|r",
                 PM.GetMastery(), maxOrder))
@@ -2024,7 +2115,33 @@ local SLOT_TEXT_PAD = 26   -- воздух вокруг текста внутр�
 -- временем (см. SB.UI.TurnsAsTime), а сокращения «мин.»/«сек.» не
 -- склоняются вовсе — правило исчезло вместе с надобностью в нём.
 
-function SB.UI.ShowSlotPicker(spellID)
+-- ============================================================
+-- ОКНО ПОДТВЕРЖДЕНИЯ
+--
+-- ЗДЕСЬ БЫЛ ПИКЕР КРУГА. Он спрашивал «за какую плату применить», и
+-- вместе с вливанием ресурса (см. врезку о нём в Core/Logic.lua) этот
+-- вопрос исчез. Но окно делало и вторую работу, о которой нигде не
+-- было написано: оно ПОДТВЕРЖДАЛО НАМЕРЕНИЕ. Когда пикер убрали,
+-- игроки первым делом сказали, что им не хватает подтверждения, —
+-- значит вторая работа и была главной.
+--
+-- ПОЭТОМУ ОКНО ОСТАЛОСЬ, а вопрос в нём сменился. Теперь он всегда
+-- осмыслен, потому что вторая кнопка есть ВСЕГДА: до сих пор послать
+-- заявку Ведущему вручную было нельзя вообще никак — она уходила
+-- только автоматически, когда система сама не справилась. Бывает и
+-- наоборот: система разрулила бы, а за столом хотят, чтобы рассудил
+-- человек.
+--
+-- МИНИМАЛИЗМ НАМЕРЕННЫЙ. Две кнопки и ничего больше: что заклинание
+-- сделает, написано в его карточке, и пересказывать её здесь значило
+-- бы завести второе место, где те же числа однажды разойдутся с
+-- первым.
+--
+-- ОТКАЗЫ ОКНО ПО-ПРЕЖНЕМУ ОБЪЯСНЯЕТ. Не хватает ресурса, ранг не
+-- открыл круг, выбран предел передвижения — кнопки каста нет, вместо
+-- неё строка словами. Игрок узнаёт причину там же, где нажал.
+-- ============================================================
+function SB.UI.ShowCastConfirm(spellID)
     local spell = GetSpellData(spellID)
     if not spell then return end
 
@@ -2033,148 +2150,45 @@ function SB.UI.ShowSlotPicker(spellID)
     if slotFrame._hintFS then slotFrame._hintFS:Hide() end
 
     local PM       = SB.PlayerModel
-    -- Не MaxOrderFor(ранг), а потолок С УЧЁТОМ КЛАССА заклинания: у чужой
-    -- школы он на круг ниже, и пикер обязан показывать ровно те круги,
-    -- которые примет ConfirmCast — иначе кнопка есть, а каст отбивается.
-    local maxOrder = PM.GetMaxPrepareOrder(spell.class)
-    local zeal     = PM.GetCastResource()
-    local resName  = PM.GetResourceName()
     local spellLvl = spell.level or 0
+    -- Потолок С УЧЁТОМ КЛАССА заклинания: у чужой школы он на круг
+    -- ниже, и окно обязано отказывать ровно там же, где откажет
+    -- ConfirmCast, — иначе кнопка есть, а каст отбивается.
+    local maxOrder = PM.GetMaxPrepareOrder(spell.class)
 
-    -- Что именно даст вложенный ресурс на этом уровне. Раньше здесь
-    -- стояло глухое «(+Эффект)», по которому нельзя было понять ни
-    -- сколько именно, ни во что оно уходит — а у кастера и некастера
-    -- ресурс работает по-разному (см. SB.Logic.GetCastPower).
-    --
-    -- Скейлинг обязательно считаем ЗДЕСЬ же, с тем самым level: у
-    -- кастера вложенная мана давно не прибавляет урон плоско, она
-    -- множит скейлинг (см. SB.Logic.GetDamageScaleMultiplier). Без
-    -- этого пикер показывал бы одну и ту же базовую единицу на всех
-    -- кругах и обещал бы, что вливать бессмысленно.
-    local function GainTag(level)
-        -- База у лечения своя и есть на любом круге (см.
-        -- SB.Logic.GetHealPower): считать её здесь по урону значило бы
-        -- обещать в пикере «2 ХП» там, где резолв восстановит 3.
-        local dmg, hit = (spell.isHeal and SB.Logic.GetHealPower or SB.Logic.GetCastPower)(spell, level)
-        if hit > 0 then
-            return string.format(" (+%d атака)", hit)
-        end
-        -- ПРИБАВКА ОТ ВИСЯЩИХ ЭФФЕКТОВ — ТА ЖЕ, ЧТО УЙДЁТ В БРОСОК.
-        --
-        -- Её здесь не было вовсе, и пикер занижал: жрец под «Внутренним
-        -- огнём» видел в выборе порядка одну цифру, а бил другой.
-        -- Расхождение читалось как поломка тем вернее, чем больше
-        -- усилений на персонаже.
-        --
-        -- РАЗВИЛКА ТА ЖЕ, ЧТО В КАРТОЧКЕ (см. GetSpellScalingLines):
-        -- у лечения свой канал mods.heal, у урона — школьный
-        -- GetDamageMod, и «+2 огню» на ледяной стреле не работает.
-        -- Третий ответ на тот же вопрос завёлся бы ровно здесь.
-        local effBonus = 0
-        if spell.isHeal then
-            -- Тем же ответом, что уйдёт в резолв и в карточку: у лечения
-            -- слагаемых два, эффекты и профиль класса, и складывает их
-            -- одно место (см. SB.Logic.GetHealBonus). Пока здесь стоял
-            -- голый канал эффектов, пикер занижал бы жрецу ровно на его
-            -- классовую единицу — тем же способом, каким уже занижал под
-            -- «Внутренним огнём».
-            effBonus = SB.Logic.GetHealBonus()
-        else
-            effBonus = (SB.ActiveEffects and SB.ActiveEffects.GetDamageMod)
-                and SB.ActiveEffects.GetDamageMod(spell) or 0
-        end
-        local scaled = dmg + SB.Logic.GetSpellScaling(spell, "damage", level)
-                       + effBonus
-        if spell.isHeal then
-            return string.format(" (%d ХП)", scaled)
-        end
-        if spell.canCrit then
-            -- Нижняя грань та же, что в резолве (Config.MinDamageOnHit):
-            -- одна единица проходит всегда, даже если база с скейлингом
-            -- дали ноль. Без неё пикер обещал «0 урона» там, где удар
-            -- снимет 1 — и вливание выглядело единственным способом
-            -- нанести хоть что-то.
-            local floorDmg = SB.Data.Config.MinDamageOnHit or 1
-            return string.format(" (%d урона)", math.max(floorDmg, scaled))
-        end
-        return ""
-    end
-
-    -- Длительность эффекта на этом уровне вливания. Ресурс растягивает
-    -- эффект (см. SB.Logic.GetEffectDuration), и без этой подписи выбор
-    -- между «влить 1» и «влить 3» для чистого баффа выглядел бы
-    -- одинаково бессмысленным в обоих случаях.
-    local effectID = spell.container or spell.buff or spell.debuff
-    local function DurationTag(level)
-        if not effectID or not SB.Data.Spells[effectID] then return "" end
-        local turns = SB.Logic.GetEffectDuration(effectID, spell, level)
-        if turns == SB.ActiveEffects.INFINITE then return " | беск." end
-        return " | " .. SB.UI.TurnsAsTime(turns)
-    end
-
-    -- ── Собираем ТОЛЬКО доступные варианты ──────────────────
-    -- Верхняя граница перебора — не ранг игрока, а потолок реалма:
-    -- иначе не отличить «круг не открыт рангом» от «такого круга нет».
-    local realmMaxOrder = SB.Data.GetRealmMaxOrder()
-    local options = {}
-    local lackResource, lackRank = false, false
-
-    -- ПРЕДЕЛ ПЕРЕДВИЖЕНИЯ ВЫБРАН. Кругов не показываем вовсе: ни один из
-    -- них не пройдёт (ConfirmCast отобьёт каст), а нажимаемая кнопка,
-    -- которая молча ничего не делает, — худшее, что может быть.
-    --
-    -- Вместо этого в пикере остаётся ровно одно действие, которое СЕЙЧАС
-    -- имеет смысл, и подпись под ним объясняет, почему. Именно поэтому
-    -- отказ и не пишется в чат (см. SB.Movement.CheckCanAct): игрок
-    -- узнаёт причину там же, где нажал, и тут же может её устранить.
-    -- BlocksAction, а не IsExhausted: под замедлением метры кончились,
-    -- но действие осталось (см. врезку в Core/Movement.lua).
+    -- ПРЕДЕЛ ПЕРЕДВИЖЕНИЯ ВЫБРАН. Кнопки каста не даём вовсе: ни одна
+    -- не пройдёт. BlocksAction, а не IsExhausted: под замедлением метры
+    -- кончились, но действие осталось (см. врезку в Core/Movement.lua).
     local exhausted = SB.Movement and SB.Movement.BlocksAction()
 
+    local options, hint = {}, nil
     if exhausted then
-        table.insert(options, { label = "Пропустить ход", passTurn = true })
+        options[1] = { label = "Пропустить ход", passTurn = true }
+        hint = "Предел передвижения выбран — действовать нельзя."
+    elseif spellLvl > maxOrder then
+        -- IsOwnClassSpell, а не сравнение классов: у мультикласса своих
+        -- школ несколько, и причина потолка у чужой — не ранг, а сам
+        -- мультикласс. «Откроется с рангом» там было бы неправдой.
+        -- Та же развилка, что в отказе подготовить: закрытая реалмом
+        -- выучка не «отстаёт на круг», она не открывается никогда.
+        local capped = SB.Data.ForeignNonCasterCapFor
+            and SB.Data.ForeignNonCasterCapFor(spell.class)
+        hint = capped
+               and ("Чужая выучка: из неё доступны только приёмы.")
+               or  ((not PM.IsOwnClassSpell(spell.class))
+                    and ("Чужая школа: круг " .. spellLvl .. " вам недоступен.")
+                    or  ("Ваш ранг не открывает круг " .. spellLvl .. "."))
+    elseif spellLvl > 0 and PM.GetCastResource() < spellLvl then
+        hint = "Не хватает ресурса «" .. PM.GetResourceName() .. "»."
     else
-        if spellLvl == 0 then
-            table.insert(options, {
-                label = SB.Logic.GetCantripLabel(spell.class) .. GainTag(0) .. DurationTag(0),
-                level = 0,
-            })
-        end
-
-        -- ВЫШЕ СВОЕГО КРУГА ПРЕДЛАГАЕМ ТОЛЬКО ТОМУ, КОМУ ЭТО ЧТО-ТО ДАЁТ.
-        --
-        -- Раньше перебирались все круги до потолка реалма, и над «Боевой
-        -- стойкой» висело «Мана x 3» — выбор, который ничего не менял:
-        -- стойка бессрочна, канала урона у неё нет. Игрок платил и не
-        -- получал ничего, а предложенный выбор, который ничего не решает,
-        -- читается как поломка аддона.
-        --
-        -- Правило живёт в SB.Logic.CanUpcast и выведено из арифметики
-        -- резолва, а не из списка заклинаний. Своим кругом заклинание
-        -- платить обязано в любом случае — потолок перебора опускаем до
-        -- него, а не отменяем перебор.
-        local topOrder = SB.Logic.CanUpcast(spell) and realmMaxOrder or spellLvl
-
-        for lvl = 1, topOrder do
-            if lvl >= spellLvl then
-                if lvl > maxOrder then
-                    lackRank = true
-                elseif zeal < lvl then
-                    lackResource = true
-                else
-                    table.insert(options, {
-                        label = resName .. " x " .. lvl .. GainTag(lvl) .. DurationTag(lvl),
-                        level = lvl,
-                    })
-                end
-            end
-        end
+        options[1] = { label = "Применить",        cast = true }
+        options[2] = { label = "Заявка Ведущему",  toGM = true }
     end
 
     -- ── Ширина по самой длинной подписи ─────────────────────
     -- Меряем ОТДЕЛЬНОЙ строкой без переноса, а не текстом кнопки: у
     -- кнопки FontString растянут SetAllPoints, поэтому длинная подпись
-    -- успевает перенестись внутри ещё старой (170px) ширины, и измерение
+    -- успевает перенестись внутри ещё старой ширины, и измерение
     -- вернуло бы ширину переноса вместо ширины строки.
     local measure = slotFrame._measureFS
     if not measure then
@@ -2184,85 +2198,41 @@ function SB.UI.ShowSlotPicker(spellID)
         measure:Hide()
         slotFrame._measureFS = measure
     end
-
     local btnW = SLOT_BTN_MIN
     for _, opt in ipairs(options) do
         measure:SetText(opt.label)
         local w = measure:GetStringWidth() + SLOT_TEXT_PAD
         if w > btnW then btnW = w end
     end
-    btnW = math.min(SLOT_BTN_MAX, math.ceil(btnW))
-    -- «Пропустить ход» — подпись короткая, а пояснение под ней длинное.
-    -- По ширине кнопки окно вышло бы узким столбцом на шесть строк, и
-    -- расчёт высоты (GetStringHeight на ещё не разложенном тексте) не
-    -- поспел бы за переносами. Даём тексту нормальную строку.
-    if exhausted then btnW = math.max(btnW, 160) end
-
-    -- ── Кнопки: создаём/переиспользуем ──────────────────────
-    for i, opt in ipairs(options) do
-        local b = slotFrame._slotBtns[i]
-        if not b then
-            b = SB.Theme.Button(slotFrame, opt.label, SLOT_BTN_MIN, SLOT_BTN_H, "primary")
-            b._fs:SetWordWrap(false)
-            slotFrame._slotBtns[i] = b
-        end
-        b:SetText(opt.label)
-        b:Enable()
-    end
+    if btnW > SLOT_BTN_MAX then btnW = SLOT_BTN_MAX end
 
     local yBase = slotFrame.contentY - 4
     for i, opt in ipairs(options) do
         local b = slotFrame._slotBtns[i]
+        if not b then
+            -- ВТОРАЯ КНОПКА — НЕ primary. Обе одинаково яркими читались
+            -- бы как равные, а применить заклинание игрок хочет в
+            -- девяти случаях из десяти.
+            b = SB.Theme.Button(slotFrame, opt.label, SLOT_BTN_MIN, SLOT_BTN_H,
+                                (i == 1) and "primary" or "secondary")
+            slotFrame._slotBtns[i] = b
+        end
         b:SetWidth(btnW)
         b:ClearAllPoints()
         b:SetPoint("TOPLEFT", slotFrame, "TOPLEFT", SLOT_PAD_L,
                    yBase - (i - 1) * (SLOT_BTN_H + SLOT_GAP))
+        b:SetText(opt.label)
         b:SetScript("OnClick", function()
             slotFrame:Hide()
             if opt.passTurn then
                 SB.Logic.SpendTurnManually()
+            elseif opt.toGM then
+                SB.Logic.ConfirmCast(spellID, spellLvl, { toGM = true })
             else
-                SB.Logic.ConfirmCast(spellID, opt.level)
+                SB.Logic.ConfirmCast(spellID, spellLvl)
             end
         end)
         b:Show()
-    end
-
-    -- ── Пояснение, если что-то скрыто ───────────────────────
-    -- Пропавшая кнопка сама по себе ничего не объясняет, поэтому
-    -- причина называется словами — но одной строкой, а не четырьмя
-    -- серыми заглушками, как было раньше.
-    local hint
-    -- Для чужой школы причина потолка не в ранге, а в мультиклассе, и
-    -- «откроются с повышением ранга» там просто неправда: Эксперт уже
-    -- на максимуме, а третий круг чужого класса ему всё равно закрыт.
-    local foreign  = not PM.IsOwnClassSpell(spell.class)
-    local rankNote = foreign
-        and ("Чужая школа: круги выше " .. maxOrder .. "-го закрыты мультиклассом.")
-        or  ("Круги выше " .. maxOrder .. "-го откроются с повышением ранга.")
-    if exhausted then
-        hint = string.format(
-            "Пройдено %.0f м из %.0f — ход выбран передвижением, на действие сил не осталось.\n" ..
-            "Пропуск хода обнулит путь и вернёт 1 %s.",
-            SB.Movement.GetDistance(), SB.Movement.GetCap(), resName)
-    elseif #options == 0 then
-        hint = lackResource
-            and ("Не хватает ресурса «" .. resName .. "» ни на один круг.")
-            or  (foreign
-                 and ("Чужая школа: круг " .. spellLvl .. " вам недоступен.")
-                 or  ("Ваш ранг не открывает круг " .. spellLvl .. "."))
-    elseif lackResource and lackRank then
-        hint = "Выше — не хватает ресурса, дальше круг закрыт."
-    elseif lackResource then
-        hint = "Влить больше не хватает ресурса «" .. resName .. "»."
-    elseif lackRank then
-        hint = rankNote
-    elseif not SB.Logic.CanUpcast(spell) then
-        -- ОБЪЯСНЯЕМ, А НЕ ПРОСТО ПРЯЧЕМ. Кругов выше в списке нет, и без
-        -- строки это выглядело бы как «ранг не открыл» — то есть игрок
-        -- ждал бы, что с ростом ранга выбор появится. Он не появится:
-        -- заклинанию нечего получать от вливания (см. SB.Logic.CanUpcast).
-        hint = "Вливание ресурса этому заклинанию ничего не добавляет."
     end
 
     local contentH = #options * (SLOT_BTN_H + SLOT_GAP)
@@ -2285,6 +2255,9 @@ function SB.UI.ShowSlotPicker(spellID)
     slotFrame:SetHeight(-slotFrame.contentY + contentH + 20)
     slotFrame:Show()
 end
+
+-- Прежнее имя — чтобы три места вызова не правились поодиночке.
+SB.UI.ShowSlotPicker = SB.UI.ShowCastConfirm
  
 -- ============================================================
 -- ПРОЧИЕ ПУБЛИЧНЫЕ ФУНКЦИИ

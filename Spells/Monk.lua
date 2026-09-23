@@ -170,7 +170,7 @@ Add({
     duration = 3,
     aoe = { radius = 3 },
 	scaling = {
-		hit    = { ["Живучесть"] = 1, ["Ремесло"] = 0.5 },
+		hit    = { ["Живучесть"] = 1, ["Искусность"] = 0.5 },
 	},
 })
 
@@ -212,7 +212,7 @@ Add({
 	container = "eff_fortitude_purifying_brew",
     distance = 0,
 	scaling = {
-		hit    = { ["Живучесть"] = 1, ["Ремесло"] = 0.5 },
+		hit    = { ["Живучесть"] = 1, ["Искусность"] = 0.5 },
 	},
 })
 
@@ -459,7 +459,7 @@ Add({
     duration = 4,
     container = "eff_stone_skin_fortifying_brew",
     scaling = {
-    	hit    = { ["Живучесть"] = 1, ["Ремесло"] = 0.5 },
+    	hit    = { ["Живучесть"] = 1, ["Искусность"] = 0.5 },
     },
 })
 

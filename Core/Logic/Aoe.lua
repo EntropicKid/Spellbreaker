@@ -59,7 +59,7 @@ end
 --- Тридцать задетых давали тридцать почти одинаковых строк, из которых
 --- отличались только имя и числа. Группировка оставляет от них три-четыре
 --- строки, не теряя ни одного итога броска.
-local function FormatAttackEntries(entries)
+local function FormatAttackEntries(entries, crit)
     local buckets, order = {}, {}
     for _, e in ipairs(entries) do
         local tag
@@ -117,11 +117,12 @@ local function FormatAttackEntries(entries)
         for _, e in ipairs(b.list) do
             -- Одна ссылка на весь бросок: в скобках итог, внутри — кубик
             -- и разбивка модификатора.
-            local s = G .. e.name .. " |r" ..
-                SB.UI.ModText(e.mod or 0, tostring(e.total or 0))
-            if b.landed then
-                s = s .. G .. " → " .. (e.hp or 0) .. "/" .. (e.maxHp or 0) .. "|r"
-            end
+            -- КРИТ-ЗАЛП — БЕЗ ЧИСЕЛ ЗАЩИТЫ: отбить его нельзя, и
+            -- «Натан [0]» или бросок ради закрепления дебаффа на месте
+            -- защиты читались бы как отбитый удар.
+            local s = crit and (G .. e.name .. "|r") or (G .. e.name .. " |r" ..
+                SB.UI.ModText(e.mod or 0, tostring(e.total or 0)))
+            -- Без «→ 15/29»: здоровье задетого видно на его рамке.
             items[#items + 1] = s
         end
         out[#out + 1] = ReportBullet(
@@ -162,8 +163,7 @@ local function FormatHealEntries(entries)
         local b, items = buckets[tag], {}
         for _, e in ipairs(b.list) do
             if b.ok then
-                items[#items + 1] = G .. e.name .. " → " ..
-                    (e.hp or 0) .. "/" .. (e.maxHp or 0) .. "|r"
+                items[#items + 1] = G .. e.name .. "|r"
             else
                 items[#items + 1] = G .. e.name ..
                     " (порог " .. (e.threshold or 0) .. ")|r"
@@ -213,7 +213,7 @@ local function FlushAoeReport(report)
         elseif report.kind == "heal" then
             lines = FormatHealEntries(report.entries)
         else
-            lines = FormatAttackEntries(report.entries)
+            lines = FormatAttackEntries(report.entries, report.crit)
         end
         for _, line in ipairs(lines) do out[#out + 1] = line end
     end
@@ -222,8 +222,7 @@ local function FlushAoeReport(report)
     -- на каждого задетого (см. SB.Logic.ApplyLeech).
     if (report.leech or 0) > 0 then
         out[#out + 1] = "   |cFFFFD100•|r " .. SB.Theme.MSG_GOOD .. "Вытянуто жизни: |r" ..
-            SB.Theme.MSG_BODY .. "+" .. report.leech .. " ХП (" ..
-            SB.PlayerModel.GetHealth() .. "/" .. SB.PlayerModel.GetMaxHealth() .. ").|r"
+            SB.Theme.MSG_BODY .. "+" .. report.leech .. " ХП.|r"
     end
 
     if SB.Net and SB.Net.BroadcastLogLines then
@@ -233,6 +232,8 @@ local function FlushAoeReport(report)
             SB.Events.Fire(SB.E.BROADCAST_LOG, line, SB.LogRank.ACTION)
         end
     end
+    -- Блок напечатан — теперь и ход (см. SB.Logic.HoldTurnUntilResult).
+    if SB.Logic.ReleaseHeldTurn then SB.Logic.ReleaseHeldTurn() end
 end
 
 --- Взводит таймер закрытия, зажимая его жёстким потолком.
@@ -252,6 +253,12 @@ end
 
 --- Открыть отчёт: шапка печатается не сразу, а вместе с ответами.
 --- @param kind string  "atk" | "eff" — чем форматировать при закрытии
+--- «; себе: 2 урона» — цена каста в скобке шапки залпа.
+local function PayloadTxt(spellID)
+    local p = SB.Logic.TakeCastPayload and SB.Logic.TakeCastPayload(spellID)
+    return p and ("; себе: " .. p) or ""
+end
+
 local function OpenAoeReport(header, kind)
     -- Предыдущий залп мог ещё ждать ответов — закрываем его сейчас,
     -- иначе два блока перемешались бы между собой.
@@ -399,21 +406,15 @@ function SB.Logic.InitiateAoeAttack(spellID, slotLevel)
     mod = mod + hitBonus
     for _, p in ipairs(hitParts) do table.insert(modParts, p) end
 
-    local roll   = SB.Logic.Roll()
+    local roll, _, rollMax = SB.Logic.Roll()
     local total  = roll + mod
-    local isCrit = roll >= SB.Logic.GetCritThreshold(critBonus, 100)
+    local isCrit = roll >= SB.Logic.GetCritThreshold(critBonus, rollMax)
 
     -- Бросок атаки ОДИН на всю площадь, а бросок защиты у каждого свой:
     -- это и делает площадное заклинание площадным, а не пачкой отдельных
     -- атак. emoteSent — чтобы отпись ушла один раз, а не по разу на цель.
     pendingAoe = { spellID = spellID, atkTotal = total, isCrit = isCrit,
                    emoteSent = false, at = GetTime() }
-
-    -- «Внушение» едет отдельным числом и работает только на закреплении
-    -- дебаффа у задетых — ровно как в одиночном размене, см.
-    -- SB.Logic.InitiatePvpAttack.
-    local persuade = (SB.Skills and SB.Skills.GetPersuasionDebuffBonus)
-        and SB.Skills.GetPersuasionDebuffBonus(spell) or 0
 
     -- ШАПКА ЗАЛПА — ОДНА на всё. Раньше их было две подряд («применяет…»
     -- и «обрушивает на всё вокруг…»), да ещё каждый задетый писал ПОЛНЫЙ
@@ -424,14 +425,22 @@ function SB.Logic.InitiateAoeAttack(spellID, slotLevel)
     OpenAoeReport(
         SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. UnitName("player") ..
         " обрушивает |r" .. SB.UI.MakeSpellLink(spell) ..
-        (isCrit and (" " .. SB.Theme.MSG_BAD .. "(КРИТ!)|r") or "") ..
         G .. string.format(" на всё %s (радиус %g м",
             SB.Logic.AoeEpicenterLabel(epi), radius) ..
-        ((slotLevel or 0) > 0
-            and (", " .. SB.PlayerModel.GetResourceName() .. " x" .. slotLevel)
-            or "") ..
-        "). Атака: |r" .. SB.UI.RollText(roll) .. G .. " + |r" ..
-        SB.UI.ModText(mod) .. G .. " = " .. total .. ". Защита:|r")
+        -- ВЛОЖЕННОГО В ШАПКЕ БОЛЬШЕ НЕТ. Приписка «Мана x3» означала
+        -- ВЛИВАНИЕ сверх круга — решение игрока, о котором стоило
+        -- сказать всем. Вливания больше нет (см. врезку о нём в
+        -- Core/Logic.lua), и число стало бы просто кругом заклинания,
+        -- который и так виден в его карточке.
+        -- Цена каста — в шапку, а не строкой над ней (см. TakeCastPayload).
+        PayloadTxt(spellID) ..
+        "). Атака: |r" ..
+        -- Крит — голой гранью, как в одиночном ударе.
+        (isCrit
+            and (SB.UI.RollText(roll) .. G .. ". |r" .. SB.Theme.MSG_BAD .. "КРИТ!|r")
+            or  (SB.UI.RollText(roll) .. G .. " + |r" .. SB.UI.ModText(mod) ..
+                 G .. " = " .. total .. ". Защита:|r")))
+    aoeReport.crit = isCrit and true or false
 
     -- Эпицентр без координат — цель не член группы (обычно НПС). Точно
     -- измерить расстояние до неё нельзя ни у кого, и задетых аддон
@@ -446,7 +455,7 @@ function SB.Logic.InitiateAoeAttack(spellID, slotLevel)
             "решает Ведущий.|r")
     end
 
-    SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, radius, slotLevel, epi, persuade)
+    SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, radius, slotLevel, epi)
 
     -- Тот же собственный контейнер, что и у одиночной атаки, и той же
     -- функцией: правило про него живёт в одном месте на все пять путей
@@ -459,7 +468,10 @@ function SB.Logic.InitiateAoeAttack(spellID, slotLevel)
 
     -- Второй шапки здесь больше нет: всё, что она говорила, вошло в
     -- единственную шапку залпа выше (см. OpenAoeReport).
-    SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID, ownContainer))
+    --
+    -- Ход — после блока залпа (см. SB.Logic.HoldTurnUntilResult):
+    -- иначе «Ходит: …» печаталось бы над итогами, которые его и вызвали.
+    SB.Logic.HoldTurnUntilResult(SB.Logic.TurnSkipFor(spell, spellID, ownContainer), true)
 end
 
 --- Получатель площадной атаки. Вся разница с одиночной — проверка
@@ -543,9 +555,13 @@ function SB.Logic.ResolveAoeEffectCast(spellID, slotLevel)
         " накрывает |r" .. SB.UI.MakeSpellLink(spell) ..
         G .. string.format(" всё %s (радиус %g м",
             SB.Logic.AoeEpicenterLabel(epi), radius) ..
-        ((slotLevel or 0) > 0
-            and (", " .. SB.PlayerModel.GetResourceName() .. " x" .. slotLevel)
-            or "") ..
+        -- ВЛОЖЕННОГО В ШАПКЕ БОЛЬШЕ НЕТ. Приписка «Мана x3» означала
+        -- ВЛИВАНИЕ сверх круга — решение игрока, о котором стоило
+        -- сказать всем. Вливания больше нет (см. врезку о нём в
+        -- Core/Logic.lua), и число стало бы просто кругом заклинания,
+        -- который и так виден в его карточке.
+        -- Цена каста — в шапку, а не строкой над ней (см. TakeCastPayload).
+        PayloadTxt(spellID) ..
         "): |r" .. SB.UI.RollLine(roll, mod, total, G) ..
         G .. ". Пороги:|r", "eff")
 
@@ -573,7 +589,7 @@ function SB.Logic.ResolveAoeEffectCast(spellID, slotLevel)
 
     SB.Net.SendAoeEffect(spell.id, effectID, radius, slotLevel, roll, mod, total, epi)
 
-    SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID, landedOnSelf))
+    SB.Logic.HoldTurnUntilResult(SB.Logic.TurnSkipFor(spell, spellID, landedOnSelf), true)
 end
 
 --- Получатель площадного эффекта.
@@ -581,8 +597,15 @@ end
 ---        старого клиента либо путь через Ведущего (ProcessRollAndCast →
 ---        InitiateAoeEffect): там броска нет, и эффект ложится безусловно,
 ---        ровно как работало раньше.
+--- @param enc number|nil  «Воодушевление»/«Внушение» заклинателя в
+---        очках. Считает его отправитель (SB.Net.SendAoeEffect): срок
+---        собирает каждый задетый у себя, и без присланного числа он
+---        подставил бы СВОЙ навык вместо навыка заклинателя — то есть
+---        конус холода держался бы дольше на том, кто вложился во
+---        «Внушение». Ноль в пакете не везут, поэтому nil здесь значит
+---        «прибавки нет», а не «считай свою».
 function SB.Logic.HandleAoeEffectReceived(casterName, spellID, effectID, radius, slotLevel,
-                                          roll, mod, total, epi, imFriend)
+                                          roll, mod, total, epi, imFriend, enc)
     if casterName == UnitName("player") then return end
     if DownedIgnoresAoe() then return end
     -- Вредит ли эффект — спрашиваем у него самого, а не у заклинания:
@@ -594,7 +617,11 @@ function SB.Logic.HandleAoeEffectReceived(casterName, spellID, effectID, radius,
     if not SB.Logic.IsInAoeEpicenter(epi, casterName, radius) then return end
 
     if not total then
-        SB.Logic.HandleBuffReceived(casterName, spellID, effectID, slotLevel)
+        -- enc едет дальше: без него ApplyEffect подставит ноль, и
+        -- навык заклинателя потеряется на безбросковой ветке залпа
+        -- (см. SB.Logic.HandleBuffReceived).
+        SB.Logic.HandleBuffReceived(casterName, spellID, effectID, slotLevel,
+                                    nil, nil, nil, nil, tonumber(enc) or 0)
         return
     end
 
@@ -624,7 +651,9 @@ function SB.Logic.HandleAoeEffectReceived(casterName, spellID, effectID, radius,
     if success then
         -- fromOther: залп чужой, концентрацию держит заклинатель.
         -- casterName — он же и провокатор, если залп провоцирует.
-        SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, true, nil, casterName)
+        -- enc — его же навык на срок (см. описание параметра выше).
+        SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, true,
+                             tonumber(enc) or 0, casterName)
     end
 
     -- Своё сообщение в чат НЕ печатаем (в отличие от HandleBuffReceived):
@@ -719,9 +748,13 @@ function SB.Logic.ResolveAoeHeal(spellID, slotLevel)
         (isCrit and (" " .. SB.Theme.MSG_GOOD .. "(КРИТ!)|r") or "") ..
         G .. string.format(" на всё %s (радиус %g м",
             SB.Logic.AoeEpicenterLabel(epi), radius) ..
-        ((slotLevel or 0) > 0
-            and (", " .. SB.PlayerModel.GetResourceName() .. " x" .. slotLevel)
-            or "") ..
+        -- ВЛОЖЕННОГО В ШАПКЕ БОЛЬШЕ НЕТ. Приписка «Мана x3» означала
+        -- ВЛИВАНИЕ сверх круга — решение игрока, о котором стоило
+        -- сказать всем. Вливания больше нет (см. врезку о нём в
+        -- Core/Logic.lua), и число стало бы просто кругом заклинания,
+        -- который и так виден в его карточке.
+        -- Цена каста — в шапку, а не строкой над ней (см. TakeCastPayload).
+        PayloadTxt(spellID) ..
         "): |r" .. SB.UI.RollLine(roll, mod, total, G) ..
         G .. ", исцеление |r" .. SB.UI.AmountText("heal", amount) ..
         G .. ". Пороги:|r", "heal")
@@ -755,7 +788,7 @@ function SB.Logic.ResolveAoeHeal(spellID, slotLevel)
 
     SB.Net.SendAoeHeal(spellID, spell.buff, radius, slotLevel, roll, mod, total, amount, epi)
 
-    SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID, landedOnSelf))
+    SB.Logic.HoldTurnUntilResult(SB.Logic.TurnSkipFor(spell, spellID, landedOnSelf), true)
 end
 
 --- Получатель площадного лечения: проверяет радиус и свой порог, лечит
@@ -797,7 +830,10 @@ function SB.Logic.HandleAoeHealReceived(casterName, spellID, effectID, radius,
         if effectID then
             -- fromOther: лечит союзник, ему и держать. Ровно этим путём
             -- приезжает «Молитва о сострадании» жреца.
-            SB.Logic.ApplyEffect(effectID, SB.Data.Spells[spellID], slotLevel, true)
+            -- И ЕГО ЖЕ ИМЯ: кто вылечил, тот и наложил — оно уже здесь,
+            -- в аргументе, и по сети за ним ходить не надо.
+            SB.Logic.ApplyEffect(effectID, SB.Data.Spells[spellID], slotLevel, true,
+                                 nil, casterName)
         end
     end
 

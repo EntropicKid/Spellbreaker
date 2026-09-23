@@ -263,6 +263,42 @@ local function IsFromLeaderOrAssist(sender)
     return info ~= nil and (info.isLeader or info.isAssist)
 end
 
+-- ОПРЕДЕЛЕНО ДО ПАРСЕРОВ, А НЕ ПОСЛЕ, И ЭТО НЕ ВКУСОВЩИНА. Функция
+-- лежала ниже по файлу, рядом со своей врезкой, — а ParseREQ, ParseRES и
+-- ParseFORCE зовут её уже здесь. Локальная переменная в Lua видна только
+-- ПОСЛЕ своего объявления, поэтому парсеры захватывали не её, а
+-- одноимённую ГЛОБАЛЬНУЮ, то есть nil: «attempt to call global
+-- SpellLevel» на каждой заявке Ведущему. Тот же случай, что у
+-- MarkStatusDirty ниже, только там спасло опережающее объявление.
+
+-- ============================================================
+-- КРУГ НЕ ЕЗДИТ ПО СЕТИ
+--
+-- В каждом боевом пакете ехало поле slot — «в какой круг применили».
+-- Оно имело смысл, пока было вливание ресурса сверх круга: игрок
+-- выбирал, сколько влить, и знать об этом мог только его клиент.
+-- Вливание убрано (см. врезку о нём в Core/Logic.lua), и круг стал
+-- свойством ЗАКЛИНАНИЯ — а id заклинания в пакете и так едет.
+--
+-- ПОЭТОМУ ПОЛЕ СНЯТО СО ВСЕХ ПАКЕТОВ, а получатель берёт круг из своей
+-- библиотеки. Пример: на вас лёг eff_chilling. Если его наложила
+-- «Ледяная стрела» — это первый круг, и срыв Волей стоит одно очко;
+-- если «Конус холода» — третий, и стоит три. Оба числа получатель
+-- находит у себя, не веря на слово никому.
+--
+-- ЭТО НЕ ТОЛЬКО ЭКОНОМИЯ. Число, приехавшее из чужого пакета, надо
+-- сверять (см. VerifyIncomingCast) — а число, взятое из своей
+-- библиотеки, подделать нельзя в принципе.
+-- ============================================================
+
+--- Круг заклинания из СВОЕЙ библиотеки. Панель Ведущего и резолв
+--- по-прежнему хотят число; брать его теперь неоткуда, кроме как
+--- отсюда (см. врезку выше).
+local function SpellLevel(spellID)
+    local sp = spellID and SB.Data.Spells[spellID]
+    return tonumber(sp and sp.level) or 0
+end
+
 -- ============================================================
 -- ПАРСЕРЫ ВХОДЯЩИХ ПАКЕТОВ
 -- Каждый парсер получает уже десериализованную таблицу t,
@@ -278,21 +314,21 @@ local MarkStatusDirty
 local function ParseREQ(t)
     -- Я получаю REQ если: я лидер группы, ИЛИ я не в группе (тестирую соло).
     if UnitIsGroupLeader("player") or not IsInGroup() then
-        SB.Events.Fire("GM_REQUEST_RECEIVED", t.caster, t.spellID, t.slotLevel, t.targetLabel, t.mod)
+        SB.Events.Fire("GM_REQUEST_RECEIVED", t.caster, t.spellID, SpellLevel(t.spellID), t.targetLabel, t.mod)
     end
 end
 
 local function ParseRES(sender, t)
     if not IsFromLeader(sender) then return end
     if t.target == UnitName("player") then
-        SB.Logic.ProcessRollAndCast(t.spellID, t.dc, t.slotLevel, t.scale == true, true)
+        SB.Logic.ProcessRollAndCast(t.spellID, t.dc, SpellLevel(t.spellID), t.scale == true, true)
     end
 end
 
 local function ParseFORCE(sender, t)
     if not IsFromLeader(sender) then return end
     if t.target == UnitName("player") then
-        SB.Logic.ExecuteForcedOutcome(t.spellID, t.outcomeIndex, t.slotLevel)
+        SB.Logic.ExecuteForcedOutcome(t.spellID, t.outcomeIndex, SpellLevel(t.spellID))
     end
 end
 
@@ -457,7 +493,7 @@ local function ParsePVPATK(sender, t)
     -- применяется, потому что цифры существа назначил тот самый лидер,
     -- от которого пакет и принят (см. SB.Logic.VerifyIncomingDamage).
     SB.Logic.HandlePvpAttackReceived(shown, t.spellID, t.roll, t.mod, t.total,
-        t.isCrit == true, t.dmgBonus or 0, t.baseDmg, t.slot, nil, t.persuade,
+        t.isCrit == true, t.dmgBonus or 0, t.baseDmg, nil, nil, t.persuade,
         (t.npc ~= nil and t.npc ~= ""))
 end
 
@@ -466,6 +502,11 @@ end
 -- «дебафф наложен» / «дебафф отведён», а не строки. Обрезать нечего.
 
 local function ParsePVPRES(t)
+    -- Строка боя едет в том же пакете (см. SB.Net.SendPvpResult) — её
+    -- печатают все, и ДО того, как атакующий возьмёт итог.
+    if type(t.log) == "string" then
+        SB.Events.Fire("LOG_MESSAGE_RECEIVED", SanitizeIncomingLog(t.log))
+    end
     if t.attacker ~= UnitName("player") then return end
     if not SB.Logic or not SB.Logic.HandlePvpResultReceived then return end
 
@@ -480,7 +521,7 @@ local function ParsePVPRES(t)
         }
     end
     SB.Logic.HandlePvpResultReceived(t.target, t.defRoll, t.defMod, t.defTotal,
-        t.dmg, t.newHealth, t.maxHealth, aoe)
+        t.dmg, t.newHealth, t.maxHealth, aoe, t.retrib)
 end
 
 --- Ответ задетого на площадной эффект — собираем у заклинателя.
@@ -545,7 +586,7 @@ local function ParseBUFF(sender, t)
     local shown = ActorOf(sender, t)
     if not shown then return end
     if SB.Logic and SB.Logic.HandleBuffReceived then
-        SB.Logic.HandleBuffReceived(shown, t.spellID, t.effectID, t.slot,
+        SB.Logic.HandleBuffReceived(shown, t.spellID, t.effectID, nil,
             t.roll, t.mod, t.total, sender, tonumber(t.enc) or 0)
     end
 end
@@ -578,7 +619,7 @@ local function ParseSTEAL(sender, t)
     if not shown then return end
     if not (SB.Logic and SB.Logic.HandleStealReceived) then return end
 
-    SB.Logic.HandleStealReceived(shown, t.spellID, tonumber(t.slot) or 0,
+    SB.Logic.HandleStealReceived(shown, t.spellID, nil,
         t.roll, t.mod, t.total, sender)
 end
 
@@ -600,7 +641,7 @@ end
 local function ParseAOEATK(sender, t)
     if not SB.Logic or not SB.Logic.HandleAoeAttackReceived then return end
     SB.Logic.HandleAoeAttackReceived(sender or t.caster, t.spellID, t.roll, t.mod, t.total,
-        t.isCrit == true, t.dmgBonus or 0, t.baseDmg, t.radius, t.slot,
+        t.isCrit == true, t.dmgBonus or 0, t.baseDmg, t.radius, nil,
         UnpackEpicenter(t), CasterCallsMeFriend(t), t.persuade)
 end
 
@@ -730,7 +771,7 @@ local function ParseDISPEL(t)
     local friend = (t.friend ~= false)
 
     SB.Logic.HandleDispelReceived(t.caster, t.spellID, schools,
-        tonumber(t.count) or 1, t.effectID, tonumber(t.slot) or 0, friend)
+        tonumber(t.count) or 1, t.effectID, nil, friend)
 end
 
 --- Площадное лечение. Как и площадная атака, уходит всей группе: в
@@ -739,7 +780,7 @@ end
 local function ParseAOEHL(t)
     if not SB.Logic or not SB.Logic.HandleAoeHealReceived then return end
     SB.Logic.HandleAoeHealReceived(t.caster, t.spellID, t.effectID, t.radius,
-        t.slot, t.roll, t.mod, t.total, t.amount, UnpackEpicenter(t),
+        nil, t.roll, t.mod, t.total, t.amount, UnpackEpicenter(t),
         CasterCallsMeFriend(t))
 end
 
@@ -754,8 +795,9 @@ end
 --- Площадной эффект: аура или площадной дебафф.
 local function ParseAOEEFF(t)
     if not SB.Logic or not SB.Logic.HandleAoeEffectReceived then return end
-    SB.Logic.HandleAoeEffectReceived(t.caster, t.spellID, t.effectID, t.radius, t.slot,
-        t.roll, t.mod, t.total, UnpackEpicenter(t), CasterCallsMeFriend(t))
+    SB.Logic.HandleAoeEffectReceived(t.caster, t.spellID, t.effectID, t.radius, nil,
+        t.roll, t.mod, t.total, UnpackEpicenter(t), CasterCallsMeFriend(t),
+        tonumber(t.enc) or 0)
 end
 
 --- Очередь ходов от Ведущего. Проверка ровно одна и она здесь: пакет
@@ -887,7 +929,20 @@ local function ParseADDEFF(sender, t)
     if not (SB.ActiveEffects and SB.ActiveEffects.Add) then return end
     if not (t.contID and SB.Data.Spells[t.contID]) then return end
 
-    SB.ActiveEffects.Add(t.contID, tonumber(t.duration) or 1, t.isConc == true)
+    -- РАЗДАЧА НА ВСЕХ ПАВШЕГО НЕ КАСАЕТСЯ (см. SendEffectToAll): статус
+    -- у Ведущего мог устареть, поэтому проверяем и здесь. Адресную выдачу
+    -- (не quiet) не трогаем — её Ведущий навёл на этого игрока сам.
+    if t.quiet == true and SB.PlayerModel and SB.PlayerModel.IsDowned
+       and SB.PlayerModel.IsDowned() then
+        return
+    end
+
+    -- КТО НАЛОЖИЛ — ОТПРАВИТЕЛЬ, И ЭТО БЕСПЛАТНО: имя даёт транспорт, а
+    -- не пакет, подделать его нельзя. ActorOf на случай, когда Ведущий
+    -- выдаёт эффект от лица существа: в подсказке должно стоять имя
+    -- тушки, а не того, кто ей управляет (см. врезку у ActorOf).
+    SB.ActiveEffects.Add(t.contID, tonumber(t.duration) or 1, t.isConc == true,
+                         ActorOf(sender, t))
 
     -- Строку пишет ПОЛУЧАТЕЛЬ: у Ведущего эффект не висит, и «сколько
     -- ходов осталось» знает только тот, на ком он теперь.
@@ -1029,6 +1084,17 @@ end
 -- Потолок на пачку строк: пакет приходит от другого клиента, и без
 -- ограничения одна кривая (или злонамеренная) посылка залила бы чат.
 local MAX_LOG_LINES = 45
+
+--- Строка-ответ: печатают все, адресат по ней отпускает удержанный ход
+--- (см. SB.Logic.HoldTurnUntilResult).
+local function ParseLOGR(t)
+    if type(t.msg) == "string" then
+        SB.Events.Fire("LOG_MESSAGE_RECEIVED", SanitizeIncomingLog(t.msg))
+    end
+    if t.to == UnitName("player") and SB.Logic and SB.Logic.ReleaseHeldTurn then
+        SB.Logic.ReleaseHeldTurn()
+    end
+end
 
 local function ParseLOGM(t)
     if type(t.msgs) ~= "table" then return end
@@ -1297,6 +1363,14 @@ local IMMEDIATE_ACTIONS = {
     TURN    = true,
     TURNM   = true,
     TURNACT = true,
+    -- СТРОКИ ЛОГА — ТОЖЕ СРАЗУ. Шли через пакетную очередь (~0.1 с), а
+    -- «я походил» и итог удара — мимо неё. Пришедшая раньше строка
+    -- каста печаталась позже «Круг пройден», который она и вызвала.
+    -- Порядок пакетов одного отправителя держится, только если и
+    -- обрабатываются они одинаково.
+    LOG     = true,
+    LOGM    = true,
+    LOGR    = true,
 }
 
 Dispatch = function(sender, t)
@@ -1314,6 +1388,7 @@ Dispatch = function(sender, t)
         SB.Net.ReplyPeerStatusTo(sender)
     elseif action == "LOG"     then ParseLOG(t)
     elseif action == "LOGM"    then ParseLOGM(t)
+    elseif action == "LOGR"    then ParseLOGR(t)
     elseif action == "REST"    then ParseREST(sender, t)
     elseif action == "GRANT"   then ParseGRANT(sender, t)
     -- Действующее лицо этим четырём даём по отправителю, а не по полю
@@ -1405,17 +1480,20 @@ SB.Net:RegisterComm(COMM_PREFIX, OnCommReceived)
 ---        SB.Logic.FairDC): своих характеристик и эффектов у него нет.
 ---        Клиент старой версии его не пришлёт — поле у Ведущего просто
 ---        останется пустым, как было раньше.
+--- Круг в пакете не едет: Ведущий берёт его из своей библиотеки
+--- (см. врезку «КРУГ НЕ ЕЗДИТ ПО СЕТИ» выше). В подписи он остался —
+--- её зовёт подписка на CAST_REQUEST, а событие объявлено давно.
 function SB.Net.SendCastRequest(spellID, slotLevel, targetLabel, mod)
     if not IsInGroup() or UnitIsGroupLeader("player") then
         SB.Events.Fire("GM_REQUEST_RECEIVED", UnitName("player"), spellID,
-            slotLevel, targetLabel, mod)
+            tonumber(SB.Data.Spells[spellID] and SB.Data.Spells[spellID].level) or 0,
+            targetLabel, mod)
         return
     end
     SendToGroup({
         action      = "REQ",
         caster      = UnitName("player"),
         spellID     = spellID,
-        slotLevel   = slotLevel,
         targetLabel = targetLabel or "",
         mod         = tonumber(mod),
     }, "NORMAL")
@@ -1423,9 +1501,13 @@ function SB.Net.SendCastRequest(spellID, slotLevel, targetLabel, mod)
 end
 
 --- Отправить решение ГМа игроку.
-function SB.Net.SendGMApproval(targetPlayer, spellID, dc, slotLevel, scaleDamage)
+--- Круг в подписи больше не нужен: получатель берёт его из своей
+--- библиотеки (см. врезку «КРУГ НЕ ЕЗДИТ ПО СЕТИ» выше).
+function SB.Net.SendGMApproval(targetPlayer, spellID, dc, scaleDamage)
     if not IsInGroup() or targetPlayer == UnitName("player") then
-        SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, scaleDamage == "SCALE", true)
+        SB.Logic.ProcessRollAndCast(spellID, dc,
+            tonumber(SB.Data.Spells[spellID] and SB.Data.Spells[spellID].level) or 0,
+            scaleDamage == "SCALE", true)
         return
     end
     SendToPlayer({
@@ -1433,7 +1515,6 @@ function SB.Net.SendGMApproval(targetPlayer, spellID, dc, slotLevel, scaleDamage
         target    = targetPlayer,
         spellID   = spellID,
         dc        = dc,
-        slotLevel = slotLevel,
         scale     = (scaleDamage == "SCALE"),
     }, targetPlayer, "NORMAL")
 end
@@ -1465,12 +1546,13 @@ end
 -- обязаны прочитать сцену так же, как её автор.
 -- ============================================================
 local logQueue, logQueued, logSeq = {}, false, 0
+-- Что сделать СРАЗУ ПОСЛЕ строк этого кадра (см. SB.Net.AfterLogFlush).
+local afterFlush = {}
 
 local function FlushLogQueue()
     logQueued = false
     local q = logQueue
     logQueue = {}
-    if #q == 0 then return end
 
     table.sort(q, function(a, b)
         if a.rank ~= b.rank then return a.rank < b.rank end
@@ -1478,6 +1560,22 @@ local function FlushLogQueue()
     end)
     for _, item in ipairs(q) do
         SB.Net.BroadcastLog(item.msg)
+    end
+
+    local after = afterFlush
+    afterFlush = {}
+    for _, fn in ipairs(after) do pcall(fn) end
+end
+
+--- Выполнить ПОСЛЕ того, как уйдут строки этого кадра — в том числе
+--- поставленные в очередь позже этого вызова. Для пакетов, которые
+--- обязаны прийти за строками: «я походил» Ведущему нельзя слать раньше
+--- строки самого действия, иначе «Круг пройден» печатается над ним.
+function SB.Net.AfterLogFlush(fn)
+    afterFlush[#afterFlush + 1] = fn
+    if not logQueued then
+        logQueued = true
+        C_Timer.After(0, FlushLogQueue)
     end
 end
 
@@ -1620,16 +1718,40 @@ end
 --- и присылал их). Вместе с ней ушли упаковщик SlimParts и распаковщик
 --- UnslimParts. Честность каста теперь сверяется по ФОНОВОМУ статусу,
 --- который и так рассылается: см. SB.Logic.VerifyIncomingCast.
---- persuade — «Внушение» атакующего. Едет ОТДЕЛЬНЫМ числом, а не внутри
---- mod, потому что прибавляется не к попаданию, а только к закреплению
---- дебаффа, и проверяет его цель у себя, вместе со своей «Волей»
---- (см. SB.Skills.GetPersuasionDebuffBonus). Ноль не отправляем вовсе:
---- у подавляющего большинства ударов дебаффа нет, и поле было бы
---- балластом в каждом боевом пакете.
+--- persuade — «Внушение» атакующего, В ОЧКАХ. Едет отдельным числом, а
+--- не внутри mod, потому что к попаданию оно не прибавляется вовсе: оно
+--- продлевает СРОК дебаффа, а срок собирает получатель. Ноль не
+--- отправляем: у подавляющего большинства ударов дебаффа нет, и поле
+--- было бы балластом в каждом боевом пакете.
 --- @param npcName string|nil  бьём ОТ ЛИЦА существа с таким именем.
 ---        Принимающая сторона возьмёт его только от лидера группы
 ---        (см. ParsePVPATK).
+--- «ВНУШЕНИЕ» ПРИЦЕПЛЯЕТСЯ ЗДЕСЬ, РОВНО КАК У БАФФА (см. SendBuff).
+---
+--- ПОЧЕМУ ОНО ВООБЩЕ ЕДЕТ. Срок дебаффа собирает ПОЛУЧАТЕЛЬ: заклинание
+--- с уроном разрешается у цели (см. HandlePvpAttackReceived), и именно
+--- она зовёт GetEffectDuration. Своего «Внушения» у неё нет — а без
+--- присланного числа GetEffectDuration принимал отсутствие прибавки за
+--- свой каст и подставлял навык САМОЙ ЦЕЛИ. То есть развитое «Внушение»
+--- продлевало дебаффы, которые вешают на тебя.
+---
+--- НАРУЖУ ЭТО ВЫГЛЯДЕЛО ТАК: «Удар по почкам» срок продлевает, а
+--- «Выстрел из пистоли» — нет. Разница ровно в уроне: у первого его нет,
+--- и он уходит обычным эффектом через SendBuff, где число прицеплено с
+--- самого начала; у второго урон есть, и он идёт этим путём.
+---
+--- ОТ ЛИЦА СУЩЕСТВА — НЕ СЧИТАЕТСЯ: Ведущий одалживает волку руки, а не
+--- свой навык (то же правило, что в SendBuff).
 function SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, slot, persuade, npcName)
+    local sp = SB.Data.Spells[spellID]
+    if not npcName and sp and sp.debuff and SB.Logic and SB.Logic.EncouragementFor then
+        -- С ИМЕНЕМ ЦЕЛИ: бить можно и помеченного своим (двойное
+        -- заклинание, недоразумение за столом), а «Внушение» на своих
+        -- не работает (см. врезку у SB.Logic.EncouragementFor).
+        persuade = SB.Logic.EncouragementFor(sp.debuff, targetName)
+    else
+        persuade = 0
+    end
     if not IsInGroup() then return end
 
     local t = {
@@ -1644,7 +1766,6 @@ function SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, dmg
         isCrit   = isCrit and true or false,
         dmgBonus = dmgBonus or 0,
         baseDmg  = baseDmg,
-        slot     = tonumber(slot) or 0,
     }
     if (tonumber(persuade) or 0) > 0 then t.persuade = persuade end
     SendToPlayer(t, targetName, "NORMAL")
@@ -1655,8 +1776,16 @@ end
 --- цели; здесь целей заранее нет, их определяет дистанция у получателя.
 --- @param epi table|nil  эпицентр площади (см. SB.Logic.GetAoeEpicenter)
 --- @param persuade number|nil  «Внушение» заклинателя — см. SendPvpAttack
-function SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, radius, slot, epi, persuade)
+--- «Внушение» прицепляется ЗДЕСЬ, тем же правилом, что в SendPvpAttack:
+--- площадной удар с дебаффом разрешается у каждого задетого, и срок
+--- чар собирает он же (HandleAoeAttackReceived передаёт число дальше, в
+--- HandlePvpAttackReceived).
+function SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, radius, slot, epi)
     if not IsInGroup() then return end
+
+    local sp = SB.Data.Spells[spellID]
+    local persuade = (sp and sp.debuff and SB.Logic and SB.Logic.EncouragementFor)
+        and SB.Logic.EncouragementFor(sp.debuff) or 0
 
     local t = {
         action   = "AOEATK",
@@ -1669,7 +1798,6 @@ function SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseD
         dmgBonus = dmgBonus or 0,
         baseDmg  = baseDmg,
         radius   = radius or 0,
-        slot     = tonumber(slot) or 0,
     }
     if (tonumber(persuade) or 0) > 0 then t.persuade = persuade end
     SendToGroup(PackFriends(PackEpicenter(t, epi)), "NORMAL")
@@ -1682,18 +1810,27 @@ end
 ---        так площадной эффект вёл себя раньше (закреплялся у всех
 ---        безусловно), и старые клиенты продолжат работать по-прежнему.
 --- @param epi   table|nil  эпицентр площади (см. SB.Logic.GetAoeEpicenter)
+--- «ВООДУШЕВЛЕНИЕ»/«ВНУШЕНИЕ» — ТЕМ ЖЕ ПРАВИЛОМ, ЧТО У ОДИНОЧНОГО
+--- ЭФФЕКТА (см. SendBuff). Срок площадного эффекта собирает каждый
+--- задетый у себя, и без присланного числа он подставлял бы СВОЙ навык
+--- вместо навыка заклинателя: конус холода держался бы дольше на том,
+--- кто вложился во «Внушение», то есть навык работал бы против хозяина.
 function SB.Net.SendAoeEffect(spellID, effectID, radius, slot, roll, mod, total, epi)
     if not IsInGroup() then return end
+    local enc = (SB.Logic and SB.Logic.EncouragementFor)
+        and SB.Logic.EncouragementFor(effectID) or 0
     SendToGroup(PackFriends(PackEpicenter({
         action   = "AOEEFF",
         caster   = UnitName("player"),
         spellID  = spellID,
         effectID = effectID,
         radius   = radius or 0,
-        slot     = tonumber(slot) or 0,
         roll     = roll,
         mod      = mod,
         total    = total,
+        -- Ноль не везём: лишнее поле в каждом пакете ради навыка,
+        -- которого у большинства нет.
+        enc      = (enc > 0) and enc or nil,
     }, epi)), "NORMAL")
 end
 
@@ -1723,9 +1860,14 @@ function SB.Net.SendBuff(targetName, spellID, effectID, slot, npcName, roll, mod
     --
     -- ОТ ЛИЦА СУЩЕСТВА — НЕ СЧИТАЕТСЯ. Ведущий, кастующий за волка,
     -- одалживает волку свои руки, а не свой навык (поле npc).
+    -- ИМЯ ПОЛУЧАТЕЛЯ ЕДЕТ В РАСЧЁТ: этим же пакетом уходит и помощь
+    -- союзнику, и порча врагу, а «Внушение» на своих не работает
+    -- (см. врезку у SB.Logic.EncouragementFor). Ровно этим путём
+    -- приходит «Небесный промысел» — помощь, помеченная вредом, чтобы
+    -- её нельзя было снять досрочно.
     local enc = 0
     if not npcName and SB.Logic and SB.Logic.EncouragementFor then
-        enc = SB.Logic.EncouragementFor(effectID)
+        enc = SB.Logic.EncouragementFor(effectID, targetName)
     end
 
     SendToPlayer({
@@ -1735,7 +1877,6 @@ function SB.Net.SendBuff(targetName, spellID, effectID, slot, npcName, roll, mod
         target   = targetName,
         spellID  = spellID,
         effectID = effectID,
-        slot     = tonumber(slot) or 0,
         roll     = roll,
         mod      = mod,
         total    = total,
@@ -1772,7 +1913,6 @@ function SB.Net.SendSteal(targetName, spellID, slotLevel, roll, mod, total)
         caster  = UnitName("player"),
         target  = targetName,
         spellID = spellID,
-        slot    = tonumber(slotLevel) or 0,
         roll    = roll,
         mod     = mod,
         total   = total,
@@ -1822,9 +1962,38 @@ function SB.Net.SendPvpResult(attackerName, targetName, defRoll, defMod, defTota
         t.landed   = aoe.landed and true or false
         t.debuff   = aoe.debuff and true or false
         t.resisted = aoe.resisted and true or false
+        t.retrib   = aoe.retrib
         t.isAoe    = true
     end
     SendToPlayer(t, attackerName, "NORMAL")
+end
+
+--- ИТОГ ОДИНОЧНОГО УДАРА ВМЕСТЕ СО СТРОКОЙ БОЯ — одним пакетом в группу.
+---
+--- Строку печатают все, итог берёт атакующий — в том же обработчике и
+--- после строки (см. ParsePVPRES). Два пакета по двум каналам (строка в
+--- группу, итог лично) порядка не держали, и атакующий рассылал
+--- вампиризм и «Ходит: …» раньше самого удара. Пакет при этом один
+--- вместо двух: отправка в группу стоит отправителю столько же, сколько
+--- личная.
+--- @param line string  готовая строка боя
+--- @param r    table   доводы SendPvpResult по порядку
+function SB.Net.SendPvpResultWithLog(line, r)
+    SB.Events.Fire("LOG_MESSAGE_RECEIVED", line)
+    if not IsInGroup() then return end
+    SendToGroup({
+        action    = "PVPRES",
+        attacker  = r[1],
+        target    = r[2],
+        defRoll   = r[3],
+        defMod    = r[4],
+        defTotal  = r[5],
+        dmg       = r[6],
+        newHealth = r[7],
+        maxHealth = r[8],
+        retrib    = r[9],
+        log       = line,
+    }, "NORMAL")
 end
 
 --- Рассеивание. Снимает получатель у себя: эффекты живут на его
@@ -1845,7 +2014,6 @@ function SB.Net.SendDispel(targetName, spellID, schools, count, effectID, slot, 
         schools  = schools,
         count    = count or 1,
         effectID = effectID,
-        slot     = tonumber(slot) or 0,
         friend   = friend and true or false,
     }, targetName, "NORMAL")
 end
@@ -1863,7 +2031,6 @@ function SB.Net.SendAoeHeal(spellID, effectID, radius, slot, roll, mod, total, a
         spellID  = spellID,
         effectID = effectID,
         radius   = radius or 0,
-        slot     = tonumber(slot) or 0,
         roll     = roll,
         mod      = mod,
         total    = total,
@@ -1938,11 +2105,17 @@ end
 
 --- «Я походил» — адресно Ведущему. Имя в теле не шлём: отправителя даёт
 --- сам конверт, и подделать чужой ход поэтому нечем.
+--- В ГРУППУ, А НЕ ЛИЧНО, И ПОСЛЕ СТРОК ЭТОГО КАДРА. Строка действия
+--- уходит в группу, и «я походил» лично Ведущему обгонял её: личные и
+--- групповые сообщения WoW порядка между собой не держит. Одним каналом
+--- и следом за строками порядок держится сам. Пакет крошечный; кроме
+--- Ведущего его никто не разбирает (см. ParseTURNACT).
 function SB.Net.SendTurnActed()
     if not IsInGroup() then return end
-    local leader = SB.Net.GetLeaderName()
-    if not leader then return end
-    SendToPlayer({ action = "TURNACT" }, leader, "NORMAL")
+    SB.Net.AfterLogFlush(function()
+        if not IsInGroup() then return end
+        SendToGroup({ action = "TURNACT" }, "NORMAL")
+    end)
 end
 
 --- Целитель сообщает исцеляемому (и группе) результат лечения.
@@ -2327,6 +2500,7 @@ function SB.Net.SendActiveEffectsTo(playerName)
     if payload then SendToPlayer(payload, playerName, "BULK") end
 end
 
+--- slotLevel в подписи остался ради вызывающих; в пакете его нет.
 function SB.Net.SendForceOutcome(targetName, spellID, outcomeIndex, slotLevel)
     if not IsInGroup() or targetName == UnitName("player") then
         if SB.Logic.ExecuteForcedOutcome then
@@ -2339,7 +2513,6 @@ function SB.Net.SendForceOutcome(targetName, spellID, outcomeIndex, slotLevel)
         target       = targetName,
         spellID      = spellID,
         outcomeIndex = outcomeIndex,
-        slotLevel    = slotLevel,
     }, targetName, "NORMAL")
 end
 
@@ -2580,7 +2753,20 @@ SB.Events.On("SB_INIT", function()
     -- Core/Events.lua. Задержка в один кадр невидима, а порядок строк
     -- становится причинно-следственным: сначала действие, потом его
     -- последствия, потом тики, потом сдвиг очереди.
-    SB.Events.On("BROADCAST_LOG", function(msg, rank)
+    SB.Events.On("BROADCAST_LOG", function(msg, rank, attach)
+        -- Строка с итогом удара уходит сразу и одним пакетом с ним (см.
+        -- SB.Net.SendPvpResultWithLog): ранга ACTION она и так первая.
+        if type(attach) == "table" and attach.pvpResult then
+            SB.Net.SendPvpResultWithLog(msg, attach.pvpResult)
+            return
+        end
+        if type(attach) == "table" and attach.replyTo then
+            SB.Events.Fire("LOG_MESSAGE_RECEIVED", msg)
+            if IsInGroup() then
+                SendToGroup({ action = "LOGR", msg = msg, to = attach.replyTo }, "NORMAL")
+            end
+            return
+        end
         SB.Net.QueueLogLine(msg, rank)
     end)
 
