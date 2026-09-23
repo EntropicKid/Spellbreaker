@@ -28,6 +28,59 @@ local function HideEnabled()
 end
 
 -- ============================================================
+-- КУДА ИДУТ СООБЩЕНИЯ АДДОНА В ЧАТЕ ИГРЫ
+--
+-- Три пути: в общий чат (как было), никуда (галочка «Скрывать») и во
+-- вкладку «Журнал боя». Третий заведён для тех, кому строки боя нужны,
+-- но не в общем чате: там они топят отыгрыш, а в журнале боя им самое
+-- место — рядом с тем, что клиент и так пишет о бое.
+--
+-- «Скрывать» побеждает: галочки в настройках взаимоисключающие, но
+-- сохранёнка могла прийти с обеими, и тогда тише — надёжнее.
+-- ============================================================
+
+--- @return string "chat" | "hide" | "combatlog"
+local function Route()
+    local db = SpellbreakerAccountDB
+    if not db then return "chat" end
+    if db.hideSystemMessages == true then return "hide" end
+    if db.combatLogMessages == true then return "combatlog" end
+    return "chat"
+end
+SB.Logs.ChatRoute = Route
+
+--- Окно вкладки «Журнал боя». Под этим именем его заводит сам клиент
+--- (Blizzard_CombatLog); запасной путь — второе окно чата, где журнал
+--- стоит по умолчанию.
+local function CombatLogFrame()
+    local f = _G.COMBATLOG
+    if f and f.AddMessage then return f end
+    return _G.ChatFrame2
+end
+
+--- Своя ли это строка: тег аддона в самом начале (после кода цвета).
+--- Смотрим только голову строки — через перехватчик идёт и весь журнал
+--- боя клиента, и искать по каждой его строке целиком незачем.
+local function IsOwnLine(text)
+    if type(text) ~= "string" then return false end
+    return text:sub(1, 26):find("[Spellbreaker", 1, true) ~= nil
+end
+
+--- Вывести строку аддона в чат по выбранному пути. Мимо перехватчика
+--- (оригинальным AddMessage), потому что путь уже выбран здесь — и
+--- потому что строки блока без тега (см. SB.UI.CollapseTag) перехватчик
+--- по голове не опознал бы вовсе.
+function SB.Logs.ChatPrint(msg, r, g, b)
+    if not msg then return end
+    local route = Route()
+    if route == "hide" then return end
+    local f = (route == "combatlog" and CombatLogFrame()) or DEFAULT_CHAT_FRAME
+    if not f then return end
+    local put = f.SBOrigAddMessage or f.AddMessage
+    put(f, msg, r, g, b)
+end
+
+-- ============================================================
 -- BuildFrame
 -- ============================================================
 function SB.Logs.BuildFrame()
@@ -143,6 +196,11 @@ function SB.Logs.BuildFrame()
     checkBox:SetScript("OnClick", function(self)
         if SpellbreakerAccountDB then
             SpellbreakerAccountDB.hideSystemMessages = self:GetChecked()
+            -- Скрыть и перенаправить в журнал боя — взаимоисключающие.
+            if self:GetChecked() then
+                SpellbreakerAccountDB.combatLogMessages = false
+                if SBCombatLogChk then SBCombatLogChk:SetChecked(false) end
+            end
         end
     end)
 	
@@ -360,9 +418,24 @@ C_Timer.After(1, function()
         local cf = _G["ChatFrame" .. i]
         if cf and not cf.SBHooked then
             local orig = cf.AddMessage
+            -- Оригинал запоминаем на самом окне: им пишет
+            -- SB.Logs.ChatPrint, и им же пересылаем в журнал боя, чтобы
+            -- строка не прошла через перехватчик дважды.
+            cf.SBOrigAddMessage = orig
             cf.AddMessage = function(frame, text, ...)
-                if HideEnabled() and text then
-                    if string.find(text, "[Spellbreaker]:", 1, true) then return end
+                -- Раньше здесь искали «[Spellbreaker]:» буквально — и
+                -- мимо проходили все строки, где тег закрыт цветом
+                -- («[Spellbreaker]|r:»), то есть почти все.
+                if text and IsOwnLine(text) then
+                    local route = Route()
+                    if route == "hide" then return end
+                    if route == "combatlog" then
+                        local log = CombatLogFrame()
+                        if log and log ~= frame then
+                            local put = log.SBOrigAddMessage or log.AddMessage
+                            return put(log, text, ...)
+                        end
+                    end
                 end
                 return orig(frame, text, ...)
             end

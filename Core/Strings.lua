@@ -801,15 +801,21 @@ SB.Data.Messages = {
     onlyCreatorCanEdit      = SB.Theme.MSG_BAD .. "[Spellbreaker]: Только создатель заклинания может его редактировать.|r",
     fillSpellName           = SB.Theme.MSG_BAD .. "[Spellbreaker]:|r Заполните название заклинания.",
     queueOverflow           = "|cFFFFCC00[Spellbreaker]:|r Очередь заявок переполнена — удалена самая старая.",
-    noPrepAfterCast         = SB.Theme.MSG_BAD .. "[Spellbreaker]: Нельзя менять подготовку после применения заклинания. Отдохни.|r",
-    noRespecAfterCast       = SB.Theme.MSG_BAD .. "[Spellbreaker]: Нельзя менять атрибуты и навыки после применения заклинания — до Долгого Отдыха.|r",
+    noPrepAfterCast         = SB.Theme.MSG_BAD .. "[Spellbreaker]: Нельзя менять подготовку после применения заклинания (своего или на вас). Отдохни.|r",
+    noRespecAfterCast       = SB.Theme.MSG_BAD .. "[Spellbreaker]: Нельзя менять атрибуты и навыки после применения заклинания (своего или на вас) — до Долгого Отдыха.|r",
+    -- Замок от ЧУЖОГО каста (см. SB.Logic.NoteTargetedBySpell): свой
+    -- игрок ставит сам и знает о нём, а этот падает без его участия.
+    lockedByIncomingSpell   = SB.Theme.MSG_BODY .. "[Spellbreaker]: Вы стали целью заклинания — атрибуты, навыки и подготовка заперты до Долгого Отдыха.|r",
     spellAlreadyPrepared    = "|cFFFFFF00[Spellbreaker]: Заклинание уже подготовлено.|r",
     classHiddenOnRealm      = SB.Theme.MSG_BAD .. "[Spellbreaker]: Этот класс недоступен на вашем сервере — заклинание нельзя подготовить.|r",
-    noUnlearnAfterCast      = SB.Theme.MSG_BAD .. "[Spellbreaker]: Нельзя разучивать заклинания после применения. Отдохни.|r",
+    noUnlearnAfterCast      = SB.Theme.MSG_BAD .. "[Spellbreaker]: Нельзя разучивать заклинания после применения заклинания (своего или на вас). Отдохни.|r",
     mainFrameBuildFailed    = SB.Theme.MSG_BAD .. "[Spellbreaker]:|r Не удалось построить главное окно.",
     -- Пошаговый режим (см. Core/TurnOrder.lua)
     turnNotYours            = SB.Theme.MSG_BAD .. "[Spellbreaker]: Сейчас не ваш ход — идёт пошаговый режим. Дождитесь своей очереди.|r",
-    turnAlreadyActed        = SB.Theme.MSG_BAD .. "[Spellbreaker]: Вы уже походили. Следующее действие — когда очередь дойдёт снова.|r",
+    turnAlreadyActed        = SB.Theme.MSG_BAD .. "[Spellbreaker]: Ваш ход окончен. Следующее действие — когда очередь дойдёт снова.|r",
+    -- Действие в этом ходу уже было (см. TO.CanUseMainAction): ход не
+    -- кончился, но второе действие в нём закрыто.
+    turnActionUsed          = SB.Theme.MSG_BAD .. "[Spellbreaker]: Действие в этом ходу уже сделано. Можно передвигаться и окончить ход.|r",
     noLongRestInTurnMode    = SB.Theme.MSG_BAD .. "[Spellbreaker]: Идёт пошаговый режим — Долгий Отдых объявить нельзя. Сначала переведите сцену в свободный ход.|r",
     turnAwaitingResult      = SB.Theme.MSG_BAD .. "[Spellbreaker]: Удар ещё в пути — ход перейдёт дальше, когда придёт итог.|r",
     turnRequestPending      = SB.Theme.MSG_BAD .. "[Spellbreaker]: Ваша заявка ещё у Ведущего. Ход перейдёт дальше, когда он её рассмотрит.|r",
@@ -826,7 +832,11 @@ SB.Data.Messages = {
 --- Печатает статичное сообщение по ключу из SB.Data.Messages.
 function SB.UI.PrintMsg(key)
     local msg = SB.Data.Messages[key]
-    if msg then print(msg) end
+    if not msg then return end
+    -- Мимо print: у строк аддона свой путь (чат, журнал боя или никуда,
+    -- см. SB.Logs.ChatPrint), а окна логов может ещё не быть — тогда
+    -- по-старому.
+    if SB.Logs and SB.Logs.ChatPrint then SB.Logs.ChatPrint(msg) else print(msg) end
 end
 
 -- ============================================================
@@ -866,4 +876,4 @@ function SB.UI.ScreenNotice(text, quiet)
     else
         pcall(PlaySoundFile, "Sound\\Interface\\RaidWarning.ogg", "Master")
     end
-end
+end

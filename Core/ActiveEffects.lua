@@ -1876,6 +1876,9 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc, source, level)
         if eff.spellID == containerSpellID then
             eff.uses   = duration or 1
             eff.isConc = isConc or false
+            -- Продлённый эффект больше не доживает последний ход
+            -- (см. «ТИК В НАЧАЛЕ ХОДА» у TurnStartOne).
+            eff.expiring = nil
             -- ИСТОЧНИК ПЕРЕПИСЫВАЕТСЯ, а не сохраняется: провокацию
             -- перебивает тот, кто провоцировал последним. Иначе первый
             -- провокатор держал бы цель до конца срока, а второй тратил
@@ -1990,7 +1993,7 @@ function SB.ActiveEffects.Use(spellID)
             -- историю разговора.
             if why == "move" and UIErrorsFrame then
                 UIErrorsFrame:AddMessage(
-                    "Ход выбран передвижением — сначала пропустите ход.", 1, 0.2, 0.2, 1, 3)
+                    "Ход выбран передвижением — осталось окончить ход.", 1, 0.2, 0.2, 1, 3)
             end
             return
         end
@@ -2834,7 +2837,93 @@ function SB.ActiveEffects.SecondsLeft(uses, seq)
     return math.max(0, (uses - 1) * per + (per - since))
 end
 
-function SB.ActiveEffects.TickAll(skip, realtime)
+-- ============================================================
+-- ТИК В НАЧАЛЕ ХОДА (пошаговый режим)
+--
+-- Раньше эффекты тикали по действию — в КОНЦЕ своего хода. Теперь ход
+-- кончается только кнопкой, а тик переехал в НАЧАЛО: яд капает, как
+-- только дошла очередь, лечение по времени приходит до того, как ты
+-- решишь, что делать, — как в настольных правилах.
+--
+-- СРОК ПРИ ЭТОМ НЕ СОКРАТИЛСЯ, и ради этого тик разделён на две половины:
+--
+--   в начале хода  — выплата тика и счётчик на единицу вниз, НО не ниже
+--                    единицы: эффект на последней единице помечается
+--                    «доживает ход» (expiring) и продолжает действовать;
+--   в конце хода   — доживавшие снимаются (с прощальным расчётом).
+--
+-- Иначе оглушение на один ход, наложенное между твоими ходами, спадало
+-- бы в самом начале твоего хода — то есть не действовало бы ни секунды.
+-- С разделением «N ходов» по-прежнему значит «N твоих ходов под
+-- эффектом», и тиков за срок столько же, сколько было.
+--
+-- Вне пошагового режима всё по-старому: TickAll и DecrementOne.
+-- ============================================================
+
+local function TurnStartOne(spellID)
+    for _, eff in ipairs(effects) do
+        if eff.spellID == spellID then
+            eff.tickSeq = tickSeq
+            if eff.uses ~= INFINITE then
+                if eff.uses > 1 then
+                    eff.uses = eff.uses - 1
+                else
+                    eff.expiring = true
+                end
+            end
+            ApplyTick(spellID)
+            C_Timer.After(0, Redraw)
+            FireChanged()
+            return
+        end
+    end
+end
+
+--- Снять эффекты, доживавшие этот ход. Зовётся в конце своего хода
+--- (см. Core/TurnOrder.lua) и на выходе из пошагового режима.
+--- @return number  сколько снято
+function SB.ActiveEffects.ExpireTurnEnd()
+    local doomed = {}
+    for _, eff in ipairs(effects) do
+        if eff.expiring then doomed[#doomed + 1] = eff.spellID end
+    end
+    if #doomed == 0 then return 0 end
+
+    batchDepth = batchDepth + 1
+    for _, id in ipairs(doomed) do
+        for i, eff in ipairs(effects) do
+            if eff.spellID == id then
+                table.remove(effects, i)
+                local ok, err = pcall(ApplyOnRemove, id)
+                if not ok then
+                    print("|cFFFF0000[Spellbreaker]|r эффект «" ..
+                        tostring(id) .. "»: " .. tostring(err))
+                end
+                break
+            end
+        end
+        FireChanged()
+    end
+    batchDepth = batchDepth - 1
+    C_Timer.After(0, Redraw)
+    if batchDirty then
+        batchDirty = false
+        FireChanged()
+    end
+    return #doomed
+end
+
+--- Тик начала своего хода. Та же обвязка, что у TickAll (одна пачка,
+--- одна строка в чат, событие TURN_TICK), но свой расчёт на эффект.
+--- Доживавшие с прошлого хода (конец хода не наступил — вылет, смена
+--- режима на ходу) сначала снимаются: второй «последний ход» им не
+--- положен.
+function SB.ActiveEffects.TickTurnStart()
+    SB.ActiveEffects.ExpireTurnEnd()
+    return SB.ActiveEffects.TickAll(nil, nil, true)
+end
+
+function SB.ActiveEffects.TickAll(skip, realtime, turnStart)
     -- ОТМЕТКУ СТАВИМ ДО САМОГО ТИКА: подписи, которые перерисуются по
     -- ходу обхода, должны увидеть уже новую фазу, а не прошлую.
     lastTickAt = GetTime()
@@ -2867,7 +2956,8 @@ function SB.ActiveEffects.TickAll(skip, realtime)
     -- строке на сбойный, а не одну на весь ход.
     for _, eff in ipairs(SB.ActiveEffects.GetAll()) do
         if not (skip and skip[eff.spellID]) then
-            local ok, err = pcall(SB.ActiveEffects.DecrementOne, eff.spellID)
+            local ok, err = pcall(turnStart and TurnStartOne
+                                  or SB.ActiveEffects.DecrementOne, eff.spellID)
             if not ok then
                 print("|cFFFF0000[Spellbreaker]|r эффект «" ..
                     tostring(eff.spellID) .. "»: " .. tostring(err))
@@ -3193,6 +3283,9 @@ function SaveEffects()
             -- И круг наложения: от него зависит цена срыва Волей, и
             -- перезаход в игру не должен её удешевлять.
             lvl       = eff.lvl,
+            -- Доживает последний ход: /reload посреди хода не должен
+            -- дарить эффекту лишний круг.
+            expiring  = eff.expiring or nil,
         })
     end
     SpellbreakerCharDB.activeEffects = t
@@ -3217,6 +3310,7 @@ function SB.ActiveEffects.LoadFromDB()
                                 and { armor = tonumber(entry.armorUsed) } or nil),
                 src       = (type(entry.src) == "string") and entry.src or nil,
                 lvl       = tonumber(entry.lvl),
+                expiring  = entry.expiring == true or nil,
             })
         end
     end

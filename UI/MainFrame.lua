@@ -847,14 +847,17 @@ local function BuildMainFrame()
             GameTooltip:AddLine("Метры кончились, но предел срезан — действовать можно.",
                 1, 0.82, 0, true)
         elseif SB.Movement.HasLimit() then
-            GameTooltip:AddLine("Выберете предел — до конца хода останется только пропустить ход.",
+            GameTooltip:AddLine("Выберете предел — до конца хода останется только окончить ход.",
                 0.6, 0.6, 0.6, true)
         end
         GameTooltip:AddLine("Счётчик обнуляется, когда доходит ваша очередь.",
             0.6, 0.6, 0.6, true)
         GameTooltip:AddLine(" ")
-        GameTooltip:AddLine("|cFFFFD100ЛКМ|r — пропустить ход: путь обнуляется, +1 " ..
-            SB.PlayerModel.GetResourceName() .. ", эффекты тикают.", 0.6, 0.6, 0.6, true)
+        -- Про ресурс и тик здесь больше ни слова: ресурса за ход не дают
+        -- давно, а эффекты тикают в НАЧАЛЕ хода, а не по этой кнопке.
+        GameTooltip:AddLine("|cFFFFD100ЛКМ|r — окончить ход: очередь уходит дальше. " ..
+            "Действие хода кнопка не требует — можно окончить и без него.",
+            0.6, 0.6, 0.6, true)
         GameTooltip:Show()
     end
 
@@ -929,7 +932,7 @@ local function BuildMainFrame()
 
     -- ПЕРВЫМ ПУНКТОМ БЫЛ КОРОТКИЙ ОТДЫХ — механики больше нет, нет и
     -- пункта. «Пропустить ход» встал на его место (родитель nil).
-    local skipItem = SpecialItem("Пропустить ход", "secondary", nil, nil, function()
+    local skipItem = SpecialItem("Окончить ход", "secondary", nil, nil, function()
         if SB.Logic and SB.Logic.SpendTurnManually then SB.Logic.SpendTurnManually() end
     end)
     -- ПОДСКАЗКИ У ПРОПУСКА ХОДА НЕТ НАМЕРЕННО. Она обещала «+1 ресурса»
@@ -1984,6 +1987,13 @@ end
 --- на проход, а не на каждую.
 local function CanCastNow(spell, dist, turnOk)
     if not turnOk then return false end
+    -- Действие хода уже сделано: гаснет всё, кроме склянки, пока свободно
+    -- бонусное (см. TO.CanUseMainAction и SB.Logic.IsBonusAction).
+    local TO = SB.TurnOrder
+    if TO and TO.CanUseMainAction and not TO.CanUseMainAction()
+       and not (spell and SB.Logic.IsBonusAction and SB.Logic.IsBonusAction(spell)) then
+        return false
+    end
     -- Снаряжение — та же история, что и с дистанцией: узнавать «нужен
     -- лук» из чата ПОСЛЕ выбора круга поздно. Ответ кэширован до смены
     -- экипировки, так что спрашивать его на каждую карточку не дорого
@@ -2163,7 +2173,7 @@ function SB.UI.ShowCastConfirm(spellID)
 
     local options, hint = {}, nil
     if exhausted then
-        options[1] = { label = "Пропустить ход", passTurn = true }
+        options[1] = { label = "Окончить ход", passTurn = true }
         hint = "Предел передвижения выбран — действовать нельзя."
     elseif spellLvl > maxOrder then
         -- IsOwnClassSpell, а не сравнение классов: у мультикласса своих
@@ -2324,7 +2334,11 @@ SB.Events.On("SB_INIT", function()
         -- восемь одинаковых тегов подряд там только мешают
         -- (см. SB.UI.CollapseTag).
         if SB.Logs and SB.Logs.Add then SB.Logs.Add(msg) end
-        if msg and DEFAULT_CHAT_FRAME then
+        -- Куда именно — решает настройка (чат, журнал боя или никуда,
+        -- см. SB.Logs.ChatPrint).
+        if msg and SB.Logs and SB.Logs.ChatPrint then
+            SB.Logs.ChatPrint(SB.UI.CollapseTag(msg))
+        elseif msg and DEFAULT_CHAT_FRAME then
             DEFAULT_CHAT_FRAME:AddMessage(SB.UI.CollapseTag(msg))
         end
     end)

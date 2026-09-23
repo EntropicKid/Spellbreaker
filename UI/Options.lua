@@ -97,10 +97,28 @@ local hideOptChk = MakeCheckRow(optPanel, emoteOptChk, -8,
     "hideSystemMessages",
     function(val)
         if SpellbreakerHideChatCheck then SpellbreakerHideChatCheck:SetChecked(val) end
+        -- Скрыть и перенаправить — взаимоисключающие пути.
+        if val and SpellbreakerAccountDB then
+            SpellbreakerAccountDB.combatLogMessages = false
+            if SBCombatLogChk then SBCombatLogChk:SetChecked(false) end
+        end
     end)
 
+-- Перенаправлять во вкладку «Журнал боя» (см. SB.Logs.ChatPrint)
+local combatLogOptChk = MakeCheckRow(optPanel, hideOptChk, -8,
+    "Перенаправлять сообщения аддона в «Журнал боя»",
+    "combatLogMessages",
+    function(val)
+        if val and SpellbreakerAccountDB then
+            SpellbreakerAccountDB.hideSystemMessages = false
+            if hideOptChk then hideOptChk:SetChecked(false) end
+            if SpellbreakerHideChatCheck then SpellbreakerHideChatCheck:SetChecked(false) end
+        end
+    end,
+    "SBCombatLogChk")
+
 -- Плавность интерфейса (см. Core/Animate.lua)
-local animOptChk = MakeCheckRow(optPanel, hideOptChk, -8,
+local animOptChk = MakeCheckRow(optPanel, combatLogOptChk, -8,
     "Плавные переходы в интерфейсе",
     "animations")
 
@@ -167,6 +185,34 @@ auraHint:SetJustifyH("LEFT")
 auraHint:SetText("Своя панель баффов прячется целиком. Ауры цели подменяются " ..
     "только если у неё есть аддон и она делится состоянием — иначе там остаются игровые.")
 
+-- ── Пошаговый режим: полоса очереди и отметки на рамках ─────
+--
+-- Две галочки, и умолчание у второй не своё, а «наоборот от первой»
+-- (см. SB.Overlay.AreTurnMarksEnabled): полоса и отметки отвечают на
+-- один вопрос, и показывать оба ответа сразу незачем.
+local queueOptChk = MakeCheckRow(optPanel, auraHint, -10,
+    "Очередь ходов вверху экрана (пошаговый режим)",
+    "turnQueue",
+    function(val)
+        if SB.TurnQueue then SB.TurnQueue.SetEnabled(val) end
+    end,
+    "SBTurnQueueChk")   -- ищется из SB.TurnQueue.SetEnabled
+
+local marksOptChk = MakeCheckRow(optPanel, queueOptChk, -4,
+    "Отметки хода на рамках игроков (галочка, крестик, вопрос)",
+    "turnMarks",
+    function(val)
+        if SB.Overlay then SB.Overlay.SetTurnMarksEnabled(val) end
+    end)
+
+local queueHint = optPanel:CreateFontString(nil, "ARTWORK", "SBFontDisableSmall")
+queueHint:SetPoint("TOPLEFT", marksOptChk, "BOTTOMLEFT", 24, 0)
+queueHint:SetWidth(480)
+queueHint:SetJustifyH("LEFT")
+queueHint:SetText("Полоса: слева тот, кто ходит, дальше очередь, за чертой — " ..
+    "уже походившие. Shift + ЛКМ по портрету — передвинуть. Отметки на рамках " ..
+    "по умолчанию включаются сами, только если полоса выключена.")
+
 -- ── Раздел: Шрифт ──────────────────────────────────────────
 --
 -- ВЫПАДАЮЩИЙ СПИСОК, А НЕ ГАЛОЧКА: вариантов больше двух, и сколько их
@@ -179,7 +225,7 @@ auraHint:SetText("Своя панель баффов прячется целик
 
 local sep3 = optPanel:CreateTexture(nil, "ARTWORK")
 sep3:SetSize(500, 1)
-sep3:SetPoint("TOPLEFT", auraHint, "BOTTOMLEFT", -24, -20)
+sep3:SetPoint("TOPLEFT", queueHint, "BOTTOMLEFT", -24, -20)
 sep3:SetColorTexture(0.3, 0.3, 0.3, 1)
 
 local fontHeader = optPanel:CreateFontString(nil, "ARTWORK", "SBFontNormal")
@@ -248,6 +294,7 @@ local function SyncOptionsFromDB()
     cauraOptChk:SetChecked(db.ignoreCaura or false)
     emoteOptChk:SetChecked(db.sendEmotes ~= false)
     hideOptChk:SetChecked(db.hideSystemMessages or false)
+    combatLogOptChk:SetChecked(db.combatLogMessages == true and not db.hideSystemMessages)
     -- Как и SB.Animate.IsEnabled: отсутствующее значение = включено.
     animOptChk:SetChecked(db.animations ~= false)
     -- Как и в SB.Overlay.IsEnabled: отсутствующее значение = включено.
@@ -257,6 +304,8 @@ local function SyncOptionsFromDB()
     -- отсутствующим значением и со старой общей галочкой.
     auraOptChk:SetChecked(SB.Overlay and SB.Overlay.AreOwnAurasEnabled() or false)
     tgtAuraChk:SetChecked(SB.Overlay and SB.Overlay.AreTargetAurasEnabled() or false)
+    queueOptChk:SetChecked(SB.TurnQueue and SB.TurnQueue.IsEnabled() or false)
+    marksOptChk:SetChecked(SB.Overlay and SB.Overlay.AreTurnMarksEnabled() or false)
 
     if SB.Fonts then
         UIDropDownMenu_SetText(fontDrop, SB.Fonts.GetChoice())
@@ -362,7 +411,7 @@ barMoveHint:SetWidth(480)
 barMoveHint:SetJustifyH("LEFT")
 barMoveHint:SetText("По плашке на каждую линию иконок: метры за ход, бросок атаки, " ..
     "бросок защиты, броня. Щелчки те же, что у бейджей в шапке большого окна: " ..
-    "метры — пропустить ход, атака и защита — бросить. Метры краснеют, когда " ..
+    "метры — окончить ход, атака и защита — бросить. Метры краснеют, когда " ..
     "предел выбран; в свободном ходе они не считаются вовсе, и плашка исчезает " ..
     "вместе с местом под неё.")
 

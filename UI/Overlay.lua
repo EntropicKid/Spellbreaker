@@ -292,7 +292,9 @@ local function ProbeUnit(unit)
     if UnitIsUnit(unit, "player") then return end
     if UnitInParty(unit) or UnitInRaid(unit) then return end
     local name = FullName(unit)
-    if name then SB.Net.ProbePlayerStatus(name) end
+    -- Срочно: игрок смотрит на рамку прямо сейчас (см. «СРОЧНЫЙ ОПРОС»
+    -- в Core/Network.lua).
+    if name then SB.Net.ProbePlayerStatus(name, true) end
 end
 
 --- Существо в цели — поделиться его состоянием с группой.
@@ -1484,6 +1486,45 @@ end
 local SCAN_MAX_DEPTH = 8
 local SCAN_MAX_NODES = 6000
 
+-- ── ЮНИТ-ТОКЕН — ЕЩЁ НЕ РАМКА ЮНИТА ─────────────────────────
+--
+-- Жалоба: «при включении пошагового режима значок хода встаёт на все
+-- иконки баффов». Токен «player» держат не только рамки: ванильная
+-- кнопка ауры (BuffButtonN, DebuffButtonN) запоминает его в том же поле
+-- unit, чтобы показать подсказку, — и под признак «юнит-токен внутри»
+-- она подходила ровно так же, как рамка игрока. Итог — вопросик на
+-- каждом баффе в углу экрана.
+--
+-- Поэтому признаков теперь два: токен И полоска здоровья. Рамка юнита
+-- без полоски не бывает ни у Blizzard, ни в ElvUI/Grid/VuhDo, а у
+-- кнопки ауры полоски нет вовсе. Ищем её в пределах двух уровней —
+-- у аддоновских рамок полоска часто лежит в собственной обёртке.
+local HEALTH_FIELDS = { "healthBar", "healthbar", "HealthBar", "Health", "health" }
+
+local function IsStatusBar(f)
+    return type(f) == "table" and f.GetObjectType
+        and f:GetObjectType() == "StatusBar"
+end
+
+local function HasStatusBar(frame, depth)
+    if not frame.GetChildren then return false end
+    for _, kid in ipairs({ frame:GetChildren() }) do
+        if IsStatusBar(kid) then return true end
+        if depth > 1 and HasStatusBar(kid, depth - 1) then return true end
+    end
+    return false
+end
+
+local function LooksLikeUnitFrame(frame)
+    -- Кнопки аур: ванильные несут filter/auraInstanceID, аддоновские —
+    -- чаще всего те же поля. Отсекаем сразу, не спускаясь в детей.
+    if frame.filter ~= nil or frame.auraInstanceID ~= nil then return false end
+    for _, key in ipairs(HEALTH_FIELDS) do
+        if IsStatusBar(frame[key]) then return true end
+    end
+    return HasStatusBar(frame, 2)
+end
+
 local function ScanUnitFrames()
     local found, nodes = {}, 0
 
@@ -1496,7 +1537,8 @@ local function ScanUnitFrames()
             -- Свои значки в поиск не попадают: они сами висят на
             -- UIParent, и найти их значило бы пометить отметку отметкой.
             if not kid.__sbTurnIcon then
-                if IsPlayerUnitToken(kid.unit or kid.displayedUnit) then
+                if IsPlayerUnitToken(kid.unit or kid.displayedUnit)
+                   and LooksLikeUnitFrame(kid) then
                     found[kid] = true
                 end
                 walk(kid, depth + 1)
@@ -1672,6 +1714,29 @@ local function EnsureTurnIcon(frame, anchorTo, size)
     return icon
 end
 
+--- Рисовать ли отметки хода на рамках юнитов.
+---
+--- С ПОЯВЛЕНИЕМ ПОЛОСЫ ОЧЕРЕДИ (UI/TurnQueue.lua) ОНИ ПО УМОЛЧАНИЮ
+--- ВЫКЛЮЧЕНЫ: полоса отвечает на тот же вопрос — кто походил, кто ходит,
+--- кто следующий, — и галочки на каждой рамке рядом с ней только
+--- дублируют её. Поэтому умолчание не константа, а «наоборот от
+--- полосы»: выключил полосу — отметки вернулись сами, и без очереди на
+--- экране Ведущий не остаётся.
+---
+--- Явный выбор в настройках (turnMarks = true/false) побеждает умолчание.
+function SB.Overlay.AreTurnMarksEnabled()
+    local db = SpellbreakerAccountDB
+    if db and db.turnMarks ~= nil then return db.turnMarks == true end
+    return not (SB.TurnQueue and SB.TurnQueue.IsEnabled())
+end
+
+function SB.Overlay.SetTurnMarksEnabled(v)
+    if SpellbreakerAccountDB then
+        SpellbreakerAccountDB.turnMarks = v and true or false
+    end
+    SB.Overlay.Refresh()
+end
+
 local function HideAllTurnIcons()
     if not turnIcons then return end
     for _, icon in pairs(turnIcons) do icon:Hide() end
@@ -1691,6 +1756,7 @@ local function RefreshTurnMarks()
     -- Условие теперь ровно одно и по существу: идёт пошаговый режим.
     local want = SB.TurnOrder and SB.TurnOrder.IsActive()
         and GetTime() >= readyCheckUntil
+        and SB.Overlay.AreTurnMarksEnabled()
 
     if not want then
         HideAllTurnIcons()
