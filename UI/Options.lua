@@ -167,6 +167,34 @@ auraHint:SetJustifyH("LEFT")
 auraHint:SetText("Своя панель баффов прячется целиком. Ауры цели подменяются " ..
     "только если у неё есть аддон и она делится состоянием — иначе там остаются игровые.")
 
+-- ── Пошаговый режим: полоса очереди и отметки на рамках ─────
+--
+-- Две галочки, и умолчание у второй не своё, а «наоборот от первой»
+-- (см. SB.Overlay.AreTurnMarksEnabled): полоса и отметки отвечают на
+-- один вопрос, и показывать оба ответа сразу незачем.
+local queueOptChk = MakeCheckRow(optPanel, auraHint, -10,
+    "Очередь ходов вверху экрана (пошаговый режим)",
+    "turnQueue",
+    function(val)
+        if SB.TurnQueue then SB.TurnQueue.SetEnabled(val) end
+    end,
+    "SBTurnQueueChk")   -- ищется из SB.TurnQueue.SetEnabled
+
+local marksOptChk = MakeCheckRow(optPanel, queueOptChk, -4,
+    "Отметки хода на рамках игроков (галочка, крестик, вопрос)",
+    "turnMarks",
+    function(val)
+        if SB.Overlay then SB.Overlay.SetTurnMarksEnabled(val) end
+    end)
+
+local queueHint = optPanel:CreateFontString(nil, "ARTWORK", "SBFontDisableSmall")
+queueHint:SetPoint("TOPLEFT", marksOptChk, "BOTTOMLEFT", 24, 0)
+queueHint:SetWidth(480)
+queueHint:SetJustifyH("LEFT")
+queueHint:SetText("Полоса: слева тот, кто ходит, дальше очередь, за чертой — " ..
+    "уже походившие. Shift + ЛКМ по портрету — передвинуть. Отметки на рамках " ..
+    "по умолчанию включаются сами, только если полоса выключена.")
+
 -- ── Раздел: Шрифт ──────────────────────────────────────────
 --
 -- ВЫПАДАЮЩИЙ СПИСОК, А НЕ ГАЛОЧКА: вариантов больше двух, и сколько их
@@ -179,7 +207,7 @@ auraHint:SetText("Своя панель баффов прячется целик
 
 local sep3 = optPanel:CreateTexture(nil, "ARTWORK")
 sep3:SetSize(500, 1)
-sep3:SetPoint("TOPLEFT", auraHint, "BOTTOMLEFT", -24, -20)
+sep3:SetPoint("TOPLEFT", queueHint, "BOTTOMLEFT", -24, -20)
 sep3:SetColorTexture(0.3, 0.3, 0.3, 1)
 
 local fontHeader = optPanel:CreateFontString(nil, "ARTWORK", "SBFontNormal")
@@ -257,6 +285,8 @@ local function SyncOptionsFromDB()
     -- отсутствующим значением и со старой общей галочкой.
     auraOptChk:SetChecked(SB.Overlay and SB.Overlay.AreOwnAurasEnabled() or false)
     tgtAuraChk:SetChecked(SB.Overlay and SB.Overlay.AreTargetAurasEnabled() or false)
+    queueOptChk:SetChecked(SB.TurnQueue and SB.TurnQueue.IsEnabled() or false)
+    marksOptChk:SetChecked(SB.Overlay and SB.Overlay.AreTurnMarksEnabled() or false)
 
     if SB.Fonts then
         UIDropDownMenu_SetText(fontDrop, SB.Fonts.GetChoice())

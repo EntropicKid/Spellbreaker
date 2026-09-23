@@ -20494,6 +20494,32 @@ do
 end
 
 -- ============================================================
+-- ЦЕЛЬ ЧУЖОГО ЗАКЛИНАНИЯ ЗАПИРАЕТСЯ (SB.Logic.NoteTargetedBySpell)
+-- ============================================================
+do
+    local wasLocked = SpellbreakerCharDB.configLocked
+    local me = UnitName("player")
+
+    SB.PlayerModel.SetLocked(false)
+    SB.Logic.NoteTargetedBySpell(me)
+    checkTrue("свой каст замок здесь не ставит", not SB.PlayerModel.IsLocked())
+
+    SB.Logic.NoteTargetedBySpell("Чужак")
+    checkTrue("чужое заклинание запирает набор", SB.PlayerModel.IsLocked())
+
+    -- Промах лечения — тоже каст по цели.
+    SB.PlayerModel.SetLocked(false)
+    SB.Logic.HandleHealReceived("Лекарь", "no_such_spell", false, 0, 0)
+    checkTrue("даже промах лечения запирает", SB.PlayerModel.IsLocked())
+
+    -- Запертый набор не открывается повторным попаданием.
+    SB.Logic.NoteTargetedBySpell("Чужак")
+    checkTrue("повторное попадание замок не снимает", SB.PlayerModel.IsLocked())
+
+    SpellbreakerCharDB.configLocked = wasLocked
+end
+
+-- ============================================================
 -- ИТОГ
 -- ============================================================
 print("")

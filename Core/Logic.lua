@@ -1980,6 +1980,7 @@ end
 function SB.Logic.HandleBuffReceived(casterName, spellID, effectID, slotLevel,
                                      roll, mod, total, sender, extraTurns)
     local sourceSpell = SB.Data.Spells[spellID]
+    SB.Logic.NoteTargetedBySpell(casterName)
 
     -- Называем ЗАКЛИНАНИЕ, а не эффект: ссылка кликабельна, и в карточке
     -- написано, что именно она вешает. Имя эффекта в строке было
@@ -3044,6 +3045,37 @@ function SB.Logic.CanCastNow(spell, onSelf, bonus)
     return true
 end
 
+-- ============================================================
+-- ЦЕЛЬ ЧУЖОГО ЗАКЛИНАНИЯ ЗАПИРАЕТСЯ ТАК ЖЕ, КАК ЗАКЛИНАТЕЛЬ
+--
+-- Замок набора (атрибуты, навыки, подготовка) ставился только своим
+-- кастом. Персонаж, по которому уже ударили, которого вылечили или
+-- обвесили баффом, мог после этого спокойно перекинуть очки — например,
+-- поднять Волю под уже висящий дебафф или Телосложение под удар, итог
+-- которого ещё в пути. Сцена для него началась ровно так же, как для
+-- того, кто кастовал.
+--
+-- ЛЮБОЕ ЗАКЛИНАНИЕ, НЕ ТОЛЬКО ВРАЖДЕБНОЕ: лечение и бафф тоже ложатся
+-- по числам персонажа, и менять их задним числом нельзя одинаково.
+-- ПРОМАХ ТОЖЕ СЧИТАЕТСЯ — целью персонаж стал, бросок против его
+-- порога уже состоялся.
+--
+-- Площадь запирает только ЗАДЕТЫХ: зовётся после проверки радиуса, а не
+-- на приход пакета, который уходит всей группе.
+--
+-- Снимает замок, как и прежде, только Долгий Отдых.
+-- ============================================================
+
+--- @param casterName string|nil  кто кастовал; свой каст пропускаем —
+---        его замок ставит ConfirmCast, и печатать о нём незачем.
+function SB.Logic.NoteTargetedBySpell(casterName)
+    if casterName and casterName == UnitName("player") then return end
+    local PM = SB.PlayerModel
+    if not PM or PM.IsLocked() then return end
+    PM.SetLocked(true)
+    SB.UI.PrintMsg("lockedByIncomingSpell")
+end
+
 function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
     local PM = SB.PlayerModel
     opts = opts or {}
@@ -3091,6 +3123,12 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
     if not SB.Logic.CanCastNow(spell, pendingSelfCast, bonus) then return end
     pendingBonusAction = bonus
 
+    -- ЗАМОК БЫЛ ДО НАС — ОТКАЗ ЕГО НЕ СНИМАЕТ. Ниже три ветки отказа
+    -- (ранг, ресурс, неподходящая цель) возвращают замок, и раньше они
+    -- возвращали его в «открыто» безусловно: персонаж, уже кастовавший
+    -- или попавший под чужое заклинание (см. SB.Logic.NoteTargetedBySpell),
+    -- одним неудачным кликом получал обратно право на перераспределение.
+    local wasLocked = PM.IsLocked()
     PM.SetLocked(true)
 
     -- Аура (команда серверному эмулятору). Игнорируется, если ГМ включил
@@ -3110,13 +3148,13 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
             print(string.format(
                 "|cFFFF0000[Spellbreaker]: Ваш ранг (%s) не позволяет влить в это заклинание больше %d-го порядка!|r",
                 PM.GetMastery(), maxOrder))
-            PM.SetLocked(false)
+            PM.SetLocked(wasLocked)
             return
         end
         if not PM.SpendCastResource(slotLevel) then
             print(SB.Theme.MSG_BAD .. "[Spellbreaker]: Не хватает ресурса «" ..
                 PM.GetResourceName() .. "»!|r")
-            PM.SetLocked(false)
+            PM.SetLocked(wasLocked)
             return
         end
         -- Синхронизировать статус с группой после списания
@@ -3270,7 +3308,7 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
         SB.Events.Fire("CAST_REQUEST", spellID, slotLevel, targetLabel,
             SB.Logic.GetCastModifier(spell, slotLevel))
         SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID))
-        PM.SetLocked(false)
+        PM.SetLocked(wasLocked)
         return
     end
 
@@ -3439,7 +3477,7 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
         if SB.Cooldowns then SB.Cooldowns.Start(SB.Cooldowns.TURN) end
         print(SB.Theme.MSG_BAD .. "[Spellbreaker]: Неподходящая цель. " ..
             "Если решает Ведущий — нажмите «Заявка Ведущему».|r")
-        PM.SetLocked(false)
+        PM.SetLocked(wasLocked)
         return
     else
         -- Метка цели для заявки ГМу
@@ -4212,6 +4250,8 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
     -- Жертва размена вовлечена в бой ровно так же, как нападающий:
     -- объявлять группе отдых, пока по тебе бьют, нельзя.
     PM.SetPvpEngaged(true)
+    -- И набор запирается так же, как у нападающего.
+    SB.Logic.NoteTargetedBySpell(attackerName)
 
     -- СВЕРКА ЧУЖОГО КАСТА. Считаем её здесь, у защищающегося: это
     -- единственная сторона, которой подлог не выгоден (см.
@@ -5186,6 +5226,7 @@ end
 --- @param friend boolean|nil  см. SB.ActiveEffects.Dispel
 function SB.Logic.HandleDispelReceived(casterName, spellID, schools, count, effectID, slotLevel, friend)
     if type(schools) ~= "table" then return end
+    SB.Logic.NoteTargetedBySpell(casterName)
     local names = SB.ActiveEffects.Dispel(schools, count, friend)
     -- Бонусный бафф заклинания («Очищенная кровь» у Снятия болезни)
     -- ложится независимо от того, было ли что снимать: это часть каста,
@@ -5760,6 +5801,7 @@ function SB.Logic.HandleStealReceived(casterName, spellID, slotLevel,
                                       roll, mod, total, sender)
     local spell = SB.Data.Spells[spellID]
     if not spell or not SB.Logic.GetStealKind(spell) then return end
+    SB.Logic.NoteTargetedBySpell(casterName)
 
     local G    = SB.Theme.MSG_BODY
     local link = SB.UI.MakeSpellLink(spell)
@@ -5819,6 +5861,8 @@ end
 --- @param armorAmount number|nil  единицы брони: заклинание могло чинить
 ---        доспех вместе с раной или вместо неё (см. spell.repairArmor)
 function SB.Logic.HandleHealReceived(healerName, spellID, success, amount, armorAmount)
+    -- ДО проверки успеха: промах лечения — тоже каст по этой цели.
+    SB.Logic.NoteTargetedBySpell(healerName)
     if not success then return end
 
     local PM     = SB.PlayerModel

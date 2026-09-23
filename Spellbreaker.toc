@@ -143,6 +143,9 @@ UI\Items.lua
 UI\Attributes.lua
 UI\Logs.lua
 UI\Overlay.lua
+# Полоса очереди ходов вверху экрана. После Overlay: тот читает её
+# настройку, решая, рисовать ли отметки на рамках.
+UI\TurnQueue.lua
 UI\Options.lua
 # Родной тултип предмета: клиентская броня подменяется нашей.
 # После Core\Skills.lua — правило и числа берутся оттуда.

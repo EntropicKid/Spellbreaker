@@ -801,11 +801,14 @@ SB.Data.Messages = {
     onlyCreatorCanEdit      = SB.Theme.MSG_BAD .. "[Spellbreaker]: Только создатель заклинания может его редактировать.|r",
     fillSpellName           = SB.Theme.MSG_BAD .. "[Spellbreaker]:|r Заполните название заклинания.",
     queueOverflow           = "|cFFFFCC00[Spellbreaker]:|r Очередь заявок переполнена — удалена самая старая.",
-    noPrepAfterCast         = SB.Theme.MSG_BAD .. "[Spellbreaker]: Нельзя менять подготовку после применения заклинания. Отдохни.|r",
-    noRespecAfterCast       = SB.Theme.MSG_BAD .. "[Spellbreaker]: Нельзя менять атрибуты и навыки после применения заклинания — до Долгого Отдыха.|r",
+    noPrepAfterCast         = SB.Theme.MSG_BAD .. "[Spellbreaker]: Нельзя менять подготовку после применения заклинания (своего или на вас). Отдохни.|r",
+    noRespecAfterCast       = SB.Theme.MSG_BAD .. "[Spellbreaker]: Нельзя менять атрибуты и навыки после применения заклинания (своего или на вас) — до Долгого Отдыха.|r",
+    -- Замок от ЧУЖОГО каста (см. SB.Logic.NoteTargetedBySpell): свой
+    -- игрок ставит сам и знает о нём, а этот падает без его участия.
+    lockedByIncomingSpell   = SB.Theme.MSG_BODY .. "[Spellbreaker]: Вы стали целью заклинания — атрибуты, навыки и подготовка заперты до Долгого Отдыха.|r",
     spellAlreadyPrepared    = "|cFFFFFF00[Spellbreaker]: Заклинание уже подготовлено.|r",
     classHiddenOnRealm      = SB.Theme.MSG_BAD .. "[Spellbreaker]: Этот класс недоступен на вашем сервере — заклинание нельзя подготовить.|r",
-    noUnlearnAfterCast      = SB.Theme.MSG_BAD .. "[Spellbreaker]: Нельзя разучивать заклинания после применения. Отдохни.|r",
+    noUnlearnAfterCast      = SB.Theme.MSG_BAD .. "[Spellbreaker]: Нельзя разучивать заклинания после применения заклинания (своего или на вас). Отдохни.|r",
     mainFrameBuildFailed    = SB.Theme.MSG_BAD .. "[Spellbreaker]:|r Не удалось построить главное окно.",
     -- Пошаговый режим (см. Core/TurnOrder.lua)
     turnNotYours            = SB.Theme.MSG_BAD .. "[Spellbreaker]: Сейчас не ваш ход — идёт пошаговый режим. Дождитесь своей очереди.|r",
@@ -866,4 +869,4 @@ function SB.UI.ScreenNotice(text, quiet)
     else
         pcall(PlaySoundFile, "Sound\\Interface\\RaidWarning.ogg", "Master")
     end
-end
+end

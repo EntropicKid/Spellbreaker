@@ -354,6 +354,15 @@ function TO.IsActive() return state.active == true end
 function TO.GetMode()  return state.mode end
 function TO.GetRound() return state.round end
 
+--- Слоты очереди и номер идущего — только для ПОКАЗА (полоса очереди
+--- вверху экрана, UI/TurnQueue.lua). Отдаём саму таблицу, а не копию:
+--- её читают на каждое событие очереди, и копировать рейд на сорок имён
+--- ради чтения незачем. Менять её снаружи нельзя — очередь двигает
+--- только Ведущий через функции ниже.
+--- @return table slots  { { "Имя", ... }, ... }
+--- @return number index  0 — круг пройден
+function TO.GetSlots() return state.slots, state.index end
+
 --- Номер в очереди для показа рядом с именем, или nil.
 --- В режиме «все сразу» номера нет намеренно: слот один, и «1» напротив
 --- каждого — это шум, а не информация.

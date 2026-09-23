@@ -567,6 +567,11 @@ local function ParseITEMPAY(sender, t)
     -- и открывать этим пакетом ещё одну дорогу к чужой модели незачем.
     if not (spell and spell.isItem and spell.onCast) then return end
     if not (SB.ActiveEffects and SB.ActiveEffects.ApplyPayload) then return end
+    -- Склянку поднёс союзник — это тоже чужое действие по вам, и набор
+    -- запирается так же (см. SB.Logic.NoteTargetedBySpell).
+    if SB.Logic and SB.Logic.NoteTargetedBySpell then
+        SB.Logic.NoteTargetedBySpell(shown)
+    end
 
     local what = SB.UI and SB.UI.MakeSpellLink and SB.UI.MakeSpellLink(spell)
                  or (SB.Theme.MSG_BODY .. (spell.name or "склянку") .. "|r")

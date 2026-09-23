@@ -615,6 +615,8 @@ function SB.Logic.HandleAoeEffectReceived(casterName, spellID, effectID, radius,
         and SB.ActiveEffects.GetKind(effectID) == "debuff"
     if FriendIgnoresAoe(imFriend, harmful) then return end
     if not SB.Logic.IsInAoeEpicenter(epi, casterName, radius) then return end
+    -- Задело — набор заперт (см. SB.Logic.NoteTargetedBySpell).
+    SB.Logic.NoteTargetedBySpell(casterName)
 
     if not total then
         -- enc едет дальше: без него ApplyEffect подставит ноль, и
@@ -803,6 +805,7 @@ function SB.Logic.HandleAoeHealReceived(casterName, spellID, effectID, radius,
     -- Лечение — добро, и достаётся только тем, кого лекарь назвал своими.
     if FriendIgnoresAoe(imFriend, false) then return end
     if not SB.Logic.IsInAoeEpicenter(epi, casterName, radius) then return end
+    SB.Logic.NoteTargetedBySpell(casterName)
 
     -- Та же сверка цифр, что у удара и площадного эффекта: присланный
     -- итог мог быть завышен, и лечение по нему легло бы в обход броска.
