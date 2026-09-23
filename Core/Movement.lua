@@ -177,11 +177,36 @@ function SB.Movement.InEntryGrace()
     return true
 end
 
---- Заперт ли счётчик прямо сейчас — то есть идёт ЧУЖОЙ ход.
+-- ============================================================
+-- ДВА ВОПРОСА, А НЕ ОДИН: «ЗАПЕРТО ЛИ» И «ЧЕЙ ХОД»
+--
+-- Вопроса здесь действительно два, и путать их нельзя.
+--
+--   IsTurnPinned — ЧЕЙ СЕЙЧАС ХОД. Отвечает по очереди и только по ней:
+--                  мой черёд открыт или нет. Окна на входе не знает.
+--   IsPinned     — МОЖНО ЛИ ИДТИ ПРЯМО СЕЙЧАС. Это то же самое ПЛЮС
+--                  окно на входе, в которое ходят все.
+--
+-- ЧТО СЛОМАЛОСЬ, ПОКА ВОПРОС БЫЛ ОДИН. Очередь сверяет своё состояние
+-- с сохранённым флагом (см. NotifyTransitions в Core/TurnOrder.lua):
+-- «надо запереть, а не заперто — запри; не надо, а заперто — отопри».
+-- Сверяла она через IsPinned, а тот в окне отвечает «не заперто»
+-- ВСЕГДА. Значит в эти две секунды очередь могла флаг ТОЛЬКО ПОСТАВИТЬ
+-- и никогда не снять.
+--
+-- Наружу это выглядело так: у первого ходящего через две секунды после
+-- начала боя пропадало всё передвижение. Пакетов состояния в первые
+-- секунды приходит несколько — объявление, сборка слотов, пролистывание
+-- павших, — и достаточно одного, в котором черёд ещё не дошёл, чтобы
+-- флаг встал. Следующий пакет, уже верный, снять его не мог: IsPinned
+-- в окне молчит. Окно кончалось — и первый ходящий встречал свой ход
+-- запертым, то есть не мог сократить дистанцию ни на метр.
+-- ============================================================
+
+--- Закрыт ли мой черёд по ОЧЕРЕДИ — без оглядки на окно входа.
+--- Это спрашивает сама очередь, когда сверяет состояние с флагом.
 --- @return boolean
-function SB.Movement.IsPinned()
-    -- Окно на входе сильнее замка: в эти секунды ходят все.
-    if entryGrace then return false end
+function SB.Movement.IsTurnPinned()
     local d = db()
     if not (d and d.movePinned) then return false end
     -- Режим мог смениться, пока флаг лежал в сохранёнке: «все сразу»
@@ -190,6 +215,15 @@ function SB.Movement.IsPinned()
     if not (TO and TO.IsActive and TO.IsActive()) then return false end
     if TO.GetMode and TO.GetMode() == "all" then return false end
     return true
+end
+
+--- Заперт ли счётчик прямо сейчас — то есть идёт ЧУЖОЙ ход.
+--- Это спрашивают правила передвижения и подписи.
+--- @return boolean
+function SB.Movement.IsPinned()
+    -- Окно на входе сильнее замка: в эти секунды ходят все.
+    if SB.Movement.InEntryGrace() then return false end
+    return SB.Movement.IsTurnPinned()
 end
 
 --- Свой ход закрыт (или ещё не начался): счётчик заперт до своего хода.
@@ -221,16 +255,25 @@ function SB.Movement.StartEntryGrace()
     graceUntil = (GetTime and GetTime() or 0) + ENTRY_GRACE
     SB.Movement.ResetDistance()
     SB.Events.Fire(SB.E.MOVEMENT_CHANGED)
-
-    local function close()
-        if not entryGrace then return end
-        entryGrace, graceUntil = false, 0
-        -- Стираем ПОСЛЕ окна, а не до: метры этих секунд прощаются
-        -- целиком, иначе они съели бы первый же свой ход.
-        SB.Movement.ResetDistance()
-        SB.Events.Fire(SB.E.MOVEMENT_CHANGED)
+    if C_Timer then
+        C_Timer.After(ENTRY_GRACE, SB.Movement.EndEntryGrace)
+    else
+        SB.Movement.EndEntryGrace()
     end
-    if C_Timer then C_Timer.After(ENTRY_GRACE, close) else close() end
+end
+
+--- Закрыть окно досрочно. Отдельной функцией, а не замыканием внутри
+--- StartEntryGrace: прогону нужно закрыть ИМЕННО ОКНО, ничего больше не
+--- трогая. Пока закрытие жило в таймере, прогон крутил все таймеры
+--- разом — вместе с таймером хода, который тут же уводил очередь
+--- дальше, — и проверка мерила не то, что собиралась.
+function SB.Movement.EndEntryGrace()
+    if not entryGrace then return end
+    entryGrace, graceUntil = false, 0
+    -- Стираем ПОСЛЕ окна, а не до: метры этих секунд прощаются
+    -- целиком, иначе они съели бы первый же свой ход.
+    SB.Movement.ResetDistance()
+    SB.Events.Fire(SB.E.MOVEMENT_CHANGED)
 end
 
 --- Сколько метров персонаж уже прошёл в текущем ходу.

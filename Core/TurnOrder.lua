@@ -229,10 +229,19 @@ local function NotifyTransitions()
     -- игрока из очереди, переключить режим или выключить сцену прямо
     -- посреди сцены — и запертый счётчик остался бы запертым навсегда,
     -- то есть персонаж перестал бы ходить вовсе.
+    --
+    -- ЧЕРЕЗ IsTurnPinned, А НЕ IsPinned. Второй в первые секунды боя
+    -- отвечает «не заперто» ВСЕГДА — там окно, в которое ходят все, —
+    -- и сверка в эти секунды могла флаг только поставить, но не снять.
+    -- Достаточно было одного пакета, в котором черёд ещё не дошёл, и
+    -- первый ходящий встречал свой ход запертым (см. врезку «ДВА
+    -- ВОПРОСА» в Core/Movement.lua).
     if SB.Movement and SB.Movement.PinTurn then
-        if pin and not SB.Movement.IsPinned() then
+        local locked = SB.Movement.IsTurnPinned and SB.Movement.IsTurnPinned()
+                    or SB.Movement.IsPinned()
+        if pin and not locked then
             SB.Movement.PinTurn()
-        elseif not pin and SB.Movement.IsPinned() then
+        elseif not pin and locked then
             SB.Movement.FillBudget()
         end
     end
@@ -1356,7 +1365,15 @@ function TO.Stop()
     state.active = false
     state.slots, state.acted, state.skipped = {}, {}, {}
     state.index, state.round = 0, 0
-    if SB.Movement then SB.Movement.ResetDistance() end
+    -- FillBudget, а не ResetDistance: конец сцены снимает и ЗАМОК, не
+    -- только метры. ResetDistance замка не трогает намеренно (путь
+    -- стирают из полудюжины мест), и своего пакета Ведущий не получает —
+    -- значит флаг дожил бы у него до следующей сцены и запер бы его там
+    -- с первого же круга.
+    if SB.Movement then
+        if SB.Movement.FillBudget then SB.Movement.FillBudget()
+        else SB.Movement.ResetDistance() end
+    end
     Broadcast()
     Changed()
     Announce("Пошаговый режим выключен — ходят все и в любом порядке.")

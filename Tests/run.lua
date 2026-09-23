@@ -920,9 +920,10 @@ do
 
     -- ── ЧУЖОЙ ХОД: СЧЁТЧИК ЗАПЕРТ ───────────────────────────
     State(1, nil, 1)
-    -- Окно свободного хода на входе в режим закрываем сразу: в нём
-    -- замка нет ни у кого, а мерится здесь именно замок.
-    stub.RunTimers()
+    -- ОКНО ЗАКРЫВАЕМ АДРЕСНО, а не «покрутим все таймеры». RunTimers
+    -- крутит и таймер хода — тот уводит очередь дальше, и проверка
+    -- мерила бы уже другой расклад (см. SB.Movement.EndEntryGrace).
+    SB.Movement.EndEntryGrace()
     checkTrue("не наш черёд — счётчик заперт", SB.Movement.IsPinned())
     check("и показывает полный предел", SB.Movement.GetDistance(), cap)
     check("идти нечем", SB.Movement.GetRemaining(), 0)
@@ -1031,7 +1032,7 @@ do
     checkTrue("усталость в окне выключена", not SB.Movement.IsFatigueOn())
     _G.SpellbreakerCharDB.moveDistance = 8
 
-    stub.RunTimers()
+    SB.Movement.EndEntryGrace()
     checkTrue("окно закрылось", not SB.Movement.InEntryGrace())
     -- СЧЁТЧИК СМОТРИМ СЫРОЙ: под замком GetDistance честно возвращает
     -- полный предел (идти нечем), и прощённые метры по нему не увидеть.
@@ -1042,11 +1043,95 @@ do
     -- метры свободной игры незачем.
     SB.TurnOrder.ApplyRemoteState({ active = false, mode = "player", round = 0,
         session = 92, index = 0, slots = {}, acted = {} })
-    stub.RunTimers()
+    SB.Movement.EndEntryGrace()
     _G.SpellbreakerCharDB.moveDistance = 4
-    stub.RunTimers()
+    SB.Movement.EndEntryGrace()
     check("в свободной игре счётчик никто не трогает",
           SB.Movement.GetDistance(), 4)
+
+    _G.SpellbreakerCharDB.moveDistance = 0
+end
+
+-- ============================================================
+-- ПЕРВЫЙ ХОДЯЩИЙ ВСТРЕЧАЕТ СВОЙ ХОД С ПОЛНЫМ ЗАПАСОМ
+--
+-- Живая жалоба: «в пошаговом режиме в первый круг у первого ходящего
+-- через 2 секунды теряется всё передвижение».
+--
+-- ПРИЧИНА — В СВЕРКЕ. Очередь сверяет своё состояние с сохранённым
+-- флагом замка: «надо запереть, а не заперто — запри; не надо, а
+-- заперто — отопри». Сверяла она через IsPinned, а тот в окне на входе
+-- отвечает «не заперто» ВСЕГДА — там ходят все. Значит в эти две
+-- секунды сверка могла флаг только ПОСТАВИТЬ и никогда не снять.
+--
+-- Пакетов состояния в первые секунды приходит несколько: объявление,
+-- сборка слотов, пролистывание павших, таймер хода. Достаточно одного,
+-- в котором черёд ещё не дошёл, — флаг встал, а следующий, уже верный,
+-- снять его не мог. Окно кончалось, и первый ходящий встречал свой ход
+-- запертым: сократить дистанцию нечем.
+--
+-- Теперь у вопроса два ответа: IsTurnPinned (чей ход — по очереди) и
+-- IsPinned (можно ли идти прямо сейчас — он же плюс окно). Сверка
+-- спрашивает первый.
+-- ============================================================
+do
+    local me = stub.world.playerName
+    ResetEffects()
+    SB.TurnOrder.ApplyRemoteState({ active = false, mode = "player", round = 0,
+        session = 71, index = 0, slots = {}, acted = {} })
+
+    local cap = SB.Movement.GetCap()
+    checkTrue("предел есть", cap ~= SB.Movement.NO_LIMIT and cap > 0)
+
+    -- ── ПЕРВЫЙ ПАКЕТ ЗАСТАЁТ ОЧЕРЕДЬ НЕСОБРАННОЙ ───────────
+    --
+    -- Ровно то, что происходит на входе в бой: пошаговый режим уже
+    -- включён, а слоты ещё строятся, и «текущий» — не мы.
+    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 1,
+        session = 71, index = 1, slots = { { "Юра" }, { me } }, acted = {} })
+    checkTrue("окно открыто — идти можно всем", not SB.Movement.IsPinned())
+    -- А ЗАМОК ПРИ ЭТОМ УЖЕ ВЗВЕДЁН: окно кончится, и он сработает.
+    checkTrue("но по очереди черёд не наш", SB.Movement.IsTurnPinned())
+
+    -- ── ВТОРОЙ ПАКЕТ: ОЧЕРЕДЬ ДОШЛА ДО НАС ─────────────────
+    --
+    -- Всё ещё внутри окна. Здесь-то сверка и должна снять замок —
+    -- раньше она этого не умела.
+    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 1,
+        session = 71, index = 2, slots = { { "Юра" }, { me } },
+        acted = { ["Юра"] = true } })
+    checkTrue("черёд дошёл — замок снят ещё в окне",
+              not SB.Movement.IsTurnPinned())
+
+    -- ── ОКНО ЗАКРЫЛОСЬ — ЗАПАС ЦЕЛ ─────────────────────────
+    SB.Movement.EndEntryGrace()
+    checkTrue("первый ходящий не заперт", not SB.Movement.IsPinned())
+    check("и весь предел при нём", SB.Movement.GetRemaining(), cap)
+    check("а счётчик чист", SB.Movement.GetDistance(), 0)
+    -- Действие тоже при нём: запертым он не был ни секунды.
+    checkTrue("и действовать он может", not SB.Movement.BlocksAction())
+
+    -- ── А СОСЕДУ, ЧЕЙ ЧЕРЁД НЕ ДОШЁЛ, ЗАМОК ОСТАЁТСЯ ───────
+    --
+    -- Обратная сторона: без неё «первый ходит» легко превратилось бы в
+    -- «ходят все».
+    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 1,
+        session = 71, index = 1, slots = { { "Юра" }, { me } }, acted = {} })
+    checkTrue("не наш черёд — снова заперт", SB.Movement.IsPinned())
+
+    -- ── КОНЕЦ СЦЕНЫ СНИМАЕТ ЗАМОК ──────────────────────────
+    --
+    -- Иначе он доживал бы до следующего боя, и первый круг там начинался
+    -- бы запертым — у Ведущего в первую очередь: своего пакета он не
+    -- получает, а TO.Stop раньше стирал только метры.
+    SB.TurnOrder.ApplyRemoteState({ active = false, mode = "player", round = 0,
+        session = 71, index = 0, slots = {}, acted = {} })
+    checkTrue("сцена кончилась — замка нет", not SB.Movement.IsTurnPinned())
+    local to = ReadFile("Core/TurnOrder.lua")
+    checkTrue("и TO.Stop снимает его тем же способом",
+              to:find("if SB.Movement.FillBudget then SB.Movement.FillBudget()", 1, true) ~= nil)
+    checkTrue("а сверка спрашивает очередь, а не окно",
+              to:find("SB.Movement.IsTurnPinned and SB.Movement.IsTurnPinned()", 1, true) ~= nil)
 
     _G.SpellbreakerCharDB.moveDistance = 0
 end
@@ -1065,7 +1150,7 @@ do
     ResetEffects()
     SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 1,
         session = 94, index = 1, slots = { { "Юра" }, { me } }, acted = {} })
-    stub.RunTimers()                       -- закрываем окно на входе
+    SB.Movement.EndEntryGrace()            -- закрываем окно на входе
     checkTrue("чужой ход, счётчик заперт", SB.Movement.IsPinned())
 
     _G.SpellbreakerCharDB.moveDistance = 0
@@ -2592,18 +2677,14 @@ check("здоровье не тронуто", SB.PlayerModel.GetHealth(), 10)
 -- Обычная сцена: предел действует, значит действует и усталость. Своей
 -- галочки у неё нет намеренно — иначе ПвП сводится к «убегаю и не
 -- отвечаю» (см. SB.Movement.IsFatigueOn).
--- ОКНО НА ВХОДЕ В РЕЖИМ ЗАКРЫВАЕМ СРАЗУ. Первые секунды пошагового
--- режима все ходят свободно и бесплатно (см. SB.Movement.StartEntryGrace),
--- и усталости в них не бывает — а здесь мерится именно она. В игре окно
--- закрывает таймер; в прогоне таймеры надо крутить руками.
-stub.RunTimers()
+-- ОКНО НА ВХОДЕ В РЕЖИМ ЗАКРЫВАЕМ СРАЗУ И АДРЕСНО. Первые секунды
+-- пошагового режима все ходят свободно и бесплатно (см.
+-- SB.Movement.StartEntryGrace), и усталости в них не бывает — а здесь
+-- мерится именно она. Не через RunTimers: тот крутит и таймер хода.
+SB.Movement.EndEntryGrace()
 SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = 1,
     index = 1, slots = { { stub.world.playerName } }, acted = {} })
--- ОКНО НА ВХОДЕ В РЕЖИМ ЗАКРЫВАЕМ СРАЗУ. Первые секунды пошагового
--- режима все ходят свободно и бесплатно (см. SB.Movement.StartEntryGrace),
--- и усталости в них не бывает — а здесь мерится именно она. В игре окно
--- закрывает таймер; в прогоне таймеры надо крутить руками.
-stub.RunTimers()
+SB.Movement.EndEntryGrace()
 checkTrue("по умолчанию усталость действует", SB.Movement.IsFatigueOn())
 
 _G.SpellbreakerCharDB.moveOver, _G.SpellbreakerCharDB.moveFatiguePaid = 0, 0
@@ -13607,7 +13688,7 @@ do
     SB.TurnOrder.Start()
     -- Окно свободного хода на входе в режим закрываем сразу: здесь
     -- мерится усталость, а в окне её не бывает (см. StartEntryGrace).
-    stub.RunTimers()
+    SB.Movement.EndEntryGrace()
     SB.Movement.ResetDistance()
     _G.SpellbreakerCharDB.health = 10
 
