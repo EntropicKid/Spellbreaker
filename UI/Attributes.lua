@@ -656,19 +656,22 @@ local function BuildSkillRow(parent, attrKey, skillName, yOff)
             -- чего сложился максимум, видно по самому доспеху.
             -- ============================================
             local tiers    = SB.Skills.GetEquippedArmorTiers()
-            local skillVal = SB.Skills.Get(skillName)
 
             -- НЕЗАСЧИТАННОЕ — вот ради чего опись стоит смотреть вообще.
             -- Латы на персонаже без навыка не дают ничего, и это
             -- единственное, о чём подсказка обязана предупредить: сам по
             -- себе надетый доспех выглядит работающим.
+            -- Тип доспеха больше не важен (см. SB.Skills.ArmorPerPiece):
+            -- не засчитано может быть только всё сразу — без навыка.
             local locked = {}
-            for tier = 1, 4 do
-                local count = tiers[tier]
-                local def   = SB.Data.ArmorTiers and SB.Data.ArmorTiers[tier]
-                if count and count > 0 and def and skillVal < def.needSkill then
-                    locked[#locked + 1] = string.format("%s (нужно %d)",
-                        def.name, def.needSkill)
+            if SB.Skills.ArmorPerPiece() <= 0 then
+                for tier = 1, 4 do
+                    local count = tiers[tier]
+                    local def   = SB.Data.ArmorTiers and SB.Data.ArmorTiers[tier]
+                    if count and count > 0 and def then
+                        locked[#locked + 1] = string.format("%s (нужно %d)",
+                            def.name, def.needSkill)
+                    end
                 end
             end
 
