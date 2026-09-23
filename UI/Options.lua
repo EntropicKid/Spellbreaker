@@ -8,12 +8,29 @@ local optPanel = CreateFrame("Frame")
 optPanel.name = "Spellbreaker"
 InterfaceOptions_AddCategory(optPanel)
 
+-- ── ПРОКРУТКА ─────────────────────────────────────────────
+--
+-- Список настроек перерос высоту окна «Интерфейс»: хвост (шрифт и его
+-- подсказка) вылезал за нижний край рамки. Всё содержимое теперь лежит
+-- на прокручиваемом холсте; высоту холста считаем по факту раскладки
+-- (см. FitContent), а не держим числом, которое устареет с первой же
+-- новой галочкой.
+local scroll = CreateFrame("ScrollFrame", "SBOptionsScroll", optPanel, "UIPanelScrollFrameTemplate")
+scroll:SetPoint("TOPLEFT", optPanel, "TOPLEFT", 0, -4)
+scroll:SetPoint("BOTTOMRIGHT", optPanel, "BOTTOMRIGHT", -28, 4)
+local content = CreateFrame("Frame", nil, scroll)
+content:SetSize(560, 900)
+scroll:SetScrollChild(content)
+scroll:SetScript("OnSizeChanged", function(_, w)
+    if w and w > 0 then content:SetWidth(w) end
+end)
+
 -- Заголовок
-local title = optPanel:CreateFontString(nil, "ARTWORK", "SBFontLarge")
+local title = content:CreateFontString(nil, "ARTWORK", "SBFontLarge")
 title:SetPoint("TOPLEFT", 16, -16)
 title:SetText("Spellbreaker")
 
-local sep = optPanel:CreateTexture(nil, "ARTWORK")
+local sep = content:CreateTexture(nil, "ARTWORK")
 sep:SetSize(500, 1)
 sep:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
 sep:SetColorTexture(0.3, 0.3, 0.3, 1)
@@ -26,11 +43,11 @@ sep:SetColorTexture(0.3, 0.3, 0.3, 1)
 -- то есть меняла шансы одному игроку и со стороны выглядела мухлежом.
 -- Осталась только справка о том, что реально влияет на грани.
 
-local rollHeader = optPanel:CreateFontString(nil, "ARTWORK", "SBFontNormal")
+local rollHeader = content:CreateFontString(nil, "ARTWORK", "SBFontNormal")
 rollHeader:SetPoint("TOPLEFT", sep, "BOTTOMLEFT", 0, -16)
 rollHeader:SetText("Бросок кубика")
 
-local rollInfo = optPanel:CreateFontString(nil, "ARTWORK", "SBFontHighlight")
+local rollInfo = content:CreateFontString(nil, "ARTWORK", "SBFontHighlight")
 rollInfo:SetPoint("TOPLEFT", rollHeader, "BOTTOMLEFT", 0, -10)
 rollInfo:SetWidth(500)
 rollInfo:SetJustifyH("LEFT")
@@ -38,12 +55,12 @@ rollInfo:SetTextColor(0.6, 0.6, 0.6)
 
 -- ── Раздел: Дополнительно ─────────────────────────────────
 
-local sep2 = optPanel:CreateTexture(nil, "ARTWORK")
+local sep2 = content:CreateTexture(nil, "ARTWORK")
 sep2:SetSize(500, 1)
 sep2:SetPoint("TOPLEFT", rollInfo, "BOTTOMLEFT", 0, -20)
 sep2:SetColorTexture(0.3, 0.3, 0.3, 1)
 
-local addHeader = optPanel:CreateFontString(nil, "ARTWORK", "SBFontNormal")
+local addHeader = content:CreateFontString(nil, "ARTWORK", "SBFontNormal")
 addHeader:SetPoint("TOPLEFT", sep2, "BOTTOMLEFT", 0, -10)
 addHeader:SetText("Дополнительно")
 
@@ -76,7 +93,7 @@ end
 -- рычаг от того же механизма — и возможность рассинхронизировать их.
 
 -- Игнорировать .caura
-local cauraOptChk = MakeCheckRow(optPanel, addHeader, -10,
+local cauraOptChk = MakeCheckRow(content, addHeader, -10,
     "Игнорировать .caura",
     "ignoreCaura",
     function(val)
@@ -84,7 +101,7 @@ local cauraOptChk = MakeCheckRow(optPanel, addHeader, -10,
     end)
 
 -- Отправлять отписи
-local emoteOptChk = MakeCheckRow(optPanel, cauraOptChk, -8,
+local emoteOptChk = MakeCheckRow(content, cauraOptChk, -8,
     "Отправлять отписи",
     "sendEmotes",
     function(val)
@@ -92,7 +109,7 @@ local emoteOptChk = MakeCheckRow(optPanel, cauraOptChk, -8,
     end)
 
 -- Скрывать сообщения в чате игры
-local hideOptChk = MakeCheckRow(optPanel, emoteOptChk, -8,
+local hideOptChk = MakeCheckRow(content, emoteOptChk, -8,
     "Скрывать сообщения в чате игры",
     "hideSystemMessages",
     function(val)
@@ -105,7 +122,7 @@ local hideOptChk = MakeCheckRow(optPanel, emoteOptChk, -8,
     end)
 
 -- Перенаправлять во вкладку «Журнал боя» (см. SB.Logs.ChatPrint)
-local combatLogOptChk = MakeCheckRow(optPanel, hideOptChk, -8,
+local combatLogOptChk = MakeCheckRow(content, hideOptChk, -8,
     "Перенаправлять сообщения аддона в «Журнал боя»",
     "combatLogMessages",
     function(val)
@@ -118,11 +135,11 @@ local combatLogOptChk = MakeCheckRow(optPanel, hideOptChk, -8,
     "SBCombatLogChk")
 
 -- Плавность интерфейса (см. Core/Animate.lua)
-local animOptChk = MakeCheckRow(optPanel, combatLogOptChk, -8,
+local animOptChk = MakeCheckRow(content, combatLogOptChk, -8,
     "Плавные переходы в интерфейсе",
     "animations")
 
-local animHint = optPanel:CreateFontString(nil, "ARTWORK", "SBFontDisableSmall")
+local animHint = content:CreateFontString(nil, "ARTWORK", "SBFontDisableSmall")
 animHint:SetPoint("TOPLEFT", animOptChk, "BOTTOMLEFT", 24, 0)
 animHint:SetWidth(480)
 animHint:SetJustifyH("LEFT")
@@ -135,7 +152,7 @@ animHint:SetText("Появление окон, подсветка кнопок, 
 -- остальное.
 
 -- Оверлей на стандартных рамках (см. UI/Overlay.lua)
-local overlayOptChk = MakeCheckRow(optPanel, animHint, -10,
+local overlayOptChk = MakeCheckRow(content, animHint, -10,
     "Показывать ХП/ресурс аддона на стандартных рамках (своей, цели, группы)",
     "blizzOverlay",
     function(val)
@@ -146,7 +163,7 @@ local overlayOptChk = MakeCheckRow(optPanel, animHint, -10,
     end,
     "SBOverlayChk")   -- ищется из SB.Overlay.SetEnabled
 
-local overlayHint = optPanel:CreateFontString(nil, "ARTWORK", "SBFontDisableSmall")
+local overlayHint = content:CreateFontString(nil, "ARTWORK", "SBFontDisableSmall")
 overlayHint:SetPoint("TOPLEFT", overlayOptChk, "BOTTOMLEFT", 24, 0)
 overlayHint:SetText("Отключается сам в бою и на 5 секунд после урона вне боя " ..
     "— чтобы было видно настоящие значения.")
@@ -156,7 +173,7 @@ overlayHint:SetText("Отключается сам в бою и на 5 секу�
 -- пользуется вне отыгрыша, а панель цели — только то, что к отыгрышу и
 -- относится. Отсюда и разные умолчания (см. врезку «ДВЕ ПОДМЕНЫ АУР» в
 -- UI/Overlay.lua).
-local auraOptChk = MakeCheckRow(optPanel, overlayHint, -10,
+local auraOptChk = MakeCheckRow(content, overlayHint, -10,
     "Заменить отображение собственных баффов/дебаффов",
     "ownAuras",
     function(val)
@@ -167,7 +184,7 @@ local auraOptChk = MakeCheckRow(optPanel, overlayHint, -10,
     end,
     "SBOverlayOwnAuraChk")   -- ищется из SB.Overlay.SetOwnAurasEnabled
 
-local tgtAuraChk = MakeCheckRow(optPanel, auraOptChk, -4,
+local tgtAuraChk = MakeCheckRow(content, auraOptChk, -4,
     "Заменить отображение баффов/дебаффов цели",
     "targetAuras",
     function(val)
@@ -178,7 +195,7 @@ local tgtAuraChk = MakeCheckRow(optPanel, auraOptChk, -4,
     end,
     "SBOverlayTgtAuraChk")   -- ищется из SB.Overlay.SetTargetAurasEnabled
 
-local auraHint = optPanel:CreateFontString(nil, "ARTWORK", "SBFontDisableSmall")
+local auraHint = content:CreateFontString(nil, "ARTWORK", "SBFontDisableSmall")
 auraHint:SetPoint("TOPLEFT", tgtAuraChk, "BOTTOMLEFT", 24, 0)
 auraHint:SetWidth(480)
 auraHint:SetJustifyH("LEFT")
@@ -190,7 +207,7 @@ auraHint:SetText("Своя панель баффов прячется целик
 -- Две галочки, и умолчание у второй не своё, а «наоборот от первой»
 -- (см. SB.Overlay.AreTurnMarksEnabled): полоса и отметки отвечают на
 -- один вопрос, и показывать оба ответа сразу незачем.
-local queueOptChk = MakeCheckRow(optPanel, auraHint, -10,
+local queueOptChk = MakeCheckRow(content, auraHint, -10,
     "Очередь ходов вверху экрана (пошаговый режим)",
     "turnQueue",
     function(val)
@@ -198,14 +215,14 @@ local queueOptChk = MakeCheckRow(optPanel, auraHint, -10,
     end,
     "SBTurnQueueChk")   -- ищется из SB.TurnQueue.SetEnabled
 
-local marksOptChk = MakeCheckRow(optPanel, queueOptChk, -4,
+local marksOptChk = MakeCheckRow(content, queueOptChk, -4,
     "Отметки хода на рамках игроков (галочка, крестик, вопрос)",
     "turnMarks",
     function(val)
         if SB.Overlay then SB.Overlay.SetTurnMarksEnabled(val) end
     end)
 
-local queueHint = optPanel:CreateFontString(nil, "ARTWORK", "SBFontDisableSmall")
+local queueHint = content:CreateFontString(nil, "ARTWORK", "SBFontDisableSmall")
 queueHint:SetPoint("TOPLEFT", marksOptChk, "BOTTOMLEFT", 24, 0)
 queueHint:SetWidth(480)
 queueHint:SetJustifyH("LEFT")
@@ -223,16 +240,16 @@ queueHint:SetText("Полоса: слева тот, кто ходит, даль�
 -- шрифта, а не на копию его настроек, поэтому подмена видна в тот же
 -- кадр — и выбирать вслепую, а потом перезаходить, не приходится.
 
-local sep3 = optPanel:CreateTexture(nil, "ARTWORK")
+local sep3 = content:CreateTexture(nil, "ARTWORK")
 sep3:SetSize(500, 1)
 sep3:SetPoint("TOPLEFT", queueHint, "BOTTOMLEFT", -24, -20)
 sep3:SetColorTexture(0.3, 0.3, 0.3, 1)
 
-local fontHeader = optPanel:CreateFontString(nil, "ARTWORK", "SBFontNormal")
+local fontHeader = content:CreateFontString(nil, "ARTWORK", "SBFontNormal")
 fontHeader:SetPoint("TOPLEFT", sep3, "BOTTOMLEFT", 0, -10)
 fontHeader:SetText("Шрифт интерфейса")
 
-local fontDrop = CreateFrame("Frame", "SBFontDropdown", optPanel, "UIDropDownMenuTemplate")
+local fontDrop = CreateFrame("Frame", "SBFontDropdown", content, "UIDropDownMenuTemplate")
 fontDrop:SetPoint("TOPLEFT", fontHeader, "BOTTOMLEFT", -16, -6)
 
 local function FontDropInit(self, level)
@@ -262,7 +279,7 @@ end
 UIDropDownMenu_Initialize(fontDrop, FontDropInit)
 UIDropDownMenu_SetWidth(fontDrop, 260)
 
-local fontHint = optPanel:CreateFontString(nil, "ARTWORK", "SBFontDisableSmall")
+local fontHint = content:CreateFontString(nil, "ARTWORK", "SBFontDisableSmall")
 fontHint:SetPoint("TOPLEFT", fontDrop, "BOTTOMLEFT", 20, -2)
 fontHint:SetWidth(480)
 fontHint:SetJustifyH("LEFT")
@@ -324,10 +341,20 @@ local function SyncOptionsFromDB()
     end
 end
 
+--- Высота холста — по нижнему краю последней строки. Через кадр: до
+--- раскладки у строк ещё нет координат.
+local function FitContent()
+    C_Timer.After(0, function()
+        local top, bottom = content:GetTop(), fontHint:GetBottom()
+        if top and bottom then content:SetHeight(math.max(1, top - bottom + 24)) end
+    end)
+end
+
 local origOnShow = optPanel:GetScript("OnShow")
 optPanel:SetScript("OnShow", function(self)
     if origOnShow then origOnShow(self) end
     SyncOptionsFromDB()
+    FitContent()
 end)
 
 if SB.Events then

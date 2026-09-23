@@ -1000,7 +1000,9 @@ local function MakeAuraIcon(host)
     -- пиксель больше иконки — рядом с оправленными иконками своего окна
     -- она выглядела чужой, будто из другого аддона.
     local b = CreateFrame("Button", nil, host, "BackdropTemplate")
-    b:SetSize(AURA_SIZE, AURA_SIZE)
+    -- Размер — у хоста: под рамкой цели иконки мельче (см. EnsureAuraHosts).
+    local size, inset = host.size or AURA_SIZE, host.inset or AURA_INSET
+    b:SetSize(size, size)
     if b.SetBackdrop then
         local C = SB.Theme.C
         b:SetBackdrop(SB.Theme.BD.card)
@@ -1011,8 +1013,8 @@ local function MakeAuraIcon(host)
     -- «синее — концентрация, красное — дебафф» читается так же, а
     -- скруглением занимается сама оправа.
     b.icon = b:CreateTexture(nil, "ARTWORK")
-    b.icon:SetPoint("TOPLEFT",     AURA_INSET, -AURA_INSET)
-    b.icon:SetPoint("BOTTOMRIGHT", -AURA_INSET, AURA_INSET)
+    b.icon:SetPoint("TOPLEFT",     inset, -inset)
+    b.icon:SetPoint("BOTTOMRIGHT", -inset, inset)
     b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
     b.count = b:CreateFontString(nil, "OVERLAY", "SBFontNumberSmall")
@@ -1168,10 +1170,12 @@ local function LayoutAuraHost(host, list)
             end
             SetAuraCount(b)
 
-            local col = (n - 1) % AURA_PER_ROW
-            local row = math.floor((n - 1) / AURA_PER_ROW)
-            local dx  = col * (AURA_SIZE + AURA_GAP)
-            local dy  = -row * (AURA_SIZE + AURA_ROW_GAP)
+            local perRow = host.perRow or AURA_PER_ROW
+            local size   = host.size   or AURA_SIZE
+            local col = (n - 1) % perRow
+            local row = math.floor((n - 1) / perRow)
+            local dx  = col * (size + (host.gap or AURA_GAP))
+            local dy  = -row * (size + (host.rowGap or AURA_ROW_GAP))
             b:ClearAllPoints()
             if host.growLeft then
                 b:SetPoint("TOPRIGHT", host, "TOPRIGHT", -dx, dy)
@@ -1211,7 +1215,16 @@ local function EnsureAuraHosts()
     local t = CreateFrame("Frame", nil, UIParent)
     t:SetSize(1, 1)
     t.icons, t.growLeft = {}, false
-    if _G.TargetFrame then
+    -- ПОД РАМКОЙ ЦЕЛИ — МЕЛЬЧЕ И КОРОЧЕ. Ряд по десять тридцатипиксельных
+    -- иконок вылезал далеко за рамку цели и висел отдельно от неё
+    -- («неопрятно»). Здесь иконки размером с ванильные ауры цели, по
+    -- пять в ряд — ровно в ширину полосок, — и прижаты под полоску
+    -- ресурса.
+    t.size, t.inset, t.perRow, t.gap, t.rowGap = 21, 2, 5, 2, 2
+    local manaBar = _G.TargetFrameManaBar or (_G.TargetFrame and _G.TargetFrame.manabar)
+    if manaBar then
+        t:SetPoint("TOPLEFT", manaBar, "BOTTOMLEFT", -1, -4)
+    elseif _G.TargetFrame then
         -- ПОДЖАТО К САМОЙ РАМКЕ. Прежние отступы отрывали ряд от
         -- портрета, и иконки читались как висящие сами по себе, а не как
         -- ауры этой цели. Портрет занимает левый край рамки, поэтому ряд

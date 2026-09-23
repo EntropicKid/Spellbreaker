@@ -665,9 +665,8 @@ local function BuildSkillRow(parent, attrKey, skillName, yOff)
             -- не засчитано может быть только всё сразу — без навыка.
             local locked = {}
             if SB.Skills.ArmorPerPiece() <= 0 then
-                for tier = 1, 4 do
+                for tier, def in pairs(SB.Data.ArmorTiers or {}) do
                     local count = tiers[tier]
-                    local def   = SB.Data.ArmorTiers and SB.Data.ArmorTiers[tier]
                     if count and count > 0 and def then
                         locked[#locked + 1] = string.format("%s (нужно %d)",
                             def.name, def.needSkill)

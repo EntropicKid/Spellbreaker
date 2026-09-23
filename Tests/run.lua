@@ -444,6 +444,15 @@ do
     SB.TurnOrder.ApplyRemoteState({ active = false })
     check("выход из режима снимает доживавших", UsesOf("t_pain"), nil)
     ResetEffects()
+
+    -- ПОТОК: держатель списывается раз за ход, а не дважды.
+    SB.ActiveEffects.Add("t_pain", 3, false)
+    SB.ActiveEffects.MarkStepped("t_pain")
+    SB.ActiveEffects.TickTurnStart()
+    check("продолженный поток тик начала хода не списывает", UsesOf("t_pain"), 3)
+    SB.ActiveEffects.TickTurnStart()
+    check("не продолжал — тик спишет", UsesOf("t_pain"), 2)
+    ResetEffects()
 end
 
 -- ОТВЕТ ВЕДУЩЕГО НЕ ТРАТИТ ХОД ВТОРОЙ РАЗ.
@@ -18761,6 +18770,16 @@ do
     checkTrue("а тултип объясняет почему",
               SK.ArmorTooltipLines("item:cloak").note ~= nil)
     check("кольцо тоже пустое", SK.DescribeArmorItem("item:ring").points, 0)
+    check("и приписки про плащи у него нет", SK.DescribeArmorItem("item:ring").tierName, nil)
+
+    -- ── ВЕЩЬ БЕЗ ТИПА В СЧИТАЕМОМ СЛОТЕ — ТОЖЕ ДОСПЕХ ───────
+    -- «Плащ дворянина» на груди: клиент не пишет «ткань», но вещь надета.
+    Item("item:noble", 4, 5, "INVTYPE_CHEST")
+    Item("item:misc",  4, 0, "INVTYPE_ROBE")
+    _G.SpellbreakerCharDB.skills["Ношение брони"] = 3
+    check("декоративная вещь на груди даёт броню", SK.DescribeArmorItem("item:noble").points, 3)
+    check("и «разное» в слоте груди — тоже",       SK.DescribeArmorItem("item:misc").points, 3)
+    _G.SpellbreakerCharDB.skills["Ношение брони"] = 5
 
     -- ── ЩИТ СЧИТАЕТСЯ ПО БОНУСАМ ОРУЖИЯ ─────────────────────
     -- Его броня — вещь в руках, а не надетый доспех, и навыка не требует.

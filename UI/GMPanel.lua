@@ -982,13 +982,24 @@ function SB.UI.UpdateGMPlayers()
         end)
     end
 
-    local rowH        = 60
+    -- СТРОКА ИГРОКА — ВЫСОТОЙ СО СТРОКУ ЗАЯВКИ, и растёт, если эффектов
+    -- больше, чем влезает. Раньше эффекты шли в один ряд без переноса и
+    -- у игрока с десятком баффов уезжали под полоски здоровья и ресурса
+    -- справа — половину было не прочесть и не снять.
+    local rowH        = 74
     local subH        = 30
     local gapRowSub   = 2
     local gapPlayer   = 4
     local iconSize    = 20
     local iconStride  = 22
     local iconPadL    = 8
+    -- Сколько иконок встаёт в ряд: от имени (портрет с полями — 68) до
+    -- полосок справа (90 и поля — 103). Ширина списка до первой раскладки
+    -- может быть нулевой — тогда берём ширину панели по умолчанию.
+    local listW   = (playersChild:GetWidth() or 0)
+    if listW < 200 then listW = 340 end
+    local perRow  = math.max(4, math.floor((listW - 68 - 103) / iconStride))
+    local ICONS_TOP = 38   -- от верха строки: имя, строка класса и зазор
 
     local yOff = 0
 
@@ -1206,6 +1217,9 @@ function SB.UI.UpdateGMPlayers()
         for _, ic in ipairs(row.effectIcons) do ic:Hide() end
 
         local effects = p.activeEffects or {}
+        local iconRows = math.max(1, math.ceil(#effects / perRow))
+        local thisH = math.max(rowH, ICONS_TOP + iconRows * iconStride + 6)
+        row:SetHeight(thisH)
         for iIdx, eff in ipairs(effects) do
             local ic = row.effectIcons[iIdx]
             if not ic then
@@ -1295,10 +1309,12 @@ function SB.UI.UpdateGMPlayers()
             ic._ib:SetBackdropBorderColor(0.15, 0.75, 1.0, 0.9)
             ic._ib:SetShown(eff.isConc or false)
 
-            -- Под infoLabel, в один ряд слева направо
+            -- Под infoLabel, рядами по perRow, не заходя под полоски.
+            local col  = (iIdx - 1) % perRow
+            local line = math.floor((iIdx - 1) / perRow)
             ic:ClearAllPoints()
             ic:SetPoint("TOPLEFT", row.infoLabel, "BOTTOMLEFT",
-                        (iIdx - 1) * iconStride, -2)
+                        col * iconStride, -2 - line * iconStride)
             ic:Show()
         end
 
@@ -1349,7 +1365,7 @@ function SB.UI.UpdateGMPlayers()
 
         row:Show()
 		row._name = p.name
-        yOff = yOff + rowH
+        yOff = yOff + thisH
 
         -- ══════ 2. SUB — подготовленные заклинания (если не скрыты) ══════
         local prepared = p.preparedSpells or {}
