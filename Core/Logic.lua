@@ -3308,6 +3308,10 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
     if spell.channel and spell.channelEffect and not opts.channelStep then
         SB.ActiveEffects.Add(spell.channelEffect,
             SB.Data.GetChannelUses(spell), true)
+        -- Ход начала потока — уже его ход: тик следующего не спишет.
+        if SB.ActiveEffects.MarkStepped then
+            SB.ActiveEffects.MarkStepped(spell.channelEffect)
+        end
     end
 
     -- ОБЪЯВЛЕННЫЙ САМОКАСТ НЕ ВИДИТ НИ ИГРОКОВ, НИ СУЩЕСТВ. Развилка

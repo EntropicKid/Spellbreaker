@@ -2010,6 +2010,9 @@ function SB.ActiveEffects.Use(spellID)
                     expired = true
                 end
             end
+            -- Этот ход держатель уже списал — тик начала следующего хода
+            -- его пропустит (см. «ПОТОК» у TurnStartOne).
+            if not expired then eff.stepped = true end
             -- Израсходован до конца — тот же прощальный расчёт, что и у
             -- истёкшего по ходам (см. ApplyOnRemove).
             if expired then ApplyOnRemove(spellID) end
@@ -2860,10 +2863,29 @@ end
 -- Вне пошагового режима всё по-старому: TickAll и DecrementOne.
 -- ============================================================
 
+-- ── ПОТОК: ОДНО СПИСАНИЕ ЗА ХОД, А НЕ ДВА ─────────────────
+--
+-- Держатель потока всегда расходовался РАЗ за ход: либо кликом по нему
+-- (продолжение, SB.ActiveEffects.Use), либо тиком хода, если в этот ход
+-- поток не продолжали, — тик тогда пропускал держатель, которым только
+-- что воспользовались (см. SB.Logic.TurnSkipFor). С переездом тика в
+-- начало хода этот пропуск остался в прошлом ходе, и держатель стал
+-- списываться дважды: кликом и следующим же тиком.
+--
+-- Теперь держатель, который в прошлом ходу продолжили или только что
+-- начали, помечен stepped, и тик начала хода его не трогает — только
+-- снимает пометку. Не продолжал — тик спишет, как и раньше.
 local function TurnStartOne(spellID)
     for _, eff in ipairs(effects) do
         if eff.spellID == spellID then
             eff.tickSeq = tickSeq
+            if eff.stepped then
+                eff.stepped = nil
+                ApplyTick(spellID)
+                C_Timer.After(0, Redraw)
+                FireChanged()
+                return
+            end
             if eff.uses ~= INFINITE then
                 if eff.uses > 1 then
                     eff.uses = eff.uses - 1
@@ -2873,6 +2895,18 @@ local function TurnStartOne(spellID)
             end
             ApplyTick(spellID)
             C_Timer.After(0, Redraw)
+            FireChanged()
+            return
+        end
+    end
+end
+
+--- Пометить держатель потока «в этом ходу уже списан»: только что
+--- начатый поток первый тик не теряет (см. «ПОТОК» у TurnStartOne).
+function SB.ActiveEffects.MarkStepped(spellID)
+    for _, eff in ipairs(effects) do
+        if eff.spellID == spellID then
+            eff.stepped = true
             FireChanged()
             return
         end
@@ -3286,6 +3320,7 @@ function SaveEffects()
             -- Доживает последний ход: /reload посреди хода не должен
             -- дарить эффекту лишний круг.
             expiring  = eff.expiring or nil,
+            stepped   = eff.stepped or nil,
         })
     end
     SpellbreakerCharDB.activeEffects = t
@@ -3311,6 +3346,7 @@ function SB.ActiveEffects.LoadFromDB()
                 src       = (type(entry.src) == "string") and entry.src or nil,
                 lvl       = tonumber(entry.lvl),
                 expiring  = entry.expiring == true or nil,
+                stepped   = entry.stepped == true or nil,
             })
         end
     end

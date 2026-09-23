@@ -10,7 +10,7 @@
 -- отыгравшие, в том порядке, в каком пойдут на следующем круге.
 --
 -- ПОРЯДОК — КОЛЬЦО, А НЕ СПИСОК. Отходивший не гаснет на своём месте, а
--- уезжает за черту «Ход N+1» в конец. Так полоса всегда начинается с
+-- уезжает за черту «Круг: N+1» в конец. Так полоса всегда начинается с
 -- того, кто ходит, и не приходится искать глазами подсвеченный портрет
 -- посреди ряда из десятка.
 --
@@ -33,16 +33,20 @@ local CARD       = 40    -- сторона обычной карточки
 local CARD_CUR   = 54    -- сторона карточки того, кто ходит
 local GAP        = 6     -- зазор между карточками одного слота
 local SLOT_GAP   = 14    -- зазор между слотами (режим «по группе»)
--- Черта шире самой линии: подпись «Ход N+1» под ней обязана уместиться
+-- Черта шире самой линии: подпись «Круг: N+1» под ней обязана уместиться
 -- в своё место и не заезжать на подписи соседних карточек.
-local DIVIDER_W  = 46    -- место под черту «Ход N+1»
+local DIVIDER_W  = 62    -- место под черту «Круг: N+1»
 local HEADER_H   = 22
 local EDGE       = 2     -- толщина металлической рамки карточки
 local NAME_H     = 14
 local MAX_CARDS  = 14    -- дальше — «+N»: рейд на сорок в ряд не влезет
-local BAR_H      = HEADER_H + 4 + CARD_CUR + NAME_H + 4
+local BAR_H      = 4 + CARD_CUR + NAME_H + 6 + HEADER_H
 -- Линия центров карточек, от верха полосы.
-local CARD_Y     = -(HEADER_H + 4 + CARD_CUR / 2)
+-- «Круг: N» — ПОД портретами, под строкой имён: сверху он спорил с
+-- панелями других аддонов у края экрана, а внизу читается как подпись
+-- к ряду.
+local CARD_Y     = -(4 + CARD_CUR / 2)
+local HEADER_Y   = -(4 + CARD_CUR + NAME_H + 6)
 local LERP_SPEED = 10    -- чем больше, тем быстрее доезжает
 local POLL       = 0.5   -- как часто сверять здоровье и портреты
 
@@ -54,9 +58,9 @@ local FLED_TEX         = "Interface\\Icons\\Ability_Rogue_Sprint"
 
 local bar          -- сама полоса, строится лениво (см. EnsureBar)
 local cards  = {}  -- [имя] = карточка; живут в пуле и переиспользуются
-local divider      -- черта «Ход N+1»
+local divider      -- черта «Круг: N+1»
 local overflow     -- надпись «+N»
-local header       -- «Ход N»
+local header       -- «Круг: N»
 
 -- ============================================================
 -- НАСТРОЙКА
@@ -500,10 +504,10 @@ local function EnsureBar()
     -- панели других аддонов (TRP3 и родня).
     SB.Theme.AttachPositionMemory(bar, "turnQueuePos", 0, uiH / 2 - 95)
 
-    -- «Ход N» — крупно: это главная строка полосы, а мелким шрифтом её
+    -- «Круг: N» — крупно: это главная строка полосы, а мелким шрифтом её
     -- не находили глазами.
     header = bar:CreateFontString(nil, "OVERLAY", "SBFontLarge")
-    header:SetPoint("TOP", bar, "TOP", 0, 0)
+    header:SetPoint("TOP", bar, "TOP", 0, HEADER_Y)
     header:SetTextColor(1, 0.8, 0.42)
 
     local C = SB.Theme.C
@@ -595,8 +599,8 @@ function TQ.Refresh()
     local current = TO.CurrentNameSet()
     local pending, done = BuildEntries(slots, index or 0)
 
-    header:SetText(TO.IsRoundOver() and ("Ход " .. round .. " — круг пройден")
-                                     or ("Ход " .. round))
+    header:SetText(TO.IsRoundOver() and ("Круг: " .. round .. " — пройден")
+                                     or ("Круг: " .. round))
 
     -- Что встаёт в ряд: карточки, черта, «+N».
     local row, shownCards, hidden = {}, 0, 0
@@ -648,7 +652,7 @@ function TQ.Refresh()
 
         if e.divider then
             divider.tx, divider.ta = cx, 1
-            divider.text:SetText("Ход " .. (round + 1))
+            divider.text:SetText("Круг: " .. (round + 1))
             if divider.a <= 0.01 then divider.x = cx end
         else
             local c = cards[e.name]

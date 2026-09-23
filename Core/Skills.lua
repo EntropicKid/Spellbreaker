@@ -488,7 +488,16 @@ local ARMOR_PER_DR = 10
 -- Таблица тиров осталась ради названий (тултип, подсказки): требование
 -- у всех одно — первое вложенное очко.
 -- ============================================================
+--
+-- БЕЗ ТИПА — ТОЖЕ ДОСПЕХ. Вещь в слоте груди, у которой клиент не пишет
+-- «ткань/кожа/…» («Плащ дворянина» и прочие декоративные и «разные»
+-- вещи), надета так же, как любая другая, и раз тип больше ничего не
+-- решает, отказывать ей в броне не за что. Подклассы 0 («разное») и 5
+-- («декоративное») считаются наравне с тканью — но только в тех же
+-- восьми слотах: кольцо или шея остаются без брони.
 local ARMOR_TIERS = {
+    [0] = { needSkill = 1, name = "без типа" },
+    [5] = { needSkill = 1, name = "декоративное" },
     [1] = { needSkill = 1, name = "ткань"    },
     [2] = { needSkill = 1, name = "кожа"     },
     [3] = { needSkill = 1, name = "кольчуга" },
@@ -893,7 +902,7 @@ function SB.Skills.GetEquippedArmorTiers()
         local link = GetInventoryItemLink("player", slot)
         if link then
             local _, _, _, _, _, classID, subclassID = GetItemInfoInstant(link)
-            if classID == ARMOR_CLASS_ID and subclassID and subclassID >= 1 and subclassID <= 4 then
+            if classID == ARMOR_CLASS_ID and subclassID and ARMOR_TIERS[subclassID] then
                 tiers[subclassID] = (tiers[subclassID] or 0) + 1
             end
         end
@@ -967,8 +976,13 @@ function SB.Skills.DescribeArmorItem(link)
         return { kind = "none", points = 0, needSkill = 0, enough = true }
     end
     if not EQUIP_SLOT[equipLoc or ""] then
+        -- Имя тира отдаём только плащу, рубахе и накидке: по нему тултип
+        -- пишет «плащи … не дают». Кольцу («разное») эта приписка врала бы.
+        local wearable = equipLoc == "INVTYPE_CLOAK" or equipLoc == "INVTYPE_BODY"
+                      or equipLoc == "INVTYPE_TABARD"
         return { kind = "none", points = 0, tier = subclassID,
-                 tierName = def.name, needSkill = def.needSkill, enough = true }
+                 tierName = wearable and def.name or nil,
+                 needSkill = def.needSkill, enough = true }
     end
 
     local per = SB.Skills.ArmorPerPiece()
