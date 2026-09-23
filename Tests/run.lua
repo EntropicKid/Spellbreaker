@@ -9909,7 +9909,7 @@ do
     local perDR = SB.Data.ArmorPerDR
 
     SB.TurnOrder.Stop()
-    -- Латы целиком плюс щит: 8 частей по 4 единицы и 15 за щит.
+    -- Латы целиком плюс щит: 8 частей по 5 единиц (навык 5) и 15 за щит.
     _G.SpellbreakerCharDB.attributes["Выносливость"] = 5
     SB.Skills.Set("Ношение брони", 5)
     stub.world.equipped = { [17] = { 4, 6 } }
@@ -9920,9 +9920,9 @@ do
     SB.Skills.ResetArmor()
 
     local max = SB.Skills.GetArmorMax()
-    check("латы и щит дают полный запас", max, 8 * 4 + 15)
+    check("латы и щит дают полный запас", max, 8 * 5 + 15)
     check("запас цел",           SB.Skills.GetArmorPoints(), max)
-    check("поглотит 4 урона",    SB.Skills.GetDamageReduction(), math.floor(max / perDR))
+    check("поглотит 5 урона",    SB.Skills.GetDamageReduction(), math.floor(max / perDR))
 
     -- Поглощение тратит запас: каждая единица урона — десять брони.
     check("удар на 2 поглощён целиком", SB.Skills.AbsorbDamage(2), 2)
@@ -11930,7 +11930,9 @@ do
     -- осваивает тот же доспех то же вложение.
     local T = SB.Data.ArmorTiers
     check("ткань — с первого очка", T[1].needSkill, 1)
-    check("латы — с четвёртого",    T[4].needSkill, 4)
+    -- Тип доспеха больше не важен: латы — тоже с первого очка
+    -- (см. «БРОНЯ ЗА ЧАСТЬ» в Core/Skills.lua).
+    check("латы — тоже с первого",  T[4].needSkill, 1)
 
     -- ── ИСХОДНИК: ГОЛЫХ ЕДИНИЦ МИМО БАЗЫ НЕ ОСТАЛОСЬ ───────
     checkTrue("скейлинг читает базу",
@@ -18725,38 +18727,31 @@ do
     check("и строк для него нет", SK.ArmorTooltipLines("item:sword"), nil)
     check("незнакомая ссылка тоже молчит", SK.DescribeArmorItem("item:нет"), nil)
 
-    -- ── ТИР ЧИТАЕТСЯ ИЗ ПОДКЛАССА ───────────────────────────
-    _G.SpellbreakerCharDB.skills["Ношение брони"] = 5
-    for link, want in pairs({ ["item:cloth"] = 1, ["item:leather"] = 2,
-                              ["item:mail"] = 3, ["item:plate"] = 4 }) do
-        local d = SK.DescribeArmorItem(link)
-        check(link .. ": единиц брони", d and d.points, want)
-        check(link .. ": навык освоен", d and d.enough, true)
+    -- ── ЗА ЧАСТЬ — СТОЛЬКО, СКОЛЬКО ВЛОЖЕНО В НАВЫК ──────────
+    -- Тип доспеха роли не играет: ткань на навыке 3 даёт те же +3, что
+    -- и латы (см. «БРОНЯ ЗА ЧАСТЬ» в Core/Skills.lua).
+    for _, skill in ipairs({ 1, 3, 5 }) do
+        _G.SpellbreakerCharDB.skills["Ношение брони"] = skill
+        for _, link in ipairs({ "item:cloth", "item:leather", "item:mail", "item:plate" }) do
+            local d = SK.DescribeArmorItem(link)
+            check(link .. " на навыке " .. skill .. ": единиц брони", d and d.points, skill)
+            check(link .. " на навыке " .. skill .. ": освоено", d and d.enough, true)
+        end
     end
-    check("и число уходит в строку", SK.ArmorTooltipLines("item:plate").replace,
-          "Броня: 4")
+    _G.SpellbreakerCharDB.skills["Ношение брони"] = 3
+    check("и число уходит в строку", SK.ArmorTooltipLines("item:cloth").replace,
+          "Броня: 3")
     check("а приписки при освоенном нет", SK.ArmorTooltipLines("item:plate").note, nil)
 
-    -- ── НЕОСВОЕННОЕ НЕ ДАЁТ НИЧЕГО ──────────────────────────
-    --
-    -- Не «даст, когда научишься»: GetArmorBase такой тир просто не
-    -- считает, и «Броня: 4» на нём была бы обещанием, которое расчёт не
-    -- сдержит. Число — ноль, а сколько будет — приписка словами.
-    _G.SpellbreakerCharDB.skills["Ношение брони"] = 2
-    local low = SK.DescribeArmorItem("item:plate")
-    check("латы на навыке 2 не освоены", low.enough, false)
-    check("а кожа — освоена",            SK.DescribeArmorItem("item:leather").enough, true)
-    local lines = SK.ArmorTooltipLines("item:plate")
-    check("в строке ноль", lines.replace, "Броня: 0")
-    checkTrue("и приписка называет требование",
-              lines.note and lines.note:find("Ношение брони» 4", 1, true) ~= nil)
-    checkTrue("и говорит, сколько будет",
-              lines.note and lines.note:find("Даст 4", 1, true) ~= nil)
-
-    -- Совсем без навыка не работает даже ткань.
+    -- ── БЕЗ НАВЫКА НЕ ДАЁТ НИЧЕГО НИКАКОЙ ДОСПЕХ ────────────
     _G.SpellbreakerCharDB.skills["Ношение брони"] = 0
     check("без навыка и ткань не носится",
           SK.DescribeArmorItem("item:cloth").enough, false)
+    check("и латы тоже", SK.DescribeArmorItem("item:plate").enough, false)
+    local lines = SK.ArmorTooltipLines("item:plate")
+    check("в строке ноль", lines.replace, "Броня: 0")
+    checkTrue("и приписка называет требование",
+              lines.note and lines.note:find("Ношение брони» 1", 1, true) ~= nil)
     _G.SpellbreakerCharDB.skills["Ношение брони"] = 5
 
     -- ── ВОСЕМЬ СЛОТОВ, А НЕ ВСЕ ─────────────────────────────
@@ -18775,12 +18770,12 @@ do
     check("навыка не требует", sh.enough, true)
 
     -- ── ЧИСЛА ТЕ ЖЕ, ЧТО В РАСЧЁТЕ ──────────────────────────
-    -- Вторая табличка «ткань = 1» в тултипе разошлась бы с ARMOR_TIERS
-    -- на первой же правке баланса.
-    for tier, def in pairs(SB.Data.ArmorTiers) do
+    -- Вторая табличка в тултипе разошлась бы с расчётом на первой же
+    -- правке баланса.
+    for tier in pairs(SB.Data.ArmorTiers) do
         local link = Item("item:t" .. tier, 4, tier, "INVTYPE_CHEST")
-        check("тир " .. tier .. " берёт число из таблицы",
-              SK.DescribeArmorItem(link).points, def.bonus)
+        check("тир " .. tier .. " берёт число из расчёта",
+              SK.DescribeArmorItem(link).points, SK.ArmorPerPiece())
     end
 
     -- ── САМ ФАЙЛ ТУЛТИПА ГРУЗИТСЯ И ПРАВИЛ НЕ ДЕРЖИТ ────────

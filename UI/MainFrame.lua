@@ -790,6 +790,9 @@ local function BuildMainFrame()
     moveBadge:SetBackdropColor(0.07, 0.09, 0.13, 0.90)
     moveBadge:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.85)
     moveBadge:SetPoint("RIGHT", defBadge, "LEFT", -3, 0)
+    -- Действие хода сделано — бейдж мерцает золотом: дальше только
+    -- окончить ход (см. SB.UI.AttachEndTurnPulse).
+    if SB.UI.AttachEndTurnPulse then SB.UI.AttachEndTurnPulse(moveBadge) end
 
     moveBadge.icon = moveBadge:CreateTexture(nil, "ARTWORK")
     moveBadge.icon:SetSize(14, 14)

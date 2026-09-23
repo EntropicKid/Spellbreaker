@@ -487,6 +487,17 @@ function TO.CanUseMainAction()
     return not (SpellbreakerCharDB and SpellbreakerCharDB.turnActionKey == key)
 end
 
+--- Ждёт ли свой ход только кнопки «Окончить ход»: ход открыт, а
+--- действие в нём уже сделано. По этому признаку кнопка окончания хода
+--- мерцает (см. SB.UI.AttachEndTurnPulse в UI/TurnQueue.lua).
+function TO.IsEndTurnPending()
+    if not state.active then return false end
+    local me = UnitName("player")
+    if state.acted[me] then return false end
+    if state.mode ~= "all" and not TO.IsCurrent(me) then return false end
+    return not TO.CanUseMainAction()
+end
+
 function TO.NoteMainActionUsed()
     local key = TurnKey()
     if not key or not SpellbreakerCharDB then return end

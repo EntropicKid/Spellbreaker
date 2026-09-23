@@ -33,8 +33,11 @@ local CARD       = 40    -- сторона обычной карточки
 local CARD_CUR   = 54    -- сторона карточки того, кто ходит
 local GAP        = 6     -- зазор между карточками одного слота
 local SLOT_GAP   = 14    -- зазор между слотами (режим «по группе»)
-local DIVIDER_W  = 30    -- место под черту «Ход N+1»
-local HEADER_H   = 16
+-- Черта шире самой линии: подпись «Ход N+1» под ней обязана уместиться
+-- в своё место и не заезжать на подписи соседних карточек.
+local DIVIDER_W  = 46    -- место под черту «Ход N+1»
+local HEADER_H   = 22
+local EDGE       = 2     -- толщина металлической рамки карточки
 local NAME_H     = 14
 local MAX_CARDS  = 14    -- дальше — «+N»: рейд на сорок в ряд не влезет
 local BAR_H      = HEADER_H + 4 + CARD_CUR + NAME_H + 4
@@ -174,6 +177,8 @@ local function PaintHealth(c)
     c.hp:Show()
 end
 
+local CanGrant, OpenGrant   -- ниже, у клика по карточке
+
 local function CardTooltip(self)
     local TO = SB.TurnOrder
     GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
@@ -201,6 +206,9 @@ local function CardTooltip(self)
         GameTooltip:AddLine(string.format("Здоровье: %d / %d", hp, maxHp),
             0.92, 0.90, 0.86)
     end
+    if CanGrant() then
+        GameTooltip:AddLine("ЛКМ — выдать ресурсы", 0.5, 0.5, 0.5)
+    end
     GameTooltip:AddLine("Shift + ЛКМ — перетащить полосу", 0.5, 0.5, 0.5)
     GameTooltip:Show()
 end
@@ -220,19 +228,114 @@ local function StopDrag()
     end
 end
 
+--- Может ли смотрящий выдавать ресурсы: Ведущий и его помощники (см.
+--- SB.ResourceGrant.CanGrant — там же правило «соло — сам себе Ведущий»).
+function CanGrant()
+    return SB.ResourceGrant and SB.ResourceGrant.CanGrant
+        and SB.ResourceGrant.CanGrant() or false
+end
+
+--- КЛИК ПО ПОРТРЕТУ — ОКНО ВЫДАЧИ РЕСУРСОВ. Тот же вход, что у строки
+--- игрока в панели Ведущего: полоса и так у него перед глазами, и
+--- тянуться за панелью ради «+2 ХП тому, кто сейчас ходит» незачем.
+--- Данные — из статуса, который игрок рассылает сам; свои — из модели.
+--- Нет статуса (у игрока нет аддона) — выдавать некому, клик молчит.
+function OpenGrant(name)
+    if not CanGrant() or not SB.ResourceGrant.ShowFor then return end
+    local data
+    if name == UnitName("player") then
+        data = SB.PlayerModel and SB.PlayerModel.GetStatusSnapshot
+            and SB.PlayerModel.GetStatusSnapshot()
+    else
+        data = SB.Data.PlayersStatus and SB.Data.PlayersStatus[name]
+    end
+    if not data then return end
+    SB.ResourceGrant.ShowFor(name, data)
+end
+
 --- ЮНИТ-ТОКЕН КАРТОЧКА НЕ ХРАНИТ в поле unit НАМЕРЕННО: обход рамок
 --- для отметок хода ищет всё, у чего это поле есть (см. ScanUnitFrames
 --- в UI/Overlay.lua), и нашёл бы нашу карточку как рамку игрока.
+-- ── РАМКА КАРТОЧКИ: МЕТАЛЛ, А НЕ ПЛОСКАЯ ЛИНИЯ ─────────────
+--
+-- Жалоба: «рамка у портретов выглядит плоско». Была одна заливка цветом
+-- в два пикселя — так рисуют отладочные квадраты, а не портреты. Теперь
+-- слоёв несколько, и каждый делает своё:
+--
+--   тень        — мягкая тёмная подложка шире карточки: отрывает её от
+--                 мира за спиной;
+--   чёрный кант — тонкая внешняя линия, по которой глаз читает край;
+--   металл      — рамка с вертикальным градиентом (свет сверху, тень
+--                 снизу): она и даёт объём;
+--   фаска       — тёмная линия между металлом и портретом;
+--   блик        — светлый градиент на верхней трети портрета;
+--   виньетка    — тёмный градиент снизу, на котором читается полоска
+--                 здоровья.
+
+--- Вертикальный градиент на однотонной текстуре. Сигнатура SetGradient
+--- на 9.2.7 — старая, числами; на всякий случай пробуем и новую, а
+--- без обеих остаётся ровный средний цвет.
+local function Gradient(tex, top, bottom, alphaTop, alphaBottom)
+    alphaTop, alphaBottom = alphaTop or 1, alphaBottom or 1
+    tex:SetColorTexture(1, 1, 1, 1)
+    if tex.SetGradientAlpha and pcall(tex.SetGradientAlpha, tex, "VERTICAL",
+            bottom[1], bottom[2], bottom[3], alphaBottom,
+            top[1], top[2], top[3], alphaTop) then
+        return
+    end
+    if CreateColor and tex.SetGradient and pcall(tex.SetGradient, tex, "VERTICAL",
+            CreateColor(bottom[1], bottom[2], bottom[3], alphaBottom),
+            CreateColor(top[1], top[2], top[3], alphaTop)) then
+        return
+    end
+    tex:SetColorTexture((top[1] + bottom[1]) / 2, (top[2] + bottom[2]) / 2,
+                        (top[3] + bottom[3]) / 2, (alphaTop + alphaBottom) / 2)
+end
+
+local function Clamp01(v) return math.max(0, math.min(1, v)) end
+
+--- Покрасить металл рамки: светлее сверху, заметно темнее снизу.
+local function PaintFrame(c, r, g, b)
+    local top    = { Clamp01(r * 1.25 + 0.10), Clamp01(g * 1.25 + 0.10), Clamp01(b * 1.25 + 0.10) }
+    local bottom = { r * 0.45, g * 0.45, b * 0.45 }
+    for _, e in ipairs(c.edges) do Gradient(e, top, bottom) end
+end
+
 local function MakeCard(name)
-    local c = CreateFrame("Frame", nil, bar, "BackdropTemplate")
+    local c = CreateFrame("Frame", nil, bar)
     c.name = name
     c:SetSize(CARD, CARD)
-    c:SetBackdrop({
-        bgFile   = "Interface\\Buttons\\WHITE8X8",
-        edgeFile = "Interface\\Buttons\\WHITE8X8",
-        edgeSize = 2,
-    })
-    c:SetBackdropColor(0, 0, 0, 0.85)
+
+    -- Тень: две подложки с разным выносом дают мягкий край без текстуры.
+    c.shadow1 = c:CreateTexture(nil, "BACKGROUND", nil, -3)
+    c.shadow1:SetPoint("TOPLEFT", -4, 3)
+    c.shadow1:SetPoint("BOTTOMRIGHT", 4, -5)
+    c.shadow1:SetColorTexture(0, 0, 0, 0.22)
+    c.shadow2 = c:CreateTexture(nil, "BACKGROUND", nil, -2)
+    c.shadow2:SetPoint("TOPLEFT", -2, 1)
+    c.shadow2:SetPoint("BOTTOMRIGHT", 2, -3)
+    c.shadow2:SetColorTexture(0, 0, 0, 0.35)
+
+    -- Чёрный кант и подложка под портретом.
+    c.bg = c:CreateTexture(nil, "BACKGROUND", nil, 0)
+    c.bg:SetAllPoints()
+    c.bg:SetColorTexture(0, 0, 0, 0.95)
+
+    -- Металл: четыре грани поверх портрета, внутри внешнего канта.
+    c.edges = {}
+    local function Edge(p1, x1, y1, p2, x2, y2, w, h)
+        local t = c:CreateTexture(nil, "OVERLAY", nil, 1)
+        t:SetPoint(p1, c, p1, x1, y1)
+        t:SetPoint(p2, c, p2, x2, y2)
+        if w then t:SetWidth(w) end
+        if h then t:SetHeight(h) end
+        c.edges[#c.edges + 1] = t
+        return t
+    end
+    Edge("TOPLEFT", 1, -1, "TOPRIGHT", -1, -1, nil, EDGE)            -- верх
+    Edge("BOTTOMLEFT", 1, 1, "BOTTOMRIGHT", -1, 1, nil, EDGE)        -- низ
+    Edge("TOPLEFT", 1, -1, "BOTTOMLEFT", 1, 1, EDGE, nil)            -- лево
+    Edge("TOPRIGHT", -1, -1, "BOTTOMRIGHT", -1, 1, EDGE, nil)        -- право
 
     -- Свечение того, кто ходит: ванильная рамка «нажатой» кнопки,
     -- сложением цвета. Лежит ПОД карточкой и выступает за её край.
@@ -243,9 +346,22 @@ local function MakeCard(name)
     c.glow:SetVertexColor(1, 0.8, 0.42)
     c.glow:Hide()
 
+    local inset = 1 + EDGE + 1   -- кант, металл, фаска
     c.portrait = c:CreateTexture(nil, "ARTWORK")
-    c.portrait:SetPoint("TOPLEFT", 2, -2)
-    c.portrait:SetPoint("BOTTOMRIGHT", -2, 2)
+    c.portrait:SetPoint("TOPLEFT", inset, -inset)
+    c.portrait:SetPoint("BOTTOMRIGHT", -inset, inset)
+
+    -- Блик сверху и виньетка снизу — поверх портрета, под металлом.
+    c.gloss = c:CreateTexture(nil, "ARTWORK", nil, 3)
+    c.gloss:SetPoint("TOPLEFT", c.portrait, "TOPLEFT")
+    c.gloss:SetPoint("TOPRIGHT", c.portrait, "TOPRIGHT")
+    c.gloss:SetHeight(CARD * 0.4)
+    Gradient(c.gloss, { 1, 1, 1 }, { 1, 1, 1 }, 0.22, 0)
+    c.vignette = c:CreateTexture(nil, "ARTWORK", nil, 2)
+    c.vignette:SetPoint("BOTTOMLEFT", c.portrait, "BOTTOMLEFT")
+    c.vignette:SetPoint("BOTTOMRIGHT", c.portrait, "BOTTOMRIGHT")
+    c.vignette:SetHeight(CARD * 0.45)
+    Gradient(c.vignette, { 0, 0, 0 }, { 0, 0, 0 }, 0, 0.65)
 
     -- Подкраска для «ход передан» и «выбыл» — поверх портрета.
     c.shade = c:CreateTexture(nil, "ARTWORK", nil, 1)
@@ -256,8 +372,8 @@ local function MakeCard(name)
     c.hp = CreateFrame("StatusBar", nil, c)
     c.hp:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
     c.hp:SetStatusBarColor(0.80, 0.12, 0.10)
-    c.hp:SetPoint("BOTTOMLEFT", 2, 2)
-    c.hp:SetPoint("BOTTOMRIGHT", -2, 2)
+    c.hp:SetPoint("BOTTOMLEFT", c.portrait, "BOTTOMLEFT", 0, 0)
+    c.hp:SetPoint("BOTTOMRIGHT", c.portrait, "BOTTOMRIGHT", 0, 0)
     c.hp:SetHeight(4)
     c.hp.bg = c.hp:CreateTexture(nil, "BACKGROUND")
     c.hp.bg:SetAllPoints()
@@ -268,16 +384,24 @@ local function MakeCard(name)
     c.badge:SetPoint("TOPRIGHT", 4, 4)
     c.badge:Hide()
 
+    -- ИМЯ — ТОЛЬКО У ТОГО, КТО ХОДИТ. Под каждой карточкой длинные ники
+    -- заезжали друг на друга; остальных узнают по портрету и подсказке.
+    -- Ширина — не больше места карточки с зазором (см. ApplyObject): не
+    -- влезло — клиент сам обрежет многоточием.
     c.label = c:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
-    c.label:SetPoint("TOP", c, "BOTTOM", 0, -2)
+    c.label:SetPoint("TOP", c, "BOTTOM", 0, -3)
     c.label:SetWordWrap(false)
     c.label:SetText(name)
+    c.label:Hide()
 
     c:EnableMouse(true)
     c:SetScript("OnEnter", CardTooltip)
     c:SetScript("OnLeave", function() GameTooltip:Hide() end)
     c:SetScript("OnMouseDown", StartDrag)
-    c:SetScript("OnMouseUp", StopDrag)
+    c:SetScript("OnMouseUp", function(self, button)
+        if bar and bar._dragging then StopDrag() return end
+        if button == "LeftButton" then OpenGrant(self.name) end
+    end)
 
     c.x, c.s, c.a = 0, CARD, 0
     c.tx, c.ts, c.ta = 0, CARD, 0
@@ -315,7 +439,7 @@ local function ApplyObject(o, k)
     if o.s then
         o:SetSize(o.s, o.s)
         if o.glow then o.glow:SetSize(o.s * 1.85, o.s * 1.85) end
-        if o.label then o.label:SetWidth(o.s + 14) end
+        if o.label then o.label:SetWidth(o.s + GAP) end
     end
 end
 
@@ -376,7 +500,9 @@ local function EnsureBar()
     -- панели других аддонов (TRP3 и родня).
     SB.Theme.AttachPositionMemory(bar, "turnQueuePos", 0, uiH / 2 - 95)
 
-    header = bar:CreateFontString(nil, "OVERLAY", "SBFontNormalSmall")
+    -- «Ход N» — крупно: это главная строка полосы, а мелким шрифтом её
+    -- не находили глазами.
+    header = bar:CreateFontString(nil, "OVERLAY", "SBFontLarge")
     header:SetPoint("TOP", bar, "TOP", 0, 0)
     header:SetTextColor(1, 0.8, 0.42)
 
@@ -387,8 +513,9 @@ local function EnsureBar()
     divider.line:SetSize(2, CARD)
     divider.line:SetPoint("CENTER")
     divider.line:SetColorTexture(C.frameBorder[1], C.frameBorder[2], C.frameBorder[3], 0.9)
-    divider.text = divider:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
-    divider.text:SetPoint("TOP", divider, "BOTTOM", 0, -2)
+    divider.text = divider:CreateFontString(nil, "OVERLAY", "SBFontNormal")
+    divider.text:SetPoint("TOP", divider, "BOTTOM", 0, -3)
+    divider.text:SetWidth(DIVIDER_W + GAP)
     divider.text:SetTextColor(C.textGold[1], C.textGold[2], C.textGold[3])
     divider.text:SetWordWrap(false)
     divider.x, divider.a, divider.tx, divider.ta = 0, 0, 0, 0
@@ -569,20 +696,20 @@ function TQ.Refresh()
             -- Рамка: золото у идущего, цвет класса у ждущих, пепел у
             -- отыгравших.
             if isCur then
-                c:SetBackdropBorderColor(1, 0.8, 0.42, 1)
+                PaintFrame(c, 1, 0.78, 0.36)
                 c.label:SetTextColor(1, 0.8, 0.42)
                 c.glow:Show()
                 c.glow:SetAlpha(0.9)
             elseif e.done then
-                c:SetBackdropBorderColor(0.35, 0.33, 0.30, 1)
+                PaintFrame(c, 0.42, 0.40, 0.37)
                 c.label:SetTextColor(0.62, 0.58, 0.54)
                 c.glow:Hide()
             else
-                local r, g, b = ClassColor(UnitOf(e.name))
-                c:SetBackdropBorderColor(r, g, b, 1)
+                PaintFrame(c, ClassColor(UnitOf(e.name)))
                 c.label:SetTextColor(0.92, 0.90, 0.86)
                 c.glow:Hide()
             end
+            c.label:SetShown(isCur and true or false)
             c:SetFrameLevel(bar:GetFrameLevel() + (isCur and 5 or 2))
 
             PaintPortrait(c)
@@ -621,6 +748,94 @@ local function RepaintPortraits()
 end
 
 -- ============================================================
+-- МЕРЦАНИЕ КНОПКИ «ОКОНЧИТЬ ХОД»
+--
+-- Ход больше не кончается действием — его кончает кнопка (бейдж
+-- передвижения). Забыть её нажать после удара — самое частое, что
+-- теперь будет случаться: игрок ударил, очередь стоит, все ждут. Поэтому
+-- после действия кнопка мерцает тёплым золотом до тех пор, пока ход не
+-- окончен (см. TO.IsEndTurnPending).
+--
+-- ОДИН ДРАЙВЕР НА ВСЕ КНОПКИ: их две (шапка главного окна и сводка
+-- панели способностей), и мерцать им положено в такт. Тикает он только
+-- пока есть что подсвечивать.
+-- ============================================================
+local pulseTargets = {}   -- [кнопка] = true | function(кнопка) -> boolean
+local pulseDriver, pulseClock = nil, 0
+
+local function PulseParts(f)
+    if f.sbPulse then return f.sbPulse end
+    local p = {}
+    p.fill = f:CreateTexture(nil, "OVERLAY", nil, 6)
+    p.fill:SetAllPoints()
+    p.fill:SetColorTexture(1, 0.78, 0.35, 1)
+    p.fill:SetBlendMode("ADD")
+    p.glow = f:CreateTexture(nil, "OVERLAY", nil, 7)
+    p.glow:SetTexture(GLOW_TEX)
+    p.glow:SetBlendMode("ADD")
+    p.glow:SetVertexColor(1, 0.75, 0.30)
+    p.glow:SetPoint("CENTER")
+    p.fill:Hide(); p.glow:Hide()
+    f.sbPulse = p
+    return p
+end
+
+local function PulseWanted(f, rule)
+    if not f:IsVisible() then return false end
+    if type(rule) == "function" and not rule(f) then return false end
+    return true
+end
+
+local function StepPulse(_, dt)
+    pulseClock = pulseClock + dt
+    local pending = SB.TurnOrder and SB.TurnOrder.IsEndTurnPending
+        and SB.TurnOrder.IsEndTurnPending()
+    -- Мягкая волна: от едва заметного к тёплому и обратно, полторы
+    -- секунды на вдох — мерцание, а не мигалка.
+    local wave = 0.5 + 0.5 * math.sin(pulseClock * 4.2)
+    local any = false
+    for f, rule in pairs(pulseTargets) do
+        local p = PulseParts(f)
+        if pending and PulseWanted(f, rule) then
+            any = true
+            local w, h = f:GetSize()
+            p.glow:SetSize((w or 60) * 1.45, (h or 24) * 2.1)
+            p.fill:SetAlpha(0.06 + 0.22 * wave)
+            p.glow:SetAlpha(0.35 + 0.65 * wave)
+            p.fill:Show(); p.glow:Show()
+        else
+            p.fill:Hide(); p.glow:Hide()
+        end
+    end
+    if not pending and pulseDriver then
+        pulseDriver:SetScript("OnUpdate", nil)
+    end
+    return any
+end
+
+local function UpdatePulse()
+    if not next(pulseTargets) then return end
+    pulseDriver = pulseDriver or CreateFrame("Frame")
+    local pending = SB.TurnOrder and SB.TurnOrder.IsEndTurnPending
+        and SB.TurnOrder.IsEndTurnPending()
+    if pending then
+        pulseDriver:SetScript("OnUpdate", StepPulse)
+    else
+        StepPulse(nil, 0)   -- погасить всё сразу
+    end
+end
+
+--- Подключить кнопку окончания хода к мерцанию.
+--- @param frame Frame
+--- @param rule function|nil  (frame) -> boolean — мерцать ли именно
+---        сейчас (плашки сводки переиспользуются под разные строки).
+function SB.UI.AttachEndTurnPulse(frame, rule)
+    if not frame then return end
+    pulseTargets[frame] = rule or true
+    UpdatePulse()
+end
+
+-- ============================================================
 -- ПОДПИСКИ
 -- ============================================================
 if SB.Events and SB.Events.On then
@@ -628,7 +843,10 @@ if SB.Events and SB.Events.On then
         EnsureBar()
         TQ.Refresh()
     end)
-    SB.Events.On(SB.E.TURN_ORDER_CHANGED, function() TQ.Refresh() end)
+    SB.Events.On(SB.E.TURN_ORDER_CHANGED, function()
+        TQ.Refresh()
+        UpdatePulse()
+    end)
 end
 
 local ev = CreateFrame("Frame")
