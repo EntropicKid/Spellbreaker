@@ -189,7 +189,7 @@ local function CardTooltip(self)
     if mark == "waiting" then
         GameTooltip:AddLine("Ходит сейчас", 1, 0.8, 0.42)
     elseif mark == "acted" then
-        GameTooltip:AddLine("Походил — следующий ход на новом круге", 0.62, 0.58, 0.54)
+        GameTooltip:AddLine("Ход окончен — следующий на новом круге", 0.62, 0.58, 0.54)
     elseif mark == "skipped" then
         GameTooltip:AddLine("Ход передан дальше", 1, 0.42, 0.34)
     elseif self.place then

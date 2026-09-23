@@ -97,10 +97,28 @@ local hideOptChk = MakeCheckRow(optPanel, emoteOptChk, -8,
     "hideSystemMessages",
     function(val)
         if SpellbreakerHideChatCheck then SpellbreakerHideChatCheck:SetChecked(val) end
+        -- Скрыть и перенаправить — взаимоисключающие пути.
+        if val and SpellbreakerAccountDB then
+            SpellbreakerAccountDB.combatLogMessages = false
+            if SBCombatLogChk then SBCombatLogChk:SetChecked(false) end
+        end
     end)
 
+-- Перенаправлять во вкладку «Журнал боя» (см. SB.Logs.ChatPrint)
+local combatLogOptChk = MakeCheckRow(optPanel, hideOptChk, -8,
+    "Перенаправлять сообщения аддона в «Журнал боя»",
+    "combatLogMessages",
+    function(val)
+        if val and SpellbreakerAccountDB then
+            SpellbreakerAccountDB.hideSystemMessages = false
+            if hideOptChk then hideOptChk:SetChecked(false) end
+            if SpellbreakerHideChatCheck then SpellbreakerHideChatCheck:SetChecked(false) end
+        end
+    end,
+    "SBCombatLogChk")
+
 -- Плавность интерфейса (см. Core/Animate.lua)
-local animOptChk = MakeCheckRow(optPanel, hideOptChk, -8,
+local animOptChk = MakeCheckRow(optPanel, combatLogOptChk, -8,
     "Плавные переходы в интерфейсе",
     "animations")
 
@@ -276,6 +294,7 @@ local function SyncOptionsFromDB()
     cauraOptChk:SetChecked(db.ignoreCaura or false)
     emoteOptChk:SetChecked(db.sendEmotes ~= false)
     hideOptChk:SetChecked(db.hideSystemMessages or false)
+    combatLogOptChk:SetChecked(db.combatLogMessages == true and not db.hideSystemMessages)
     -- Как и SB.Animate.IsEnabled: отсутствующее значение = включено.
     animOptChk:SetChecked(db.animations ~= false)
     -- Как и в SB.Overlay.IsEnabled: отсутствующее значение = включено.
@@ -392,7 +411,7 @@ barMoveHint:SetWidth(480)
 barMoveHint:SetJustifyH("LEFT")
 barMoveHint:SetText("По плашке на каждую линию иконок: метры за ход, бросок атаки, " ..
     "бросок защиты, броня. Щелчки те же, что у бейджей в шапке большого окна: " ..
-    "метры — пропустить ход, атака и защита — бросить. Метры краснеют, когда " ..
+    "метры — окончить ход, атака и защита — бросить. Метры краснеют, когда " ..
     "предел выбран; в свободном ходе они не считаются вовсе, и плашка исчезает " ..
     "вместе с местом под неё.")
 

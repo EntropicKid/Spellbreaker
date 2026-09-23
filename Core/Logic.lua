@@ -1341,12 +1341,26 @@ function SB.Logic.SpendTurn(skip, notMyAction)
     -- В пошаговом режиме наоборот: таймер выключен, и единственный
     -- отсчёт — собственное действие игрока. Одно из двух работает
     -- всегда, оба сразу — никогда.
-    local turnBased = (not SB.TurnOrder) or SB.TurnOrder.IsActive()
-    if turnBased and SB.ActiveEffects and SB.ActiveEffects.TickAll then
-        SB.ActiveEffects.TickAll(skip)
+    --
+    -- ДЕЙСТВИЕ БОЛЬШЕ НЕ КОНЧАЕТ ХОД И НЕ ТИКАЕТ ЭФФЕКТЫ. В пошаговом
+    -- режиме ход кончается только кнопкой «Окончить ход» (см.
+    -- SB.Logic.SpendTurnManually), а эффекты тикают в НАЧАЛЕ своего хода
+    -- (см. «ТИК ЭФФЕКТОВ» в Core/TurnOrder.lua). Действие здесь только
+    -- расходует основное действие хода: второе до конца хода закрыто
+    -- (см. TO.CanUseMainAction), а передвигаться и окончить ход можно.
+    -- Список skip от этого стал не нужен в пошаговом режиме — тика по
+    -- действию, из которого что-то надо было исключать, больше нет.
+    local TO = SB.TurnOrder
+    if TO and TO.IsActive() then
+        if not notMyAction then
+            if TO.NoteMainActionUsed then TO.NoteMainActionUsed() end
+            if SB.Cooldowns then SB.Cooldowns.Start(SB.Cooldowns.TURN) end
+        end
+        return
     end
 
-    -- ПОШАГОВЫЙ РЕЖИМ: ход закрыт. Отметка живёт здесь по той же
+    -- СВОБОДНЫЙ ХОД: отметка очереди ниже ничего не делает (очереди
+    -- нет), остаётся темп. Отметка живёт здесь по той же
     -- причине, что и сброс пройденного пути ниже, — через SpendTurn
     -- проходят ВСЕ пути действия (каст, отдых, пропуск хода), и
     -- отмечаться в каждом отдельно значило бы однажды забыть.
@@ -1495,16 +1509,30 @@ function SB.Logic.SpendTurnManually()
     -- а действовать он не может ничем (см. PM.IsDowned).
     if PM.IsDowned() then SB.UI.PrintMsg("downedCantAct") return end
 
-    -- Пропуск хода — тоже ход: не свой черёд, значит и пропускать нечего
-    -- (см. Core/TurnOrder.lua), и темп он держит наравне с кастом.
+    -- Окончить ход можно только свой: не свой черёд — оканчивать нечего
+    -- (см. Core/TurnOrder.lua).
     if SB.TurnOrder and not SB.TurnOrder.CheckCanAct() then return end
-    if SB.Cooldowns and not SB.Cooldowns.Check(SB.Cooldowns.TURN) then return end
 
-    -- Пройденный путь читаем ДО SpendTurn: он там же и обнуляется,
-    -- как и на любом другом потраченном ходу.
+    local TO = SB.TurnOrder
+    local turnBased = TO and TO.IsActive()
+    -- ТЕМП — ТОЛЬКО ВНЕ ПОШАГОВОГО РЕЖИМА. В пошаговом кнопка идёт сразу
+    -- за действием («ударил — окончил ход»), и шесть секунд темпа после
+    -- удара держали бы игрока с уже сделанным ходом, а всю очередь — в
+    -- ожидании.
+    if not turnBased and SB.Cooldowns
+       and not SB.Cooldowns.Check(SB.Cooldowns.TURN) then return end
+
     local walked = SB.Movement and SB.Movement.GetDistance() or 0
 
-    SB.Logic.SpendTurn()
+    -- В ПОШАГОВОМ РЕЖИМЕ — КОНЕЦ ХОДА, и только он: очередь уходит
+    -- дальше, эффекты, доживавшие этот ход, снимаются (см. «ТИК
+    -- ЭФФЕКТОВ» в Core/TurnOrder.lua). Вне режима — прежний пропуск:
+    -- темп, и только.
+    if turnBased then
+        TO.NoteLocalAction()
+    else
+        SB.Logic.SpendTurn()
+    end
 
 -- ============================================================
     -- ПРОПУСК ХОДА БОЛЬШЕ НЕ ВОЗВРАЩАЕТ РЕСУРС
@@ -1534,7 +1562,7 @@ function SB.Logic.SpendTurnManually()
     -- по сцене важно увидеть его так же быстро (см. Core/Theme.lua).
     SB.Events.Fire("BROADCAST_LOG",
         SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. SB.Theme.MSG_TURN ..
-        UnitName("player") .. " пропускает ход" .. tail .. ".|r", SB.LogRank.ACTION)
+        UnitName("player") .. " оканчивает ход" .. tail .. ".|r", SB.LogRank.ACTION)
 
     SB.Events.Fire(SB.E.STATUS_CHANGED)
 end
@@ -1644,6 +1672,12 @@ function SB.Logic.Flee()
     -- Тот же темп и та же очередь, что у любого действия: побег в чужой
     -- ход — это ход, украденный у соседа.
     if SB.TurnOrder and not SB.TurnOrder.CheckCanAct() then return end
+    -- Побег — основное действие хода, как и каст.
+    if SB.TurnOrder and SB.TurnOrder.CanUseMainAction
+       and not SB.TurnOrder.CanUseMainAction() then
+        SB.UI.PrintMsg("turnActionUsed")
+        return
+    end
     if SB.Cooldowns and not SB.Cooldowns.Check(SB.Cooldowns.TURN) then return end
 
     -- Метры читаем ДО SpendTurn: она обнуляет пройденный путь, как и на
@@ -1662,6 +1696,12 @@ function SB.Logic.Flee()
     -- Кулдаун темпа взводит сама SpendTurn — через неё проходят все пути
     -- действия, и второй раз здесь он был бы лишним.
     SB.Logic.SpendTurn()
+    -- УДАЛОСЬ — ХОД КОНЧАЕТСЯ САМ. Это единственное действие, после
+    -- которого ход не ждёт кнопки: персонажа больше нет на сцене, и
+    -- очередь, ждущая от него «Окончить ход», встала бы.
+    if escaped and SB.TurnOrder and SB.TurnOrder.IsActive() then
+        SB.TurnOrder.NoteLocalAction()
+    end
 
     local G       = SB.Theme.MSG_BODY
     local rollTxt = SB.UI.RollLine(roll, bonus, total, G) ..
@@ -2948,6 +2988,15 @@ function SB.Logic.CanCastNow(spell, onSelf, bonus)
     -- ОЧЕРЕДЬ ХОДОВ: чужой ход не должен стоить игроку ни маны, ни
     -- применения (см. Core/TurnOrder.lua).
     if SB.TurnOrder and not SB.TurnOrder.CheckCanAct() then return false, "turn" end
+
+    -- ОДНО ОСНОВНОЕ ДЕЙСТВИЕ ЗА ХОД. Ход после действия не кончается сам
+    -- (см. TO.CanUseMainAction), но второе действие в нём закрыто;
+    -- бонусное (склянка) — своим счётом.
+    if SB.TurnOrder and SB.TurnOrder.CanUseMainAction and not bonus
+       and not SB.TurnOrder.CanUseMainAction() then
+        SB.UI.PrintMsg("turnActionUsed")
+        return false, "turn"
+    end
 
     -- ТЕМП. Шесть секунд между действиями — предохранитель от спама
     -- способностями, в первую очередь вне пошагового режима, где очередь

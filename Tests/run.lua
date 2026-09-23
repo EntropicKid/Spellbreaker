@@ -155,7 +155,8 @@ check("очередь: номер Дженифер",              TO.GetInitiati
 checkTrue("очередь: ходит Ирина",             TO.IsCurrent("Ирина"))
 check("очередь: Майк уже не ходит",           TO.IsCurrent("Майк"),          false)
 checkTrue("очередь: Майк походил",            TO.HasActed("Майк"))
-checkTrue("очередь: у Майка отобрали ход",    TO.WasSkipped("Майк"))
+-- «Пропущенного» хода больше нет — есть только оконченный.
+checkTrue("очередь: пропуск не хранится",      not TO.WasSkipped("Майк"))
 check("очередь: Ирина может действовать",     TO.CanAct("Ирина"),            true)
 check("очередь: Дженифер ждёт",               TO.CanAct("Дженифер"),         false)
 check("очередь: круг не пройден",             TO.IsRoundOver(),              false)
@@ -348,14 +349,16 @@ SB.Data.Spells["t_pain"] = { id = "t_pain", name = "Проверочная бо�
     class = "Эффект", level = 0,
     effect = { kind = "debuff", tick = { damage = 1 } } }
 
--- Каждый путь, тратящий ход, обязан списать применение у висящего
--- эффекта. Проверяем по очереди, с чистого листа перед каждым.
+-- ДЕЙСТВИЕ БОЛЬШЕ НЕ ТИКАЕТ ЭФФЕКТЫ И НЕ КОНЧАЕТ ХОД. Каждый путь
+-- действия расходует основное действие хода, а сам ход кончается только
+-- кнопкой «Окончить ход» (пятый путь). Эффекты тикают в начале своего хода
+-- (см. «ТИК ЭФФЕКТОВ» в Core/TurnOrder.lua) — проверки на это ниже.
 local turnPaths = {
     { "ПвЕ-бросок",   function() SB.Logic.ProcessRollAndCast("t_strike", 10, 1, false) end },
     { "ПвП-удар",     function() SB.Logic.InitiatePvpAttack("t_strike", 1) end },
     { "площадь",      function() SB.Logic.InitiateAoeAttack("t_aoe", 1) end },
     { "лечение",      function() SB.Logic.ResolveHeal("t_heal", 1) end },
-    { "пропуск хода", function() SB.Logic.SpendTurnManually() end },
+    { "окончание хода", function() SB.Logic.SpendTurnManually() end },
     -- Короткий Отдых был здесь седьмым путём. Механики больше нет.
     --
     -- ФОРСИРОВАННОГО ИСХОДА ЗДЕСЬ ТОЖЕ БОЛЬШЕ НЕТ, и это не потеря
@@ -372,6 +375,7 @@ for _, path in ipairs(turnPaths) do
     -- очередь (пропуск хода), честно откажут.
     SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = 1,
         index = 1, slots = { { stub.world.playerName } }, acted = {} })
+    _G.SpellbreakerCharDB.turnActionKey = nil
     ResetEffects()
     SB.ActiveEffects.Add("t_pain", 3, false)
     _G.SpellbreakerCharDB.health = 10
@@ -387,9 +391,59 @@ for _, path in ipairs(turnPaths) do
     if not ok then
         failed = failed + 1
         print(("ПРОВАЛ    тик после «%s»: путь упал: %s"):format(path[1], err))
+    elseif path[1] == "окончание хода" then
+        checkTrue("кнопка «Окончить ход» кончает ход",
+                  SB.TurnOrder.HasActed(stub.world.playerName))
+        check("и эффекты по ней не тикают", UsesOf("t_pain"), 3)
     else
-        check("тик после «" .. path[1] .. "»", UsesOf("t_pain"), 2)
+        check("действие не тикает: «" .. path[1] .. "»", UsesOf("t_pain"), 3)
+        checkTrue("действие тратит действие хода: «" .. path[1] .. "»",
+                  not SB.TurnOrder.CanUseMainAction())
+        checkTrue("но ход не кончает: «" .. path[1] .. "»",
+                  not SB.TurnOrder.HasActed(stub.world.playerName))
     end
+end
+
+-- ТИК В НАЧАЛЕ СВОЕГО ХОДА, СНЯТИЕ — В КОНЦЕ.
+do
+    local me = stub.world.playerName
+    _G.SpellbreakerCharDB.turnTickKey = nil
+    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 1,
+        index = 1, slots = { { "Первый" }, { me } }, acted = {}, session = 77 })
+    ResetEffects()
+    SB.ActiveEffects.Add("t_pain", 2, false)
+    check("чужой ход — тика нет", UsesOf("t_pain"), 2)
+    -- Ход дошёл до нас: новое состояние, тот же круг.
+    SB.TurnOrder.ApplyRemoteMark({ round = 1, index = 2, names = { "Первый" } })
+    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 1,
+        index = 2, slots = { { "Первый" }, { me } }, acted = { ["Первый"] = true },
+        session = 77 })
+    check("свой ход начался — тикнуло", UsesOf("t_pain"), 1)
+    -- Повторный пакет о том же ходе второй раз не тикает.
+    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 1,
+        index = 2, slots = { { "Первый" }, { me } }, acted = { ["Первый"] = true },
+        session = 77 })
+    check("повторный пакет не тикает", UsesOf("t_pain"), 1)
+
+    -- Следующий круг: единица — последний ход, эффект доживает его.
+    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 2,
+        index = 2, slots = { { "Первый" }, { me } }, acted = { ["Первый"] = true },
+        session = 77 })
+    check("последний ход — эффект ещё висит", UsesOf("t_pain"), 1)
+    SB.Cooldowns.Start(SB.Cooldowns.TURN)
+    SB.Logic.SpendTurnManually()
+    check("окончил ход — эффект снят", UsesOf("t_pain"), nil)
+
+    -- Оглушение на один ход, наложенное между ходами, обязано
+    -- подействовать на ход целиком, а не спасть в его начале.
+    SB.ActiveEffects.Add("t_pain", 1, false)
+    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 3,
+        index = 2, slots = { { "Первый" }, { me } }, acted = { ["Первый"] = true },
+        session = 77 })
+    check("эффект на один ход держится весь ход", UsesOf("t_pain"), 1)
+    SB.TurnOrder.ApplyRemoteState({ active = false })
+    check("выход из режима снимает доживавших", UsesOf("t_pain"), nil)
+    ResetEffects()
 end
 
 -- ОТВЕТ ВЕДУЩЕГО НЕ ТРАТИТ ХОД ВТОРОЙ РАЗ.
@@ -421,8 +475,10 @@ check("и присланный бросок — тоже", UsesOf("t_pain"), 3)
 ResetEffects()
 SB.ActiveEffects.Add("t_pain", 3, false)
 stub.world.time = stub.world.time + 10
+_G.SpellbreakerCharDB.turnActionKey = nil
 SB.Logic.ProcessRollAndCast("t_strike", 10, 1, false)
-check("локальный бросок тикает как прежде", UsesOf("t_pain"), 2)
+check("локальный бросок эффекты не тикает", UsesOf("t_pain"), 3)
+checkTrue("но действие хода тратит", not SB.TurnOrder.CanUseMainAction())
 
 -- В СВОБОДНОМ ХОДУ действие не тикает ничего: там время идёт само, и
 -- второй отсчёт означал бы, что активный игрок теряет эффекты вдвое
@@ -460,7 +516,7 @@ SB.Logic.ResolveEffectCast("t_paincast", 1)
 -- Каст на другого тратит ход по ответу цели (см. HoldTurnUntilResult) —
 -- отпускаем, как это сделал бы ответ.
 SB.Logic.ReleaseHeldTurn()
-check("своя Боль тикает, когда насылаешь Боль на другого", UsesOf("t_pain"), 2)
+check("каст по другому свою Боль не тикает — тик в начале хода", UsesOf("t_pain"), 3)
 
 -- Обратная сторона: наложенный НА СЕБЯ эффект в тот же ход не тикает.
 SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = 2,
@@ -482,7 +538,7 @@ ResetEffects()
 SB.ActiveEffects.Add("t_pain", 3, false)
 stub.world.time = stub.world.time + 10
 SB.Logic.ProcessRollAndCast("t_formcast", 999, 1, false)   -- СЛ 999 — заведомо провал
-check("после провала своя копия эффекта тикает", UsesOf("t_pain"), 2)
+check("провал каста эффекты тоже не тикает", UsesOf("t_pain"), 3)
 
 -- ДОСРОЧНОЕ СНЯТИЕ ЭФФЕКТА ПО СОБЫТИЮ.
 SB.Data.Spells["t_stealth"] = { id = "t_stealth", name = "Проверочная скрытность",
@@ -1589,6 +1645,9 @@ do
     SB.ActiveEffects.Add("t_pain", 3, false)
     local me = stub.world.playerName
     local PM = SB.PlayerModel
+    -- Тик в начале хода помнит, какой круг уже тикнул; блок начинает
+    -- с чистого листа.
+    _G.SpellbreakerCharDB.turnTickKey = nil
 
     SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 1,
         index = 1, slots = { { me }, { "Другой" } }, acted = {}, skipped = {} })
@@ -1621,6 +1680,7 @@ do
     -- ровно по той же причине, по которой он не может пропустить ход сам.
     ResetEffects()
     SB.ActiveEffects.Add("t_pain", 3, false)
+    _G.SpellbreakerCharDB.turnTickKey = nil
     SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 2,
         index = 1, slots = { { me }, { "Другой" } }, acted = {}, skipped = {} })
     local savedHP = _G.SpellbreakerCharDB.health
@@ -2904,7 +2964,7 @@ SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 1,
 -- не лежит ли тот, чей сейчас ход.
 SB.Events.Fire("PLAYERS_STATUS_UPDATED")
 
-checkTrue("павший помечен пропущенным", SB.TurnOrder.WasSkipped("Лежачий"))
+checkTrue("павшему ход окончен", SB.TurnOrder.HasActed("Лежачий"))
 -- Объяснение приходит ОДНОЙ строкой и сразу с итогом, а не после того,
 -- как очередь уже уехала: «Без сознания, ход пропущен: X. Ходит: Y.»
 do
@@ -2973,7 +3033,7 @@ do
         acted = {}, skipped = {} })
     SB.Events.Fire("PLAYERS_STATUS_UPDATED")
 
-    checkTrue("павший в смешанном слоте помечен", SB.TurnOrder.WasSkipped("Труп"))
+    checkTrue("павший в смешанном слоте помечен", SB.TurnOrder.HasActed("Труп"))
     checkTrue("и ход ему больше не положен",      not SB.TurnOrder.CanAct("Труп"))
     checkTrue("живой рядом хода не лишился",      SB.TurnOrder.CanAct("Живой"))
     checkTrue("слот всё ещё его",                 SB.TurnOrder.IsCurrent("Живой"))
@@ -7306,12 +7366,18 @@ do
     -- «бесплатно».
     _G.SpellbreakerCharDB.health = 1
     SB.Logic.ConfirmCast("t_bonus_potion", 0, { onSelf = true })
-    checkTrue("второе зелье закрывает ход", SB.TurnOrder.HasActed(me))
+    checkTrue("второе зелье тратит действие хода", not SB.TurnOrder.CanUseMainAction())
+    checkTrue("но ход не кончает", not SB.TurnOrder.HasActed(me))
 
     -- ── ОБЫЧНОЕ ДЕЙСТВИЕ ХОД ТРАТИТ ─────────────────────────
     Fresh(2)
     SB.Logic.ConfirmCast("t_bonus_act", 0)
-    checkTrue("способность закрывает ход", SB.TurnOrder.HasActed(me))
+    checkTrue("способность тратит действие хода", not SB.TurnOrder.CanUseMainAction())
+    checkTrue("ход после неё не кончается", not SB.TurnOrder.HasActed(me))
+    -- Второе действие в том же ходу закрыто.
+    PM.PrepareSpell("t_bonus_act")
+    SB.Logic.ConfirmCast("t_bonus_act", 0)
+    checkTrue("второе действие в ходу закрыто", not SB.TurnOrder.HasActed(me))
 
     -- ── И ЗЕЛЬЕ ПОСЛЕ НЕЁ ВСЁ ЕЩЁ МОЖНО ─────────────────────
     -- «Сделал обычное действие — передал ход» логику не меняет: бонусное
@@ -11601,6 +11667,7 @@ do
     local function Fresh()
         TO.ApplyRemoteState({ active = true, mode = "all", round = 1,
             index = 1, slots = { { me } }, acted = {} })
+        _G.SpellbreakerCharDB.turnActionKey = nil
         SB.Cooldowns.Start(SB.Cooldowns.TURN)
         stub.world.time = stub.world.time + 10
     end
@@ -11612,7 +11679,7 @@ do
     checkTrue("но второго действия нет",         not TO.CanActLocal())
     L.HandlePvpResultReceived(stub.world.units["target"] and UnitName("target") or "?",
         10, 0, 10, 1, 9, 10)
-    checkTrue("итог пришёл — ход потрачен",      TO.HasActed(me))
+    checkTrue("итог пришёл — действие потрачено", not TO.CanUseMainAction())
     checkTrue("и замок снят",                    not TO.IsAwaitingResult())
 
     -- Итога нет (цель вышла, нет аддона) — ход уходит по сроку.
@@ -11620,7 +11687,7 @@ do
     L.InitiatePvpAttack("t_strike", 1)
     checkTrue("без ответа ход пока держится", not TO.HasActed(me))
     stub.RunTimers()
-    checkTrue("срок вышел — ход потрачен",    TO.HasActed(me))
+    checkTrue("срок вышел — действие потрачено", not TO.CanUseMainAction())
 
     -- Вне пошагового режима держать нечего.
     TO.ApplyRemoteState({ active = false })
@@ -11969,10 +12036,12 @@ do
         session = 9 })
     check("отыгравший — галочка, а не вопрос", TO.MarkFor(me), "acted")
 
+    -- «Пропущенного» хода нет: переданный Ведущим ход — такой же
+    -- оконченный, и отметка у него та же.
     TO.ApplyRemoteState({ active = true, mode = "player", round = 1, index = 1,
-        slots = { { me }, { her } }, acted = {}, skipped = { [me] = true },
+        slots = { { me }, { her } }, acted = { [me] = true }, skipped = { [me] = true },
         session = 9 })
-    check("пропустивший — крестик", TO.MarkFor(me), "skipped")
+    check("переданный ход — та же галочка", TO.MarkFor(me), "acted")
 
     -- РЕЖИМ «ВСЕ СРАЗУ»: ход у всех, значит и вопрос у всех, кто ещё не
     -- отыграл. Так и надо — круг там и ЕСТЬ ход.
@@ -18177,6 +18246,7 @@ do
               (net:match("local IMMEDIATE_ACTIONS = (%b{})") or ""):find("LOGR%s*=%s*true") ~= nil)
     TO.ApplyRemoteState({ active = true, mode = "all", round = 1,
         index = 1, slots = { { me } }, acted = {} })
+    _G.SpellbreakerCharDB.turnActionKey = nil
     L.HoldTurnUntilResult(nil)
     checkTrue("ход удержан",           not TO.HasActed(me))
     local realDes = SB.Net.Deserialize
@@ -18188,7 +18258,7 @@ do
     SB.Net.__commHandler(SB.Net.__commPrefix,
         { action = "LOGR", msg = "Ирина срывает чары", to = me }, "PARTY", "Ирина")
     SB.Net.Deserialize = realDes
-    checkTrue("строка-ответ отпустила ход", TO.HasActed(me))
+    checkTrue("строка-ответ отпустила ход", not TO.CanUseMainAction())
 
     -- ── ПАВШИЙ НЕ ПОЛУЧАЕТ ОБЪЯВЛЕНИЯ ПЕРЕД ПРОЛИСТЫВАНИЕМ ──
     local src = ReadFile("Core/TurnOrder.lua")

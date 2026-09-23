@@ -292,7 +292,9 @@ local function ProbeUnit(unit)
     if UnitIsUnit(unit, "player") then return end
     if UnitInParty(unit) or UnitInRaid(unit) then return end
     local name = FullName(unit)
-    if name then SB.Net.ProbePlayerStatus(name) end
+    -- Срочно: игрок смотрит на рамку прямо сейчас (см. «СРОЧНЫЙ ОПРОС»
+    -- в Core/Network.lua).
+    if name then SB.Net.ProbePlayerStatus(name, true) end
 end
 
 --- Существо в цели — поделиться его состоянием с группой.

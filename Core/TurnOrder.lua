@@ -264,6 +264,41 @@ local function NotifyTransitions()
         lastRoundKey = nil
     end
 
+    -- ============================================================
+    -- ТИК ЭФФЕКТОВ — В НАЧАЛЕ СВОЕГО ХОДА, СНЯТИЕ — В КОНЦЕ
+    --
+    -- Правило и то, почему тик разделён на две половины, — во врезке
+    -- «ТИК В НАЧАЛЕ ХОДА» в Core/ActiveEffects.lua. Здесь только то,
+    -- КОГДА ход начался и кончился.
+    --
+    -- ОДИН ТИК НА КРУГ, и ключ круга лежит в сохранёнке: /reload посреди
+    -- своего хода и повторные пакеты от Ведущего не тикают заново.
+    --
+    -- ХОД, КОТОРЫЙ НЕ ОТКРЫЛСЯ ВОВСЕ (павшего пролистали, Ведущий
+    -- передал очередь раньше, чем дошёл пакет), тоже считается: тик и
+    -- сразу снятие. Иначе кровотечение у лежащего стояло бы на месте.
+    -- ============================================================
+    local turnOpen, turnPassed = false, false
+    if active and (state.round or 0) > 0 and #state.slots > 0 then
+        if state.mode == "all" then
+            turnOpen = not state.acted[me]
+        elseif listed then
+            turnOpen = TO.IsCurrent(me) and not state.acted[me]
+        end
+        turnPassed = (listed or state.mode == "all") and state.acted[me] == true
+    end
+    local AE = SB.ActiveEffects
+    if (turnOpen or turnPassed) and AE and AE.TickTurnStart and SpellbreakerCharDB then
+        local key = (state.session or 0) .. ":" .. (state.round or 0)
+        if SpellbreakerCharDB.turnTickKey ~= key then
+            SpellbreakerCharDB.turnTickKey = key
+            AE.TickTurnStart()
+        end
+    end
+    if not turnOpen and AE and AE.ExpireTurnEnd then
+        AE.ExpireTurnEnd()
+    end
+
     if myTurn and lastMyTurn == false then
         SB.UI.ScreenNotice("Ваш ход")
     end
@@ -429,11 +464,44 @@ function TO.NoteBonusUsed()
     bonusUsedKey = TurnKey()
 end
 
---- Ход у игрока не состоялся — Ведущий передал очередь дальше.
---- В очереди это то же самое, что «походил» (ждать больше нечего), но
---- на рамках показано отдельно: отказом, а не галочкой.
+-- ============================================================
+-- ОСНОВНОЕ ДЕЙСТВИЕ: ОДНО ЗА ХОД, А ХОД КОНЧАЕТ КНОПКА
+--
+-- Раньше ход кончался самим действием: применил способность — очередь
+-- ушла дальше. Теперь ход кончается ТОЛЬКО кнопкой «Окончить ход»
+-- (бейдж передвижения): применил, дошёл, куда хотел, — и тогда отдал
+-- очередь. Действие по-прежнему одно за ход (и одно бонусное), просто
+-- оно больше не закрывает ход само.
+--
+-- КЛЮЧ — САМ ХОД, как у бонусного действия (см. TurnKey), и по той же
+-- причине: сбросить флаг нужно было бы в каждом месте, где двигается
+-- очередь. Но в отличие от бонусного он ЛЕЖИТ В СОХРАНЁНКЕ: иначе
+-- /reload после удара возвращал бы право ударить ещё раз.
+-- ============================================================
+
+--- Свободно ли основное действие этого хода. Вне пошагового режима —
+--- всегда да: там ходов нет, темп держит кулдаун.
+function TO.CanUseMainAction()
+    local key = TurnKey()
+    if not key then return true end
+    return not (SpellbreakerCharDB and SpellbreakerCharDB.turnActionKey == key)
+end
+
+function TO.NoteMainActionUsed()
+    local key = TurnKey()
+    if not key or not SpellbreakerCharDB then return end
+    if SpellbreakerCharDB.turnActionKey == key then return end
+    SpellbreakerCharDB.turnActionKey = key
+    -- Кнопки применения гаснут в тот же миг.
+    SB.Events.Fire(SB.E.TURN_ORDER_CHANGED)
+end
+
+--- «ПРОПУЩЕННОГО» ХОДА БОЛЬШЕ НЕТ — есть только оконченный: сам ли
+--- игрок нажал «Окончить ход», передал ли очередь Ведущий или павшего
+--- пролистала очередь, — для очереди и для рамок это одно и то же.
+--- Функция оставлена ради вызывающих и всегда отвечает «нет».
 function TO.WasSkipped(name)
-    return state.skipped[name] == true
+    return false
 end
 
 --- Круг пройден: все слоты отходили, очередь ждёт «Нового хода».
@@ -566,7 +634,6 @@ end
 ---        ровном месте. Где рисуют по событию, довод не нужен.
 function TO.MarkFor(name, current)
     if not name or not state.active then return nil end
-    if TO.WasSkipped(name) then return "skipped" end
     if TO.HasActed(name)   then return "acted"   end
     current = current or TO.CurrentNameSet()
     return current[name] and "waiting" or nil
@@ -828,9 +895,9 @@ end
 -- же события в зависимости от того, кто ведёт сцену.
 -- ============================================================
 function TO.NoteSkippedTurn()
-    if SB.ActiveEffects and SB.ActiveEffects.TickAll then
-        SB.ActiveEffects.TickAll()
-    end
+    -- ТИКА ЗДЕСЬ БОЛЬШЕ НЕТ: эффекты тикают в начале своего хода, и
+    -- отобранный ход (или пролистанный у павшего) тикает там же — см.
+    -- «ТИК ЭФФЕКТОВ» в NotifyTransitions.
 
     -- РЕСУРС ЗА ОТОБРАННЫЙ ХОД БОЛЬШЕ НЕ ИДЁТ — как и за добровольный
     -- пропуск (см. SB.Logic.SpendTurnManually). Прежняя логика была
@@ -877,8 +944,9 @@ function TO.ApplyRemoteMark(t)
                 if t.skipped == true and name == me and not state.acted[name] then
                     skippedMe = true
                 end
+                -- Пометку «пропущен» от старого Ведущего не храним:
+                -- пропущенного хода больше нет, есть оконченный.
                 state.acted[name] = true
-                if t.skipped == true then state.skipped[name] = true end
             end
         end
     end
@@ -963,7 +1031,7 @@ function TO.ApplyRemoteState(t)
     end
     if type(t.skipped) == "table" then
         for name, v in pairs(t.skipped) do
-            if type(name) == "string" and v == true then state.skipped[name] = true end
+            -- «Пропущен» больше не храним (см. TO.WasSkipped).
         end
     end
 
@@ -1421,14 +1489,13 @@ function TO.Advance()
         for _, slot in ipairs(state.slots) do
             for _, n in ipairs(slot) do
                 if not state.acted[n] then
-                    state.skipped[n] = true
                     closed[#closed + 1] = n
                 end
                 state.acted[n] = true
             end
         end
         state.index = 0
-        BroadcastMark(closed, true); Changed()
+        BroadcastMark(closed); Changed()
         TickIfSkippedLocally(closed)
         Announce("Круг закрыт Ведущим." .. RoundOverTail())
         return
@@ -1443,7 +1510,6 @@ function TO.Advance()
     if slot then
         for _, n in ipairs(slot) do
             if not state.acted[n] then
-                state.skipped[n] = true
                 closed[#closed + 1] = n
             end
             state.acted[n] = true
@@ -1452,7 +1518,7 @@ function TO.Advance()
 
     state.index = state.index + 1
     if state.index > #state.slots then state.index = 0 end
-    BroadcastMark(closed, true); Changed()
+    BroadcastMark(closed); Changed()
     TickIfSkippedLocally(closed)
 
     if state.index < 1 then
@@ -1597,7 +1663,6 @@ function SkipDownedSlots(announceNext)
         if #doomed == 0 then break end
 
         for _, n in ipairs(doomed) do
-            state.skipped[n] = true
             closed[#closed + 1] = n
             -- Через MarkActed, а не руками: сдвиг очереди и закрытие круга
             -- живут там, и второй такой же ветки быть не должно. МОЛЧА:
@@ -1613,7 +1678,7 @@ function SkipDownedSlots(announceNext)
 
     -- MarkActed разослал их как «походивших» — поправляем на «пропущен».
     -- Пакет короткий (см. BroadcastMark), и он же чинит зеркала.
-    BroadcastMark(closed, true)
+    BroadcastMark(closed)
     Changed()
     TickIfSkippedLocally(closed)
 
@@ -1636,11 +1701,11 @@ function SkipDownedSlots(announceNext)
         bucket[#bucket + 1] = n
     end
     if #down > 0 then
-        Announce("Без сознания, ход пропущен: " .. table.concat(down, ", ") .. "." ..
+        Announce("Без сознания, ход окончен: " .. table.concat(down, ", ") .. "." ..
             ((#fled == 0) and tail or ""))
     end
     if #fled > 0 then
-        Announce("Сбежал из боя, ход пропущен: " .. table.concat(fled, ", ") .. "." .. tail)
+        Announce("Сбежал из боя, ход окончен: " .. table.concat(fled, ", ") .. "." .. tail)
     end
     -- Сколько пролистано: вызывающий по этому числу решает, объявлять ли
     -- «Ходит» самому (объявили уже здесь, с итогом).

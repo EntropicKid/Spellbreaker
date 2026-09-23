@@ -1390,7 +1390,7 @@ Dispatch = function(sender, t)
         -- Кто-то взял нас в таргет и хочет нарисовать наши числа у себя
         -- на рамке (см. SB.Net.ProbePlayerStatus). Группа для этого не
         -- нужна — отвечаем шёпотом кому угодно, если обмен не выключен.
-        SB.Net.ReplyPeerStatusTo(sender)
+        SB.Net.ReplyPeerStatusTo(sender, t.urgent == true)
     elseif action == "LOG"     then ParseLOG(t)
     elseif action == "LOGM"    then ParseLOGM(t)
     elseif action == "LOGR"    then ParseLOGR(t)
@@ -1463,9 +1463,17 @@ local function OnCommReceived(prefix, message, distribution, sender)
     local ok, t = SB.Net:Deserialize(message)
     if not ok or type(t) ~= "table" or not t.action then return end
 
-    local urgent = IMMEDIATE_ACTIONS[t.action] and true or false
+    -- Срочный опрос по наведению и ответ на него — тоже сразу: рамка
+    -- цели ждёт именно их (см. врезку «СРОЧНЫЙ ОПРОС»).
+    local urgent = (IMMEDIATE_ACTIONS[t.action]
+        or ((t.action == "REQ_PEER" or t.action == "STATUS") and t.urgent == true))
+        and true or false
     if urgent and AllowImmediate() then
         Dispatch(shortSender, t)
+        -- Статус, разобранный мимо очереди, объявляем сразу: иначе
+        -- событие ушло бы только со следующей пачкой очереди — а её может
+        -- и не быть, и рамка так и стояла бы со старыми числами.
+        FlushStatusDirty()
     else
         EnqueueIncoming(shortSender, t, urgent)
     end
@@ -2309,6 +2317,28 @@ local PEER_REPLY_CD  = 5    -- как часто МЫ отвечаем одно�
 local peerProbeSent  = {}   -- [name] = GetTime()
 local peerLastReply  = {}   -- [name] = GetTime()
 
+-- ── СРОЧНЫЙ ОПРОС: ВЗЯЛИ В ЦЕЛЬ ─────────────────────────────
+--
+-- Жалоба: «между тем, как взял игрока в цель, и тем, как рамка показала
+-- числа аддона, бывает заметная задержка». Причин было три, и все —
+-- в том, что опрос по наведению ехал ТЕМ ЖЕ путём, что фоновый:
+--
+--   * и вопрос, и ответ шли приоритетом BULK — позади всего остального
+--     исходящего, в том числе позади очереди фонового знакомства;
+--   * у обоих концов общие кулдауны с фоновым опросом. Спросили тебя в
+--     фоне три секунды назад, а ответ ещё в пути — вопрос по наведению
+--     молча гасился, и рамка ждала тот самый медленный ответ;
+--   * ответ разбирался общей очередью входящих, по восемь пакетов за тик
+--     вперемешку со статусами всего рейда.
+--
+-- Теперь у наведения свой путь: приоритет ALERT туда и обратно, свои
+-- короткие кулдауны и разбор ответа сразу, мимо очереди. Старый клиент
+-- поля urgent не знает и ответит по-старому — не хуже, чем было.
+local PEER_URGENT_PROBE_CD = 3   -- наведение: не чаще раза в 3 с на игрока
+local PEER_URGENT_REPLY_CD = 1.5
+local peerUrgentSent  = {}   -- [name] = GetTime()
+local peerUrgentReply = {}   -- [name] = GetTime()
+
 -- ============================================================
 -- ФОНОВОЕ ЗНАКОМСТВО: СПРАШИВАЕМ ТЕХ, КОГО СЛЫШИМ
 --
@@ -2418,10 +2448,21 @@ end
 --- Выключателя у обмена нет намеренно: аддон стоит у обеих сторон, обе
 --- играют по одним правилам, и «я вижу твои числа, а ты мои — нет» ломало
 --- бы саму идею общей боевой картины.
-function SB.Net.ReplyPeerStatusTo(requester)
+function SB.Net.ReplyPeerStatusTo(requester, urgent)
     if not requester or requester == "" then return end
     if not SpellbreakerCharDB then return end   -- модель ещё не поднялась
     local now  = GetTime()
+    if urgent then
+        -- Свой кулдаун: недавний фоновый ответ срочному не помеха.
+        local last = peerUrgentReply[requester]
+        if last and (now - last) < PEER_URGENT_REPLY_CD then return end
+        peerUrgentReply[requester] = now
+        peerLastReply[requester]   = now
+        local payload = BuildPeerStatusPayload()
+        payload.urgent = true
+        SendToPlayer(payload, requester, "ALERT")
+        return
+    end
     local last = peerLastReply[requester]
     if last and (now - last) < PEER_REPLY_CD then return end
     peerLastReply[requester] = now
@@ -2431,10 +2472,21 @@ end
 --- Спросить статус конкретного игрока по имени. Имя — ровно то, что
 --- вернул UnitName (с «-Реалм» для чужого реалма): шёпот адресуется по
 --- полному имени, а сокращённое просто не дойдёт.
-function SB.Net.ProbePlayerStatus(playerName)
+--- @param urgent boolean|nil  опрос по наведению (см. врезку
+---        «СРОЧНЫЙ ОПРОС» выше): свой кулдаун и приоритет ALERT.
+function SB.Net.ProbePlayerStatus(playerName, urgent)
     if not playerName or playerName == "" then return end
     if Ambiguate(playerName, "none") == UnitName("player") then return end
     local now = GetTime()
+    if urgent then
+        local last = peerUrgentSent[playerName]
+        if last and (now - last) < PEER_URGENT_PROBE_CD then return end
+        peerUrgentSent[playerName] = now
+        -- Фоновый после срочного не нужен ещё двадцать секунд.
+        peerProbeSent[playerName]  = now
+        SendToPlayer({ action = "REQ_PEER", urgent = true }, playerName, "ALERT")
+        return
+    end
     local last = peerProbeSent[playerName]
     if last and (now - last) < PEER_PROBE_CD then return end
     peerProbeSent[playerName] = now

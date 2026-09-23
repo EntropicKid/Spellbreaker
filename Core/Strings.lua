@@ -812,7 +812,10 @@ SB.Data.Messages = {
     mainFrameBuildFailed    = SB.Theme.MSG_BAD .. "[Spellbreaker]:|r Не удалось построить главное окно.",
     -- Пошаговый режим (см. Core/TurnOrder.lua)
     turnNotYours            = SB.Theme.MSG_BAD .. "[Spellbreaker]: Сейчас не ваш ход — идёт пошаговый режим. Дождитесь своей очереди.|r",
-    turnAlreadyActed        = SB.Theme.MSG_BAD .. "[Spellbreaker]: Вы уже походили. Следующее действие — когда очередь дойдёт снова.|r",
+    turnAlreadyActed        = SB.Theme.MSG_BAD .. "[Spellbreaker]: Ваш ход окончен. Следующее действие — когда очередь дойдёт снова.|r",
+    -- Действие в этом ходу уже было (см. TO.CanUseMainAction): ход не
+    -- кончился, но второе действие в нём закрыто.
+    turnActionUsed          = SB.Theme.MSG_BAD .. "[Spellbreaker]: Действие в этом ходу уже сделано. Можно передвигаться и окончить ход.|r",
     noLongRestInTurnMode    = SB.Theme.MSG_BAD .. "[Spellbreaker]: Идёт пошаговый режим — Долгий Отдых объявить нельзя. Сначала переведите сцену в свободный ход.|r",
     turnAwaitingResult      = SB.Theme.MSG_BAD .. "[Spellbreaker]: Удар ещё в пути — ход перейдёт дальше, когда придёт итог.|r",
     turnRequestPending      = SB.Theme.MSG_BAD .. "[Spellbreaker]: Ваша заявка ещё у Ведущего. Ход перейдёт дальше, когда он её рассмотрит.|r",
@@ -829,7 +832,11 @@ SB.Data.Messages = {
 --- Печатает статичное сообщение по ключу из SB.Data.Messages.
 function SB.UI.PrintMsg(key)
     local msg = SB.Data.Messages[key]
-    if msg then print(msg) end
+    if not msg then return end
+    -- Мимо print: у строк аддона свой путь (чат, журнал боя или никуда,
+    -- см. SB.Logs.ChatPrint), а окна логов может ещё не быть — тогда
+    -- по-старому.
+    if SB.Logs and SB.Logs.ChatPrint then SB.Logs.ChatPrint(msg) else print(msg) end
 end
 
 -- ============================================================
