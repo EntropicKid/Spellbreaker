@@ -561,7 +561,7 @@ Add({
     resistable = true,
     canCrit = true,
     distance = 2.5,
-    duration = 5,
+    duration = 4,
     debuff = "eff_envenom",
     scaling = {
         hit    = { ["Ловкость рук"] = 1 },

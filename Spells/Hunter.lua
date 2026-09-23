@@ -336,7 +336,8 @@ Add({
     class = "Охотник",
     description = "Охотник читает цель как след: как та переносит вес, куда смотрит, где у неё слабое место в снаряжении. Дальше он бьёт уже не в силуэт, а в найденную щель — и остальные, если он скажет вслух, тоже.",
     isCantrip = true,
-    distance = 40,
+    resistable = false,
+    distance = 50,
     duration = 5,
     debuff = "eff_hunters_mark",
     scaling = {

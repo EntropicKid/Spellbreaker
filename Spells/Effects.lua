@@ -645,7 +645,7 @@ AddEffect({
     name = "Облик Тьмы",
     icon = "Interface\\Icons\\Spell_shadow_shadowform",
     description = "Жрец стал проводником тени: тьма льётся сквозь него легко, а Свет больше не отвечает на зов. Тело стало почти бесплотным и очень хрупким.",
-    effect = { kind = "buff", family = "Облик", mods = { armor = 15 }, stats = { ["Религия"] = -4, ["Воля"] = -4, ["Характер"] = 5 } },
+    effect = { kind = "buff", family = "Облик", mods = { resistPhysical = -1 }, stats = { ["Религия"] = -4, ["Воля"] = -4, ["Характер"] = 5 } },
 })
 
 AddEffect({
@@ -1568,7 +1568,7 @@ AddEffect({
     name = "Блок щитом",
     icon = "Interface\\Icons\\Ability_defend",
     description = "Мерцающая преграда отводит слабые удары и сбивает прицел стрелкам.",
-    effect = { kind = "buff", mods = { armor = 20 }, stats = { ["Мощь"] = -3 } },
+    effect = { kind = "buff", mods = { armor = 30 }, stats = { ["Мощь"] = -3 } },
 })
 
 AddEffect({
@@ -1601,7 +1601,7 @@ AddEffect({
     damageType = "nature",
     icon = "Interface\\Icons\\Ability_rogue_disembowel",
     description = "Тело цели сворачивается в режущих судорогах под действием этого яда.",
-    effect = { kind = "debuff", resist = "Выносливость", school = "poison", mods = { damage = -2 }, tick = { damage = 3 } },
+    effect = { kind = "debuff", resist = "Выносливость", school = "poison", mods = { damage = -1 }, tick = { damage = 3 } },
 })
 
 AddEffect({
@@ -2410,7 +2410,7 @@ AddEffect({
     name = "Метка охотника",
     icon = "Interface\\Icons\\Ability_hunter_snipershot",
     description = "Защита разобрана изнутри: то, что раньше скользило по доспеху, теперь доходит до тела.",
-    effect = { kind = "debuff", mods = { armor = -35 } },
+    effect = { kind = "debuff", stats = { ["Скрытность"] = -10 } },
 })
 
 AddEffect({
@@ -2628,20 +2628,14 @@ AddEffect({
 })
 
 AddEffect({
-    -- Ледяной доспех (Маг, круг 1). Из гнезда eff_armor_magic_*.
     id   = "eff_frost_armor_mage",
     name = "Ледяной доспех",
     icon = "Interface\\Icons\\Spell_frost_frostarmor02",
     description = "Тело укрыто слоем затвердевшей магии: удары теряют часть силы, но чары стесняют движения.",
-    -- «Укрывает от физического И ОГНЕННОГО урона». Физическое здесь уже
-    -- выражено бронёй — ей это и положено (см. врезку о резистах).
     effect = {
         kind   = "buff",
         school = "magic",
         mods   = { armor = 20 },
-        -- «УДАРЯЕТ ЦЕЛЬ СВОИМ ТЕЛОМ ИЛИ РУКОПАШНЫМ ОРУЖИЕМ...
-        -- ПОДВЕРГАЕТСЯ ОХЛАЖДЕНИЮ». Оговорку про копья описание делает
-        -- само — melee и есть эта оговорка.
         onAction = { when = "damaged", melee = true,
                      toAttacker = "eff_chilling" },
     },
@@ -3019,7 +3013,7 @@ AddEffect({
     name = "Поедание булок",
     icon = "Interface\\Icons\\Inv_misc_food_73cinnamonroll",
     description = "Постепенно набивает свое брюхо крайне питательной и оздоровительной пищей.",
-    effect = { kind = "buff", tick = { health = 1 }, breakOn = { damaged = true, action = true } },
+    effect = { kind = "buff", tick = { heal = 1 }, breakOn = { damaged = true, action = true } },
 })
 
 AddEffect({

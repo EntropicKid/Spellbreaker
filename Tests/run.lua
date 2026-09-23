@@ -1284,7 +1284,7 @@ do
     check("чужому сроку прибавка идёт",
           SB.Logic.GetEffectDuration("t_fr_deb", hex, 1,
               SB.Logic.EncouragementFor("t_fr_deb", "Чужой")),
-          10 + math.ceil(10 * share * SB.Skills.GetPersuasionBonus()))
+          10 + math.floor(10 * share * SB.Skills.GetPersuasionBonus()))
     check("а своему — нет",
           SB.Logic.GetEffectDuration("t_fr_deb", hex, 1,
               SB.Logic.EncouragementFor("t_fr_deb", me)), 10)
@@ -10647,7 +10647,7 @@ do
     local share = SB.Data.Config.EncouragementPerPoint
     check("полностью вложенное «Внушение» держит вдвое",
           SB.Logic.GetEffectDuration("t_pers_deb", src, 1),
-          10 + math.ceil(10 * share * 5))
+          10 + math.floor(10 * share * 5))
     SB.Skills.Set("Внушение", 0)
     check("а без него — ровно свой срок",
           SB.Logic.GetEffectDuration("t_pers_deb", src, 1), 10)
@@ -17387,15 +17387,28 @@ do
     local src = { id = "t_enc_src", name = "Источник", class = "Жрец",
                   level = 1, duration = 3, buff = "t_enc_buff" }
     -- БЕЗ ПРИБАВКИ — ЗНАЧИТ КАСТ СВОЙ, и навык читается у себя же:
-    -- три хода плюс 20% × 3 очка = 1,8 → вверх до 2.
+    -- три хода плюс 20% × 3 очка = 1,8 → ВНИЗ до 1.
     check("свой каст берёт навык сам",
-          L.GetEffectDuration("t_enc_buff", src, 1), 5)
+          L.GetEffectDuration("t_enc_buff", src, 1), 4)
     -- ЯВНЫЙ НОЛЬ — ЭТО ЧУЖОЙ БАФФ БЕЗ НАВЫКА, и мой сюда попасть не
     -- должен: иначе к присланному эффекту прибавился бы МОЙ навык.
     check("явный ноль оставляет свой срок",
           L.GetEffectDuration("t_enc_buff", src, 1, 0), 3)
     check("с прибавкой — длиннее на свою долю",
-          L.GetEffectDuration("t_enc_buff", src, 1, 3), 5)
+          L.GetEffectDuration("t_enc_buff", src, 1, 3), 4)
+    -- И ПРОМЕЖУТОЧНЫЕ ВЛОЖЕНИЯ НЕ ПУСТЫЕ. При округлении вверх у срока
+    -- в три хода очки давали 4/5/5/7/7 — второе и четвёртое не значили
+    -- ничего. Вниз выходит 3/3/4/4/6: пустых очков стало не больше, а
+    -- потолок перестал упираться в самого себя.
+    local ladder = {}
+    for pts = 1, 5 do
+        ladder[pts] = L.GetEffectDuration("t_enc_buff", src, 1, pts)
+    end
+    check("лестница трёхходового", table.concat(ladder, "/"), "3/4/4/5/6")
+    -- РАЗЛИЧИМЫХ СТУПЕНЕЙ СТАЛО БОЛЬШЕ, а не меньше: вверх выходило
+    -- 4/5/5/6/6 — три разных числа на пять очков, — вниз 3/4/4/5/6,
+    -- четыре. Округление вниз отбирает у первого очка, но возвращает
+    -- смысл четвёртому.
 
     -- ДОЛЯ РАСТЁТ ВМЕСТЕ С САМИМ БАФФОМ — в этом вся правка.
     local long = { id = "t_enc_long", name = "Долгий", class = "Жрец",
@@ -17405,15 +17418,43 @@ do
     check("и вдвое при полностью вложенном навыке",
           L.GetEffectDuration("t_enc_buff", long, 1, 5), 200)
 
-    -- ОКРУГЛЕНИЕ ВВЕРХ: пятая часть однoходового — 0,2, и вниз она
-    -- обнуляла бы навык там, где срок и есть всё содержание заклинания.
-    -- Следствие честное: одноходовому и одно очко, и пять дают ход.
+    -- ── ОКРУГЛЕНИЕ ВНИЗ ────────────────────────────────────
+    --
+    -- Живая жалоба: «у меня рывок длится 1 ход, и мне достаточно ОДНОГО
+    -- очка, чтобы он стал ровно 2». Вверх пятая часть одноходового —
+    -- 0,2 — превращалась в целый ход, то есть первое же очко удваивало
+    -- заклинание, а следующие четыре не давали ничего.
+    --
+    -- Вниз одноходовому нужны все пять очков. Это и есть «доля»,
+    -- посчитанная честно.
     local one = { id = "t_enc_one", name = "На ход", class = "Жрец",
                   level = 1, duration = 1, buff = "t_enc_buff" }
-    check("одноходовой при одном очке — два хода",
-          L.GetEffectDuration("t_enc_buff", one, 1, 1), 2)
-    check("и при пяти очках тоже два",
+    check("одноходовому одного очка мало",
+          L.GetEffectDuration("t_enc_buff", one, 1, 1), 1)
+    check("и четырёх мало",
+          L.GetEffectDuration("t_enc_buff", one, 1, 4), 1)
+    check("а пять дают второй ход",
           L.GetEffectDuration("t_enc_buff", one, 1, 5), 2)
+
+    -- ОБЕЩАНИЕ НАВЫКА ЦЕЛО НА ЛЮБОМ СРОКЕ. «Полностью вложенный —
+    -- вдвое» держится ТОЧНО: доля пять на пять даёт ровно единицу, а
+    -- единица от целого числа целая, и округлять там нечего. Проверяем
+    -- по всей библиотеке, а не на пробном сроке: поставь кто-нибудь
+    -- в Config долю 0,15 — и обещание тихо перестало бы выполняться.
+    local share = SB.Data.Config.EncouragementPerPoint
+    local broken, seen = {}, {}
+    for _, sp in pairs(SB.Data.Spells) do
+        local dur = tonumber(sp.duration)
+        if (sp.buff or sp.debuff or sp.container) and dur and dur > 0
+           and not seen[dur] then
+            seen[dur] = true
+            local got = L.GetEffectDuration("t_enc_buff",
+                { id = "x", duration = dur, buff = "t_enc_buff" }, 1, 5)
+            if got ~= dur * 2 then broken[#broken + 1] = dur .. "→" .. got end
+        end
+    end
+    if #broken > 0 then print("[доля] не удвоились: " .. table.concat(broken, ", ")) end
+    check("пять очков удваивают любой срок из библиотеки", #broken, 0)
     -- И ДЕБАФФ СВОЙ СРОК НЕ МЕНЯЕТ, хотя каст тоже свой.
     local dsrc = { id = "t_enc_dsrc", name = "Источник зла", class = "Жрец",
                    level = 1, duration = 3, debuff = "t_enc_debuff" }
@@ -17429,7 +17470,7 @@ do
     check("круг каста на срок не влияет",
           L.GetEffectDuration("t_enc_buff", src, 3, 0), base)
     check("а доля навыка считается от базы",
-          L.GetEffectDuration("t_enc_buff", src, 3, 3), base + 2)
+          L.GetEffectDuration("t_enc_buff", src, 3, 3), base + 1)
 
     -- Бесконечное не продлевается: «до конца сцены» плюс ход — это всё
     -- та же «до конца сцены».
@@ -19461,7 +19502,7 @@ do
     -- потолок молча съедал пятое вложенное очко навыка.
     local cap  = SB.Attributes.GetMaxValue() - (SB.Data.STAT_BASE or 0)
     check("потолок — это все очки навыка", cap, 5)
-    local full = 3 + math.ceil(3 * SB.Data.Config.EncouragementPerPoint * cap)
+    local full = 3 + math.floor(3 * SB.Data.Config.EncouragementPerPoint * cap)
     check("честная прибавка проходит целиком",
           L.GetEffectDuration("t_cap_eff", src, 1, cap), full)
     check("присланное сверх потолка зажимается",
