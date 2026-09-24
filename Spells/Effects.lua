@@ -3565,7 +3565,7 @@ AddEffect({
     icon = "Interface\\Icons\\Ability_warrior_offensivestance",
     description = "Сбалансированная стойка, позволяющая метро разить противника и не отступать.",
     effect = { kind = "buff", family = "Стойка",
-               stats = { ["Искусность"] = 3, ["Атлетика"] = 3 } },
+               stats = { ["Искусность"] = 3, ["Мощь"] = 3 } },
 })
 
 AddEffect({
