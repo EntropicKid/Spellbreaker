@@ -1479,7 +1479,7 @@ do
     checkTrue("союзнику тоже",
               ov:find("Foreign(st.activeEffects or {})", 1, true) ~= nil)
     checkTrue("и подпись иконки эту фазу спрашивает",
-              ov:find("SecondsLeft(b._uses, b._seq)", 1, true) ~= nil)
+              ov:find("SecondsLeft(b._uses, b._seq, b._phase)", 1, true) ~= nil)
     -- Без номера в подписи состава перекладки не случится, и _seq на
     -- иконке останется прошлым.
     checkTrue("а перекладка замечает смену фазы",
@@ -9389,8 +9389,8 @@ do
     -- дальний бой против скрытного переставал быть дальним. Число
     -- прибито намеренно — это баланс, а не следствие формулы.
     SB.Data.PlayersStatus["Ирина"] = { stealth = 7 }
-    check("Скрытность 7 — семь метров, а не двадцать один",
-          SB.Logic.GetStealthPenalty(S["t_sneak_hit"]), 7)
+    check("Скрытность 7 — четырнадцать метров, а не двадцать один",
+          SB.Logic.GetStealthPenalty(S["t_sneak_hit"]), 14)
 
     -- В МИНУС НЕ УХОДИТ: дебафф уводит навык ниже единицы, но
     -- отрицательный штраф означал бы, что чужие заклинания бьют ДАЛЬШЕ
@@ -20601,6 +20601,96 @@ do
     checkTrue("повторное попадание замок не снимает", SB.PlayerModel.IsLocked())
 
     SpellbreakerCharDB.configLocked = wasLocked
+end
+
+-- ============================================================
+-- СЕТЬ: ФОНОВОЕ СВОИМ ПРЕФИКСОМ, СВЕЖИЙ СНИМОК ЗАМЕНЯЕТ СТАРЫЙ,
+-- ПЕРЕПОЛНЕНИЕ НЕ ТРОГАЕТ НЕЗАМЕНИМОГО
+-- ============================================================
+do
+    local net = ReadFile("Core/Network.lua")
+    checkTrue("фоновое уходит своим префиксом",
+              net:find('(priority == "BULK") and COMM_PREFIX_BULK', 1, true) ~= nil)
+    checkTrue("и оба префикса слушаются",
+              net:find("SB.Net:RegisterComm(COMM_PREFIX_BULK", 1, true) ~= nil)
+
+    local handler, prefix = SB.Net.__commHandler, SB.Net.__commPrefix
+    local realDes = SB.Net.Deserialize
+    SB.Net.Deserialize = function(_, m) return true, m end
+    stub.RunTimers()
+    local before = SB.Net.QueueLength()
+
+    -- Два статуса одного игрока подряд — в очереди остаётся один.
+    handler(prefix, { action = "STATUS", class = "Маг", health = 5, maxHealth = 10,
+                      preparedSpells = {} }, "PARTY", "Шторм")
+    handler(prefix, { action = "STATUS", class = "Маг", health = 4, maxHealth = 10,
+                      preparedSpells = {} }, "PARTY", "Шторм")
+    check("свежий статус заменил неразобранный", SB.Net.QueueLength() - before, 1)
+    stub.RunTimers()
+    check("и разобран именно свежий",
+          SB.Data.PlayersStatus["Шторм"] and SB.Data.PlayersStatus["Шторм"].health, 4)
+
+    -- Переполнение: забиваем очередь кастомками (незаменимое) и статусами.
+    local dropped0 = SB.Net.QueueDropped()
+    for i = 1, 399 do
+        handler(prefix, { action = "CUSTOM", op = "noop" .. i }, "PARTY", "Кузнец" .. i)
+    end
+    handler(prefix, { action = "STATUS", class = "Маг", health = 3, maxHealth = 10,
+                      preparedSpells = {} }, "PARTY", "Статусник")
+    handler(prefix, { action = "CUSTOM", op = "последняя" }, "PARTY", "Кузнец0")
+    check("выброшен заменимый, а не кастомка", SB.Net.QueueDropped() - dropped0, 1)
+    handler(prefix, { action = "CUSTOM", op = "сверх" }, "PARTY", "Кузнец0")
+    check("заменимых нет — очередь растёт, а не теряет", SB.Net.QueueDropped() - dropped0, 1)
+    SB.Net.Deserialize = realDes
+    stub.RunTimers()
+end
+
+-- ============================================================
+-- СТРОКИ ОЧЕРЕДИ ХОДОВ — В ЛОГ, НО НЕ В ЧАТ (SB.UI.IsTurnLine)
+-- ============================================================
+do
+    local T = SB.Theme
+    checkTrue("«Ходит: …» — строка очереди", SB.UI.IsTurnLine(
+        T.MSG_TAG .. "[Spellbreaker]:|r " .. T.MSG_TURN .. "Ходит: Мок.|r"))
+    checkTrue("строка каста — нет", not SB.UI.IsTurnLine(
+        T.MSG_TAG .. "[Spellbreaker]:|r " .. T.MSG_BODY .. "Мок применяет …|r"))
+    checkTrue("побег из боя остаётся в чате", not ReadFile("Core/Logic.lua"):find(
+        "MSG_TURN ..\n%s*UnitName%(\"player\"%) .. \" пытается сбежать"))
+end
+
+-- ============================================================
+-- СВОИ ЧАСЫ ЭФФЕКТА В СВОБОДНОМ РЕЖИМЕ: 12 СЕКУНД — ЭТО 12 СЕКУНД
+-- ============================================================
+do
+    local wasRT = _G.SpellbreakerAccountDB.realtimeEffects
+    SB.TurnOrder.ApplyRemoteState({ active = false })
+    _G.SpellbreakerAccountDB.realtimeEffects = true
+    SB.ActiveEffects.Clear()
+    local t0 = stub.world.time
+    SB.ActiveEffects.Add("t_pain", 2, false)          -- два отрезка по 6 с
+    local function Uses()
+        for _, e in ipairs(SB.ActiveEffects.GetAll()) do
+            if e.spellID == "t_pain" then return e.uses end
+        end
+    end
+    stub.world.time = t0 + 5.9; SB.ActiveEffects.RealtimeClock()
+    check("5.9 с — отрезок не кончился", Uses(), 2)
+    stub.world.time = t0 + 6.0; SB.ActiveEffects.RealtimeClock()
+    check("6 с — первый отрезок", Uses(), 1)
+    stub.world.time = t0 + 11.9; SB.ActiveEffects.RealtimeClock()
+    check("11.9 с — ещё висит", Uses(), 1)
+    stub.world.time = t0 + 12.0; SB.ActiveEffects.RealtimeClock()
+    check("12 с — спал", Uses(), nil)
+
+    -- Время стоит, пока отсчёта нет: включение не тикает залпом.
+    _G.SpellbreakerAccountDB.realtimeEffects = false
+    SB.ActiveEffects.Add("t_pain", 2, false)
+    stub.world.time = stub.world.time + 60; SB.ActiveEffects.RealtimeClock()
+    _G.SpellbreakerAccountDB.realtimeEffects = true
+    SB.ActiveEffects.RealtimeClock()
+    check("простоявшее время не списывается", Uses(), 2)
+    SB.ActiveEffects.Clear()
+    _G.SpellbreakerAccountDB.realtimeEffects = wasRT
 end
 
 -- ============================================================

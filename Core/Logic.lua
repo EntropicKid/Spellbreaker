@@ -1718,8 +1718,10 @@ function SB.Logic.Flee()
         and (SB.Theme.MSG_GOOD .. "Удалось оторваться — ход к нему больше не переходит.|r")
         or  (SB.Theme.MSG_BAD  .. "Уйти не вышло: путь отрезан.|r")
 
+    -- Цвет тела, а не жёлтый цвет очереди: побег — действие с броском,
+    -- а жёлтые строки очереди в чат больше не идут (см. SB.UI.IsTurnLine).
     SB.Events.Fire("BROADCAST_LOG",
-        SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. SB.Theme.MSG_TURN ..
+        SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G ..
         UnitName("player") .. " пытается сбежать из боя!|r " .. G .. ": |r" ..
         rollTxt .. why .. walkTxt .. " " .. outcome, SB.LogRank.ACTION)
 
