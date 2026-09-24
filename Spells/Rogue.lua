@@ -257,8 +257,6 @@ Add({
     resistable = true,
     canCrit = true,
     distance = 2.5,
-    duration = 2,
-	debuff = "eff_kick",
 	scaling = {
 		hit    = { ["Акробатика"] = 2 },
 		crit   = { ["Точность"] = 1 },
