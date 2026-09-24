@@ -77,6 +77,8 @@ Core\Animate.lua
 Core\Fonts.lua
 Core\Theme.lua
 Core\Strings.lua
+# Журнал: хранилище записей, сессии, поиск (окно — UI\Logs.lua).
+Core\LogStore.lua
 # Кулдауны — общий предохранитель от спама, ими пользуются и Logic,
 # и TurnOrder, и интерфейс. Зависит только от Theme (цвет сообщения).
 Core\Cooldowns.lua
