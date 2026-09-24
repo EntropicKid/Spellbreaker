@@ -18,8 +18,6 @@ Add({
     resistable = true,
     canCrit = true,
     distance = 2.5,
-    duration = 2,
-	debuff = "eff_pummel",
 	scaling = {
 		hit    = { ["Искусность"] = 2 },
 		crit   = { ["Мощь"] = 1 },
@@ -308,8 +306,8 @@ Add({
     isCantrip = false,
     resistable = false,
 	container = "eff_bloodrage",
-    duration = 2,
-	onCast = { damage = 2, resource = 2 },
+    duration = 4,
+	onCast = { damage = 2 },
 })
 
 Add({
