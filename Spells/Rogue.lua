@@ -380,7 +380,7 @@ Add({
     resistable = true,
     canCrit = true,
     distance = 2.5,
-    duration = 5,
+    duration = 3,
     debuff = "eff_poisoned_blade",
     scaling = {
         hit    = { ["Ловкость рук"] = 1 },
@@ -560,7 +560,7 @@ Add({
     resistable = true,
     canCrit = true,
     distance = 2.5,
-    duration = 4,
+    duration = 2,
     debuff = "eff_envenom",
     scaling = {
         hit    = { ["Ловкость рук"] = 1 },
