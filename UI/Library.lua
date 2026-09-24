@@ -454,7 +454,14 @@ function SB.Library.UpdateList()
             end)
             row:SetScript("OnLeave", function(self)
                 self.icon:SetVertexColor(1, 1, 1)
-                self.name:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+                -- ЗАКРЫТОЕ ОСТАЁТСЯ СЕРЫМ. Здесь безусловно ставился цвет
+                -- темы, и серое имя недоступного заклинания белело после
+                -- первого же наведения.
+                if self._locked then
+                    self.name:SetTextColor(0.55, 0.55, 0.55)
+                else
+                    self.name:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+                end
             end)
 
             -- Drag-and-drop из библиотеки на главное окно
@@ -534,6 +541,7 @@ function SB.Library.UpdateList()
         -- переиспользуются при прокрутке, и серость, выставленная
         -- однажды, иначе осталась бы на чужом заклинании.
         local locked = SB.Data.IsSpellLockedForPlayer(spell)
+        row._locked = locked and true or false
         row.icon:SetDesaturated(locked and true or false)
         if locked then
             row.name:SetTextColor(0.55, 0.55, 0.55)

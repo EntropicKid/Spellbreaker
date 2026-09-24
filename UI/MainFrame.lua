@@ -44,7 +44,8 @@ local toastBySpell = {}   -- spellID → toast (для поиска при ве�
 local toastHandle          -- полоска-ручка над стеком (сворачивание + перетаскивание)
 local toastsCollapsed = false
 local TOAST_BASE_Y  = -80   -- отступ ручки от верхнего края экрана
-local TOAST_HEIGHT  = 64
+local TOAST_HEIGHT  = 58
+local TOAST_WIDTH   = 300
 local TOAST_GAP     = 8
  
 -- ============================================================
@@ -72,23 +73,40 @@ end
 local function EnsureToastHandle()
     if toastHandle then return end
     local CC = SB.Theme.C
+    -- РУЧКА — КОРОТКИЙ ЯЗЫЧОК С ТРЕМЯ ТОЧКАМИ, а не полоса во всю ширину
+    -- стека: она нужна, только чтобы за неё взяться, и на экране боя
+    -- занимать место ей незачем.
     local h = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
-    h:SetSize(320, 14)
+    h:SetSize(64, 12)
     h:SetPoint("TOP", UIParent, "TOP", 0, TOAST_BASE_Y)
     h:SetFrameStrata("HIGH")
-    h:SetBackdrop(SB.Theme.BD.card)
-    h:SetBackdropColor(C.cardBg[1], C.cardBg[2], C.cardBg[3], C.cardBg[4])
-    h:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
+    h:SetBackdrop(SB.Theme.BD.input)
+    h:SetBackdropColor(0.07, 0.055, 0.045, 0.92)
+    h:SetBackdropBorderColor(CC.cardBorder[1], CC.cardBorder[2], CC.cardBorder[3], 0.7)
     h:EnableMouse(true)
     h:SetMovable(true)
     h:SetClampedToScreen(true)
     h:RegisterForDrag("LeftButton")
     h:Hide()
- 
+
+    for i = -1, 1 do
+        local dot = h:CreateTexture(nil, "OVERLAY")
+        dot:SetTexture("Interface\\CHARACTERFRAME\\TempPortraitAlphaMask")
+        dot:SetSize(4, 4)
+        dot:SetPoint("CENTER", h, "CENTER", i * 8, 0)
+        dot:SetVertexColor(CC.accent[1], CC.accent[2], CC.accent[3], 0.8)
+    end
+    -- Прежнее поле: SetToastsCollapsed пишет в него текст.
     h.grip = h:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
-    h.grip:SetPoint("CENTER")
-    h.grip:SetText("* * *")
-    h.grip:SetTextColor(CC.textDim[1], CC.textDim[2], CC.textDim[3])
+    h:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        SB.Theme.StyleTooltip(GameTooltip)
+        GameTooltip:SetText("Заявки Ведущему", 1, 0.82, 0)
+        GameTooltip:AddLine("Щелчок — свернуть или развернуть, перетаскивание — переместить.",
+            0.85, 0.85, 0.85, true)
+        GameTooltip:Show()
+    end)
+    h:SetScript("OnLeave", function() GameTooltip:Hide() end)
  
     -- Клик (без сдвига) → свернуть/развернуть; перетаскивание → переместить стек.
     h:SetScript("OnMouseDown", function(self) self._dragging = false end)
@@ -184,7 +202,7 @@ function SB.UI.SetToastsCollapsed(collapsed)
         end
     end
     if toastHandle then
-        toastHandle.grip:SetText(collapsed and "* * *" or "* * *")
+        toastHandle.grip:SetText("")
     end
 end
  
@@ -192,50 +210,115 @@ function SB.UI.ToggleToastCollapse()
     SB.UI.SetToastsCollapsed(not toastsCollapsed)
 end
  
+-- ============================================================
+-- ТОСТ ЗАЯВКИ
+--
+-- Тёмная плашка с латунной рамкой; слева — цветная полоса СОСТОЯНИЯ
+-- (золото — ждёт, зелень — успех, красный — провал, серый — отказ),
+-- иконка в мягкой рамке, имя заклинания и строка статуса. Пока заявка
+-- ждёт Ведущего, по низу бежит тонкий блик, а точки в статусе
+-- «дышат» — видно, что тост живой, а не забытый.
+--
+-- Блик крутится на СВОЁМ дочернем кадре: OnUpdate самого тоста занят
+-- анимацией сдвига в стеке (AnimateToastY).
+-- ============================================================
+local TOAST_STATE = {
+    pending  = { 1.00, 0.80, 0.42 },
+    success  = { 0.35, 0.90, 0.40 },
+    fail     = { 1.00, 0.35, 0.30 },
+    rejected = { 0.55, 0.52, 0.48 },
+}
+
+local function SetToastState(toast, state)
+    local c = TOAST_STATE[state] or TOAST_STATE.pending
+    toast.accent:SetVertexColor(c[1], c[2], c[3], 1)
+    toast.accentGlow:SetVertexColor(c[1], c[2], c[3], 0.18)
+    toast.iconFrame:SetBackdropBorderColor(c[1], c[2], c[3], 0.9)
+    local waiting = (state == "pending")
+    toast.shimmer:SetShown(waiting)
+    toast._waiting = waiting
+end
+
 --- Создаёт новый тост-фрейм.
 local function CreateToast()
     local CC = SB.Theme.C
     local f = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
-    f:SetSize(320, TOAST_HEIGHT)
+    f:SetSize(TOAST_WIDTH, TOAST_HEIGHT)
     f:SetFrameStrata("HIGH")
-    f:SetBackdrop(SB.Theme.BD.card)
-    -- ОДИН ЦВЕТ, А НЕ ДВА. Здесь стояло два разных: в _bgColor писался
-    -- почти чёрный {0.05,0.04,0.08}, а рисовался светлый C.cardBg. Пока
-    -- тост свежий, разницы не видно — красит SetBackdropColor строкой
-    -- ниже. А вот переиспользованный из пула проходит через
-    -- ResetToastHighlight, и та красит его по _bgColor, то есть в тот
-    -- самый почти чёрный. Отсюда и «первый тост нормальный, все
-    -- следующие тёмные»: тёмным был не следующий, а любой не первый.
-    --
-    -- Копией, а не ссылкой на C.cardBg: FlashToast читает _bgColor как
-    -- опорную точку пульсации, и общая таблица связала бы дыхание тоста
-    -- с палитрой всего аддона.
-    f._bgColor     = {C.cardBg[1], C.cardBg[2], C.cardBg[3], C.cardBg[4]}
-    f._borderColor = {CC.frameBorder[1], CC.frameBorder[2], CC.frameBorder[3], 1}
+    f:SetBackdrop(SB.Theme.BD.tooltip)
+    -- ОДИН ЦВЕТ, А НЕ ДВА (см. историю в ResetToastHighlight): _bgColor
+    -- — и то, чем тост красится сейчас, и то, к чему возвращается после
+    -- пульсации. Копией, а не ссылкой на палитру.
+    f._bgColor     = { 0.07, 0.055, 0.045, 0.96 }
+    f._borderColor = { CC.frameBorder[1], CC.frameBorder[2], CC.frameBorder[3], 1 }
     f:SetBackdropColor(f._bgColor[1], f._bgColor[2], f._bgColor[3], f._bgColor[4])
     f:SetBackdropBorderColor(f._borderColor[1], f._borderColor[2], f._borderColor[3], f._borderColor[4])
     f:EnableMouse(false)
     f:SetAlpha(0)
     f:Hide()
- 
+
+    f.accent = f:CreateTexture(nil, "ARTWORK")
+    f.accent:SetTexture("Interface\\Buttons\\WHITE8x8")
+    f.accent:SetWidth(3)
+    f.accent:SetPoint("TOPLEFT", f, "TOPLEFT", 5, -5)
+    f.accent:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 5, 5)
+    f.accentGlow = f:CreateTexture(nil, "BORDER")
+    f.accentGlow:SetTexture("Interface\\Buttons\\WHITE8x8")
+    f.accentGlow:SetPoint("TOPLEFT", f.accent, "TOPRIGHT", 0, 0)
+    f.accentGlow:SetPoint("BOTTOMLEFT", f.accent, "BOTTOMRIGHT", 0, 0)
+    f.accentGlow:SetWidth(40)
+    if f.accentGlow.SetGradientAlpha then
+        f.accentGlow:SetGradientAlpha("HORIZONTAL", 1, 1, 1, 1, 1, 1, 1, 0)
+    end
+
     f.icon = f:CreateTexture(nil, "ARTWORK")
-    f.icon:SetSize(40, 40)
-    f.icon:SetPoint("LEFT", f, "LEFT", 10, 0)
+    f.icon:SetSize(36, 36)
+    f.icon:SetPoint("LEFT", f, "LEFT", 16, 0)
     f.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    SB.Theme.IconBorder(f, f.icon)
- 
+    f.iconFrame = SB.Theme.SoftIconFrame(f, f.icon)
+
     f.title = f:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-    f.title:SetPoint("TOPLEFT", f.icon, "TOPRIGHT", 10, -4)
+    f.title:SetPoint("TOPLEFT", f.icon, "TOPRIGHT", 10, -2)
     f.title:SetPoint("RIGHT", f, "RIGHT", -10, 0)
     f.title:SetJustifyH("LEFT")
+    f.title:SetWordWrap(false)
     f.title:SetTextColor(CC.textGold[1], CC.textGold[2], CC.textGold[3])
- 
-    f.status = f:CreateFontString(nil, "OVERLAY", "SBFontHighlight")
+
+    f.status = f:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
     f.status:SetPoint("TOPLEFT", f.title, "BOTTOMLEFT", 0, -4)
     f.status:SetPoint("RIGHT", f, "RIGHT", -10, 0)
     f.status:SetJustifyH("LEFT")
     f.status:SetWordWrap(true)
- 
+
+    -- Бегущий блик ожидания по нижнему краю.
+    local sh = CreateFrame("Frame", nil, f)
+    sh:SetPoint("BOTTOMLEFT", f.icon, "BOTTOMRIGHT", 10, -3)
+    sh:SetPoint("RIGHT", f, "RIGHT", -12, 0)
+    sh:SetHeight(2)
+    local track = sh:CreateTexture(nil, "BACKGROUND")
+    track:SetAllPoints()
+    track:SetColorTexture(CC.cardBorder[1], CC.cardBorder[2], CC.cardBorder[3], 0.25)
+    local spot = sh:CreateTexture(nil, "ARTWORK")
+    spot:SetTexture("Interface\\Buttons\\WHITE8x8")
+    spot:SetSize(48, 2)
+    spot:SetVertexColor(1, 0.85, 0.5, 0.9)
+    local t = 0
+    sh:SetScript("OnUpdate", function(self, dt)
+        t = (t + dt) % 1.6
+        local w = self:GetWidth() or 0
+        local x = (t / 1.6) * (w + 48) - 48
+        spot:ClearAllPoints()
+        spot:SetPoint("LEFT", self, "LEFT", math.max(0, x), 0)
+        spot:SetWidth(math.max(1, math.min(48, w - math.max(0, x), x + 48)))
+        -- Точки в статусе «дышат» раз в полсекунды.
+        if f._waiting and f._statusBase then
+            local n = math.floor(GetTime() * 2) % 4
+            f.status:SetText(f._statusBase .. string.rep(".", n))
+        end
+    end)
+    sh:Hide()
+    f.shimmer = sh
+
     table.insert(toastPool, f)
     return f
 end
@@ -349,7 +432,9 @@ function SB.UI.ShowCastPending(spellID)
     local spell = SB.Data.Spells[spellID]
     toast.icon:SetTexture(spell and spell.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
     toast.title:SetText(spell and spell.name or "Заклинание")
-    toast.status:SetText("|cFFFFD100На рассмотрении у ГМа...|r")
+    toast._statusBase = "|cFFD8C8A8Ждёт решения Ведущего|r"
+    toast.status:SetText(toast._statusBase)
+    SetToastState(toast, "pending")
  
     toast:SetAlpha(1)
     toast:Show()
@@ -370,6 +455,8 @@ function SB.UI.ShowCastVerdict(spellID, succeeded, resultStatus, detail)
     if detail and detail ~= "" then
         statusLine = statusLine .. " |cFFAAAAAA(" .. detail .. ")|r"
     end
+    toast._statusBase = nil
+    SetToastState(toast, succeeded and "success" or "fail")
     toast.status:SetText(statusLine)
 
     -- Звук здесь больше НЕ проигрывается: тост существует только у
@@ -389,7 +476,9 @@ function SB.UI.ShowCastRejected(spellID)
     local toast = toastBySpell[spellID]
     if not toast then return end
  
-    toast.status:SetText("|cFFAAAAAAЗаявка отклонена ГМом|r")
+    toast._statusBase = nil
+    SetToastState(toast, "rejected")
+    toast.status:SetText("|cFFAAAAAAВедущий отклонил заявку|r")
     SB.Theme.PlaySound("reject")
  
     DismissToast(toast, 1.6)

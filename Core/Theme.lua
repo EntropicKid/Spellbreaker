@@ -231,7 +231,12 @@ local SURFACES = {
     -- 0.20/0.10/0.20 дали бы 9/4/9% — почти чёрный прямоугольник, на
     -- котором никакой фактуры не разглядеть. 0.52/0.42/0.32 поверх 45%
     -- дают тёплый коричневый в районе 23/19/14% — переплёт, а не пятно.
-    library = { tex = SB.Theme.Assets.Leather,     tint = { 0.23, 0.23, 0.28, 1.00 } },
+    -- ТИСНЁНАЯ КОЖА (Assets\Tome.tga) — своя, цветная, бесшовная:
+    -- сгенерирована спектральным шумом на торе, поэтому стыков у плитки
+    -- нет по построению. Цвет уже в файле, подкраска нейтральная.
+    -- Рельеф — «галька» с боковым светом, пятна и зерно; яркость
+    -- ~20/15/11%, как у прочих окон.
+    library = { tex = MEDIA .. "Tome.tga", tint = { 1, 1, 1, 1 }, tileSize = 512, vignette = true },
     gm      = { tex = MEDIA .. "Column.tga",       tint = { 0.40, 0.20, 0.20, 1.00 } },
     -- КАРТОЧКА ЗАКЛИНАНИЯ — ТОТ ЖЕ ПЕРЕПЛЁТ, ЧТО И БИБЛИОТЕКА.
     --
@@ -242,7 +247,7 @@ local SURFACES = {
     -- ей правильнее как часть той же книги, а не как третий материал
     -- в одном окне. Тот же материал достаётся и редактору существа
     -- (UI/NPCEditor.lua) — всему, что раньше брало эту поверхность.
-    detail  = { tex = SB.Theme.Assets.Leather,     tint = { 0.23, 0.23, 0.28, 1.00 } },
+    detail  = { tex = MEDIA .. "Tome.tga", tint = { 1, 1, 1, 1 }, tileSize = 512, vignette = true },
 }
 SB.Theme.Surfaces = SURFACES
 
@@ -333,6 +338,25 @@ local BD = {
 }
 
 SB.Theme.BD = BD
+
+-- ============================================================
+-- ВОЛОСЯНАЯ ЛИНИЯ — РОВНО ОДИН ФИЗИЧЕСКИЙ ПИКСЕЛЬ
+--
+-- «1» в SetHeight — это единица интерфейса, а не пиксель экрана. При
+-- масштабе интерфейса не 1:1 такая линия то пропадала, то становилась
+-- двухпиксельной, и при прокрутке или перетаскивании окна мерцала.
+-- PixelUtil клиента пересчитывает размер в физические пиксели и не даёт
+-- ему упасть ниже одного.
+-- @param axis "H" — горизонтальная (толщина — высота), "W" — вертикальная
+-- ============================================================
+function SB.Theme.Hairline(tex, axis)
+    local PU = _G.PixelUtil
+    if axis == "W" then
+        if PU and PU.SetWidth then PU.SetWidth(tex, 1, 1) else tex:SetWidth(1) end
+    else
+        if PU and PU.SetHeight then PU.SetHeight(tex, 1, 1) else tex:SetHeight(1) end
+    end
+end
 
 -- ============================================================
 -- Цвета системных сообщений ([Spellbreaker]: ... в чате/логе).
@@ -849,7 +873,7 @@ function SB.Theme.Tab(parent, text, w, h, isActive)
     -- вкладки прячется (см. LayoutTabs).
     tab.sep = tab:CreateTexture(nil, "ARTWORK")
     tab.sep:SetColorTexture(C.divider[1], C.divider[2], C.divider[3], 0.7)
-    tab.sep:SetWidth(1)
+    SB.Theme.Hairline(tab.sep, "W")
     tab.sep:SetPoint("TOPRIGHT", tab, "TOPRIGHT", 0, -6)
     tab.sep:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", 0, 6)
 
@@ -942,7 +966,7 @@ function SB.Theme.LayoutTabs(frame, tabs, pad, gap)
         strip:SetColorTexture(0, 0, 0, 0.28)
         local line = frame:CreateTexture(nil, "ARTWORK")
         line:SetColorTexture(C.divider[1], C.divider[2], C.divider[3], C.divider[4])
-        line:SetHeight(1)
+        SB.Theme.Hairline(line, "H")
         line:SetPoint("BOTTOMLEFT", strip, "BOTTOMLEFT")
         line:SetPoint("BOTTOMRIGHT", strip, "BOTTOMRIGHT")
         tabStrips[frame] = strip
@@ -986,8 +1010,54 @@ function SB.Theme.Frame(name, parent, title, w, h, surface)
     local bd = {}
     for k, v in pairs(BD.frame) do bd[k] = v end
     bd.bgFile = surf.tex
+    if surf.tileSize then bd.tileSize = surf.tileSize end
     f:SetBackdrop(bd)
     f:SetBackdropColor(surf.tint[1], surf.tint[2], surf.tint[3], surf.tint[4])
+
+    -- ВНУТРЕННЯЯ ТЕНЬ У КРАЁВ — материал «уходит» под рамку, и окно
+    -- читается объёмным листом, а не плоской заливкой. Четыре полосы с
+    -- градиентом прозрачности; слой BACKGROUND выше подложки backdrop.
+    if surf.vignette then
+        local VW = 26
+        local function Shade(p1, p2, horiz, invert)
+            local t = f:CreateTexture(nil, "BACKGROUND", nil, 7)
+            t:SetTexture("Interface\\Buttons\\WHITE8x8")
+            t:SetPoint(p1, f, p1, 0, 0)
+            t:SetPoint(p2, f, p2, 0, 0)
+            if horiz then t:SetHeight(VW) else t:SetWidth(VW) end
+            if t.SetGradientAlpha then
+                local a1, a2 = 0.38, 0
+                if invert then a1, a2 = 0, 0.38 end
+                t:SetGradientAlpha(horiz and "VERTICAL" or "HORIZONTAL",
+                    0, 0, 0, a1, 0, 0, 0, a2)
+            else
+                t:SetVertexColor(0, 0, 0, 0.12)
+            end
+            -- Внутри рамки, а не под ней: кромка шириной ~4 px.
+            local ins = 4
+            t:ClearAllPoints()
+            if p1 == "TOPLEFT" and p2 == "TOPRIGHT" then
+                t:SetPoint("TOPLEFT", f, "TOPLEFT", ins, -ins)
+                t:SetPoint("TOPRIGHT", f, "TOPRIGHT", -ins, -ins)
+            elseif p1 == "BOTTOMLEFT" and p2 == "BOTTOMRIGHT" then
+                t:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", ins, ins)
+                t:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -ins, ins)
+            elseif p1 == "TOPLEFT" then
+                t:SetPoint("TOPLEFT", f, "TOPLEFT", ins, -ins)
+                t:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", ins, ins)
+            else
+                t:SetPoint("TOPRIGHT", f, "TOPRIGHT", -ins, -ins)
+                t:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -ins, ins)
+            end
+        end
+        -- VERTICAL: первый цвет — низ полосы. Верхняя полоса темнее к
+        -- верху (invert), нижняя — к низу; левая — к левому краю,
+        -- правая — к правому (invert).
+        Shade("TOPLEFT", "TOPRIGHT", true, true)
+        Shade("BOTTOMLEFT", "BOTTOMRIGHT", true, false)
+        Shade("TOPLEFT", "BOTTOMLEFT", false, false)
+        Shade("TOPRIGHT", "BOTTOMRIGHT", false, true)
+    end
     f:SetBackdropBorderColor(C.frameBorder[1], C.frameBorder[2], C.frameBorder[3], C.frameBorder[4])
     f:SetToplevel(true)
     f:SetClampedToScreen(true)
@@ -1187,7 +1257,7 @@ function SB.Theme.AttachScrollbar(sf, child, parent, top, bottom)
     local rail = track:CreateTexture(nil, "BORDER")
     rail:SetTexture(WHITE)
     rail:SetVertexColor(BRASS[1], BRASS[2], BRASS[3], 0.35)
-    rail:SetWidth(1)
+    SB.Theme.Hairline(rail, "W")
     rail:SetPoint("TOP", groove, "TOP", 0, 0)
     rail:SetPoint("BOTTOM", groove, "BOTTOM", 0, 0)
     -- Заглушки на концах рельса — точки, чтобы он не обрывался в пустоту.
@@ -1199,7 +1269,9 @@ function SB.Theme.AttachScrollbar(sf, child, parent, top, bottom)
         dot:SetVertexColor(BRASS[1], BRASS[2], BRASS[3], 0.55)
     end
 
-    local THUMB_W = TRACK_W - 1
+    -- Чётная ширина: половинки круга на концах тогда целые (4 и 3
+    -- пикселя), и при движении ползунка их край не «плавает».
+    local THUMB_W = TRACK_W
     local thumb = CreateFrame("Button", nil, track)
     thumb:SetWidth(THUMB_W)
     thumb:SetPoint("TOP", track, "TOP", 0, 0)
@@ -1221,8 +1293,10 @@ function SB.Theme.AttachScrollbar(sf, child, parent, top, bottom)
         capB:SetHeight((THUMB_W - inset * 2) / 2)
         local mid = thumb:CreateTexture(nil, layer)
         mid:SetTexture(WHITE)
-        mid:SetPoint("TOPLEFT", capT, "BOTTOMLEFT")
-        mid:SetPoint("BOTTOMRIGHT", capB, "TOPRIGHT")
+        -- Внахлёст на пиксель с каждой половинкой: на дробном масштабе
+        -- интерфейса стык иначе мигал тонкой щелью при прокрутке.
+        mid:SetPoint("TOPLEFT", capT, "BOTTOMLEFT", 0, 1)
+        mid:SetPoint("BOTTOMRIGHT", capB, "TOPRIGHT", 0, -1)
         list[#list + 1] = capT; list[#list + 1] = capB; list[#list + 1] = mid
     end
     Pill("BACKGROUND", 0, outline)
@@ -1233,7 +1307,7 @@ function SB.Theme.AttachScrollbar(sf, child, parent, top, bottom)
     -- части клиентов ведёт себя по-разному).
     local shine = thumb:CreateTexture(nil, "OVERLAY")
     shine:SetTexture(WHITE)
-    shine:SetWidth(1)
+    SB.Theme.Hairline(shine, "W")
     shine:SetPoint("TOPLEFT", thumb, "TOPLEFT", 2, -3)
     shine:SetPoint("BOTTOMLEFT", thumb, "BOTTOMLEFT", 2, 3)
     shine:SetVertexColor(1, 0.95, 0.8, 0.35)
@@ -1249,17 +1323,19 @@ function SB.Theme.AttachScrollbar(sf, child, parent, top, bottom)
         grips[#grips + 1] = g
     end
 
-    local function Paint(col, a)
-        for _, t in ipairs(pieces) do t:SetVertexColor(col[1], col[2], col[3], a or 1) end
+    -- НЕПРОЗРАЧНО: куски ползунка лежат внахлёст, и полупрозрачные
+    -- давали бы на стыках полоски ярче остального.
+    local function Paint(col)
+        for _, t in ipairs(pieces) do t:SetVertexColor(col[1], col[2], col[3], 1) end
     end
-    Paint(BRASS, 0.95)
+    Paint(BRASS)
     -- Прежний интерфейс: hi хранит «насколько ярко» — наводка и драг
     -- зовут его, как и раньше.
     thumb.hi = {
         SetVertexColor = function(_, _, _, _, a)
-            if (a or 0) >= 0.3 then Paint(GOLD, 1)
-            elseif (a or 0) > 0 then Paint(BRIGHT, 1)
-            else Paint(BRASS, 0.95) end
+            if (a or 0) >= 0.3 then Paint(GOLD)
+            elseif (a or 0) > 0 then Paint(BRIGHT)
+            else Paint(BRASS) end
         end,
     }
 
@@ -1284,7 +1360,9 @@ function SB.Theme.AttachScrollbar(sf, child, parent, top, bottom)
         track:Show()
 
         local trackH = track:GetHeight()
-        local thumbH = math.max(20, trackH * (viewH / childH))
+        -- Целые пиксели: дробная высота и смещение заставляли ползунок
+        -- дрожать на полпикселя при каждом шаге прокрутки.
+        local thumbH = math.floor(math.max(20, trackH * (viewH / childH)) + 0.5)
         thumb:SetHeight(thumbH)
 
         -- ============================================
@@ -1317,9 +1395,13 @@ function SB.Theme.AttachScrollbar(sf, child, parent, top, bottom)
         local offset = (range > 0) and (scroll / range) * maxOff or 0
         -- Зажим и здесь тоже: дорожка бывает короче ползунка на кадре,
         -- где высоты ещё не устоялись, и тогда maxOff отрицателен.
-        offset = math.max(0, math.min(maxOff, offset))
+        offset = math.floor(math.max(0, math.min(maxOff, offset)) + 0.5)
         thumb:ClearAllPoints()
-        thumb:SetPoint("TOP", track, "TOP", 0, -offset)
+        if _G.PixelUtil and PixelUtil.SetPoint then
+            PixelUtil.SetPoint(thumb, "TOP", track, "TOP", 0, -offset)
+        else
+            thumb:SetPoint("TOP", track, "TOP", 0, -offset)
+        end
     end
 
     -- Вспомогательный кадр, который выполнит UpdateThumb на следующий кадр.
@@ -1503,7 +1585,22 @@ function SB.Theme.Bar(parent, w, h, kind)
     local rim = bar:CreateTexture(nil, "BACKGROUND", nil, -8)
     rim:SetAllPoints(bar)
     rim:SetTexture(SOLID)
-    rim:SetVertexColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 1)
+    rim:SetVertexColor(0, 0, 0, 1)
+
+    -- МЯГКАЯ ОПРАВА — та же, что у иконок (SB.Theme.SoftIconFrame):
+    -- тултиповая кромка поверх прежнего пиксельного латунного контура.
+    -- Высота полоски прежняя: оправа лежит на её двухпиксельном поле
+    -- (INSET ниже) и наружу выходит на те же два пикселя, что у иконок.
+    local soft = CreateFrame("Frame", nil, bar, "BackdropTemplate")
+    soft:SetPoint("TOPLEFT", bar, "TOPLEFT", -2, 2)
+    soft:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 2, -2)
+    soft:SetBackdrop({
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        edgeSize = 7,
+        insets = { left = 2, right = 2, top = 2, bottom = 2 },
+    })
+    soft:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.9)
+    bar._softFrame = soft
 
     -- Чёрный контур внутри канта — оставляет от канта видимую полоску
     -- в 1px по периметру и заодно отделяет её от дна.
@@ -1738,7 +1835,7 @@ function SB.Theme.SectionHeader(parent, text, right)
     fs:SetText(text)
     fs:SetTextColor(C.accent[1], C.accent[2], C.accent[3])
     local line = parent:CreateTexture(nil, "ARTWORK")
-    line:SetHeight(1)
+    SB.Theme.Hairline(line, "H")
     line:SetColorTexture(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.45)
     line:SetPoint("LEFT", fs, "RIGHT", 8, 0)
     line:SetPoint("RIGHT", parent, "RIGHT", -(right or SB.Theme.WIDGET.PAD), 0)
@@ -1826,7 +1923,7 @@ function SB.Theme.Segmented(parent, labels, w, h, onPick)
         sg.line:SetPoint("BOTTOMRIGHT", sg, "BOTTOMRIGHT", -3, 0)
         sg.sep = sg:CreateTexture(nil, "ARTWORK")
         sg.sep:SetColorTexture(C.divider[1], C.divider[2], C.divider[3], 0.8)
-        sg.sep:SetWidth(1)
+        SB.Theme.Hairline(sg.sep, "W")
         sg.sep:SetPoint("TOPRIGHT", sg, "TOPRIGHT", 0, -3)
         sg.sep:SetPoint("BOTTOMRIGHT", sg, "BOTTOMRIGHT", 0, 3)
         local hl = sg:CreateTexture(nil, "HIGHLIGHT")
@@ -1898,7 +1995,7 @@ function SB.Theme.Dropdown(parent, w, h)
     local sep = dd:CreateTexture(nil, "ARTWORK")
     sep:SetTexture(WHITE)
     sep:SetVertexColor(C.divider[1], C.divider[2], C.divider[3], 0.8)
-    sep:SetWidth(1)
+    SB.Theme.Hairline(sep, "W")
     sep:SetPoint("TOPRIGHT", dd, "TOPRIGHT", -20, -5)
     sep:SetPoint("BOTTOMRIGHT", dd, "BOTTOMRIGHT", -20, 5)
 
@@ -2155,7 +2252,7 @@ local function PopPanel(level)
         r.arrow:SetVertexColor(C.accent[1], C.accent[2], C.accent[3], 0.9)
         r.line = r:CreateTexture(nil, "ARTWORK")
         r.line:SetTexture(WHITE)
-        r.line:SetHeight(1)
+        SB.Theme.Hairline(r.line, "H")
         r.line:SetVertexColor(C.divider[1], C.divider[2], C.divider[3], 0.8)
         r.line:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", 8, 1)
         r.line:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", -8, 1)
@@ -2926,7 +3023,7 @@ function SB.Theme.StyleSlider(bg, slider)
     groove:SetPoint("BOTTOM", bg, "BOTTOM", 0, 2)
     local rail = bg:CreateTexture(nil, "BORDER")
     rail:SetColorTexture(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.35)
-    rail:SetWidth(1)
+    SB.Theme.Hairline(rail, "W")
     rail:SetPoint("TOP", groove, "TOP")
     rail:SetPoint("BOTTOM", groove, "BOTTOM")
     local thumb = slider:CreateTexture(nil, "OVERLAY")
