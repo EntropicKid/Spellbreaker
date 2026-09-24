@@ -220,11 +220,13 @@ local SURFACES = {
     -- [род] = { файл, подкраска {r,g,b,a} }
     frame   = { tex = SB.Theme.Assets.Background,  tint = { 0.98, 0.95, 0.92, 1.00 } },
     -- самый фактурный из четырёх файлов, потому он и выбран на полотно.
-    -- БОРДОВАЯ КОЖА (Assets\Crimson.tga) — тот же род, что Tome.tga у
-    -- карточек, только в цвет прежней красной подкраски колонок: колонки
-    -- главного окна, панель Ведущего, подложка списка библиотеки. Цвет
-    -- уже в файле, подкраска нейтральная.
-    column  = { tex = MEDIA .. "Crimson.tga", tint = { 1, 1, 1, 1 }, tileSize = 512 },
+    -- СТЁГАНОЕ ПОЛОТНО (Assets\Quilt.tga) — тот же ромб, что был у
+    -- Column.tga, только своё и подробнее: бордовая саржа, объёмные
+    -- «подушечки» между швами, пунктир стежков, латунные кнопки на
+    -- пересечениях. Период ромба (64 px) делит 512, поэтому плитка
+    -- бесшовная; тайл 256 даёт ромб в 32 px — как у прежнего файла.
+    -- Цвет уже в файле, подкраска нейтральная.
+    column  = { tex = MEDIA .. "Quilt.tga", tint = { 1, 1, 1, 1 }, tileSize = 256 },
     -- КНИГА ЗАКЛИНАНИЙ — КОЖАНЫЙ ПЕРЕПЛЁТ. Здесь стояло то же полотно,
     -- что у колонок, отличаясь от них одной лишь подкраской, — и
     -- библиотека читалась как ещё одна панель того же окна. Она не
@@ -241,7 +243,7 @@ local SURFACES = {
     -- Рельеф — «галька» с боковым светом, пятна и зерно; яркость
     -- ~20/15/11%, как у прочих окон.
     library = { tex = MEDIA .. "Tome.tga", tint = { 1, 1, 1, 1 }, tileSize = 512, vignette = true },
-    gm      = { tex = MEDIA .. "Crimson.tga", tint = { 1, 1, 1, 1 }, tileSize = 512 },
+    gm      = { tex = MEDIA .. "Quilt.tga", tint = { 1, 1, 1, 1 }, tileSize = 256 },
     -- КАРТОЧКА ЗАКЛИНАНИЯ — ТОТ ЖЕ ПЕРЕПЛЁТ, ЧТО И БИБЛИОТЕКА.
     --
     -- Здесь стоял свой камень — чтобы карточка, всплывая поверх
@@ -288,7 +290,7 @@ local BD = {
 		bgFile   = SB.Theme.Surface("column").tex,
 		edgeFile = SB.Theme.Tex("ColumnEdge", "Interface\\Tooltips\\UI-Tooltip-Border"),
 		tile = true,
-		tileSize = 512,
+		tileSize = 256,
 		edgeSize = 12,
 		insets = { left = 3, right = 3, top = 3, bottom = 3 },
 	},
@@ -1322,16 +1324,9 @@ function SB.Theme.AttachScrollbar(sf, child, parent, top, bottom)
     shine:SetPoint("BOTTOMLEFT", thumb, "BOTTOMLEFT", 2, 3)
     shine:SetVertexColor(1, 0.95, 0.8, 0.35)
 
-    -- Хват: три засечки посередине.
-    local grips = {}
-    for i = -1, 1 do
-        local g = thumb:CreateTexture(nil, "OVERLAY")
-        g:SetTexture(WHITE)
-        g:SetSize(THUMB_W - 3, 1)
-        g:SetPoint("CENTER", thumb, "CENTER", 0, i * 3)
-        g:SetVertexColor(0.1, 0.06, 0.03, 0.6)
-        grips[#grips + 1] = g
-    end
+    -- ЗАСЕЧЕК-ХВАТА БОЛЬШЕ НЕТ: три однопиксельные чёрточки при движении
+    -- ползунка попадали между пикселями экрана и рябили. Пилюля и блик
+    -- говорят «за это можно взяться» и без них.
 
     -- НЕПРОЗРАЧНО: куски ползунка лежат внахлёст, и полупрозрачные
     -- давали бы на стыках полоски ярче остального.

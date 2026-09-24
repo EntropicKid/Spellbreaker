@@ -262,14 +262,11 @@ local function CreateToast()
     f.accent:SetWidth(3)
     f.accent:SetPoint("TOPLEFT", f, "TOPLEFT", 5, -5)
     f.accent:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 5, 5)
+    -- СВЕЧЕНИЯ ОТ ПОЛОСЫ БОЛЬШЕ НЕТ: оно ложилось под иконку и
+    -- обрывалось на ней ступенькой. Состояние и так видно по полосе и по
+    -- цвету рамки иконки. Поле оставлено пустым — его красит SetToastState.
     f.accentGlow = f:CreateTexture(nil, "BORDER")
-    f.accentGlow:SetTexture("Interface\\Buttons\\WHITE8x8")
-    f.accentGlow:SetPoint("TOPLEFT", f.accent, "TOPRIGHT", 0, 0)
-    f.accentGlow:SetPoint("BOTTOMLEFT", f.accent, "BOTTOMRIGHT", 0, 0)
-    f.accentGlow:SetWidth(40)
-    if f.accentGlow.SetGradientAlpha then
-        f.accentGlow:SetGradientAlpha("HORIZONTAL", 1, 1, 1, 1, 1, 1, 1, 0)
-    end
+    f.accentGlow:Hide()
 
     f.icon = f:CreateTexture(nil, "ARTWORK")
     f.icon:SetSize(36, 36)
