@@ -264,6 +264,7 @@ function SB.NPC.RestatEffects(st, unit)
             local stats = def and def.stats
             if stats then
                 hpMod  = hpMod  + (stats["Живучесть"] or 0)
+                                  * ((SB.Skills and SB.Skills.VITALITY_PER_POINT) or 2)
                 resMod = resMod + (stats["Исток"]     or 0)
             end
 
