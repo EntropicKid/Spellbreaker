@@ -899,13 +899,15 @@ local function BuildMainFrame()
     -- «Очистить кастом» в библиотеке: клик раскрывает список, повторный
     -- клик или клик мимо его закрывает.
     --
-    -- Долгий Отдых сюда намеренно не попал: он закрывает сцену целиком,
-    -- это объявление Ведущего, и живёт в мини-карточке миникарты.
+    -- ДОЛГИЙ ОТДЫХ — ПЕРВЫМ ПУНКТОМ. Он по-прежнему объявление Ведущего
+    -- (гаснет у того, кто не ведёт группу, см. SB.UI.CanRest) и
+    -- по-прежнему есть в мини-карточке миникарты; здесь — потому что за
+    -- ним лезли в это меню, а не к миникарте.
     shortRestBtn = SB.Theme.Button(header, "Специальное действие", 150, 24, "secondary")
     shortRestBtn:SetPoint("RIGHT", libBtn, "LEFT", -6, 0)
 
     local specialMenu = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
-    specialMenu:SetSize(151, 112)
+    specialMenu:SetSize(151, 10 + 22 * 3 + 4 * 2 + 10)
     specialMenu:SetPoint("TOPRIGHT", shortRestBtn, "BOTTOMRIGHT", 0, -2)
     specialMenu:SetFrameStrata("DIALOG")
     specialMenu:SetBackdrop(SB.Theme.BD.frame)
@@ -934,7 +936,11 @@ local function BuildMainFrame()
 
     -- ПЕРВЫМ ПУНКТОМ БЫЛ КОРОТКИЙ ОТДЫХ — механики больше нет, нет и
     -- пункта. «Пропустить ход» встал на его место (родитель nil).
-    local skipItem = SpecialItem("Окончить ход", "secondary", nil, nil, function()
+    local restItem = SpecialItem("Долгий отдых", "secondary", nil, "longRest", function()
+        if SB.Logic and SB.Logic.Rest then SB.Logic.Rest() end
+    end)
+
+    local skipItem = SpecialItem("Окончить ход", "secondary", restItem, nil, function()
         if SB.Logic and SB.Logic.SpendTurnManually then SB.Logic.SpendTurnManually() end
     end)
     -- ПОДСКАЗКИ У ПРОПУСКА ХОДА НЕТ НАМЕРЕННО. Она обещала «+1 ресурса»
@@ -975,6 +981,8 @@ local function BuildMainFrame()
     -- Доступность считается при КАЖДОМ раскрытии, а не на обновлении
     -- окна: меню закрыто почти всегда, и трогать его кнопки незачем.
     local function RefreshSpecialMenu()
+        if SB.UI.CanRest and SB.UI.CanRest() then restItem:Enable()
+        else restItem:Disable() end
         local PM   = SB.PlayerModel
         local fled = PM.HasFled and PM.HasFled()
         if fled then

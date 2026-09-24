@@ -531,9 +531,28 @@ function SB.Theme.Button(parent, text, w, h, variant)
     btn:SetBackdropColor(v.bg[1], v.bg[2], v.bg[3], v.bg[4])
     btn:SetBackdropBorderColor(v.border[1], v.border[2], v.border[3], v.border[4])
 
+    -- ТЕКСТ ПО ЦЕНТРУ — ЯВНЫМИ ЯКОРЯМИ, А НЕ SetAllPoints.
+    --
+    -- Раньше подпись растягивалась на всю кнопку, а нажатие добавляло ей
+    -- ещё и точку CENTER — третью поверх двух углов. Три противоречащие
+    -- точки клиент разрешает как придётся, и после первого же клика
+    -- подпись оставалась сдвинутой. Теперь у подписи ровно две точки —
+    -- левый и правый край по вертикальному центру, — и нажатие
+    -- переставляет именно их (см. PlaceText).
+    --
+    -- Плюс пиксель вверх: у PT Serif строчные кириллицы сидят ниже
+    -- геометрического центра строки, и ровно по центру подпись читалась
+    -- «просевшей».
     local fs = btn:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-    fs:SetAllPoints()
     btn:SetFontString(fs)
+    if btn.SetPushedTextOffset then btn:SetPushedTextOffset(0, 0) end
+    local function PlaceText(dy)
+        fs:ClearAllPoints()
+        fs:SetPoint("LEFT", btn, "LEFT", 3, 1 + (dy or 0))
+        fs:SetPoint("RIGHT", btn, "RIGHT", -3, 1 + (dy or 0))
+    end
+    btn._placeText = PlaceText
+    PlaceText(0)
     btn:SetText(text or "")
     fs:SetTextColor(v.text[1], v.text[2], v.text[3])
 
@@ -627,7 +646,7 @@ function SB.Theme.Button(parent, text, w, h, variant)
         if self:IsEnabled() then
             TintTo(self, self._v.bg, self._v.border)
         end
-        self._fs:SetPoint("CENTER", 0, 0)
+        self._placeText(0)
         if userLeave and not inLeave then
             inLeave = true
             userLeave(self, ...)
@@ -691,7 +710,7 @@ function SB.Theme.Button(parent, text, w, h, variant)
         if self:IsEnabled() then
             StopTint(self)
             self:SetBackdropColor(self._v.press[1], self._v.press[2], self._v.press[3], self._v.press[4])
-            self._fs:SetPoint("CENTER", 0, -1)
+            self._placeText(-1)
         end
     end)
     btn:SetScript("OnMouseUp", function(self, mouseBtn)
@@ -712,7 +731,7 @@ function SB.Theme.Button(parent, text, w, h, variant)
                 SB.Theme.PlaySound(self._soundVariant or "click")
             end
         end
-        self._fs:SetPoint("CENTER", 0, 0)
+        self._placeText(0)
     end)
 
     local rE, rD = btn.Enable, btn.Disable
@@ -738,6 +757,60 @@ function SB.Theme.Button(parent, text, w, h, variant)
         self._fs:SetTextColor(C.disText[1], C.disText[2], C.disText[3])
     end
 
+    return btn
+end
+
+-- ============================================================
+-- STEPPER — КНОПКА «+» / «−»
+--
+-- Символы «+» и «-» из шрифта на кнопке в шестнадцать пикселей
+-- выглядели плохо: у PT Serif они тонкие, стоят не по центру строки, а
+-- минус и вовсе дефис. Здесь знак НАРИСОВАН двумя полосками по центру
+-- кнопки — ровно по середине при любом шрифте и размере.
+--
+-- Фон — спокойный «secondary», а смысл несёт цвет знака: плюс золотой,
+-- минус красноватый. Две яркие плашки, красная и зелёная, на каждой
+-- строке навыка рябили больше, чем сообщали.
+-- @param sign  "+" | "-"
+-- ============================================================
+function SB.Theme.Stepper(parent, sign, size)
+    size = size or 18
+    local btn = SB.Theme.Button(parent, "", size, size, "secondary")
+    local col = (sign == "+") and C.accent or C.textDanger
+    local len = math.max(6, math.floor(size * 0.45 + 0.5))
+    local thick = (size >= 22) and 2 or 2
+
+    local bars = {}
+    local h = btn:CreateTexture(nil, "OVERLAY")
+    h:SetColorTexture(1, 1, 1, 1)
+    h:SetSize(len, thick)
+    h:SetPoint("CENTER", btn, "CENTER", 0, 0)
+    bars[1] = h
+    if sign == "+" then
+        local v = btn:CreateTexture(nil, "OVERLAY")
+        v:SetColorTexture(1, 1, 1, 1)
+        v:SetSize(thick, len)
+        v:SetPoint("CENTER", btn, "CENTER", 0, 0)
+        bars[2] = v
+    end
+    local function Paint(on)
+        local c = on and col or C.disText
+        for _, b in ipairs(bars) do b:SetVertexColor(c[1], c[2], c[3], on and 1 or 0.7) end
+    end
+    Paint(true)
+
+    -- Нажатие сдвигает знак на пиксель вниз, как подпись обычной кнопки.
+    btn:HookScript("OnMouseDown", function(self)
+        if self:IsEnabled() then
+            for _, b in ipairs(bars) do b:SetPoint("CENTER", self, "CENTER", 0, -1) end
+        end
+    end)
+    btn:HookScript("OnMouseUp", function(self)
+        for _, b in ipairs(bars) do b:SetPoint("CENTER", self, "CENTER", 0, 0) end
+    end)
+    local en, dis = btn.Enable, btn.Disable
+    function btn:Enable()  en(self);  Paint(true)  end
+    function btn:Disable() dis(self); Paint(false) end
     return btn
 end
 
@@ -1641,8 +1714,17 @@ end
 SB.Theme.WIDGET = { PAD = 10, GAP = 6, ROW = 22, BTN = 24 }
 
 --- Секция на фоне карточки.
-function SB.Theme.Inset(parent, alpha)
+--- @param material string|nil  "column" — материал колонок главного окна
+---        (как у «Атрибутов» и «Способностей»); по умолчанию — карточка.
+function SB.Theme.Inset(parent, alpha, material)
     local f = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    if material == "column" then
+        local surf = SB.Theme.Surface("column")
+        f:SetBackdrop(BD.column)
+        f:SetBackdropColor(surf.tint[1], surf.tint[2], surf.tint[3], alpha or surf.tint[4])
+        f:SetBackdropBorderColor(C.columnBorder[1], C.columnBorder[2], C.columnBorder[3], 1)
+        return f
+    end
     f:SetBackdrop(BD.card)
     f:SetBackdropColor(C.cardBg[1], C.cardBg[2], C.cardBg[3], alpha or 0.9)
     f:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.55)
@@ -2827,5 +2909,52 @@ function SB.Theme.IconBorder(card, iconWidget)
 
     ib:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.85)
     card._ib = ib
+    return ib
+end
+
+--- ПОЛЗУНОК СЕТОК (выбор эффекта, выбор иконки) — в вид полосы
+--- прокрутки аддона (см. AttachScrollbar): утопленный рельс и латунный
+--- ползунок вместо плоского золотого прямоугольника на подложке.
+--- @param bg     Frame   подложка ползунка (её фон гасится)
+--- @param slider Slider
+function SB.Theme.StyleSlider(bg, slider)
+    if bg.SetBackdrop then bg:SetBackdrop(nil) end
+    local groove = bg:CreateTexture(nil, "BACKGROUND")
+    groove:SetColorTexture(0, 0, 0, 0.55)
+    groove:SetWidth(3)
+    groove:SetPoint("TOP", bg, "TOP", 0, -2)
+    groove:SetPoint("BOTTOM", bg, "BOTTOM", 0, 2)
+    local rail = bg:CreateTexture(nil, "BORDER")
+    rail:SetColorTexture(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.35)
+    rail:SetWidth(1)
+    rail:SetPoint("TOP", groove, "TOP")
+    rail:SetPoint("BOTTOM", groove, "BOTTOM")
+    local thumb = slider:CreateTexture(nil, "OVERLAY")
+    thumb:SetColorTexture(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.95)
+    thumb:SetSize(6, 30)
+    slider:SetThumbTexture(thumb)
+    slider:HookScript("OnEnter", function() thumb:SetColorTexture(C.cardHoverBorder[1],
+        C.cardHoverBorder[2], C.cardHoverBorder[3], 1) end)
+    slider:HookScript("OnLeave", function() thumb:SetColorTexture(C.cardBorder[1],
+        C.cardBorder[2], C.cardBorder[3], 0.95) end)
+    return thumb
+end
+
+--- МЯГКАЯ РАМКА ИКОНКИ — та же, что у карточек способностей
+--- (IconBorder), но с цветом и без записи в card._ib: в сетках и списках
+--- её вешают на кнопку-иконку, у которой своего «_ib» нет и не нужно.
+--- Цвет — для сеток, где рамка что-то значит (тип эффекта).
+--- @param color table|nil  {r,g,b[,a]}; по умолчанию латунь карточек
+function SB.Theme.SoftIconFrame(parent, icon, color)
+    local ib = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    ib:SetPoint("TOPLEFT", icon, "TOPLEFT", -2, 2)
+    ib:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 2, -2)
+    ib:SetBackdrop({
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        edgeSize = 7,
+        insets = { left = 2, right = 2, top = 2, bottom = 2 },
+    })
+    local c = color or C.cardBorder
+    ib:SetBackdropBorderColor(c[1], c[2], c[3], c[4] or 0.85)
     return ib
 end

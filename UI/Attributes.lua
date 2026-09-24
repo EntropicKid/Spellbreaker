@@ -458,10 +458,11 @@ local function BuildSkillRow(parent, attrKey, skillName, yOff)
     nameFS:SetWidth(math.min(math.ceil(nameFS:GetStringWidth()) + 2, NAME_MAX))
     nameFS:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
 
-    local minusBtn = SB.Theme.Button(line, "-", 16, 16, "danger")
+    -- Знак нарисован, а не набран шрифтом (см. SB.Theme.Stepper).
+    local minusBtn = SB.Theme.Stepper(line, "-", 16)
     minusBtn:SetPoint("RIGHT", line, "RIGHT", -18, 0)
 
-    local plusBtn = SB.Theme.Button(line, "+", 16, 16, "primary")
+    local plusBtn = SB.Theme.Stepper(line, "+", 16)
     plusBtn:SetPoint("RIGHT", line, "RIGHT", 0, 0)
 
     -- Кубик занимает место обеих кнопок -/+ и показывается вместо них,
@@ -792,7 +793,7 @@ function SB.UI.BuildAttributesColumn(parentFrame, headerParent)
             GameTooltip:Hide()
         end)
 
-        row.minusBtn = SB.Theme.Button(row, "—", 24, 24, "danger")
+        row.minusBtn = SB.Theme.Stepper(row, "-", 24)
         row.minusBtn:SetPoint("TOPRIGHT", row, "TOPRIGHT", -37, -8)
         row.minusBtn:SetScript("OnClick", function()
             local ok, reason = SB.Attributes.Refund(def.key)
@@ -806,7 +807,7 @@ function SB.UI.BuildAttributesColumn(parentFrame, headerParent)
             end
         end)
 
-        row.plusBtn = SB.Theme.Button(row, "+", 24, 24, "primary")
+        row.plusBtn = SB.Theme.Stepper(row, "+", 24)
         row.plusBtn:SetPoint("TOPRIGHT", row, "TOPRIGHT", -8, -8)
         row.plusBtn:SetScript("OnClick", function()
             local ok, reason = SB.Attributes.Spend(def.key)

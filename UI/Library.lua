@@ -211,11 +211,12 @@ function SB.Library.UpdateNpcList(classificationName)
             row:SetSize(SPELL_ROW_W * 2 - 10, NPC_ROW_H)
 
             local hl = row:CreateTexture(nil, "HIGHLIGHT")
-            hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0.08)
+            hl:SetAllPoints(); hl:SetColorTexture(C.accent[1], C.accent[2], C.accent[3], 0.10)
 
             row.icon = row:CreateTexture(nil, "ARTWORK")
             row.icon:SetSize(34, 34); row.icon:SetPoint("LEFT", 6, 0)
             row.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            SB.Theme.SoftIconFrame(row, row.icon)
 
             row.name = row:CreateFontString(nil, "OVERLAY", "SBFontNormal")
             row.name:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 8, -2)
@@ -425,16 +426,9 @@ function SB.Library.UpdateList()
             row.icon = row:CreateTexture(nil, "ARTWORK")
             row.icon:SetSize(32, 32); row.icon:SetPoint("LEFT", 6, 0)
             row.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-            -- Тёмная окантовка под иконкой: без неё иконки с чёрным краем
-            -- и со светлым выглядели разного размера.
-            local frameTex = row:CreateTexture(nil, "BORDER")
-            frameTex:SetPoint("TOPLEFT", row.icon, "TOPLEFT", -1, 1)
-            frameTex:SetPoint("BOTTOMRIGHT", row.icon, "BOTTOMRIGHT", 1, -1)
-            frameTex:SetColorTexture(0, 0, 0, 0.85)
-            local rim = row:CreateTexture(nil, "BACKGROUND")
-            rim:SetPoint("TOPLEFT", row.icon, "TOPLEFT", -2, 2)
-            rim:SetPoint("BOTTOMRIGHT", row.icon, "BOTTOMRIGHT", 2, -2)
-            rim:SetColorTexture(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.55)
+            -- Мягкая рамка — та же, что у карточек способностей главного
+            -- окна (SB.Theme.SoftIconFrame), а не квадратная окантовка.
+            SB.Theme.SoftIconFrame(row, row.icon)
 
             -- ОДНА СТРОКА И МНОГОТОЧИЕ. Строка в списке высотой 42
             -- пикселя рассчитана ровно на две подписи — имя и
@@ -1418,11 +1412,11 @@ function SB.Library.BuildFrame()
 
     -- Скролл
     local sf
-    -- Подложка списка — материал карточки (SB.Theme.Inset), как у секций
-    -- остальных окон. Полоса прокрутки по-прежнему снаружи окна
-    -- (см. SB.Theme.AttachScrollbar).
+    -- Подложка списка — материал колонок главного окна («Атрибуты»,
+    -- «Способности»): список заклинаний — та же колонка, что и там.
+    -- Полоса прокрутки по-прежнему снаружи окна (см. AttachScrollbar).
     local listTop = TOOLBAR_Y - 32
-    local box = SB.Theme.Inset(libFrame, 0.95)
+    local box = SB.Theme.Inset(libFrame, nil, "column")
     box:SetPoint("TOPLEFT",     libFrame, "TOPLEFT",     10, listTop)
     box:SetPoint("BOTTOMRIGHT", libFrame, "BOTTOMRIGHT", -10, 44)
     sf, scrollChild = SB.Theme.Scroll(libFrame, 15, listTop - 5, -15, 49)

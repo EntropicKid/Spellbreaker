@@ -181,6 +181,15 @@ function SB.NpcCast.IsSelfSelected()
 end
 
 --- Имена отмеченных существ, для подписи окна.
+--- Отмеченные ИГРОКИ по имени, по алфавиту — для списка в окне.
+function SB.NpcCast.PlayerTargetNames()
+    local out = {}
+    if not pending then return out end
+    for name in pairs(pending.targets) do out[#out + 1] = name end
+    table.sort(out)
+    return out
+end
+
 function SB.NpcCast.NpcTargetNames()
     local out = {}
     if not pending then return out end

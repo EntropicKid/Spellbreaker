@@ -184,6 +184,7 @@ local function Build()
     iconBtn.tex = iconBtn:CreateTexture(nil, "ARTWORK")
     iconBtn.tex:SetAllPoints()
     iconBtn.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    SB.Theme.SoftIconFrame(iconBtn, iconBtn.tex)
     local ihl = iconBtn:CreateTexture(nil, "HIGHLIGHT")
     ihl:SetAllPoints(); ihl:SetColorTexture(1, 1, 0.6, 0.2)
     iconBtn:SetScript("OnClick", function()
@@ -352,18 +353,18 @@ local function Build()
     -- а ширины хватает на все десять.
     local slot = math.floor((IN - (SB.NPC.MAX_SPELLS - 1) * 4) / SB.NPC.MAX_SPELLS)
     for i = 1, SB.NPC.MAX_SPELLS do
-        local b = CreateFrame("Button", nil, frame, "BackdropTemplate")
+        local b = CreateFrame("Button", nil, frame)
         b:SetSize(slot, slot)
         b:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD + (i - 1) * (slot + 4), y)
-        b:SetBackdrop(SB.Theme.BD.card)
-        b:SetBackdropColor(0, 0, 0, 0.55)
-        b:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.8)
         b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
         b.icon = b:CreateTexture(nil, "ARTWORK")
-        b.icon:SetPoint("TOPLEFT", 3, -3)
-        b.icon:SetPoint("BOTTOMRIGHT", -3, 3)
+        b.icon:SetPoint("TOPLEFT", 2, -2)
+        b.icon:SetPoint("BOTTOMRIGHT", -2, 2)
         b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        -- Мягкая рамка, как у карточек способностей. Её цвет — признак
+        -- «занято / пусто» (см. RefreshSpells), поэтому хранится на кнопке.
+        b.frame = SB.Theme.SoftIconFrame(b, b.icon)
 
         b._index = i
         b:SetScript("OnClick", function(self, click)
@@ -653,14 +654,14 @@ function SB.NPCEditor.RefreshSpells()
         if sp then
             b.icon:SetTexture(sp.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
             b.icon:SetDesaturated(false)
-            b:SetBackdropBorderColor(SB.Theme.C.textGold[1], SB.Theme.C.textGold[2],
+            b.frame:SetBackdropBorderColor(SB.Theme.C.textGold[1], SB.Theme.C.textGold[2],
                                      SB.Theme.C.textGold[3], 0.9)
         else
             -- Пустая клетка ВИДНА и кликабельна: скрытая означала бы, что
             -- добавить одиннадцатую нельзя, а десятую — непонятно куда.
             b.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
             b.icon:SetDesaturated(true)
-            b:SetBackdropBorderColor(SB.Theme.C.cardBorder[1], SB.Theme.C.cardBorder[2],
+            b.frame:SetBackdropBorderColor(SB.Theme.C.cardBorder[1], SB.Theme.C.cardBorder[2],
                                      SB.Theme.C.cardBorder[3], 0.5)
         end
     end
