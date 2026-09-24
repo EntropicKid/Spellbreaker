@@ -17,6 +17,9 @@ local healthBar, manaBar
 local shortRestBtn
 local spellCards = {}
 local slotFrame
+-- Окно открыто уже с выбранным пределом (кнопка «Окончить ход») — его
+-- упор в предел не закрывает: закрывать его незачем.
+local slotOpenedBlocked = false
 local C  -- shortcut к палитре
 
 -- Видны ли сейчас карточки: либо открыто главное окно, либо колонка
@@ -2169,6 +2172,7 @@ function SB.UI.ShowCastConfirm(spellID)
     -- не пройдёт. BlocksAction, а не IsExhausted: под замедлением метры
     -- кончились, но действие осталось (см. врезку в Core/Movement.lua).
     local exhausted = SB.Movement and SB.Movement.BlocksAction()
+    slotOpenedBlocked = exhausted and true or false
 
     local options, hint = {}, nil
     if exhausted then
@@ -2233,6 +2237,11 @@ function SB.UI.ShowCastConfirm(spellID)
         b:SetText(opt.label)
         b:SetScript("OnClick", function()
             slotFrame:Hide()
+            -- Перепроверка на клике: окно могло пережить перебег, если
+            -- событие шагомера ещё не дошло (см. SB.UI.CloseCastConfirmIfBlocked).
+            if not opt.passTurn and SB.Movement and SB.Movement.BlocksAction() then
+                return
+            end
             if opt.passTurn then
                 SB.Logic.SpendTurnManually()
             elseif opt.toGM then
@@ -2263,6 +2272,18 @@ function SB.UI.ShowCastConfirm(spellID)
     slotFrame:SetWidth(btnW + SLOT_PAD_L + SLOT_PAD_R)
     slotFrame:SetHeight(-slotFrame.contentY + contentH + 20)
     slotFrame:Show()
+end
+
+-- ПЕРЕБЕГ ЗАКРЫВАЕТ ОКНО. Раньше окно, открытое в пределах лимита,
+-- оставалось висеть: игрок открывал его, пробегал сверх предела хоть
+-- пятьдесят метров до цели и уже оттуда жал «Применить». Теперь упор в
+-- предел в свой ход окно закрывает, а кнопка перепроверяет его сама.
+function SB.UI.CloseCastConfirmIfBlocked()
+    if not (slotFrame and slotFrame:IsShown()) then return end
+    if slotOpenedBlocked then return end
+    if SB.Movement and SB.Movement.BlocksAction() then
+        slotFrame:Hide()
+    end
 end
 
 -- Прежнее имя — чтобы три места вызова не правились поодиночке.
@@ -2309,6 +2330,7 @@ SB.Events.On("SB_INIT", function()
     -- пока игрок движется (см. Core/Movement.lua), а очередь на кадр
     -- схлопывает это в одну перерисовку.
     SB.Events.On(SB.E.MOVEMENT_CHANGED,        SB.UI.RequestUpdate)
+    SB.Events.On(SB.E.MOVEMENT_CHANGED,        function() SB.UI.CloseCastConfirmIfBlocked() end)
     -- Очередь ходов сдвинулась — кнопки применения гаснут или оживают.
     -- Опрос дальности подхватил бы это и сам, но через треть секунды, а
     -- «мой ход» игрок должен увидеть в тот же миг.

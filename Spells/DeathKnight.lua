@@ -140,6 +140,8 @@ Add({
 Add({
     id = "mind_freeze",
     name = "Заморозка разума",
+    -- Попадание срывает концентрацию цели (см. SB.Logic.Interrupts).
+    interrupt = true,
     key = "Лед",
     icon = "Interface\\Icons\\Spell_deathknight_mindfreeze",
     level = 1,

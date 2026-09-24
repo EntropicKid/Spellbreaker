@@ -204,6 +204,8 @@ Add({
 Add({
     id = "disrupt",
     name = "Поток мысли",
+    -- Попадание срывает концентрацию цели (см. SB.Logic.Interrupts).
+    interrupt = true,
     key = "Приемы хаоса",
     icon = "Interface\\Icons\\Spell_shadow_mindrot",
     level = 0,

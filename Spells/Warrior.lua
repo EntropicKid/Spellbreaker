@@ -8,6 +8,8 @@ local Add = SB.Database.AddSpell -- Короткая ссылка
 Add({
     id = "pummel",
     name = "Зуботычина",
+    -- Попадание срывает концентрацию цели (см. SB.Logic.Interrupts).
+    interrupt = true,
     key = "Воинский дух",
     icon = "Interface\\Icons\\Inv_gauntlets_04",
     level = 1,

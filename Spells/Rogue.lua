@@ -246,6 +246,8 @@ Add({
 Add({
     id = "kick",
     name = "Пинок",
+    -- Попадание срывает концентрацию цели (см. SB.Logic.Interrupts).
+    interrupt = true,
     key = "Бойня",
     icon = "Interface\\Icons\\Ability_kick",
     level = 0,

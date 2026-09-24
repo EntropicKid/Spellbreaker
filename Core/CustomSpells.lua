@@ -100,6 +100,53 @@ local function IsMyCharacter(name)
     return chars and chars[name] ~= nil and chars[name] ~= false or false
 end
 
+-- ============================================================
+-- КУДА ЛОЖИТСЯ ЭФФЕКТ КАСТОМНОГО ЗАКЛИНАНИЯ
+--
+-- Жалоба: «кастомным заклинанием с эффектом нельзя навести эффект на
+-- цель». Редактор записывал эффект всегда в container — а container в
+-- аддоне значит «на себя» (стойка, облик, своя аура): маршрут каста
+-- проверяет его первым и отдаёт эффект заклинателю, кто бы ни был в
+-- цели. Поля «на цель» (buff — союзнику, debuff — врагу), которыми живут
+-- библиотечные заклинания, у кастомных не появлялись никогда.
+--
+-- ТЕПЕРЬ ПОЛЕ ВЫБИРАЕТСЯ ПО СМЫСЛУ, как у библиотечных:
+--   нет дальности («на себя»)                 → container, как было;
+--   есть дальность, заклинание бьёт или
+--   эффект вредоносный                        → debuff (на цель: по
+--                                                попаданию или по броску);
+--   есть дальность, не бьёт, эффект — польза  → buff (союзнику в цели).
+-- Вид эффекта кастомный редактор не задаёт — такой эффект считается
+-- пользой (SB.ActiveEffects.GetKind), и решает, бьёт ли само заклинание.
+-- Эффект может загрузиться позже заклинания — тогда разложим, когда
+-- появится (см. InjectSpell и Init).
+-- ============================================================
+
+--- Эффект кастомного заклинания, в каком бы поле он ни лежал.
+local function EffectOf(sp)
+    return sp and (sp.container or sp.buff or sp.debuff)
+end
+SB.CustomSpells.EffectOf = EffectOf
+
+local function RouteEffect(sp)
+    if not (sp and sp.isCustom) or sp.isContainer then return end
+    local eff = EffectOf(sp)
+    if not eff then return end
+    if not SB.Data.Spells[eff] then return end   -- эффект ещё не загружен
+    local kind = SB.ActiveEffects and SB.ActiveEffects.GetKind
+        and SB.ActiveEffects.GetKind(eff) or "buff"
+    local targeted = (tonumber(sp.distance) or 0) > 0
+    sp.container, sp.buff, sp.debuff = nil, nil, nil
+    if not targeted then
+        sp.container = eff
+    elseif sp.canCrit or kind == "debuff" then
+        sp.debuff = eff
+    else
+        sp.buff = eff
+    end
+end
+SB.CustomSpells.RouteEffect = RouteEffect
+
 local function InjectSpell(sp)
     if not sp or not sp.id then return end
     -- Своё заклинание могло быть собрано до переименования навыка — у
@@ -111,6 +158,15 @@ local function InjectSpell(sp)
     SB.Data.Spells[sp.id] = sp
     if SpellbreakerCustomDB and SpellbreakerCustomDB.spells then
         SpellbreakerCustomDB.spells[sp.id] = sp
+    end
+    -- Разложить эффект по месту (см. «КУДА ЛОЖИТСЯ ЭФФЕКТ»). Пришёл сам
+    -- эффект — разложить и заклинания, которые его ждали.
+    if sp.isContainer then
+        for _, other in pairs(SB.Data.Spells) do
+            if other.isCustom and EffectOf(other) == sp.id then RouteEffect(other) end
+        end
+    else
+        RouteEffect(sp)
     end
 end
 
@@ -999,9 +1055,9 @@ function SB.CustomSpells.OpenEdit(spellID)
     end
     fDist:SetText("Дальность: " .. DIST_LABELS[fDistIdx])
 
-    -- Container
-    if sp.container then
-        fContID     = sp.container
+    -- Эффект — в каком бы поле он ни лежал (см. «КУДА ЛОЖИТСЯ ЭФФЕКТ»).
+    if EffectOf(sp) then
+        fContID     = EffectOf(sp)
         fContDur    = sp.duration
         fContIsConc = sp.isConcentration
         fContBtn:SetText("Редактировать эффект")
@@ -1059,8 +1115,8 @@ function SB.CustomSpells.SaveForm(silent)
     -- Рассылка подготовленных заклинаний
     if IsBroadcastRelevant(sp.id, nil) then
         SB.CustomSpells.Broadcast(sp)
-        if sp.container and SB.Data.Spells[sp.container] then
-            SB.CustomSpells.Broadcast(SB.Data.Spells[sp.container])
+        if EffectOf(sp) and SB.Data.Spells[EffectOf(sp)] then
+            SB.CustomSpells.Broadcast(SB.Data.Spells[EffectOf(sp)])
         end
     end
 
@@ -1084,8 +1140,8 @@ function SB.CustomSpells.Delete(spellID, silent)
     -- silent = true → не рассылать DEL по сети (используется при
     -- получении DEL от другого игрока, чтобы не было бесконечного эха)
     local sp = SB.Data.Spells[spellID]
-    if sp and sp.container then
-        local contID = sp.container
+    if sp and EffectOf(sp) then
+        local contID = EffectOf(sp)
         if SB.ActiveEffects then SB.ActiveEffects.Remove(contID) end
         SB.Data.Spells[contID] = nil
         local db = SpellbreakerCustomDB and SpellbreakerCustomDB.spells
@@ -1124,8 +1180,8 @@ function SB.CustomSpells.Delete(spellID, silent)
     -- Если это был основной спелл — удаляем и привязанный контейнер
     -- (пробегаем все кастомные и ищем container == spellID)
     for sid, s in pairs(SB.Data.Spells) do
-        if s.isCustom and s.container == spellID then
-            s.container = nil
+        if s.isCustom and EffectOf(s) == spellID then
+            s.container, s.buff, s.debuff = nil, nil, nil
             s.duration = nil
             s.isConcentration = nil
         end
@@ -1155,7 +1211,7 @@ function IsBroadcastRelevant(spellID, containerID)
     if containerID then
         for _, id in ipairs(SpellbreakerCharDB.preparedSpells or {}) do
             local sp = SB.Data.Spells[id]
-            if sp and sp.container == containerID then return true end
+            if sp and EffectOf(sp) == containerID then return true end
         end
     end
     return false
@@ -1222,8 +1278,8 @@ function SB.CustomSpells.BroadcastPrepared()
                 SB.CustomSpells.Broadcast(spell)
                 sent = sent + 1
                 -- Отправить и контейнер если есть
-                if spell.container and SB.Data.Spells[spell.container] then
-                    SB.CustomSpells.Broadcast(SB.Data.Spells[spell.container])
+                if EffectOf(spell) and SB.Data.Spells[EffectOf(spell)] then
+                    SB.CustomSpells.Broadcast(SB.Data.Spells[EffectOf(spell)])
                     sent = sent + 1
                 end
             end
@@ -1282,6 +1338,9 @@ function SB.CustomSpells.Init()
         sp.isCustom = true
         SB.Data.Spells[id] = sp
     end
+    -- Все загружены — теперь у каждого эффекта известен вид, и заклинания
+    -- можно разложить (см. «КУДА ЛОЖИТСЯ ЭФФЕКТ»).
+    for _, sp in pairs(SpellbreakerCustomDB.spells) do RouteEffect(sp) end
     -- Сборка мусора: контейнер, на который никто не ссылается, из реестра
     -- убирается. Адресатов у эффекта ТРИ — container (на себя), buff (на
     -- союзника) и debuff (на цель), — и считать надо все три. Раньше

@@ -195,6 +195,8 @@ Add({
 Add({
     id = "hummer_of_justice",
     name = "Молот правосудия",
+    -- Попадание срывает концентрацию цели (см. SB.Logic.Interrupts).
+    interrupt = true,
     key = "Защита",
     icon = "Interface\\Icons\\Spell_holy_sealofmight",
     level = 1,

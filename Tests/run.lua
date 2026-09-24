@@ -20696,6 +20696,33 @@ do
 end
 
 -- ============================================================
+-- КАСТОМНОЕ ЗАКЛИНАНИЕ С ЭФФЕКТОМ НАВОДИТ ЕГО НА ЦЕЛЬ
+-- ============================================================
+do
+    local R = SB.CustomSpells.Receive
+    R({ id = "custom_cont_t1", name = "Проба метки", class = "Эффект", level = 0,
+        isContainer = true, isCustom = true, version = 1 }, "Автор")
+    R({ id = "custom_t_mark", name = "Проба наведения", class = "Маг", level = 1,
+        distance = 20, container = "custom_cont_t1", duration = 2, version = 1 }, "Автор")
+    R({ id = "custom_t_selfbuff", name = "Проба на себя", class = "Маг", level = 1,
+        distance = 0, container = "custom_cont_t1", duration = 2, version = 1 }, "Автор")
+    R({ id = "custom_t_strike", name = "Проба удара с меткой", class = "Маг", level = 1,
+        distance = 20, canCrit = true, container = "custom_cont_t1", duration = 2,
+        version = 1 }, "Автор")
+    local S = SB.Data.Spells
+    if S["custom_t_mark"] then
+        check("с дальностью, без урона — на цель баффом", S["custom_t_mark"].buff, "custom_cont_t1")
+        check("и не на себя", S["custom_t_mark"].container, nil)
+        check("без дальности — на себя", S["custom_t_selfbuff"].container, "custom_cont_t1")
+        check("удар с эффектом — по попаданию на цель", S["custom_t_strike"].debuff, "custom_cont_t1")
+        check("редактор видит эффект в любом поле",
+              SB.CustomSpells.EffectOf(S["custom_t_mark"]), "custom_cont_t1")
+    else
+        checkTrue("кастомное заклинание принято", false)
+    end
+end
+
+-- ============================================================
 -- ДРОБЯЩЕЕ, ПРЕРЫВАНИЕ, НЕДОСЯГАЕМОСТЬ
 -- ============================================================
 do
