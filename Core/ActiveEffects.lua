@@ -206,6 +206,40 @@ SB.Data.EffectModLabels = MOD_LABELS
 --- Нормализованное описание эффекта заклинания (или nil, если эффект
 --- ничего не меняет).
 --- @return table|nil { kind = "buff"|"debuff", mods = {...}, stats = {...} }
+-- ============================================================
+-- НЕДОСЯГАЕМОСТЬ (effect.untouchable)
+--
+-- «Исчезновение», «Притвориться мёртвым»: пока эффект висит, персонажа
+-- нельзя выбрать целью вредоносного заклинания, и площадь его не
+-- задевает. Лечить и баффать — можно: прячутся от врага, а не от своих.
+--
+--   effect = { kind = "buff", untouchable = true, ... }
+--
+-- Проверяется в двух местах, и оба нужны. У заклинателя (SB.Logic.
+-- CanCastNow) — чтобы кнопка отказала сразу, с объяснением. У цели — как
+-- гарантия (список чужих эффектов приезжает по сети с задержкой) и для
+-- площади, где целей заранее нет.
+-- ============================================================
+
+--- Есть ли в списке эффектов недосягаемость.
+--- @param list table  { { spellID = … }, … } — свой, чужой из статуса
+---        или список существа
+--- @return boolean, string|nil  и название эффекта, который её даёт
+function SB.ActiveEffects.IsUntouchableList(list)
+    for _, e in ipairs(list or {}) do
+        local sp = e and SB.Data.Spells[e.spellID]
+        if sp and type(sp.effect) == "table" and sp.effect.untouchable == true then
+            return true, sp.name
+        end
+    end
+    return false, nil
+end
+
+--- Недосягаем ли сам игрок прямо сейчас.
+function SB.ActiveEffects.IsUntouchable()
+    return SB.ActiveEffects.IsUntouchableList(effects)
+end
+
 function SB.ActiveEffects.GetEffectDef(spellID)
     local sp = SB.Data.Spells[spellID]
     local def = sp and sp.effect
@@ -576,6 +610,11 @@ function SB.ActiveEffects.GetEffectLines(spellID)
     local endTxt = PayloadText(def.onRemove)
     if endTxt then
         table.insert(lines, "|cFFFFD100Когда спадёт:|r " .. endTxt)
+    end
+
+    if def.untouchable == true then
+        table.insert(lines, "|cFFFFD100Недосягаем:|r вредоносным заклинанием не " ..
+            "выбрать целью, площадь не задевает.")
     end
 
     -- Условие досрочного снятия — там же, где остальные правила эффекта:
@@ -3280,6 +3319,7 @@ local BREAK_REASON = {
     healed     = "рана закрыта исцелением",
     action     = "вы действовали",
     controlled = "вас сковало",
+    interrupted = "вас прервали",
 }
 
 --- Снять эффекты, которые ждали именно этого события.
@@ -3326,6 +3366,17 @@ function SB.ActiveEffects.BreakOn(trigger)
             -- ровно у тех эффектов, ради которых оно и заводилось.
             local said
             if type(def) == "table" then said = def.controlled end
+            hit = (said ~= false)
+        end
+
+        -- ПРЕРЫВАНИЕ — удар способностью с interrupt (зуботычина, пинок,
+        -- см. SB.Logic.Interrupts) — сбивает ЛЮБУЮ концентрацию, а не
+        -- только ту, что сбивает контроль: для этого способность и
+        -- заведена. Отказ — тем же приёмом, что у контроля:
+        -- breakOn = { interrupted = false }.
+        if not hit and trigger == "interrupted" and eff.isConc then
+            local said
+            if type(def) == "table" then said = def.interrupted end
             hit = (said ~= false)
         end
 

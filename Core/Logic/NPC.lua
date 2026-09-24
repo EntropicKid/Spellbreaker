@@ -124,6 +124,8 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
     elseif st then
         hpAfter = st.hp
     end
+    -- Попадание способностью с прерыванием срывает концентрацию существа.
+    if landed then SB.Logic.ApplyInterruptToNpc("target", spell, npcName) end
 
     -- ── Дебафф от попадания ───────────────────────────────
     -- ПОПАЛ — ЗНАЧИТ ЗАЦЕПИЛОСЬ, и второй проверки больше нет: ровно то
@@ -444,6 +446,10 @@ function SB.Logic.ResolveNpcEffect(spellID, slotLevel)
     if success then
         local turns = SB.Logic.GetEffectDuration(effectID, spell, slotLevel)
         success = SB.NPC.AddEffect("target", effectID, turns, UnitName("player"))
+        -- Дебафф с прерыванием лёг — концентрация существа сорвана.
+        if success and spell.debuff then
+            SB.Logic.ApplyInterruptToNpc("target", spell, npcName)
+        end
     end
 
     SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID))

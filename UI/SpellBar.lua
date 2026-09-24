@@ -555,6 +555,50 @@ local function BuildBar()
     bar:Hide()
 end
 
+-- ============================================================
+-- РЕЖИМ «ЗАКОНЧИТЬ ХОД»
+--
+-- Когда в своём ходу действовать больше нечем — действие уже сделано
+-- (см. TO.IsEndTurnPending) или весь предел передвижения выбран (см.
+-- SB.Movement.BlocksAction), — иконки способностей только мешают: все
+-- серые, а искать среди них, где тут «окончить», приходится глазами.
+-- Поэтому панель в этот момент складывается до двух вещей: сколько
+-- прошёл и кнопка «Закончить ход». Склянки и прочее бонусное остаются в
+-- сумке главного окна.
+-- ============================================================
+local END_BTN_W = 118
+local endBtn   -- кнопка «Закончить ход», строится лениво
+
+function SB.SpellBar.IsEndMode()
+    local TO = SB.TurnOrder
+    if not (TO and TO.IsActive() and TO.IsMyTurnOpen and TO.IsMyTurnOpen()) then
+        return false
+    end
+    if TO.IsEndTurnPending and TO.IsEndTurnPending() then return true end
+    return (SB.Movement and SB.Movement.BlocksAction and SB.Movement.BlocksAction()) or false
+end
+
+local function EnsureEndButton()
+    if endBtn then return endBtn end
+    local b = SB.Theme.Button(bar, "Закончить ход", END_BTN_W, 32, "primary")
+    b:SetScript("OnClick", function()
+        if SB.Logic and SB.Logic.SpendTurnManually then SB.Logic.SpendTurnManually() end
+    end)
+    b:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        SB.Theme.StyleTooltip(GameTooltip)
+        GameTooltip:SetText("Закончить ход", 1, 0.82, 0)
+        GameTooltip:AddLine("Действовать в этом ходу больше нечем — очередь " ..
+            "уйдёт к следующему.", 0.85, 0.85, 0.85, true)
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    if SB.UI.AttachEndTurnPulse then SB.UI.AttachEndTurnPulse(b) end
+    b:Hide()
+    endBtn = b
+    return b
+end
+
 --- Подпись состава: пересобирать ряд на каждое изменение модели незачем,
 --- а модель в бою меняется десятки раз в секунду. Та же защита, что у
 --- карточек (см. CardsSignature в UI/MainFrame.lua). В подпись входят и
@@ -564,6 +608,7 @@ local function Signature(prepared)
         tostring(SB.SpellBar.GetIconSize()),
         tostring(SB.SpellBar.GetRows()),
         SB.SpellBar.IsVertical() and "v" or "h",
+        SB.SpellBar.IsEndMode() and "end" or "cast",
         -- Именно СОСТАВ колонки, а не «включена ли она»: метры уходят и
         -- приходят вместе с пошаговым режимом, и панель обязана
         -- пересобраться, иначе на месте пропавшей плашки остаётся дыра.
@@ -614,6 +659,8 @@ function SB.SpellBar.RefreshState()
     -- метры). Пересобираем панель, а не подгоняем на месте: раскладка
     -- считается в одном месте, и второго быть не должно.
     if bar._infoKey ~= InfoKey() then SB.SpellBar.Relayout() end
+    -- Действовать стало нечем (или снова есть чем) — панель меняет вид.
+    if bar._endMode ~= SB.SpellBar.IsEndMode() then SB.SpellBar.Relayout() end
 
     -- ЧЕЙ ХОД — рамкой всей панели. В пошаговом режиме это главный
     -- вопрос сцены, и отвечать на него панель обязана боковым зрением,
@@ -661,9 +708,49 @@ function SB.SpellBar.Refresh()
         local vertical = SB.SpellBar.IsVertical()
         local slots    = VisibleInfoSlots()
         bar._infoKey = InfoKey()
+        local endMode  = SB.SpellBar.IsEndMode()
+        bar._endMode   = endMode
 
         for _, btn in ipairs(buttons) do btn:Hide() end
         for _, f in ipairs(infoTags) do f:Hide() end
+        if endBtn then endBtn:Hide() end
+
+        -- РЕЖИМ «ЗАКОНЧИТЬ ХОД»: метры и кнопка, больше ничего.
+        if endMode then
+            local moveSlot
+            for _, sl in ipairs(slots) do
+                if sl.endTurn then moveSlot = sl end
+            end
+            local btn = EnsureEndButton()
+            btn:SetSize(END_BTN_W, size)
+            btn:ClearAllPoints()
+            if moveSlot then
+                local f = infoTags[1] or MakeInfoTag(1)
+                f._slot = moveSlot
+                f._txt, f._bad = nil, nil
+                f.labelFS:SetText(moveSlot.label)
+                if vertical then
+                    LayoutInfoTag(f, 0, size, true, END_BTN_W)
+                    f:Show()
+                    btn:SetPoint("TOPLEFT", bar, "TOPLEFT", PAD,
+                                 -(PAD + INFO_STRIP_H + 2 + BTN_GAP))
+                    bar:SetSize(PAD + END_BTN_W + PAD,
+                                PAD + INFO_STRIP_H + 2 + BTN_GAP + size + PAD)
+                else
+                    LayoutInfoTag(f, 0, size, false, 0)
+                    f:Show()
+                    btn:SetPoint("TOPLEFT", bar, "TOPLEFT", PAD + MOVE_W + BTN_GAP, -PAD)
+                    bar:SetSize(PAD + MOVE_W + BTN_GAP + END_BTN_W + PAD, PAD + size + PAD)
+                end
+            else
+                btn:SetPoint("TOPLEFT", bar, "TOPLEFT", PAD, -PAD)
+                bar:SetSize(PAD + END_BTN_W + PAD, PAD + size + PAD)
+            end
+            btn:Show()
+            bar:Show()
+            SB.SpellBar.RefreshState()
+            return
+        end
 
         local shown = 0
         for _, id in ipairs(prepared) do

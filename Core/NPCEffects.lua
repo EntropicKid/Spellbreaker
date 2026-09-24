@@ -353,6 +353,29 @@ function SB.NPC.AddEffect(unit, effectID, turns, source)
 end
 
 --- Снять эффект с особи.
+--- СОРВАТЬ КОНЦЕНТРАЦИЮ СУЩЕСТВА — ответ на способность с interrupt
+--- (см. SB.Logic.Interrupts). Флага «держит концентрацию» у эффекта
+--- существа нет — он у самого эффекта (isConcentration, тот же, что у
+--- игрока, см. SB.Logic.IsConcentration). Отказ — тем же полем, что у
+--- игрока: breakOn = { interrupted = false }.
+--- @return table  названия снятых эффектов
+function SB.NPC.BreakConcentration(unit)
+    local st = SB.NPC.GetState(unit)
+    if not st then return {} end
+    local doomed, names = {}, {}
+    for _, e in ipairs(ListOf(st)) do
+        local sp = SB.Data.Spells[e.spellID]
+        local br = sp and sp.effect and sp.effect.breakOn
+        local optOut = type(br) == "table" and br.interrupted == false
+        if sp and SB.Logic.IsConcentration(sp) and not optOut then
+            doomed[#doomed + 1] = e.spellID
+            names[#names + 1]   = sp.name or e.spellID
+        end
+    end
+    for _, id in ipairs(doomed) do SB.NPC.RemoveEffect(unit, id) end
+    return names
+end
+
 function SB.NPC.RemoveEffect(unit, effectID)
     local st = SB.NPC.GetState(unit)
     if not st then return false end

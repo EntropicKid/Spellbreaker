@@ -1748,6 +1748,76 @@ end
 --- о fromOther в ApplyEffect).
 --- @param spell table|string  запись заклинания или его id
 --- @return boolean
+-- ============================================================
+-- ПРЕРЫВАНИЕ: СПОСОБНОСТЬ, КОТОРАЯ СБИВАЕТ КОНЦЕНТРАЦИЮ
+--
+-- Зуботычина, пинок, удар щитом — их смысл не в уроне, а в том, чтобы
+-- сорвать чужое сосредоточение. Попадание такой способностью снимает с
+-- цели все её концентрации — у игрока и у существа одинаково.
+--
+-- ПОЛЕ — interrupt = true, А НЕ break. «break» в Lua — зарезервированное
+-- слово: запись { break = true } — синтаксическая ошибка, и файл
+-- заклинаний просто не загрузится. Кто всё же написал ["break"] = true,
+-- тоже будет понят.
+--
+-- «ПРИ ПОПАДАНИИ» — буквально: удар прошёл защиту, дебафф прошёл порог.
+-- Промах ничего не срывает.
+-- ============================================================
+--- Недосягаема ли текущая цель (см. «НЕДОСЯГАЕМОСТЬ» в
+--- Core/ActiveEffects.lua). Своя — по своим эффектам, чужой игрок — по
+--- списку из его статуса, существо — по его состоянию.
+--- @return boolean, string|nil
+function SB.Logic.TargetUntouchable()
+    local AE = SB.ActiveEffects
+    if not (AE and AE.IsUntouchableList) or not UnitExists("target") then
+        return false
+    end
+    if UnitIsUnit("target", "player") then return AE.IsUntouchable() end
+    if UnitIsPlayer("target") then
+        local st = SB.Data.PlayersStatus and SB.Data.PlayersStatus[UnitName("target")]
+        return AE.IsUntouchableList(st and st.activeEffects)
+    end
+    if SB.NPC and SB.NPC.GetEffects then
+        return AE.IsUntouchableList(SB.NPC.GetEffects("target"))
+    end
+    return false
+end
+
+--- Недосягаем ли САМ — для проверки на стороне цели.
+local function SelfUntouchable()
+    return SB.ActiveEffects and SB.ActiveEffects.IsUntouchable
+        and SB.ActiveEffects.IsUntouchable() or false
+end
+SB.Logic.SelfUntouchable = SelfUntouchable
+
+function SB.Logic.Interrupts(spell)
+    if type(spell) == "string" then spell = SB.Data.Spells[spell] end
+    if type(spell) ~= "table" then return false end
+    return spell.interrupt == true or spell["break"] == true
+end
+
+--- По нам попала способность с прерыванием — сбить свои концентрации.
+function SB.Logic.ApplyInterruptToSelf(spell)
+    if not SB.Logic.Interrupts(spell) then return end
+    if SB.ActiveEffects and SB.ActiveEffects.BreakOn then
+        SB.ActiveEffects.BreakOn("interrupted")
+    end
+end
+
+--- Способность с прерыванием попала по существу — сорвать его
+--- концентрации и сказать об этом группе (своего клиента у существа нет,
+--- сообщить за него некому).
+function SB.Logic.ApplyInterruptToNpc(unit, spell, npcName)
+    if not SB.Logic.Interrupts(spell) then return end
+    if not (SB.NPC and SB.NPC.BreakConcentration) then return end
+    local names = SB.NPC.BreakConcentration(unit)
+    if #names == 0 then return end
+    SB.Events.Fire(SB.E.BROADCAST_LOG,
+        SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. SB.Theme.MSG_BODY ..
+        (npcName or UnitName(unit) or "Существо") .. " прерван: спадает «" ..
+        table.concat(names, "», «") .. "».|r", SB.LogRank.RESULT)
+end
+
 function SB.Logic.IsConcentration(spell)
     if type(spell) == "string" then spell = SB.Data.Spells[spell] end
     if type(spell) ~= "table" then return false end
@@ -2022,6 +2092,11 @@ end
 function SB.Logic.HandleBuffReceived(casterName, spellID, effectID, slotLevel,
                                      roll, mod, total, sender, extraTurns)
     local sourceSpell = SB.Data.Spells[spellID]
+    -- Недосягаемого вредоносный эффект не находит (помощь — находит).
+    if casterName ~= UnitName("player") and SelfUntouchable()
+       and SB.ActiveEffects.GetKind and SB.ActiveEffects.GetKind(effectID) == "debuff" then
+        return
+    end
     SB.Logic.NoteTargetedBySpell(casterName)
 
     -- Называем ЗАКЛИНАНИЕ, а не эффект: ссылка кликабельна, и в карточке
@@ -2070,6 +2145,8 @@ function SB.Logic.HandleBuffReceived(casterName, spellID, effectID, slotLevel,
     if ok then
         SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, true, extraTurns,
                              casterName)
+        -- Дебафф с прерыванием прошёл порог — концентрация сорвана.
+        if isDebuff then SB.Logic.ApplyInterruptToSelf(sourceSpell) end
     end
 
     -- СТРОКУ ПИШЕТ ЗАКЛИНАТЕЛЬ, А НЕ МЫ. Здесь стояла своя печать —
@@ -3042,6 +3119,19 @@ function SB.Logic.CanCastNow(spell, onSelf, bonus)
         print(SB.Theme.MSG_BAD .. "[Spellbreaker]: " ..
             "Обшарить можно только чужой карман — выберите цель.|r")
         return false, "steal_target"
+    end
+
+    -- НЕДОСЯГАЕМАЯ ЦЕЛЬ (см. «НЕДОСЯГАЕМОСТЬ» в Core/ActiveEffects.lua).
+    -- Только одиночное вредоносное: площадь целей заранее не знает, и
+    -- недосягаемого в ней отсеивает сам получатель.
+    if not onSelf and SB.Logic.IsHarmful(spell) and not spell.aoe then
+        local blocked, by = SB.Logic.TargetUntouchable()
+        if blocked then
+            print(SB.Theme.MSG_BAD .. "[Spellbreaker]: " .. (UnitName("target") or "Цель") ..
+                " сейчас недосягаем" .. (by and (" («" .. by .. "»)") or "") ..
+                " — вредоносным не выбрать целью.|r")
+            return false, "untouchable"
+        end
     end
 
     local targetIsOtherPlayer = not onSelf
@@ -4302,6 +4392,17 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
     local PM    = SB.PlayerModel
     local spell = SB.Data.Spells[spellID]
 
+    -- НЕДОСЯГАЕМ — удар (и залп) мимо. Заклинатель обычно отказывает
+    -- сам, но список наших эффектов доходит до него с задержкой; здесь —
+    -- гарантия и площадь (см. «НЕДОСЯГАЕМОСТЬ» в Core/ActiveEffects.lua).
+    if SelfUntouchable() then
+        if not isAoe then
+            print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BODY ..
+                (attackerName or "Кто-то") .. " не может вас достать — вы недосягаемы.|r")
+        end
+        return
+    end
+
     -- Жертва размена вовлечена в бой ровно так же, как нападающий:
     -- объявлять группе отдых, пока по тебе бьют, нельзя.
     PM.SetPvpEngaged(true)
@@ -4397,6 +4498,9 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
     -- там же). Убери мы бросок совсем — сравнивать закрепление чар
     -- стало бы не с чем, и любой дебафф крита ложился бы сам собой.
     local landed = guaranteed or atkCrit or (atkTotal > defTotal)
+    -- Способность с прерыванием сбивает концентрацию при попадании
+    -- (см. SB.Logic.Interrupts).
+    if landed then SB.Logic.ApplyInterruptToSelf(spell) end
 
     -- Броня работает ПОСЛЕ проверки попадания: увернуться она не
     -- помогает (это Акробатика), но гасит уже прошедший урон — и гасит

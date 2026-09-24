@@ -676,6 +676,16 @@ function SB.NpcCast.Confirm()
            and t.key ~= nil and t.key == selfKey then
             tkind = "heal"
         end
+        -- НЕДОСЯГАЕМУЮ ОСОБЬ вредоносное не берёт (см. «НЕДОСЯГАЕМОСТЬ»
+        -- в Core/ActiveEffects.lua); лечение и бафф — берёт.
+        local harmfulHere = (tkind == "attack") or (tkind == "effect" and spell.debuff ~= nil)
+        if st and harmfulHere and SB.ActiveEffects.IsUntouchableList
+           and SB.ActiveEffects.IsUntouchableList(SB.NPC.GetEffects(unit)) then
+            SB.Events.Fire(SB.E.BROADCAST_LOG,
+                SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. nm ..
+                ": недосягаем.|r", SB.LogRank.ACTION)
+            st = nil
+        end
         -- Особь могла исчезнуть между отметкой и подтверждением.
         if st and nstats then
             if tkind == "attack" then
@@ -701,6 +711,7 @@ function SB.NpcCast.Confirm()
                         SB.NPC.MitigateDamage(sum, nstats, unit, spell.damageType)
                     dmg = SB.Logic.ApplyCritDamage(through, isCrit)
                     if dmg > 0 then SB.NPC.AdjustHealth(unit, -dmg) end
+                    SB.Logic.ApplyInterruptToNpc(unit, spell, nm)
                     landedOn = landedOn + 1
                 end
                 -- ДЕБАФФ ОТ ПОПАДАНИЯ — по тому же исходу, что урон, и
@@ -761,6 +772,7 @@ function SB.NpcCast.Confirm()
                     local turns = SB.Logic.GetEffectDuration(effectID, spell, spell.level, 0)
                     ok = SB.NPC.AddEffect(unit, effectID, turns, pending.npcName)
                     if ok then landedOn = landedOn + 1 end
+                    if ok and isDebuff then SB.Logic.ApplyInterruptToNpc(unit, spell, nm) end
                 end
                 SB.Events.Fire(SB.E.BROADCAST_LOG,
                     SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. nm .. ": |r" ..

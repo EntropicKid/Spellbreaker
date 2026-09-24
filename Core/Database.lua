@@ -1418,8 +1418,9 @@ SB.Data.WeaponBonuses = {
     dagger   = { label = "Кинжал",          stat    = "Скрытность",      value = 1,   stacks = true  },
     axe      = { label = "Топор",           channel = "attack",          value = 5,   stacks = true  },
     bow      = { label = "Лук",             stat    = "Выносливость",    value = 1,   stacks = false },
-    -- Дробящее — про дебаффы: «Внушение» поднимает закрепление.
-    mace     = { label = "Дробящее",        stat    = "Внушение",        value = 2,   stacks = false },
+    -- Дробящее — про дебаффы: «Внушение» поднимает закрепление. +1 за
+    -- каждое: две булавы в руках — +2 (складывается, как кинжалы).
+    mace     = { label = "Дробящее",        stat    = "Внушение",        value = 1,   stacks = true  },
     sword    = { label = "Меч",             channel = "defense",         value = 5,   stacks = true  },
     gun      = { label = "Огнестрельное",   channel = "rollCeil",        value = 5,   stacks = false },
     glaive   = { label = "Боевые клинки",   channel = "rollCeil",        value = 5,   stacks = true  },
