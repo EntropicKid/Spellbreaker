@@ -20750,6 +20750,28 @@ do
     SB.Logic.ApplyInterruptToSelf({ canCrit = true, interrupt = true })
     check("а отказавшуюся — нет", #SB.ActiveEffects.GetAll(), 1)
     SB.ActiveEffects.Clear()
+    -- ПОТОК ТОЖЕ ПРЕРЫВАЕТСЯ: держатель — концентрация заклинателя.
+    do
+        local chanSpell
+        for id, sp in pairs(SB.Data.Spells) do
+            if sp.channel and sp.channelEffect then chanSpell = sp; break end
+        end
+        checkTrue("есть потоковое заклинание", chanSpell ~= nil)
+        SB.ActiveEffects.Add(chanSpell.channelEffect, SB.Data.GetChannelUses(chanSpell), true)
+        check("держатель повешен", #SB.ActiveEffects.GetAll(), 1)
+        local heard
+        local function catch(msg) heard = msg end
+        SB.Events.On(SB.E.BROADCAST_LOG, catch)
+        SB.Logic.ApplyInterruptToSelf({ canCrit = true, interrupt = true })
+        SB.Events.Off(SB.E.BROADCAST_LOG, catch)
+        check("прерывание обрывает поток", #SB.ActiveEffects.GetAll(), 0)
+        checkTrue("и группа видит, что прерван",
+                  type(heard) == "string" and heard:find("прерван", 1, true) ~= nil)
+        local holder = SB.Data.Spells[chanSpell.channelEffect]
+        checkTrue("держатель — концентрация и для существа",
+                  SB.Logic.IsConcentration(holder))
+        SB.ActiveEffects.Clear()
+    end
 
     -- ── НЕДОСЯГАЕМОСТЬ ─────────────────────────────────────
     checkTrue("«Исчезновение» недосягаемо",

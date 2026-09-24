@@ -473,6 +473,15 @@ function SB.NpcCast.Confirm()
         if need > 0 and SB.NPC.AdjustResource then
             SB.NPC.AdjustResource(caster, -need)
         end
+        -- ПОТОК СУЩЕСТВА. Держатель вешается на само существо: он
+        -- показывает Ведущему, сколько ещё тянется поток, и его снимает
+        -- прерывание (см. SB.NPC.BreakConcentration). Уже висящий не
+        -- обновляется — повтор идёт в счёт начатого, срок тикает сам.
+        if spell.channel and spell.channelEffect and SB.NPC.AddEffect
+           and not (SB.NPC.HasEffect and SB.NPC.HasEffect(caster, spell.channelEffect)) then
+            SB.NPC.AddEffect(caster, spell.channelEffect,
+                             SB.Data.GetChannelUses(spell), pending.npcName)
+        end
     end
 
 
