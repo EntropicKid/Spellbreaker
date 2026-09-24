@@ -11,6 +11,7 @@ SB.UI = SB.UI or {}
 
 local gmFrame
 local playersTab, queueTab, settingsTab
+local turnSeg, modeHint   -- переключатель порядка хода и пояснение к нему
 
 --- Разложить ряд вкладок во всю ширину панели. Отдельной функцией,
 --- потому что зовут её из двух мест: при сборке окна и каждый раз, когда
@@ -210,8 +211,11 @@ function SB.UI.RefreshGMSettings()
     -- важнее видеть, в каком режиме сцена, чем что случится по нажатию.
     turnBtn:SetText(active and "Пошаговый режим" or "Свободный ход")
 
-    for _, chk in ipairs(turnChecks) do
-        chk:SetChecked(chk._mode == TO.GetMode())
+    for i, mode in ipairs(SB.Data.TurnModes) do
+        if mode.key == TO.GetMode() then
+            if turnSeg then turnSeg:SetSelected(i, true) end
+            if modeHint then modeHint:SetText(mode.hint) end
+        end
     end
 
     -- Поле времени не трогаем, пока Ведущий в нём печатает: иначе
@@ -475,206 +479,187 @@ function SB.UI.BuildGMPanel()
     settingsPanel:SetPoint("BOTTOMRIGHT", gmFrame, "BOTTOMRIGHT", -10, 10)
     settingsPanel:Hide()
 
-    -- ── Пошаговый режим ──────────────────────────────────────
+    -- ============================================================
+    -- ВКЛАДКА «НАСТРОЙКИ» — КОМПАКТНО, СЕКЦИЯМИ
     --
-    -- Главный рычаг вкладки, поэтому он первый и во всю ширину. Внутри
-    -- всё делает Core/TurnOrder.lua; панель только жмёт на кнопку и
-    -- показывает, что получилось.
-    -- Три кнопки в ряд по ширине вкладки: 140 + 105 + 105 и два зазора
-    -- по 5 — ровно 360, то есть вся её ширина.
-    turnBtn = SB.Theme.Button(settingsPanel, "Свободный ход", 140, 26, "primary")
-    turnBtn:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 0, 0)
+    -- Раньше каждая галочка несла под собой строку-пояснение, режимы
+    -- порядка шли тремя галочками по сорок пикселей, и при длинной строке
+    -- версий содержимое вылезало за нижний край. Теперь:
+    --
+    --   СЦЕНА        — три кнопки одним рядом и строка состояния;
+    --   ПОРЯДОК ХОДА — переключатель-сегменты, под ним пояснение ТОЛЬКО
+    --                  выбранного режима;
+    --   ПРАВИЛА      — время на ход и две галочки, пояснения — в
+    --                  подсказках на наводке;
+    --   ВЕРСИЯ       — строка расхождений, переносится сама.
+    -- ============================================================
+    local PW  = 360                        -- ширина вкладки
+    local GAP = SB.Theme.WIDGET.GAP
+    local y   = 0
+
+    --- Подсказка на наводке у виджета (и у его подписи, если есть).
+    local function Tip(widget, title, text)
+        local function show(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            SB.Theme.StyleTooltip(GameTooltip)
+            GameTooltip:SetText(title, 1, 0.82, 0)
+            GameTooltip:AddLine(text, 0.85, 0.85, 0.85, true)
+            GameTooltip:Show()
+        end
+        widget:SetScript("OnEnter", show)
+        widget:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end
+
+    -- ── Сцена ────────────────────────────────────────────────
+    local sceneHdr = SB.Theme.SectionHeader(settingsPanel, "Сцена", 0)
+    sceneHdr:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 0, y)
+    y = y - 18
+
+    turnBtn = SB.Theme.Button(settingsPanel, "Свободный ход", 120, 24, "primary")
     turnBtn:SetScript("OnClick", function()
         if not SB.UI.IsGameMaster() then RefreshGMAccess() return end
         SB.TurnOrder.Toggle()
         SB.UI.RefreshGMSettings()
     end)
-
     -- Две кнопки на случаи, которые аддон сам не разберёт: игрок ушёл
     -- или завис (передать ход дальше) и круг закончился (новый ход).
-    nextBtn = SB.Theme.Button(settingsPanel, "Передать ход", 105, 26, "secondary")
-    nextBtn:SetPoint("LEFT", turnBtn, "RIGHT", 5, 0)
+    nextBtn = SB.Theme.Button(settingsPanel, "Передать ход", 120, 24, "secondary")
     nextBtn:SetScript("OnClick", function()
         if not SB.UI.IsGameMaster() then RefreshGMAccess() return end
         SB.TurnOrder.Advance()
         SB.UI.RefreshGMSettings()
     end)
-
-    roundBtn = SB.Theme.Button(settingsPanel, "Новый ход", 105, 26, "secondary")
-    roundBtn:SetPoint("LEFT", nextBtn, "RIGHT", 5, 0)
+    roundBtn = SB.Theme.Button(settingsPanel, "Новый ход", 120, 24, "secondary")
     roundBtn:SetScript("OnClick", function()
         if not SB.UI.IsGameMaster() then RefreshGMAccess() return end
         SB.TurnOrder.NewRound()
         SB.UI.RefreshGMSettings()
     end)
+    SB.Theme.LayoutRow(settingsPanel, { turnBtn, nextBtn, roundBtn }, "TOPLEFT", 0, y, PW)
+    y = y - 24 - 5
 
     turnStatus = settingsPanel:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
-    turnStatus:SetPoint("TOPLEFT", turnBtn, "BOTTOMLEFT", 0, -6)
-    turnStatus:SetPoint("RIGHT", settingsPanel, "RIGHT", -4, 0)
+    turnStatus:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 2, y)
+    turnStatus:SetWidth(PW - 4)
+    turnStatus:SetHeight(26)
     turnStatus:SetJustifyH("LEFT")
+    turnStatus:SetJustifyV("TOP")
     turnStatus:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
+    y = y - 26 - 8
 
     -- ── Порядок хода ─────────────────────────────────────────
-    --
-    -- Три взаимоисключающих режима. Сделаны обычными галочками, а не
-    -- выпадающим списком: их всего три, и видеть все варианты разом
-    -- Ведущему полезнее, чем экономить строку.
-    local turnHeader = settingsPanel:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-    turnHeader:SetPoint("TOPLEFT", turnStatus, "BOTTOMLEFT", 2, -14)
-    turnHeader:SetText("Порядок хода")
-    turnHeader:SetTextColor(C.accent[1], C.accent[2], C.accent[3])
+    local orderHdr = SB.Theme.SectionHeader(settingsPanel, "Порядок хода", 0)
+    orderHdr:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 0, y)
+    y = y - 18
 
+    local modeLabels = {}
+    for i, mode in ipairs(SB.Data.TurnModes) do modeLabels[i] = mode.label end
+    -- turnChecks остаётся непустым: по нему RefreshGMSettings узнаёт,
+    -- что вкладка построена.
     turnChecks = {}
-    -- Каждая строка — галочка и подсказка под ней. Позиции считаем от
-    -- ОДНОГО якоря с накопленным сдвигом, а не цепочкой «следующая под
-    -- предыдущей»: подсказка отбита вправо на 24, и цепочка утаскивала
-    -- бы каждую следующую галочку на 24 пикселя правее.
-    local ROW_H  = 42
-    local rowY   = -6
-    for _, mode in ipairs(SB.Data.TurnModes) do
-        local chk = CreateFrame("CheckButton", nil, settingsPanel, "UICheckButtonTemplate")
-        chk:SetSize(20, 20)
-        chk:SetPoint("TOPLEFT", turnHeader, "BOTTOMLEFT", 0, rowY)
+    turnSeg = SB.Theme.Segmented(settingsPanel, modeLabels, PW, 22, function(i)
+        if not SB.UI.IsGameMaster() then RefreshGMAccess() return end
+        -- Режим ровно один: сегменты и не умеют «ничего не выбрано».
+        SB.TurnOrder.SetMode(SB.Data.TurnModes[i].key)
+        SB.UI.RefreshGMSettings()
+    end)
+    turnSeg:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 0, y)
+    y = y - 22 - 4
 
-        local lbl = settingsPanel:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-        lbl:SetPoint("LEFT", chk, "RIGHT", 4, 0)
-        lbl:SetText(mode.label)
-        lbl:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+    modeHint = settingsPanel:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
+    modeHint:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 2, y)
+    modeHint:SetWidth(PW - 4)
+    modeHint:SetJustifyH("LEFT")
+    modeHint:SetWordWrap(false)
+    modeHint:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
+    y = y - 14 - 10
 
-        local hint = settingsPanel:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
-        hint:SetPoint("TOPLEFT", chk, "BOTTOMLEFT", 24, 2)
-        hint:SetPoint("RIGHT", settingsPanel, "RIGHT", -4, 0)
-        hint:SetJustifyH("LEFT")
-        hint:SetText(mode.hint)
-        hint:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
+    -- ── Правила ──────────────────────────────────────────────
+    local rulesHdr = SB.Theme.SectionHeader(settingsPanel, "Правила", 0)
+    rulesHdr:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 0, y)
+    y = y - 20
 
-        chk._mode = mode.key
-        chk:SetScript("OnClick", function(self)
-            if not SB.UI.IsGameMaster() then
-                RefreshGMAccess()
-                return
-            end
-            -- Режим ровно один: щелчок по уже выбранному не снимает его,
-            -- иначе получилось бы состояние «порядка нет вообще».
-            SB.TurnOrder.SetMode(self._mode)
-            SB.Theme.PlaySound("click")
-            SB.UI.RefreshGMSettings()
-        end)
-
-        table.insert(turnChecks, chk)
-        rowY = rowY - ROW_H
-    end
-
-    -- ── Время на ход ─────────────────────────────────────────
-    -- Не галочка, а число секунд: темп сцены разный, перестрелке хватает
-    -- тридцати секунд, разговору мало и трёх минут. Границы и смысл
-    -- «выше максимума = не ограничен» — в Core/TurnOrder.lua.
+    -- Время на ход — число секунд: перестрелке хватает тридцати, разговору
+    -- мало и трёх минут. Границы — в Core/TurnOrder.lua.
     local timerLbl = settingsPanel:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-    timerLbl:SetPoint("TOPLEFT", turnHeader, "BOTTOMLEFT", 0, rowY - 6)
+    timerLbl:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 2, y - 4)
     timerLbl:SetText("Секунд на ход")
     timerLbl:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
 
     local timerWrap
-    timerWrap, timerEB = SB.Theme.Input(settingsPanel, nil, 54, 20)
+    timerWrap, timerEB = SB.Theme.Input(settingsPanel, "—", 54, 22)
     timerWrap:SetPoint("LEFT", timerLbl, "RIGHT", 8, 0)
     timerEB:SetNumeric(true)
-
-    -- Применяем по Enter и по потере фокуса: ввод числа не имеет момента
-    -- «нажал», и заставлять Ведущего искать кнопку ради двух цифр глупо.
+    timerEB:SetJustifyH("CENTER")
+    -- Применяем по Enter и по потере фокуса.
     local function ApplyTurnTime(self)
         if not SB.UI.IsGameMaster() then RefreshGMAccess() return end
         self:ClearFocus()
-        -- Показываем ПРИНЯТОЕ значение, а не набранное: 5 секунд молча
-        -- станут минимумом, и поле обязано это показать, иначе Ведущий
-        -- останется уверен, что у него пять.
+        -- Показываем ПРИНЯТОЕ значение, а не набранное.
         SB.TurnOrder.SetTurnTimeLimit(self:GetNumber())
         SB.UI.RefreshGMSettings()
     end
     timerEB:SetScript("OnEnterPressed", ApplyTurnTime)
     timerEB:SetScript("OnEditFocusLost", ApplyTurnTime)
-
-    local timerHint = settingsPanel:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
-    timerHint:SetPoint("TOPLEFT", timerLbl, "BOTTOMLEFT", 0, -4)
-    timerHint:SetPoint("RIGHT", settingsPanel, "RIGHT", -4, 0)
-    timerHint:SetJustifyH("LEFT")
-    -- Подписи здесь и ниже КОРОТКИЕ: вкладка не растягивается, а длинный
-    -- текст переносится и выдавливает нижние строки за её край.
-    timerHint:SetText(string.format(
-        "Ход уходит дальше сам. Меньше %d нельзя, больше %d — без предела.",
+    local timerTip = CreateFrame("Frame", nil, settingsPanel)
+    timerTip:SetAllPoints(timerLbl)
+    timerTip:EnableMouse(true)
+    Tip(timerTip, "Секунд на ход", string.format(
+        "Ход уходит дальше сам. Меньше %d нельзя, больше %d или пусто — без предела.",
         SB.TurnOrder.TURN_TIME_MIN, SB.TurnOrder.TURN_TIME_MAX))
-    timerHint:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
+    y = y - 22 - 6
 
-    -- ── Свободное передвижение ───────────────────────────────
-    -- Решение на сцену, а не личная настройка: и запрет действия, и
-    -- усталость считает каждый клиент у себя, поэтому флаг едет всем
-    -- вместе с очередью (см. SB.TurnOrder.SetMoveFree).
-    moveFreeChk = CreateFrame("CheckButton", nil, settingsPanel, "UICheckButtonTemplate")
-    moveFreeChk:SetSize(20, 20)
-    moveFreeChk:SetPoint("TOPLEFT", timerHint, "BOTTOMLEFT", 0, -10)
+    local function Check(text)
+        local chk = CreateFrame("CheckButton", nil, settingsPanel, "UICheckButtonTemplate")
+        chk:SetSize(20, 20)
+        chk:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", -2, y)
+        local lbl = settingsPanel:CreateFontString(nil, "OVERLAY", "SBFontNormal")
+        lbl:SetPoint("LEFT", chk, "RIGHT", 4, 0)
+        lbl:SetText(text)
+        lbl:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+        y = y - 22
+        return chk
+    end
+
+    -- Свободное передвижение — решение на сцену: флаг едет всем вместе с
+    -- очередью (см. SB.TurnOrder.SetMoveFree).
+    moveFreeChk = Check("Не ограничивать передвижение")
     moveFreeChk:SetScript("OnClick", function(self)
         if not SB.UI.IsGameMaster() then RefreshGMAccess() return end
         SB.TurnOrder.SetMoveFree(self:GetChecked())
         SB.UI.RefreshGMSettings()
     end)
-
-    local moveFreeLbl = settingsPanel:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-    moveFreeLbl:SetPoint("LEFT", moveFreeChk, "RIGHT", 4, 0)
-    moveFreeLbl:SetText("Не ограничивать передвижение")
-    moveFreeLbl:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
-
-    local moveFreeHint = settingsPanel:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
-    moveFreeHint:SetPoint("TOPLEFT", moveFreeChk, "BOTTOMLEFT", 24, 2)
-    moveFreeHint:SetPoint("RIGHT", settingsPanel, "RIGHT", -4, 0)
-    moveFreeHint:SetJustifyH("LEFT")
-    moveFreeHint:SetText(string.format(
-        "Метры видны, но упор ничего не запрещает. Обычно %d м сверх — %d ХП.",
+    Tip(moveFreeChk, "Не ограничивать передвижение", string.format(
+        "Метры видны, но упор ничего не запрещает. Обычно каждые %d м сверх " ..
+        "предела стоят %d ХП.",
         (SB.Data.Config and SB.Data.Config.MoveFatigueStep) or 3,
         (SB.Data.Config and SB.Data.Config.MoveFatigueDamage) or 1))
-    moveFreeHint:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
 
-    -- ── Круги сами ───────────────────────────────────────────
-    -- Личная настройка Ведущего, а не решение сцены: новый круг объявляет
-    -- только он, у остальных этой кнопки нет вовсе (см. TO.SetAutoRound).
-    autoRoundChk = CreateFrame("CheckButton", nil, settingsPanel, "UICheckButtonTemplate")
-    autoRoundChk:SetSize(20, 20)
-    autoRoundChk:SetPoint("TOPLEFT", moveFreeHint, "BOTTOMLEFT", 0, -10)
+    -- Круги сами — личная настройка Ведущего (см. TO.SetAutoRound).
+    autoRoundChk = Check("Новый ход сам")
     autoRoundChk:SetScript("OnClick", function(self)
         if not SB.UI.IsGameMaster() then RefreshGMAccess() return end
         SB.TurnOrder.SetAutoRound(self:GetChecked())
         SB.UI.RefreshGMSettings()
     end)
+    Tip(autoRoundChk, "Новый ход сам",
+        "Пройденный круг начинается заново через пару секунд, без нажатия. " ..
+        "Очередь та же — инициатива не перебрасывается. Если все без " ..
+        "сознания, круги останавливаются.")
+    y = y - 10
 
-    local autoRoundLbl = settingsPanel:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-    autoRoundLbl:SetPoint("LEFT", autoRoundChk, "RIGHT", 4, 0)
-    autoRoundLbl:SetText("Новый ход сам")
-    autoRoundLbl:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
-
-    -- Подписи под этой галочкой нет намеренно: строка «Новый ход сам»
-    -- объясняет себя целиком, а место во вкладке кончилось. Что именно
-    -- она делает — в подсказке по наводке.
-    autoRoundChk:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        SB.Theme.StyleTooltip(GameTooltip)
-        GameTooltip:SetText("Новый ход сам", 1, 0.82, 0)
-        GameTooltip:AddLine("Пройденный круг начинается заново через пару секунд, " ..
-            "без нажатия. Очередь та же — инициатива не перебрасывается. " ..
-            "Если все без сознания, круги останавливаются.", 0.85, 0.85, 0.85, true)
-        GameTooltip:Show()
-    end)
-    autoRoundChk:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
-    -- ── Версии в группе ──────────────────────────────────────
-    -- Строка внизу вкладки: она отвечает на вопрос «почему у него не
-    -- работает», который иначе решается получасом догадок
-    -- (см. SB.Net.GetVersionReport).
-    versionHeader = settingsPanel:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-    versionHeader:SetPoint("TOPLEFT", autoRoundChk, "BOTTOMLEFT", 0, -14)
-    versionHeader:SetTextColor(C.accent[1], C.accent[2], C.accent[3])
+    -- ── Версия ───────────────────────────────────────────────
+    -- Отвечает на вопрос «почему у него не работает», который иначе
+    -- решается получасом догадок (см. SB.Net.GetVersionReport).
+    versionHeader = SB.Theme.SectionHeader(settingsPanel, "Версия", 0)
+    versionHeader:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 0, y)
+    y = y - 18
 
     versionLine = settingsPanel:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
-    versionLine:SetPoint("TOPLEFT", versionHeader, "BOTTOMLEFT", 0, -4)
-    versionLine:SetPoint("RIGHT", settingsPanel, "RIGHT", -4, 0)
+    versionLine:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 2, y)
+    versionLine:SetPoint("BOTTOMRIGHT", settingsPanel, "BOTTOMRIGHT", -2, 0)
     versionLine:SetJustifyH("LEFT")
+    versionLine:SetJustifyV("TOP")
     versionLine:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
 
     -- Состояние сцены восстанавливаем после загрузки базы: пошаговый
@@ -728,6 +713,7 @@ function SB.UI.BuildGMPanel()
 
     RefreshGMAccess()
     SB.UI.RefreshGMSettings()
+    SB.UI.RefreshQueueTab()
 end
 
 -- ============================================================
@@ -903,6 +889,26 @@ function SB.UI.UpdateGMQueue()
         end)
 
         yOff = yOff + rowH + 4
+    end
+
+    SB.UI.RefreshQueueTab()
+end
+
+--- ВКЛАДКА «ЗАЯВКИ» ЕСТЬ, ТОЛЬКО ПОКА ЕСТЬ ЗАЯВКИ. Пустая вкладка —
+--- пустое окно по щелчку; заявка пришла — вкладка появляется сама и
+--- открывается (см. SB.UI.ShowGMRequest), последняя разобрана — уходит,
+--- а панель возвращается к игрокам.
+function SB.UI.RefreshQueueTab()
+    if not queueTab then return end
+    local queue = SpellbreakerAccountDB and SpellbreakerAccountDB.requestQueue or {}
+    local has = #queue > 0
+    if queueTab:IsShown() ~= has then
+        queueTab:SetShown(has)
+        LayoutGMTabs()
+    end
+    if not has and queuePanel and queuePanel:IsShown() then
+        SelectTab("players")
+        SB.UI.UpdateGMPlayers()
     end
 end
 
@@ -1595,9 +1601,9 @@ function SB.UI.ShowGMRequest(caster, spellID, slotLevel, targetLabel, mod)
     if not gmFrame:IsShown() then
         gmFrame:Show()
     end
-    -- Переключаемся на вкладку очереди
-    SelectTab("queue")
+    -- Сначала список (он же показывает вкладку), потом переключение.
     SB.UI.UpdateGMQueue()
+    SelectTab("queue")
 end
 -- ============================================================
 -- ВСПОМОГАТЕЛЬНЫЕ ПУБЛИЧНЫЕ ФУНКЦИИ

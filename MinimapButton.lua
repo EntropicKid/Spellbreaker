@@ -140,6 +140,9 @@ local sbLDB = LDB:NewDataObject("SpellbreakerMinimap", {
 -- МИНИ-КАРТОЧКА ПО НАВЕДЕНИЮ НА КНОПКУ МИНИКАРТЫ
 -- ============================================================
 
+-- Объявлена выше тела: пункт режима в карточке перерисовывает её сам.
+local UpdateHoverCardState
+
 local function BuildHoverCard()
     if hoverCard then
         return hoverCard
@@ -231,6 +234,26 @@ local function BuildHoverCard()
     end)
     restBtn:HookScript("OnLeave", function(self) HideOwnedTooltip(self) end)
 
+    -- РЕЖИМ СЦЕНЫ — ТЕМ ЖЕ РЫЧАГОМ, ЧТО В ПАНЕЛИ ВЕДУЩЕГО (TO.Toggle).
+    -- Подпись — текущее состояние, как у кнопки в панели: Ведущему важнее
+    -- видеть, в каком режиме сцена, чем что случится по нажатию.
+    local modeBtn = MenuRow("Interface\\Icons\\INV_Misc_PocketWatch_01", "Свободный ход", function()
+        if not (SB.IsGameMaster and SB.IsGameMaster()) then return end
+        if SB.TurnOrder and SB.TurnOrder.Toggle then SB.TurnOrder.Toggle() end
+        if SB.UI and SB.UI.RefreshGMSettings then SB.UI.RefreshGMSettings() end
+        UpdateHoverCardState()
+    end)
+    modeBtn:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        SB.Theme.StyleTooltip(GameTooltip)
+        GameTooltip:SetText("Режим сцены", 1, 0.82, 0)
+        GameTooltip:AddLine("Щелчок переключает пошаговый и свободный режим. " ..
+            "Доступно Ведущему.", 0.85, 0.85, 0.85, true)
+        GameTooltip:Show()
+    end)
+    modeBtn:HookScript("OnLeave", function(self) HideOwnedTooltip(self) end)
+    hoverCard._modeBtn = modeBtn
+
     -- КНОПКИ КОРОТКОГО ОТДЫХА ЗДЕСЬ БОЛЬШЕ НЕТ: механики не существует.
     MenuRow("Interface\\Icons\\INV_Misc_Book_11", "Панель Ведущего", function()
         hoverCard:Hide()
@@ -297,7 +320,7 @@ local function BuildHoverCard()
     return hoverCard
 end
 
-local function UpdateHoverCardState()
+function UpdateHoverCardState()
     if not hoverCard or not hoverCard:IsShown() then
         return
     end
@@ -306,6 +329,15 @@ local function UpdateHoverCardState()
 
     if SB.UI and SB.UI.CanRest then
         canRest = SB.UI.CanRest()
+    end
+
+    -- Режим: подпись — текущее состояние; не Ведущему пункт гаснет.
+    local mb = hoverCard._modeBtn
+    if mb then
+        local turnBased = SB.TurnOrder and SB.TurnOrder.IsActive and SB.TurnOrder.IsActive()
+        mb.text:SetText(turnBased and "Пошаговый режим" or "Свободный ход")
+        local gm = SB.IsGameMaster and SB.IsGameMaster()
+        if gm then mb:Enable(); mb:SetAlpha(1) else mb:Disable(); mb:SetAlpha(0.45) end
     end
 
     -- Недоступный пункт гаснет целиком: у строки меню нет своего

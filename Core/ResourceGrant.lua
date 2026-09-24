@@ -334,6 +334,7 @@ local EF_SLOT, EF_GAP  = 40, 4
 local effFrame, effButtons = nil, {}
 local effSlider, effCountFS, effCallback
 local effAll, effFiltered
+local effEmptyFS, effFavSeg
 
 -- ЧТО ИМЕННО ВЫБИРАЕМ — задаётся снаружи. Сетка, поиск, прокрутка и
 -- подсказки одинаковы хоть для эффектов, хоть для способностей существа
@@ -365,6 +366,32 @@ local function BuildEffectList()
     end)
 end
 
+-- ============================================================
+-- ИЗБРАННОЕ
+--
+-- ПКМ по иконке — в избранное (и обратно). Переключатель «Все /
+-- Избранные» над сеткой показывает только отмеченные: Ведущий на
+-- событии раздаёт одни и те же десять эффектов, и искать их каждый раз
+-- среди двух сотен незачем. Хранится на аккаунте — эффекты общие для
+-- всех персонажей, а Ведущий один и тот же человек.
+-- ============================================================
+local effShowFav = false
+local effLastText = ""
+
+local function Favorites()
+    if not SpellbreakerAccountDB then return {} end
+    SpellbreakerAccountDB.favoriteEffects = SpellbreakerAccountDB.favoriteEffects or {}
+    return SpellbreakerAccountDB.favoriteEffects
+end
+function SB.ResourceGrant.IsFavoriteEffect(id) return Favorites()[id] == true end
+function SB.ResourceGrant.ToggleFavoriteEffect(id)
+    local f = Favorites()
+    if f[id] then f[id] = nil else f[id] = true end
+    return f[id] == true
+end
+
+local FilterEffects   -- ниже; кнопки сетки перефильтровывают после ПКМ
+
 local function RefreshEffectGrid()
     if not effSlider then return end
     local offset = math.floor(effSlider:GetValue()) * EF_COLS
@@ -379,7 +406,8 @@ local function RefreshEffectGrid()
             -- дебаффа видно ещё до наводки.
             local c = SB.ActiveEffects and SB.ActiveEffects.KindColor
                 and SB.ActiveEffects.KindColor(sp.id, false) or { 0.5, 0.5, 0.5, 1 }
-            btn.border:SetColorTexture(c[1], c[2], c[3], c[4] or 1)
+            btn.frame:SetBackdropBorderColor(c[1], c[2], c[3], c[4] or 1)
+            btn.star:SetShown(SB.ResourceGrant.IsFavoriteEffect(sp.id))
             btn:Show()
         else
             btn._spell = nil
@@ -388,10 +416,15 @@ local function RefreshEffectGrid()
     end
 end
 
-local function FilterEffects(text)
+function FilterEffects(text, keepScroll)
     if not effAll then BuildEffectList() end
-    local lf = (text or ""):lower():match("^%s*(.-)%s*$")
-    if lf == "" then
+    effLastText = text or ""
+    -- Нижний регистр С КИРИЛЛИЦЕЙ (см. SB.LogStore.Lower): string.lower
+    -- знает только ASCII, и «Яд» не находился по «яд».
+    local lower = (SB.LogStore and SB.LogStore.Lower) or string.lower
+    local lf = lower(effLastText):match("^%s*(.-)%s*$")
+    local fav = Favorites()
+    if lf == "" and not effShowFav then
         effFiltered = nil
     else
         effFiltered = {}
@@ -399,15 +432,23 @@ local function FilterEffects(text)
             -- Ищем и по описанию тоже: «яд», «страх», «броня» чаще
             -- встречаются в тексте, чем в названии, а названия у
             -- эффектов намеренно однотипные.
-            local hay = ((sp.name or "") .. " " .. (sp.description or "")):lower()
-            if hay:find(lf, 1, true) then effFiltered[#effFiltered + 1] = sp end
+            local ok = (not effShowFav) or fav[sp.id]
+            if ok and lf ~= "" then
+                local hay = lower((sp.name or "") .. " " .. (sp.description or ""))
+                ok = hay:find(lf, 1, true) ~= nil
+            end
+            if ok then effFiltered[#effFiltered + 1] = sp end
         end
     end
     local total  = effFiltered and #effFiltered or #effAll
     local maxRow = math.max(0, math.ceil(total / EF_COLS) - EF_ROWS)
+    local keep = keepScroll and math.min(effSlider:GetValue(), maxRow) or 0
     effSlider:SetMinMaxValues(0, maxRow)
-    effSlider:SetValue(0)
+    effSlider:SetValue(keep)
     if effCountFS then effCountFS:SetText(total .. " / " .. #effAll) end
+    if effEmptyFS then
+        effEmptyFS:SetShown(effShowFav and total == 0)
+    end
     RefreshEffectGrid()
 end
 
@@ -440,27 +481,45 @@ local function BuildEffectPicker()
     local C = SB.Theme.C
     local gridW = EF_COLS * (EF_SLOT + EF_GAP) - EF_GAP
     local gridH = EF_ROWS * (EF_SLOT + EF_GAP) - EF_GAP
+    local ROW2  = 26   -- ряд «Все / Избранные» и счётчик
 
     effFrame = SB.Theme.Frame("SBEffectPickerFrame", UIParent,
-        "Выбор эффекта", gridW + 14 * 2 + 22, gridH + 34 + 32 + 20, "gm")
+        "Выбор эффекта", gridW + 14 * 2 + 22, gridH + 34 + 32 + 20 + ROW2, "gm")
     SB.Theme.AttachPositionMemory(effFrame, "effectPickerPos", 0, 0)
     -- Поверх окна выдачи, из которого он открывается.
     effFrame:SetFrameStrata("FULLSCREEN_DIALOG")
 
-    effCountFS = effFrame:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
-    effCountFS:SetPoint("TOPRIGHT", effFrame, "TOPRIGHT", -44, effFrame.contentY - 4)
-    effCountFS:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
-
-    local sw, seb = SB.Theme.Input(effFrame, "Поиск по названию или описанию...", gridW, 24)
+    local sw, seb = SB.Theme.Input(effFrame, "Поиск по названию или описанию...", gridW + 18, 24)
     sw:SetPoint("TOPLEFT", effFrame, "TOPLEFT", 14, effFrame.contentY - 2)
-    seb:SetScript("OnTextChanged", function(self) FilterEffects(self:GetText()) end)
+    seb:SetScript("OnTextChanged", function(self)
+        if sw.placeholder then sw.placeholder:SetShown(self:GetText() == "") end
+        FilterEffects(self:GetText())
+    end)
+
+    effFavSeg = SB.Theme.Segmented(effFrame, { "Все", "Избранные" }, 170, 22, function(i)
+        effShowFav = (i == 2)
+        FilterEffects(effLastText)
+    end)
+    effFavSeg:SetPoint("TOPLEFT", sw, "BOTTOMLEFT", 0, -5)
+
+    effCountFS = effFrame:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
+    effCountFS:SetPoint("RIGHT", sw, "RIGHT", -2, 0)
+    effCountFS:SetPoint("TOP", effFavSeg, "TOP", 0, -5)
+    effCountFS:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
 
     local gridBg = CreateFrame("Frame", nil, effFrame, "BackdropTemplate")
     gridBg:SetSize(gridW, gridH)
-    gridBg:SetPoint("TOPLEFT", sw, "BOTTOMLEFT", 0, -5)
+    gridBg:SetPoint("TOPLEFT", effFavSeg, "BOTTOMLEFT", 0, -5)
     gridBg:SetBackdrop(SB.Theme.BD.card)
     gridBg:SetBackdropColor(0.03, 0.03, 0.06, 0.97)
     gridBg:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.7)
+
+    effEmptyFS = gridBg:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
+    effEmptyFS:SetPoint("CENTER", gridBg, "CENTER", 0, 0)
+    effEmptyFS:SetWidth(gridW - 30)
+    effEmptyFS:SetText("Избранного пока нет.\nПКМ по эффекту — добавить.")
+    effEmptyFS:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
+    effEmptyFS:Hide()
 
     for i = 1, EF_COLS * EF_ROWS do
         local row = math.floor((i - 1) / EF_COLS)
@@ -469,22 +528,50 @@ local function BuildEffectPicker()
         btn:SetSize(EF_SLOT, EF_SLOT)
         btn:SetPoint("TOPLEFT", gridBg, "TOPLEFT",
             col * (EF_SLOT + EF_GAP) + 2, -row * (EF_SLOT + EF_GAP) - 2)
-
-        btn.border = btn:CreateTexture(nil, "BACKGROUND")
-        btn.border:SetAllPoints()
+        btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
         btn.icon = btn:CreateTexture(nil, "ARTWORK")
-        btn.icon:SetPoint("TOPLEFT", 2, -2)
-        btn.icon:SetPoint("BOTTOMRIGHT", -2, 2)
+        btn.icon:SetPoint("TOPLEFT", 3, -3)
+        btn.icon:SetPoint("BOTTOMRIGHT", -3, 3)
         btn.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
-        local hl = btn:CreateTexture(nil, "HIGHLIGHT")
-        hl:SetAllPoints(); hl:SetColorTexture(1, 1, 0, 0.22)
+        -- Мягкая рамка, как у иконок способностей; её цвет — тип эффекта
+        -- (см. SB.ActiveEffects.KindColor в RefreshEffectGrid).
+        btn.frame = SB.Theme.SoftIconFrame(btn, btn.icon)
 
-        btn:SetScript("OnEnter", function(self) ShowEffectTooltip(self, self._spell) end)
+        -- Отметка избранного — звезда в углу, поверх рамки.
+        btn.star = btn.frame:CreateTexture(nil, "OVERLAY")
+        btn.star:SetTexture("Interface\\Common\\FavoritesIcon")
+        btn.star:SetSize(18, 18)
+        btn.star:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 5, 5)
+        btn.star:Hide()
+
+        local hl = btn:CreateTexture(nil, "HIGHLIGHT")
+        hl:SetAllPoints(btn.icon); hl:SetColorTexture(1, 1, 0, 0.22)
+
+        btn:SetScript("OnEnter", function(self)
+            ShowEffectTooltip(self, self._spell)
+            if self._spell then
+                GameTooltip:AddLine(" ")
+                GameTooltip:AddLine(SB.ResourceGrant.IsFavoriteEffect(self._spell.id)
+                    and "ПКМ — убрать из избранного" or "ПКМ — в избранное",
+                    0.6, 0.6, 0.6)
+                GameTooltip:Show()
+            end
+        end)
         btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-        btn:SetScript("OnClick", function(self)
-            if self._spell and effCallback then
+        btn:SetScript("OnClick", function(self, mouse)
+            if not self._spell then return end
+            if mouse == "RightButton" then
+                SB.ResourceGrant.ToggleFavoriteEffect(self._spell.id)
+                SB.Theme.PlaySound("click")
+                -- В режиме «Избранные» снятая звезда уводит иконку из
+                -- сетки сразу; прокрутку при этом не сбрасываем.
+                FilterEffects(effLastText, true)
+                if GameTooltip:IsOwned(self) then self:GetScript("OnEnter")(self) end
+                return
+            end
+            if effCallback then
                 effCallback(self._spell.id)
                 effFrame:Hide()
             end
@@ -506,10 +593,7 @@ local function BuildEffectPicker()
     effSlider:SetValue(0)
     effSlider:SetValueStep(1)
     effSlider:SetObeyStepOnDrag(true)
-    local thumb = effSlider:CreateTexture(nil, "OVERLAY")
-    thumb:SetSize(10, 28)
-    thumb:SetColorTexture(0.50, 0.40, 0.10, 0.90)
-    effSlider:SetThumbTexture(thumb)
+    SB.Theme.StyleSlider(sbBg, effSlider)
     effSlider:SetScript("OnValueChanged", function() RefreshEffectGrid() end)
 
     local function onWheel(_, delta)
@@ -804,6 +888,7 @@ local function BuildFrame()
     effectRow.icon:SetSize(22, 22)
     effectRow.icon:SetPoint("LEFT", effectRow.pickBtn, "LEFT", 4, 0)
     effectRow.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    SB.Theme.SoftIconFrame(effectRow.pickBtn, effectRow.icon)
     local pickHL = effectRow.pickBtn:CreateTexture(nil, "HIGHLIGHT")
     pickHL:SetPoint("TOPLEFT", 3, -3); pickHL:SetPoint("BOTTOMRIGHT", -3, 3)
     pickHL:SetColorTexture(C.accent[1], C.accent[2], C.accent[3], 0.12)
