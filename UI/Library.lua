@@ -396,8 +396,8 @@ function SB.Library.UpdateList()
             local line = headerLines[hdrIdx]
             if not line then
                 line = scrollChild:CreateTexture(nil, "ARTWORK")
-                line:SetHeight(1)
-                line:SetColorTexture(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.45)
+                SB.Theme.Hairline(line, "H")
+                line:SetColorTexture(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.65)
                 headerLines[hdrIdx] = line
             end
             line:ClearAllPoints()
@@ -805,9 +805,13 @@ function SB.Library.ShowDetail(spell)
         local row = f.kvRows[i]
         if not row then
             row = CreateFrame("Frame", nil, f.kv)
+            -- ПОЛОСА ЧЕРЕЗ СТРОКУ — ОТ РАМКИ ДО РАМКИ. Внутри строки она
+            -- обрывалась в семи пикселях от кромки окна и при прозрачности
+            -- 3.5% на коже была почти не видна.
             row.bg = row:CreateTexture(nil, "BACKGROUND")
-            row.bg:SetAllPoints()
-            row.bg:SetColorTexture(1, 0.9, 0.7, 0.035)
+            row.bg:SetPoint("TOPLEFT", row, "TOPLEFT", -7, 0)
+            row.bg:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", 7, 0)
+            row.bg:SetColorTexture(1, 0.85, 0.6, 0.075)
             row.k = row:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
             row.k:SetPoint("TOPLEFT", row, "TOPLEFT", 6, -4)
             row.k:SetWidth(LBL_W)

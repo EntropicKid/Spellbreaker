@@ -220,7 +220,11 @@ local SURFACES = {
     -- [род] = { файл, подкраска {r,g,b,a} }
     frame   = { tex = SB.Theme.Assets.Background,  tint = { 0.98, 0.95, 0.92, 1.00 } },
     -- самый фактурный из четырёх файлов, потому он и выбран на полотно.
-    column  = { tex = MEDIA .. "Column.tga",       tint = { 0.40, 0.20, 0.20, 1.00 } },
+    -- БОРДОВАЯ КОЖА (Assets\Crimson.tga) — тот же род, что Tome.tga у
+    -- карточек, только в цвет прежней красной подкраски колонок: колонки
+    -- главного окна, панель Ведущего, подложка списка библиотеки. Цвет
+    -- уже в файле, подкраска нейтральная.
+    column  = { tex = MEDIA .. "Crimson.tga", tint = { 1, 1, 1, 1 }, tileSize = 512 },
     -- КНИГА ЗАКЛИНАНИЙ — КОЖАНЫЙ ПЕРЕПЛЁТ. Здесь стояло то же полотно,
     -- что у колонок, отличаясь от них одной лишь подкраской, — и
     -- библиотека читалась как ещё одна панель того же окна. Она не
@@ -237,7 +241,7 @@ local SURFACES = {
     -- Рельеф — «галька» с боковым светом, пятна и зерно; яркость
     -- ~20/15/11%, как у прочих окон.
     library = { tex = MEDIA .. "Tome.tga", tint = { 1, 1, 1, 1 }, tileSize = 512, vignette = true },
-    gm      = { tex = MEDIA .. "Column.tga",       tint = { 0.40, 0.20, 0.20, 1.00 } },
+    gm      = { tex = MEDIA .. "Crimson.tga", tint = { 1, 1, 1, 1 }, tileSize = 512 },
     -- КАРТОЧКА ЗАКЛИНАНИЯ — ТОТ ЖЕ ПЕРЕПЛЁТ, ЧТО И БИБЛИОТЕКА.
     --
     -- Здесь стоял свой камень — чтобы карточка, всплывая поверх
@@ -284,7 +288,7 @@ local BD = {
 		bgFile   = SB.Theme.Surface("column").tex,
 		edgeFile = SB.Theme.Tex("ColumnEdge", "Interface\\Tooltips\\UI-Tooltip-Border"),
 		tile = true,
-		tileSize = 256,
+		tileSize = 512,
 		edgeSize = 12,
 		insets = { left = 3, right = 3, top = 3, bottom = 3 },
 	},
@@ -350,6 +354,12 @@ SB.Theme.BD = BD
 -- @param axis "H" — горизонтальная (толщина — высота), "W" — вертикальная
 -- ============================================================
 function SB.Theme.Hairline(tex, axis)
+    -- БЕЗ ПРИВЯЗКИ К СЕТКЕ ПИКСЕЛЕЙ. Линия внутри прокручиваемого списка
+    -- то и дело встаёт на дробную позицию, и привязка округляла её в
+    -- ноль — линия пропадала посреди прокрутки. Без привязки она
+    -- ложится на два соседних пикселя полупрозрачной, но не исчезает.
+    if tex.SetSnapToPixelGrid then tex:SetSnapToPixelGrid(false) end
+    if tex.SetTexelSnappingBias then tex:SetTexelSnappingBias(0) end
     local PU = _G.PixelUtil
     if axis == "W" then
         if PU and PU.SetWidth then PU.SetWidth(tex, 1, 1) else tex:SetWidth(1) end
@@ -1579,13 +1589,17 @@ function SB.Theme.Bar(parent, w, h, kind)
     bar:SetSize(w, h)
 
     local SOLID = "Interface\\Buttons\\WHITE8x8"
-    local INSET = 2   -- толщина оправы; столько же откусывает заполнение
+    -- ЗАЛИВКА ДО САМОГО КРАЯ. Прежние два пикселя поля были под
+    -- пиксельную латунную оправу; мягкая оправа (ниже) лежит поверх
+    -- кромки сама, и поле под ней читалось чёрным зазором между рамкой и
+    -- цветом.
+    local INSET = 0
 
     -- Латунный кант — по внешнему периметру САМОЙ полоски.
     local rim = bar:CreateTexture(nil, "BACKGROUND", nil, -8)
     rim:SetAllPoints(bar)
     rim:SetTexture(SOLID)
-    rim:SetVertexColor(0, 0, 0, 1)
+    rim:SetVertexColor(0, 0, 0, 0)
 
     -- МЯГКАЯ ОПРАВА — та же, что у иконок (SB.Theme.SoftIconFrame):
     -- тултиповая кромка поверх прежнего пиксельного латунного контура.
@@ -1608,7 +1622,7 @@ function SB.Theme.Bar(parent, w, h, kind)
     edge:SetPoint("TOPLEFT",     bar, "TOPLEFT",      1, -1)
     edge:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", -1,  1)
     edge:SetTexture(SOLID)
-    edge:SetVertexColor(0, 0, 0, 1)
+    edge:SetVertexColor(0, 0, 0, 0)
 
     -- Дно гнезда: приглушённый оттенок самого ресурса, чтобы пустая
     -- полоска читалась как «пустая эта», а не как чёрная дыра.
