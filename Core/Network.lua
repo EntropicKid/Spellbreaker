@@ -1436,8 +1436,16 @@ Dispatch = function(sender, t)
         -- одну строку и защищает эффекты друг от друга.
         -- Вторым доводом — «это реалтайм»: строки такого тика уходят
         -- не в общий лог, а сводкой Ведущему (см. SendTickReport).
+        --
+        -- ЭФФЕКТЫ ПО ЭТОМУ ТАКТУ БОЛЬШЕ НЕ ТИКАЮТ: у каждого свои часы
+        -- от момента наложения (см. «СВОИ ЧАСЫ» в Core/ActiveEffects.lua).
+        -- Такт остался для того, что обязано идти одним временем на всех.
         if IsFromLeader(sender) and SB.ActiveEffects then
-            SB.ActiveEffects.TickAll(nil, true)
+            if SB.ActiveEffects.RealtimeHeartbeat then
+                SB.ActiveEffects.RealtimeHeartbeat()
+            else
+                SB.ActiveEffects.TickAll(nil, true)
+            end
         end
     elseif action == "RTSYNC" then
         -- Ведущий сообщает, идёт ли время само (тик эффектов раз в шесть

@@ -830,6 +830,30 @@ SB.Data.Messages = {
 }
 
 --- Печатает статичное сообщение по ключу из SB.Data.Messages.
+-- ============================================================
+-- СТРОКИ ОЧЕРЕДИ ХОДОВ — В ЛОГ, НО НЕ В ЧАТ
+--
+-- «Ходит: Лайка», «Круг пройден», «Мок оканчивает ход», «Порядок хода:
+-- …» — это управление сценой, а не сама сцена. Во время боя их читают
+-- по полосе очереди и объявлению на экране, а в чате они топили
+-- отыгрыш: на пятерых игроков — по строке на каждый ход. Ценны они
+-- потом, при разборе боя, поэтому окно логов их по-прежнему пишет.
+--
+-- УЗНАЁМ ПО ФОРМАТУ, а не по флагу: строки едут по сети и от клиентов
+-- прошлых версий, и флага там нет. Формат у всех строк очереди один —
+-- тег, сразу за ним жёлтый цвет очереди (SB.Theme.MSG_TURN, см.
+-- Announce в Core/TurnOrder.lua). Жёлтым этого места больше не красится
+-- ничего другого.
+-- ============================================================
+function SB.UI.IsTurnLine(msg)
+    if type(msg) ~= "string" then return false end
+    local turn = SB.Theme and SB.Theme.MSG_TURN
+    if not turn then return false end
+    local _, j = msg:find("[Spellbreaker]:|r ", 1, true)
+    if not j or j > 40 then return false end
+    return msg:sub(j + 1, j + #turn):upper() == turn:upper()
+end
+
 function SB.UI.PrintMsg(key)
     local msg = SB.Data.Messages[key]
     if not msg then return end

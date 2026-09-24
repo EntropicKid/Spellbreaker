@@ -21,6 +21,12 @@ local function LayoutGMTabs()
 end
 
 local playersPanel, playersChild
+-- ГДЕ СТОИТ ПОРТРЕТ В СТРОКЕ ИГРОКА (вкладка «Игроки»): сдвиг от левого
+-- верхнего угла строки — x вправо, y вниз (отрицательный). При высоте
+-- строки 74 и портрете 52 значение -11 ставит его по центру базовой
+-- строки. Имя, строка класса и ряды эффектов едут вместе с портретом.
+-- Применяется к строкам при их создании — после правки нужен /reload.
+local PORTRAIT_X, PORTRAIT_Y = 8, -11
 local queuePanel,  queueChild
 -- Вкладка «Настройки» — управление сценой. Видна ТОЛЬКО Ведущему,
 -- см. SB.UI.IsGameMaster и RefreshGMAccess ниже.
@@ -319,8 +325,14 @@ local function RealtimeTick()
     -- TickAll, а не ручной цикл: пачка вместо пакета на каждый эффект,
     -- одна строка в чат вместо строки на эффект и защита эффектов друг
     -- от друга (см. Core/ActiveEffects.lua).
+    -- Свои эффекты Ведущего тикают по своим часам, как у всех (см. «СВОИ
+    -- ЧАСЫ» в Core/ActiveEffects.lua); отсюда — только общий такт.
     if SB.ActiveEffects then
-        SB.ActiveEffects.TickAll()
+        if SB.ActiveEffects.RealtimeHeartbeat then
+            SB.ActiveEffects.RealtimeHeartbeat()
+        else
+            SB.ActiveEffects.TickAll()
+        end
     end
     -- И СУЩЕСТВАМ СЦЕНЫ — тем же тиком, что игрокам: время идёт одно на
     -- всех. Пошаговый парный вызов стоит в TO.NewRound; включены они
@@ -999,7 +1011,9 @@ function SB.UI.UpdateGMPlayers()
     local listW   = (playersChild:GetWidth() or 0)
     if listW < 200 then listW = 340 end
     local perRow  = math.max(4, math.floor((listW - 68 - 103) / iconStride))
-    local ICONS_TOP = 38   -- от верха строки: имя, строка класса и зазор
+    -- От верха строки до первого ряда эффектов: сдвиг портрета, имя,
+    -- строка класса и зазоры между ними.
+    local ICONS_TOP = -PORTRAIT_Y + 32
 
     local yOff = 0
 
@@ -1033,7 +1047,10 @@ function SB.UI.UpdateGMPlayers()
             -- Габарит увеличен с 42 по той же причине, что и в шапке
             -- главного окна: изображение вписано внутрь кольца.
             row.portrait = SB.Theme.RoundPortrait(row, 52)
-            row.portrait:SetPoint("LEFT", row, "LEFT", 8, 0)
+            -- К ВЕРХУ СТРОКИ, а не по центру: строка растёт вниз под
+            -- второй ряд эффектов, и портрет по центру сползал вместе с
+            -- ней. Ручки: PORTRAIT_X / PORTRAIT_Y в начале файла.
+            row.portrait:SetPoint("TOPLEFT", row, "TOPLEFT", PORTRAIT_X, PORTRAIT_Y)
 
             -- Иконка класса занимает ТУ ЖЕ дыру, что и портрет: она
             -- показывается вместо него, когда юнита нет рядом, и обязана

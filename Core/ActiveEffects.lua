@@ -1405,12 +1405,12 @@ end
 --- ЖИВЁТ ОТДЕЛЬНО ОТ ПЕРЕРИСОВКИ, как и её двойник на рамке цели
 --- (SetAuraCount в UI/Overlay.lua): перерисовка случается на смену
 --- состава, то есть раз в ход, а подпись обязана убывать каждую секунду.
-local function SetSlotCounter(s, uses, seq)
+local function SetSlotCounter(s, uses, seq, phaseAt)
     if uses == INFINITE then
         if s.counterFS:GetText() ~= "беск." then s.counterFS:SetText("беск.") end
         return
     end
-    local left = SB.ActiveEffects.SecondsLeft(uses, seq)
+    local left = SB.ActiveEffects.SecondsLeft(uses, seq, phaseAt)
     local txt  = left and SB.UI.SecondsAsTimeShort(left)
                       or SB.UI.TurnsAsTimeShort(uses)
     if s.counterFS:GetText() ~= txt then s.counterFS:SetText(txt) end
@@ -1422,7 +1422,7 @@ local function RefreshCounters()
     for _, eff in ipairs(effects) do
         for _, s in ipairs(slots) do
             if s._spID == eff.spellID and s:IsShown() then
-                SetSlotCounter(s, eff.uses, eff.tickSeq)
+                SetSlotCounter(s, eff.uses, eff.tickSeq, eff.phaseAt)
                 break
             end
         end
@@ -1493,7 +1493,7 @@ local function Redraw()
         -- Короткая форма времени: на счётчик карточки отведён угол, и
         -- «1 мин. 6 сек.» туда не влезает ни при каком шрифте
         -- (см. SB.UI.TurnsAsTimeShort).
-        SetSlotCounter(s, eff.uses)
+        SetSlotCounter(s, eff.uses, nil, eff.phaseAt)
 
         -- Тип эффекта кодирует ЦВЕТ РАМКИ карточки:
         --   синяя   — концентрация (важнее всего: она одна за раз),
@@ -1879,6 +1879,8 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc, source, level)
             -- Продлённый эффект больше не доживает последний ход
             -- (см. «ТИК В НАЧАЛЕ ХОДА» у TurnStartOne).
             eff.expiring = nil
+            -- И его часы свободного режима идут заново (см. «СВОИ ЧАСЫ»).
+            eff.phaseAt  = GetTime()
             -- ИСТОЧНИК ПЕРЕПИСЫВАЕТСЯ, а не сохраняется: провокацию
             -- перебивает тот, кто провоцировал последним. Иначе первый
             -- провокатор держал бы цель до конца срока, а второй тратил
@@ -1916,6 +1918,8 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc, source, level)
         -- безымянное продление переписало бы адресата на себя — и штраф
         -- по провокатору перестал бы работать.
         src       = source or UnitName("player"),
+        -- Часы свободного режима — с момента наложения (см. «СВОИ ЧАСЫ»).
+        phaseAt   = GetTime(),
         -- Круг, на котором наложили. Не передали — собственный круг
         -- заклинания: выдача Ведущего вложения не знает, и брать с неё
         -- больше единицы не за что (см. WillCostOf).
@@ -2813,12 +2817,19 @@ function SB.ActiveEffects.TickSeq() return tickSeq end
 ---        пропустил, и доля хода ему не причитается (см. врезку выше).
 ---        nil — спрашивающий про фазу не знает; считаем по-старому.
 --- @return number|nil  nil — отсчёт не ведётся (бессрочный или пошаговый)
-function SB.ActiveEffects.SecondsLeft(uses, seq)
+function SB.ActiveEffects.SecondsLeft(uses, seq, phaseAt)
     uses = tonumber(uses) or 0
     if uses < 0 then return nil end
 
     local per = SB.Data.SecondsPerTurn or 6
     local realtime = SpellbreakerAccountDB and SpellbreakerAccountDB.realtimeEffects
+
+    -- СВОИ ЧАСЫ ЭФФЕКТА ТОЧНЕЕ ВСЕГО: доля текущего отрезка отсчитана от
+    -- момента наложения этого самого эффекта (см. «СВОИ ЧАСЫ»).
+    if realtime and phaseAt then
+        local since = math.min(per, math.max(0, GetTime() - phaseAt))
+        return math.max(0, (uses - 1) * per + (per - since))
+    end
 
     -- НЕТ ОТСЧЁТА — НЕТ И ОТВЕТА. Возвращаем nil, а не «ходы, умноженные
     -- на шесть»: в пошаговом режиме секунды не значат ничего (ход длится
@@ -2957,7 +2968,97 @@ function SB.ActiveEffects.TickTurnStart()
     return SB.ActiveEffects.TickAll(nil, nil, true)
 end
 
-function SB.ActiveEffects.TickAll(skip, realtime, turnStart)
+-- ============================================================
+-- СВОИ ЧАСЫ У КАЖДОГО ЭФФЕКТА (свободный режим)
+--
+-- Жалоба: «эффект на 12 секунд в свободном режиме держится от 7 до 11».
+-- Причина — общий такт: раз в шесть секунд Ведущий командовал тик, и
+-- эффект, наложенный за секунду до такта, терял целый отрезок в первую
+-- же секунду. Срок выходил случайным — от «чуть больше одного отрезка»
+-- до полного.
+--
+-- Теперь у каждого эффекта свои часы (phaseAt — когда наложен или
+-- последний раз убавился), и отрезок в шесть секунд отсчитывается от
+-- них. Эффект на 12 секунд живёт 12 секунд.
+--
+-- СЕТЬ ЭТО НЕ ТРОГАЕТ ВОВСЕ. Эффекты игрока и раньше жили только на его
+-- клиенте — от Ведущего приходила лишь команда «тикни». Теперь клиент
+-- тикает сам по своим часам, и пакетов не прибавилось: такт Ведущего
+-- остался (старые клиенты тикают по нему), новые берут из него только
+-- то, что к эффектам не относится (см. RealtimeHeartbeat).
+--
+-- Эффекты, наложенные в одно мгновение, и тикают вместе — одной пачкой,
+-- одной строкой отчёта.
+--
+-- ВРЕМЯ СТОИТ, когда отсчёта нет (пошаговый режим, Ведущий не пустил
+-- время): часы при этом подтягиваются к «сейчас», и при включении
+-- свободного режима никто не тикает залпом за всё простоявшее время.
+-- ============================================================
+local CLOCK_STEP = 0.5
+
+local function RealtimeRunning()
+    if not (SpellbreakerAccountDB and SpellbreakerAccountDB.realtimeEffects) then
+        return false
+    end
+    return not (SB.TurnOrder and SB.TurnOrder.IsActive and SB.TurnOrder.IsActive())
+end
+
+function SB.ActiveEffects.RealtimeClock()
+    local now = GetTime()
+    if not RealtimeRunning() then
+        for _, eff in ipairs(effects) do eff.phaseAt = now end
+        return 0
+    end
+
+    local per = SB.Data.SecondsPerTurn or 6
+    local due, any = {}, false
+    for _, eff in ipairs(effects) do
+        eff.phaseAt = eff.phaseAt or now
+        if now - eff.phaseAt >= per then
+            due[eff.spellID] = true
+            any = true
+            -- Следующий отрезок — от конца этого, а не от «сейчас»: иначе
+            -- шаг часов (полсекунды) копился бы в сроке. Отстали больше
+            -- чем на отрезок (клиент висел) — начинаем с «сейчас», а не
+            -- тикаем залпом.
+            eff.phaseAt = eff.phaseAt + per
+            if now - eff.phaseAt >= per then eff.phaseAt = now end
+        end
+    end
+    if not any then return 0 end
+
+    local skip = {}
+    for _, eff in ipairs(effects) do
+        if not due[eff.spellID] then skip[eff.spellID] = true end
+    end
+    SB.ActiveEffects.TickAll(skip, true, nil, true)
+    local n = 0
+    for _ in pairs(due) do n = n + 1 end
+    return n
+end
+
+--- Такт Ведущего (раз в шесть секунд, свободный режим). Эффекты по нему
+--- больше не тикают — у них свои часы (см. «СВОИ ЧАСЫ»). Остаётся то, что
+--- обязано идти одним временем на всех: записка о частице света и
+--- событие «прошёл ход» для механик, живущих временем (Фокус охотника).
+function SB.ActiveEffects.RealtimeHeartbeat()
+    if SB.Logic and SB.Logic.TickBeacon then SB.Logic.TickBeacon() end
+    if SB.Events then SB.Events.Fire(SB.E.TURN_TICK) end
+end
+
+if C_Timer and C_Timer.NewTicker then
+    C_Timer.NewTicker(CLOCK_STEP, function()
+        local ok, err = pcall(SB.ActiveEffects.RealtimeClock)
+        if not ok then
+            print("|cFFFF0000[Spellbreaker]|r часы эффектов: " .. tostring(err))
+        end
+    end)
+end
+
+--- @param ownClock boolean|nil  тик пришёл от своих часов эффектов
+---        (см. «СВОИ ЧАСЫ»): такт времени — записку о частице и
+---        TURN_TICK — он не поднимает, это дело RealtimeHeartbeat.
+function SB.ActiveEffects.TickAll(skip, realtime, turnStart, ownClock)
     -- ОТМЕТКУ СТАВИМ ДО САМОГО ТИКА: подписи, которые перерисуются по
     -- ходу обхода, должны увидеть уже новую фазу, а не прошлую.
     lastTickAt = GetTime()
@@ -2967,7 +3068,7 @@ function SB.ActiveEffects.TickAll(skip, realtime, turnStart)
     -- заклинателя, а сама частица — у носителя, и часы у них обязаны
     -- быть одни: иначе адрес переживёт эффект или умрёт раньше него
     -- (см. врезку о частице в Core/Logic.lua).
-    if SB.Logic and SB.Logic.TickBeacon then SB.Logic.TickBeacon() end
+    if not ownClock and SB.Logic and SB.Logic.TickBeacon then SB.Logic.TickBeacon() end
 
     -- Весь ход — ОДНА пачка: иначе каждый эффект слал бы в группу свой
     -- пакет AEFFECT, и бой с несколькими эффектами забивал бы исходящую
@@ -3025,7 +3126,7 @@ function SB.ActiveEffects.TickAll(skip, realtime, turnStart)
     --
     -- ПОСЛЕ всего тика, а не до: подписчик должен видеть уже новое
     -- состояние эффектов, а не то, что было ходом раньше.
-    if SB.Events then SB.Events.Fire(SB.E.TURN_TICK) end
+    if not ownClock and SB.Events then SB.Events.Fire(SB.E.TURN_TICK) end
 end
 
 --- @param quiet boolean|nil  не печатать «эффект снят»: у снятия по
@@ -3347,6 +3448,9 @@ function SB.ActiveEffects.LoadFromDB()
                 lvl       = tonumber(entry.lvl),
                 expiring  = entry.expiring == true or nil,
                 stepped   = entry.stepped == true or nil,
+                -- Часы клиента после перезахода начинаются заново, и
+                -- старая отметка ничего не значит: отсчёт с загрузки.
+                phaseAt   = GetTime(),
             })
         end
     end
@@ -3384,6 +3488,9 @@ function SB.ActiveEffects.GetAll()
             -- иконки на рамках) и без него не отличит убавившийся
             -- эффект от пропустившего тик (см. SecondsLeft).
             tickSeq = eff.tickSeq,
+            -- И СВОИ ЧАСЫ: по ним подпись считает долю текущего шестисекундного
+            -- отрезка (см. SecondsLeft).
+            phaseAt = eff.phaseAt,
         }
     end
     return copy

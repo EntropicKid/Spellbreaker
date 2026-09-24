@@ -983,7 +983,13 @@ local function AuraTooltip(self)
     -- Бессрочный эффект хранит отрицательное число применений (снимается
     -- только Долгим Отдыхом) — числом на иконке он и не подписан.
     if self._uses and self._uses >= 0 then
-        GameTooltip:AddLine("Осталось применений: |cFFFFD100" .. self._uses .. "|r", 1, 1, 1)
+        -- Подписи на самой иконке у цели нет (см. SetAuraCount) — значит
+        -- здесь остаток нужен в той же форме, в какой он был на иконке.
+        local left = SB.ActiveEffects and SB.ActiveEffects.SecondsLeft
+            and SB.ActiveEffects.SecondsLeft(self._uses, self._seq, self._phase)
+        local txt = left and SB.UI.SecondsAsTimeShort(left)
+            or SB.UI.TurnsAsTimeShort(self._uses)
+        GameTooltip:AddLine("Осталось: |cFFFFD100" .. txt .. "|r", 1, 1, 1)
     else
         GameTooltip:AddLine("Бессрочно — до Долгого Отдыха", 1, 0.82, 0)
     end
@@ -1112,10 +1118,17 @@ end
 --- вовсе: ему нечего отсчитывать.
 local function SetAuraCount(b)
     if not b or not b._uses then return end
+    -- Под рамкой цели подписи нет вовсе: на иконке в двадцать пикселей
+    -- «48с» закрывает половину картинки, а остаток и так виден по
+    -- наведению (см. hideCount у хоста в EnsureAuraHosts).
+    if b:GetParent() and b:GetParent().hideCount then
+        if b.count:GetText() ~= "" then b.count:SetText("") end
+        return
+    end
     local txt = ""
     if b._uses >= 0 then
         local left = SB.ActiveEffects and SB.ActiveEffects.SecondsLeft
-            and SB.ActiveEffects.SecondsLeft(b._uses, b._seq)
+            and SB.ActiveEffects.SecondsLeft(b._uses, b._seq, b._phase)
         txt = left and SB.UI.SecondsAsTimeShort(left)
             or SB.UI.TurnsAsTimeShort(b._uses)
     end
@@ -1158,6 +1171,8 @@ local function LayoutAuraHost(host, list)
             -- он сам: без него подпись не отличит эффект, убавившийся в
             -- этом тике, от пропустившего его (см. AuraSignature выше).
             b._seq     = tonumber(eff.tickSeq)
+            -- Свои часы эффекта (только у своих; у чужих списков их нет).
+            b._phase   = tonumber(eff.phaseAt)
             b._isConc  = eff.isConc == true
             -- Юнит запоминаем только у существа: ПКМ по иконке снимает
             -- эффект, и снимать его можно ровно с него (см. MakeAuraIcon).
@@ -1221,6 +1236,7 @@ local function EnsureAuraHosts()
     -- пять в ряд — ровно в ширину полосок, — и прижаты под полоску
     -- ресурса.
     t.size, t.inset, t.perRow, t.gap, t.rowGap = 21, 2, 5, 2, 2
+    t.hideCount = true
     local manaBar = _G.TargetFrameManaBar or (_G.TargetFrame and _G.TargetFrame.manabar)
     if manaBar then
         t:SetPoint("TOPLEFT", manaBar, "BOTTOMLEFT", -1, -4)

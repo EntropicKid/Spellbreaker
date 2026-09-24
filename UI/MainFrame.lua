@@ -2339,6 +2339,11 @@ SB.Events.On("SB_INIT", function()
         if SB.Logs and SB.Logs.Add then SB.Logs.Add(msg) end
         -- Куда именно — решает настройка (чат, журнал боя или никуда,
         -- см. SB.Logs.ChatPrint).
+        -- Строки очереди ходов — только в окно логов (см.
+        -- SB.UI.IsTurnLine): в бою их читают по полосе очереди.
+        if msg and SB.UI.IsTurnLine and SB.UI.IsTurnLine(msg) then
+            return
+        end
         if msg and SB.Logs and SB.Logs.ChatPrint then
             SB.Logs.ChatPrint(SB.UI.CollapseTag(msg))
         elseif msg and DEFAULT_CHAT_FRAME then
