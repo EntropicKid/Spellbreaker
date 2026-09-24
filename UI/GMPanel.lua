@@ -724,9 +724,25 @@ function SB.UI.UpdateGMQueue()
     C = C or SB.Theme.C
     for _, r in ipairs(queueRows) do r:Hide() end
 
+    -- ============================================================
+    -- СТРОКА ЗАЯВКИ — ДВА ЯРУСА
+    --
+    --   1. иконка заклинания, кто кастует (цветом класса) и что, с целью
+    --      строкой ниже; справа — поле СЛ;
+    --   2. ряд действий во всю ширину: «Принять» и «Отказ» — решения по
+    --      броску, «Успех / Провал / Крит» — исход без броска. Первые две
+    --      яркие, остальные спокойные: чаще всего жмут именно их.
+    --
+    -- Раньше кнопки-галочки стояли вверху справа крошечными, а исходы —
+    -- отдельной строкой слева, и не было видно, что это одна группа
+    -- решений. Ширина строки прежняя.
+    -- ============================================================
     local queue = SpellbreakerAccountDB and SpellbreakerAccountDB.requestQueue or {}
     local yOff  = 0
-    local rowH  = 74
+    local rowH  = 72
+    local listW = (queueChild:GetWidth() or 0)
+    if listW < 200 then listW = 350 end
+    local rowW  = listW - 10
 
     for i, req in ipairs(queue) do
         local row = queueRows[i]
@@ -737,18 +753,30 @@ function SB.UI.UpdateGMQueue()
             row:SetBackdropColor(C.cardBg[1], C.cardBg[2], C.cardBg[3], C.cardBg[4])
             row:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
 
+            row.icon = row:CreateTexture(nil, "ARTWORK")
+            row.icon:SetSize(30, 30)
+            row.icon:SetPoint("TOPLEFT", row, "TOPLEFT", 8, -7)
+            row.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            SB.Theme.SoftIconFrame(row, row.icon)
+
             row.casterLabel = row:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-            row.casterLabel:SetPoint("TOPLEFT", row, "TOPLEFT", 8, -6)
+            row.casterLabel:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 8, 1)
+            row.casterLabel:SetPoint("RIGHT", row, "RIGHT", -70, 0)
+            row.casterLabel:SetJustifyH("LEFT")
+            row.casterLabel:SetWordWrap(false)
             row.casterLabel:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
 
             row.spellLabel = row:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
-            row.spellLabel:SetPoint("TOPLEFT", row.casterLabel, "BOTTOMLEFT", 0, -2)
+            row.spellLabel:SetPoint("TOPLEFT", row.casterLabel, "BOTTOMLEFT", 0, -3)
+            row.spellLabel:SetPoint("RIGHT", row, "RIGHT", -70, 0)
+            row.spellLabel:SetJustifyH("LEFT")
+            row.spellLabel:SetWordWrap(false)
             row.spellLabel:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
 
-            -- FontString сама не принимает клики/наводку — накладываем
-            -- прозрачную Button поверх неё для тултипа и клика.
+            -- Иконка и строка заклинания — вход в его карточку и подсказку.
             row.spellLabelBtn = CreateFrame("Button", nil, row)
-            row.spellLabelBtn:SetAllPoints(row.spellLabel)
+            row.spellLabelBtn:SetPoint("TOPLEFT", row.icon, "TOPLEFT")
+            row.spellLabelBtn:SetPoint("BOTTOMRIGHT", row.spellLabel, "BOTTOMRIGHT")
             row.spellLabelBtn:SetScript("OnEnter", function(self)
                 if self._spell then
                     SB.UI.StartSpellTooltip(self, self._spell, "ANCHOR_RIGHT")
@@ -762,36 +790,36 @@ function SB.UI.UpdateGMQueue()
                 end
             end)
 
+            -- Цель — в строке заклинания (см. ниже); отдельной строки нет.
             row.targetLabel = row:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
-            row.targetLabel:SetPoint("TOPLEFT", row.spellLabel, "BOTTOMLEFT", 0, -2)
-            row.targetLabel:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
+            row.targetLabel:Hide()
 
-            local dcWrap, dcEB = SB.Theme.Input(row, "СЛ", 42, 20)
-            dcWrap:SetPoint("TOPRIGHT", row, "TOPRIGHT", -90, -6)
+            local dcCap = row:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
+            dcCap:SetText("СЛ")
+            dcCap:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
+            local dcWrap, dcEB = SB.Theme.Input(row, nil, 44, 22)
+            dcWrap:SetPoint("TOPRIGHT", row, "TOPRIGHT", -8, -10)
+            dcCap:SetPoint("RIGHT", dcWrap, "LEFT", -5, 0)
+            dcEB:SetJustifyH("CENTER")
+            dcEB:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
             row.dcInput = dcEB
 
-            row.approveBtn = SB.Theme.Button(row,
-                "|TInterface\\Buttons\\UI-CheckBox-Check:16|t", 38, 20, "primary")
-            row.approveBtn:SetPoint("TOPRIGHT", row, "TOPRIGHT", -48, -6)
-
-            row.rejectBtn = SB.Theme.Button(row,
-                "|TInterface\\Buttons\\UI-GroupLoot-Pass-Up:16|t", 38, 20, "danger")
-            row.rejectBtn:SetPoint("TOPRIGHT", row, "TOPRIGHT", -6, -6)
-
-            -- Кнопки форсирования
-            row.forceSucc  = SB.Theme.Button(row, "Успех",        60, 20, "primary")
-            row.forceSucc:SetPoint("TOPLEFT", row, "TOPLEFT", 8, -46)
-
-            row.forceFail  = SB.Theme.Button(row, "Провал",       60, 20, "danger")
-            row.forceFail:SetPoint("LEFT", row.forceSucc, "RIGHT", 4, 0)
-
-            row.forceCritS = SB.Theme.Button(row, "Крит. успех",  90, 20, "primary")
-            row.forceCritS:SetPoint("LEFT", row.forceFail, "RIGHT", 4, 0)
+            row.approveBtn = SB.Theme.Button(row, "Принять", 60, 22, "primary")
+            row.rejectBtn  = SB.Theme.Button(row, "Отказ",   60, 22, "danger")
+            -- Исходы без броска — спокойными кнопками той же сетки.
+            row.forceSucc  = SB.Theme.Button(row, "Успех",   60, 22, "secondary")
+            row.forceFail  = SB.Theme.Button(row, "Провал",  60, 22, "secondary")
+            row.forceCritS = SB.Theme.Button(row, "Крит",    60, 22, "secondary")
+            row.forceCritS:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_TOP")
+                SB.Theme.StyleTooltip(GameTooltip)
+                GameTooltip:SetText("Критический успех", 1, 0.82, 0)
+                GameTooltip:Show()
+            end)
+            row.forceCritS:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
             -- КНОПКИ «КРИТ. ПРОВАЛ» ЗДЕСЬ НЕТ: критический провал вырезан
-            -- из аддона (см. SB.Logic.ProcessRollAndCast). Обычный провал
-            -- делает ровно то же самое, и второй кнопкой на то же
-            -- действие Ведущего только путали.
+            -- из аддона (см. SB.Logic.ProcessRollAndCast).
 
         queueRows[i] = row
         end
@@ -802,26 +830,29 @@ function SB.UI.UpdateGMQueue()
             and (spell and SB.Logic.GetCantripLabel(spell.class):lower() or "заговор")
             or ("Круг " .. req.slotLevel)
 
-        row.casterLabel:SetText(req.caster)
+        row.casterLabel:SetText(SB.UI.ColorNames and SB.UI.ColorNames(req.caster) or req.caster)
+        row.icon:SetTexture(spell and spell.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+        local what
         if spell and spell.isCustom then
-            row.spellLabel:SetText("|cFF9933FF[" .. spName .. "]|r |cFF88CCFF(Кастом.)|r")
+            what = "|cFF9933FF" .. spName .. "|r |cFF88CCFF(кастом)|r"
         elseif spell then
-            row.spellLabel:SetText("|cFF9933FF[" .. spName .. "]|r — " .. lvlTxt)
+            what = "|cFF9933FF" .. spName .. "|r · " .. lvlTxt
         else
-            row.spellLabel:SetText("[" .. spName .. "] — " .. lvlTxt)
+            what = spName .. " · " .. lvlTxt
         end
+        if req.target and req.target ~= "" then
+            what = what .. "  |cFF6E6250→|r " .. req.target
+        end
+        row.spellLabel:SetText(what)
         row.spellLabelBtn._spell = spell
         row.spellLabelBtn:EnableMouse(spell ~= nil)
 
-        if req.target and req.target ~= "" then
-            row.targetLabel:SetText("Цель: " .. req.target)
-            row.targetLabel:Show()
-        else
-            row.targetLabel:Hide()
-        end
-
+        -- Ряд действий: крит — только у того, что умеет критовать.
         local hasCrit = spell and spell.canCrit == true
         row.forceCritS:SetShown(hasCrit)
+        local acts = { row.approveBtn, row.rejectBtn, row.forceSucc, row.forceFail }
+        if hasCrit then acts[#acts + 1] = row.forceCritS end
+        SB.Theme.LayoutRow(row, acts, "BOTTOMLEFT", 8, 8, rowW - 16, 4)
 
         -- СПРАВЕДЛИВАЯ СЛ В ПОЛЕ. Ставится ОДИН РАЗ на заявку — по её
         -- ключу, а не на каждую перерисовку: очередь обновляется от
@@ -843,7 +874,7 @@ function SB.UI.UpdateGMQueue()
 
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", queueChild, "TOPLEFT", 0, -yOff)
-        row:SetWidth(queueChild:GetWidth() - 10)
+        row:SetWidth(rowW)
         row:Show()
 
         -- Захватываем переменные для замыканий
@@ -1011,7 +1042,20 @@ function SB.UI.UpdateGMPlayers()
     -- больше, чем влезает. Раньше эффекты шли в один ряд без переноса и
     -- у игрока с десятком баффов уезжали под полоски здоровья и ресурса
     -- справа — половину было не прочесть и не снять.
-    local rowH        = 74
+    -- ============================================================
+    -- СТРОКА ИГРОКА — ТРИ ЯРУСА ПРАВЕЕ ПОРТРЕТА
+    --
+    --   1. номер в очереди и имя; галочка «Друг» в правом углу;
+    --   2. класс (цветом класса) · ранг;
+    --   3. здоровье и ресурс — две полоски рядом, во всю ширину;
+    --   ниже — эффекты рядами.
+    --
+    -- Раньше полоски жались в правый верхний угол узкой стопкой (и
+    -- наезжали друг на друга на пиксель), галочка висела под ними, а
+    -- эффекты обрывались, не доходя до полосок. Ширина строки прежняя —
+    -- список по-прежнему удобно листать.
+    -- ============================================================
+    local rowH        = 68
     local subH        = 30
     local gapRowSub   = 2
     local gapPlayer   = 4
@@ -1023,10 +1067,14 @@ function SB.UI.UpdateGMPlayers()
     -- может быть нулевой — тогда берём ширину панели по умолчанию.
     local listW   = (playersChild:GetWidth() or 0)
     if listW < 200 then listW = 340 end
-    local perRow  = math.max(4, math.floor((listW - 68 - 103) / iconStride))
-    -- От верха строки до первого ряда эффектов: сдвиг портрета, имя,
-    -- строка класса и зазоры между ними.
-    local ICONS_TOP = -PORTRAIT_Y + 32
+    -- Эффекты теперь идут на всю ширину правее портрета — полоски больше
+    -- не стоят справа.
+    local TEXT_X  = PORTRAIT_X + 52 + 8
+    local perRow  = math.max(4, math.floor((listW - TEXT_X - 8) / iconStride))
+    local barW    = math.floor((listW - TEXT_X - 8 - 4) / 2)
+    -- От верха строки до первого ряда эффектов: имя, строка класса,
+    -- полоски и зазоры между ними.
+    local ICONS_TOP = 62
 
     local yOff = 0
 
@@ -1102,25 +1150,26 @@ function SB.UI.UpdateGMPlayers()
             row.turnMark:Hide()
 
             row.nameLabel = row:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-            row.nameLabel:SetPoint("TOPLEFT", row.portrait, "TOPRIGHT", 8, -2)
+            row.nameLabel:SetPoint("TOPLEFT", row, "TOPLEFT", TEXT_X, -8)
+            row.nameLabel:SetPoint("RIGHT", row, "RIGHT", -64, 0)
             row.nameLabel:SetJustifyH("LEFT")
-            row.nameLabel:SetSpacing(2)
+            row.nameLabel:SetWordWrap(false)
             row.nameLabel:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
-			
-			row.infoLabel = row:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
-            row.infoLabel:SetPoint("TOPLEFT", row.nameLabel, "BOTTOMLEFT", 0, -2)
+
+            row.infoLabel = row:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
+            row.infoLabel:SetPoint("TOPLEFT", row.nameLabel, "BOTTOMLEFT", 0, -3)
+            row.infoLabel:SetPoint("RIGHT", row, "RIGHT", -8, 0)
+            row.infoLabel:SetJustifyH("LEFT")
+            row.infoLabel:SetWordWrap(false)
             row.infoLabel:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
 
-            row.resLabel = row:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-            row.resLabel:SetPoint("TOPRIGHT", row, "TOPRIGHT", -5, -8)
-            row.resLabel:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+            -- Здоровье и ресурс — рядом, поровну, во всю ширину правее
+            -- портрета.
+            row.hpBar = SB.Theme.Bar(row, barW, 14, "health")
+            row.hpBar:SetPoint("TOPLEFT", row, "TOPLEFT", TEXT_X, -40)
 
-            row.hpBar = SB.Theme.Bar(row, 90, 14, "health")
-            row.hpBar:SetPoint("TOPRIGHT", row, "TOPRIGHT", -5, -5)
-
-            row.zealBar = SB.Theme.Bar(row, 90, 14, "mana")
-            row.zealBar:SetPoint("TOPRIGHT", row, "TOPRIGHT", -5, -18)
-            row.zealBar:Hide()
+            row.zealBar = SB.Theme.Bar(row, barW, 14, "mana")
+            row.zealBar:SetPoint("LEFT", row.hpBar, "RIGHT", 4, 0)
 
             -- ── ГАЛОЧКА «ДРУГ» ───────────────────────────────────
             -- Под полосками, у правого края. Отмечает тех, по кому Я не
@@ -1131,7 +1180,7 @@ function SB.UI.UpdateGMPlayers()
             -- есть у каждого, а не только у Ведущего.
             row.friendChk = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
             row.friendChk:SetSize(20, 20)
-            row.friendChk:SetPoint("TOPRIGHT", row.zealBar, "BOTTOMRIGHT", 2, -1)
+            row.friendChk:SetPoint("TOPRIGHT", row, "TOPRIGHT", -4, -4)
             row.friendLbl = row:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
             row.friendLbl:SetPoint("RIGHT", row.friendChk, "LEFT", -1, 0)
             row.friendLbl:SetText("Друг")
@@ -1174,9 +1223,25 @@ function SB.UI.UpdateGMPlayers()
         end
         row.nameLabel:SetText(nameText)
 		
-		row.infoLabel:SetText((p.class or "?") .. " * " .. (p.mastery or "?"))
+        -- Класс — цветом класса, как в рамках игры.
+        local classTxt = p.class or "?"
+        local token = SB.Data.ClassColorTokens and SB.Data.ClassColorTokens[p.class]
+        local cc    = token and RAID_CLASS_COLORS and RAID_CLASS_COLORS[token]
+        if cc then
+            classTxt = string.format("|cFF%02X%02X%02X%s|r", cc.r * 255, cc.g * 255, cc.b * 255, classTxt)
+        end
+        row.infoLabel:SetText(classTxt .. "  |cFF6E6250•|r  " .. (p.mastery or "?"))
 
-        row.resLabel:Hide()
+        -- ЧЕЙ ХОД — ЗОЛОТОЙ КАЙМОЙ ВСЕЙ СТРОКИ, а не только цветом имени:
+        -- в длинном списке строку ищут глазом, а не читают.
+        local current = SB.TurnOrder and SB.TurnOrder.IsActive()
+                        and SB.TurnOrder.IsCurrent(p.name)
+        if current then
+            row:SetBackdropBorderColor(C.accent[1], C.accent[2], C.accent[3], 0.95)
+        else
+            row:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
+        end
+
         row.zealBar:Show()
         row.zealBar:SetValue(p.zeal or 0, p.maxZeal or 1)
         do
@@ -1247,8 +1312,10 @@ function SB.UI.UpdateGMPlayers()
         for _, ic in ipairs(row.effectIcons) do ic:Hide() end
 
         local effects = p.activeEffects or {}
-        local iconRows = math.max(1, math.ceil(#effects / perRow))
-        local thisH = math.max(rowH, ICONS_TOP + iconRows * iconStride + 6)
+        local iconRows = math.ceil(#effects / perRow)
+        local thisH = (iconRows > 0)
+            and math.max(rowH, ICONS_TOP + iconRows * iconStride + 4)
+            or  rowH
         row:SetHeight(thisH)
         for iIdx, eff in ipairs(effects) do
             local ic = row.effectIcons[iIdx]
@@ -1260,15 +1327,9 @@ function SB.UI.UpdateGMPlayers()
                 tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
                 ic._tex = tex
 
-                local ib = CreateFrame("Frame", nil, ic, "BackdropTemplate")
-                ib:SetPoint("TOPLEFT",     ic, "TOPLEFT",     -1,  1)
-                ib:SetPoint("BOTTOMRIGHT", ic, "BOTTOMRIGHT",  1, -1)
-                ib:SetBackdrop({
-                    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-                    edgeSize = 6,
-                    insets   = { left=2, right=2, top=2, bottom=2 },
-                })
-                ic._ib = ib
+                -- Мягкая рамка цвета типа эффекта — как в панели
+                -- активных эффектов (см. SB.ActiveEffects.KindColor).
+                ic._ib = SB.Theme.SoftIconFrame(ic, tex)
 
                 ic:SetScript("OnEnter", function(self)
                     local sp = SB.Data.Spells[self._spID]
@@ -1336,15 +1397,19 @@ function SB.UI.UpdateGMPlayers()
             -- строками, и без явной привязки эффект ушёл бы не тому.
             ic._owner = p.name
             ic._tex:SetTexture(sp and sp.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
-            ic._ib:SetBackdropBorderColor(0.15, 0.75, 1.0, 0.9)
-            ic._ib:SetShown(eff.isConc or false)
+            do
+                local kc = SB.ActiveEffects and SB.ActiveEffects.KindColor
+                    and SB.ActiveEffects.KindColor(eff.spellID, eff.isConc)
+                    or { 0.62, 0.48, 0.24, 0.85 }
+                ic._ib:SetBackdropBorderColor(kc[1], kc[2], kc[3], kc[4] or 0.9)
+            end
 
-            -- Под infoLabel, рядами по perRow, не заходя под полоски.
+            -- Под полосками, рядами по perRow на всю ширину.
             local col  = (iIdx - 1) % perRow
             local line = math.floor((iIdx - 1) / perRow)
             ic:ClearAllPoints()
-            ic:SetPoint("TOPLEFT", row.infoLabel, "BOTTOMLEFT",
-                        col * iconStride, -2 - line * iconStride)
+            ic:SetPoint("TOPLEFT", row, "TOPLEFT",
+                        TEXT_X + 2 + col * iconStride, -ICONS_TOP - line * iconStride)
             ic:Show()
         end
 
@@ -1434,16 +1499,7 @@ function SB.UI.UpdateGMPlayers()
                     tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
                     ic._tex = tex
 
-                    local ib = CreateFrame("Frame", nil, ic, "BackdropTemplate")
-                    ib:SetPoint("TOPLEFT",     ic, "TOPLEFT",     -1,  1)
-                    ib:SetPoint("BOTTOMRIGHT", ic, "BOTTOMRIGHT",  1, -1)
-                    ib:SetBackdrop({
-                        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-                        edgeSize = 6,
-                        insets   = { left=2, right=2, top=2, bottom=2 },
-                    })
-                    ib:SetBackdropBorderColor(0.40, 0.32, 0.08, 0.75)
-                    ic._ib = ib
+                    ic._ib = SB.Theme.SoftIconFrame(ic, tex)
 
                     ic:SetScript("OnEnter", function(self)
                         local sp = SB.Data.Spells[self._spID]
