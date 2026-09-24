@@ -312,7 +312,7 @@ AddEffect({
     name = "Заслонил союзника",
     icon = "Interface\\Icons\\Ability_warrior_victoryrush",
     description = "Воин стоит между союзником и опасностью. Чужие удары приходят по нему, и уйти от них он уже не может.",
-    effect = { kind = "buff", mods = { armor = 25, movePct = 60 } },
+    effect = { kind = "debuff", mods = { armor = 25, movePct = 40 } },
 })
 
 -- ==========================================================
@@ -1545,14 +1545,6 @@ AddEffect({
 })
 
 AddEffect({
-    id   = "eff_pummel",
-    name = "Зуботычина",
-    icon = "Interface\\Icons\\Inv_gauntlets_04",
-    description = "Отходит от сбивающего с толку тычка в морду, лишающего всякой концентрации и пылкости.",
-    effect = { kind = "debuff", resist = "Сила", mods = { damageMagic = -2 } },
-})
-
-AddEffect({
     id   = "eff_shield_slam",
     name = "Удар щитом",
     icon = "Interface\\Icons\\Ability_warrior_shieldbash",
@@ -1564,7 +1556,7 @@ AddEffect({
     name = "Блок щитом",
     icon = "Interface\\Icons\\Ability_defend",
     description = "Мерцающая преграда отводит слабые удары и сбивает прицел стрелкам.",
-    effect = { kind = "buff", mods = { armor = 30 }, stats = { ["Мощь"] = -3 } },
+    effect = { kind = "debuff", mods = { armor = 30 }, stats = { ["Мощь"] = -3 } },
 })
 
 AddEffect({
@@ -3377,7 +3369,7 @@ AddEffect({
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = {
         kind = "debuff", resist = "Выносливость", school = "bleed",
-        tick = { damage = 1 },
+        tick = { damage = 2 },
 		stats = { ["Мощь"] = -2 },
     },
 })
@@ -3420,7 +3412,7 @@ AddEffect({
     name = "Грозовая поступь",
     icon = "Interface\\Icons\\Ability_thunderclap",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
-    effect = { family = "Замедление", kind = "debuff", resist = "Выносливость", mods = { defense = -12, attack = -4, movePct = -35 } },
+    effect = { family = "Замедление", kind = "debuff", resist = "Выносливость", mods = { defense = -20, movePct = -35 } },
 })
 
 AddEffect({
@@ -3430,6 +3422,7 @@ AddEffect({
     description = "Ярость предков вытесняет осторожность: бьёшь чаще и злее, но забываешь защищаться.",
     effect = {
         kind  = "buff",
+		mods = { defense = -25 },
         stats = { ["Запугивание"] = 2, ["Мощь"] = 2 },
 		tick = { resource = 1 },
     },
@@ -3458,7 +3451,7 @@ AddEffect({
     icon = "Interface\\Icons\\Ability_warrior_shieldreflection",
     description = "Тело укрыто слоем затвердевшей магии: удары теряют часть силы, но чары стесняют движения.",
     effect = {
-        kind  = "buff",
+        kind  = "debuff",
         mods  = { armor = 30 },
         onAction = { when = "damaged", magic = true,
                      toAttacker = { damage = 3, damageType = "arcane" } },
@@ -3470,7 +3463,7 @@ AddEffect({
     name = "Последний рубеж",
     icon = "Interface\\Icons\\Spell_nature_focusedmind",
     description = "Тело помнит, что умеет терпеть больше, чем кажется.",
-    effect = { kind = "debuff", stats = { ["Живучесть"] = 8, ["Воля"] = 3 } },
+    effect = { kind = "debuff", stats = { ["Живучесть"] = 7, ["Воля"] = 3 } },
 })
 
 AddEffect({
@@ -3478,7 +3471,7 @@ AddEffect({
     name = "Стена щитов",
     icon = "Interface\\Icons\\Ability_warrior_shieldwall",
     description = "Плоть покрыта камнем. Держит удар заметно лучше живой, но двигаться в такой шкуре тяжело.",
-    effect = { kind = "buff", mods = { armor = 50, movePct = -15 } },
+    effect = { kind = "debuff", mods = { armor = 50, movePct = -15 } },
 })
 
 AddEffect({
@@ -3584,7 +3577,7 @@ AddEffect({
     name = "Стойка берсерка",
     icon = "Interface\\Icons\\Ability_racial_avatar",
     description = "Руку начинает вести первобытная ярость и неотвратимая тяга к разрушению, игнорируя инстинкт самосохранения.",
-    effect = { kind = "buff", family = "Стойка", mods = { defense = -25 }, stats = { ["Запугивание"] = 3, ["Сила"] = 3 } },
+    effect = { kind = "buff", family = "Стойка", mods = { resistAll = -1 }, stats = { ["Запугивание"] = 3, ["Сила"] = 3 } },
 })
 
 AddEffect({
@@ -3865,12 +3858,4 @@ AddEffect({
                             "poison", "disease", "bleed", "curse", "magic" },
                mods = { defense = 500, resistAll = 99, attack = -500,
                         heal = -99, movePct = -100 } },
-})
-
-AddEffect({
-    id   = "eff_kick",
-    name = "Опрокинут",
-    icon = "Interface\\Icons\\Inv_gauntlets_04",
-    description = "Существо пытается подняться на ноги после того, как его опрокинули оземь, попутно мешая сотворить заклинание",
-    effect = { kind = "debuff", resist = "Сила", mods = { movePct = -15, damageMagic = -2 } },
 })
