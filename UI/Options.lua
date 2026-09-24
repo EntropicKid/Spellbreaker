@@ -134,8 +134,17 @@ local combatLogOptChk = MakeCheckRow(content, hideOptChk, -8,
     end,
     "SBCombatLogChk")
 
+-- Записывать отыгрыш в журнал (см. UI/Logs.lua)
+local logChatOptChk = MakeCheckRow(content, combatLogOptChk, -8,
+    "Записывать отыгрыш в журнал (сказать, эмоции, группа)",
+    "logRoleplayChat",
+    function(val)
+        if SB.Logs and SB.Logs.SetChatCapture then SB.Logs.SetChatCapture(val) end
+    end,
+    "SBLogChatOptChk")
+
 -- Плавность интерфейса (см. Core/Animate.lua)
-local animOptChk = MakeCheckRow(content, combatLogOptChk, -8,
+local animOptChk = MakeCheckRow(content, logChatOptChk, -8,
     "Плавные переходы в интерфейсе",
     "animations")
 
@@ -312,6 +321,7 @@ local function SyncOptionsFromDB()
     emoteOptChk:SetChecked(db.sendEmotes ~= false)
     hideOptChk:SetChecked(db.hideSystemMessages or false)
     combatLogOptChk:SetChecked(db.combatLogMessages == true and not db.hideSystemMessages)
+    logChatOptChk:SetChecked(db.logRoleplayChat == true)
     -- Как и SB.Animate.IsEnabled: отсутствующее значение = включено.
     animOptChk:SetChecked(db.animations ~= false)
     -- Как и в SB.Overlay.IsEnabled: отсутствующее значение = включено.

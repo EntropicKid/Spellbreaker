@@ -3382,7 +3382,10 @@ function SB.ActiveEffects.BreakOn(trigger)
         -- только ту, что сбивает контроль: для этого способность и
         -- заведена. Отказ — тем же приёмом, что у контроля:
         -- breakOn = { interrupted = false }.
-        if not hit and trigger == "interrupted" and eff.isConc then
+        -- Держатель потока — концентрация по определению, даже если
+        -- запись пришла без isConc (старое сохранение).
+        if not hit and trigger == "interrupted"
+           and (eff.isConc or (sp and sp.isChannelHolder)) then
             local said
             if type(def) == "table" then said = def.interrupted end
             hit = (said ~= false)
@@ -3415,6 +3418,22 @@ function SB.ActiveEffects.BreakOn(trigger)
         SB.ActiveEffects.Remove(spellID, true)
     end
     breaking = false
+
+    -- ПРЕРЫВАНИЕ ВИДНО ВСЕМ. Прочие срывы — своё дело, а прерывание —
+    -- исход чужого приёма: без строки группе прерывавший не узнаёт,
+    -- сработал ли его пинок, и решает, что не сработал.
+    if trigger == "interrupted" and SB.E.BROADCAST_LOG then
+        local names = {}
+        for _, id in ipairs(doomed) do
+            local sp = SB.Data.Spells[id]
+            names[#names + 1] = (sp and sp.name) or id
+        end
+        SB.Events.Fire(SB.E.BROADCAST_LOG,
+            SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. SB.Theme.MSG_BODY ..
+            (UnitName("player") or "?") .. " прерван: спадает «" ..
+            table.concat(names, "», «") .. "».|r",
+            SB.LogRank and SB.LogRank.RESULT)
+    end
 end
 
 SB.Events.On(SB.E.HEALTH_CHANGED, function(_, _, delta, cause)

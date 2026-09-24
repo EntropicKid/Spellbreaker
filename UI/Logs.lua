@@ -1,26 +1,62 @@
 -- ============================================================
 -- UI/Logs.lua
--- Окно системных логов Spellbreaker.
+-- ОКНО ЖУРНАЛА SPELLBREAKER
 --
--- Изменения по сравнению с оригиналом:
---   • hideSystemMessages читается/пишется только через
---     SpellbreakerAccountDB — нет дублирующей локальной копии.
---   • Подписывается на LOG_MESSAGE_RECEIVED через Events.
---   • Текст лога переживает /reload и перезаход: он лежит в
---     SpellbreakerCharDB.logHistory (см. LoadHistory/SaveHistory).
+-- Хранит журнал Core/LogStore.lua; здесь только показ и то, как строки
+-- попадают в хранилище из чата игры.
+--
+-- УСТРОЕНО ПО ОБРАЗЦУ ELEPHANT И PRAT:
+--
+--   • ВКЛАДКИ ПО КАТЕГОРИЯМ — «Все», «Бой», «Очередь», «Личное»,
+--     «Отыгрыш». Бой читается без строк очереди, отказы — отдельно;
+--
+--   • ПОИСК по всему журналу, а не по тому, что видно в окне. Регистр
+--     не важен, кириллица тоже (см. SB.LogStore.Lower);
+--
+--   • СЕССИИ: «◄ ►» листает входы в игру, как лог канала у Elephant.
+--     В режиме «все сессии» они разделены заголовками, дни — тоже;
+--
+--   • КОПИРОВАНИЕ: то, что сейчас показано, — простым текстом, с датой
+--     у каждой строки, в окно, откуда его берут Ctrl+C;
+--
+--   • ОБЪЁМ: «Хранить: N» по кругу 1000–20000 записей;
+--
+--   • ОКНО РАСТЯГИВАЕТСЯ за правый нижний угол и помнит размер.
+--
+-- ПОКАЗ — ScrollingMessageFrame, а не EditBox. EditBox рисовал весь
+-- текст одним куском и на ~24k символов начинал «закрашиваться»; поэтому
+-- журнал и держали таким коротким. Лента чата рисует только видимое,
+-- кликает ссылки и листается колесом, как обычный чат.
 -- ============================================================
 local addonName, SB = ...
 SB.Logs = SB.Logs or {}
 
-local logFrame
-local logsEB
-local logScroll
-local updateLogScrollbar
-local lastValidText = ""
+local LS -- SB.LogStore; берётся при постройке — файл Core грузится раньше
 
--- Объявлены здесь, а определены ниже, рядом с TrimLog: тело BuildFrame
--- лексически идёт РАНЬШЕ и без этой строки просто не увидело бы их.
-local LoadHistory, SaveHistory, ScrollToBottom
+local logFrame, feed, statusFS, sessionFS, capBtn, chatChk
+local copyFrame, copyEB
+local tabs = {}
+
+-- Что показано. activeCat == "all" — все категории; session == nil — все
+-- сессии.
+local activeCat  = "all"
+local sessionSel = nil
+local searchText = ""
+
+-- Сколько строк окно держит разом. Поиск идёт по всему журналу, а
+-- показываются последние найденные: двадцать тысяч строк в ленте
+-- никто не листает, а собирать их заново на каждую букву поиска — это
+-- заметная пауза.
+local DISPLAY_LIMIT = 3000
+
+local W, H         = 600, 540
+local MIN_W, MIN_H = 460, 320
+
+local STAMP_COLOR = "|cFF808080"
+local HEAD_COLOR  = "|cFFB89A5A"
+
+local dirty = true      -- окно скрыто, а журнал менялся — пересобрать на показе
+local lastDay, lastSession
 
 -- Удобный геттер флага (с защитой от nil до инициализации AceDB)
 local function HideEnabled()
@@ -37,6 +73,9 @@ end
 --
 -- «Скрывать» побеждает: галочки в настройках взаимоисключающие, но
 -- сохранёнка могла прийти с обеими, и тогда тише — надёжнее.
+--
+-- ЖУРНАЛ АДДОНА ПИШЕТСЯ ПРИ ЛЮБОМ ПУТИ: скрытая в чате строка всё равно
+-- попадает в окно журнала — иначе «Скрывать» значило бы «терять».
 -- ============================================================
 
 --- @return string "chat" | "hide" | "combatlog"
@@ -81,333 +120,454 @@ function SB.Logs.ChatPrint(msg, r, g, b)
 end
 
 -- ============================================================
--- BuildFrame
+-- ПОКАЗ
 -- ============================================================
+
+local function CurrentFilter()
+    local cats
+    if activeCat ~= "all" then cats = { [activeCat] = true } end
+    return LS.Filter(cats, sessionSel, searchText)
+end
+
+--- Подпись выбранной сессии.
+local function SessionTitle()
+    if sessionSel == nil then return "Все сессии" end
+    local s = LS.SessionInfo(sessionSel)
+    if not s then return "Сессия удалена" end
+    local label = LS.SessionLabel(s)
+    if s.id == LS.CurrentSession() then label = "Эта сессия · " .. label end
+    return label
+end
+
+local shownCount = 0
+
+local function UpdateStatus()
+    if not statusFS then return end
+    local total = LS.Count()
+    local txt = string.format("Показано: %d · всего в журнале: %d из %d",
+        shownCount, total, LS.GetCapacity())
+    if searchText ~= "" then txt = txt .. " · поиск: «" .. searchText .. "»" end
+    statusFS:SetText(txt)
+    if sessionFS then sessionFS:SetText(SessionTitle()) end
+    if capBtn then capBtn:SetText("Хранить: " .. LS.GetCapacity()) end
+end
+
+--- Дописать запись в ленту — с заголовком сессии и дня, если они сменились.
+local function Append(e)
+    local sid = e.s or 0
+    if sessionSel == nil and sid ~= lastSession then
+        local info  = LS.SessionInfo(sid)
+        local label = info and LS.SessionLabel(info)
+        feed:AddMessage(HEAD_COLOR .. "———— " .. (label or "Сессия") .. " ————|r")
+        lastDay = nil
+    end
+    lastSession = sid
+    local day = LS.Day(e)
+    if day and day ~= lastDay then
+        if lastDay ~= nil then
+            feed:AddMessage(STAMP_COLOR .. "—— " .. day .. " ——|r")
+        end
+        lastDay = day
+    end
+    local stamp = LS.Stamp(e)
+    feed:AddMessage((stamp ~= "" and (STAMP_COLOR .. stamp .. "|r ") or "") .. e.m)
+    shownCount = shownCount + 1
+end
+
+--- Собрать ленту заново под текущий фильтр.
+local function Rebuild()
+    if not feed then return end
+    if not logFrame:IsShown() then dirty = true; return end
+    dirty = false
+    feed:Clear()
+    lastDay, lastSession, shownCount = nil, nil, 0
+    local list = LS.Query(CurrentFilter(), DISPLAY_LIMIT)
+    if #list == 0 then
+        feed:AddMessage(STAMP_COLOR .. ((searchText ~= "") and "Ничего не найдено."
+            or (activeCat == "chat" and not SB.Logs.IsChatCaptureOn())
+                and "Запись отыгрыша выключена — включите галочкой внизу окна."
+            or "Журнал пуст.") .. "|r")
+    end
+    for _, e in ipairs(list) do Append(e) end
+    feed:ScrollToBottom()
+    UpdateStatus()
+end
+SB.Logs.Refresh = Rebuild
+
+--- Новая запись в хранилище.
+local function OnStoreChange(e, why)
+    if not feed then return end
+    if why == "reset" or not e then Rebuild(); return end
+    if not logFrame:IsShown() then dirty = true; return end
+    if not LS.Matches(e, CurrentFilter()) then UpdateStatus(); return end
+    Append(e)
+    UpdateStatus()
+end
+
+-- ============================================================
+-- ОКНО КОПИРОВАНИЯ
+-- ============================================================
+
+-- Потолок выгрузки в байтах. Простой текст EditBox держит спокойно, но
+-- не бесконечно: дальше — последние строки.
+local COPY_MAX = 120000
+
+local function ShowCopy()
+    if not copyFrame then
+        copyFrame = SB.Theme.Frame("SpellbreakerLogCopyFrame", UIParent,
+            "Копирование журнала", 560, 440)
+        SB.Theme.AttachPositionMemory(copyFrame, "logCopyFramePos", 40, 0)
+
+        local hint = copyFrame:CreateFontString(nil, "OVERLAY", "SBFontDisableSmall")
+        hint:SetPoint("BOTTOMLEFT", copyFrame, "BOTTOMLEFT", 12, 12)
+        hint:SetText("Текст выделен — Ctrl+C, чтобы скопировать. Esc — закрыть.")
+
+        local sf = CreateFrame("ScrollFrame", nil, copyFrame)
+        sf:SetPoint("TOPLEFT",     copyFrame, "TOPLEFT",     12, copyFrame.contentY - 6)
+        sf:SetPoint("BOTTOMRIGHT", copyFrame, "BOTTOMRIGHT", -12, 32)
+        sf:EnableMouseWheel(true)
+        sf:SetScript("OnMouseWheel", function(self, delta)
+            local cur = self:GetVerticalScroll()
+            self:SetVerticalScroll(
+                math.max(0, math.min(self:GetVerticalScrollRange(), cur - delta * 40)))
+        end)
+        copyEB = CreateFrame("EditBox", nil, sf)
+        copyEB:SetMultiLine(true)
+        copyEB:SetAutoFocus(false)
+        copyEB:SetFontObject(ChatFontNormal)
+        copyEB:SetWidth(520)
+        copyEB:SetScript("OnEscapePressed", function() copyFrame:Hide() end)
+        sf:SetScript("OnSizeChanged", function(_, w)
+            if w and w > 0 then copyEB:SetWidth(w) end
+        end)
+        sf:SetScrollChild(copyEB)
+    end
+
+    local text = LS.Export(LS.Query(CurrentFilter(), DISPLAY_LIMIT))
+    if #text > COPY_MAX then
+        local cut = #text - COPY_MAX
+        local nl  = text:find("\n", cut, true)
+        text = text:sub((nl or cut) + 1)
+    end
+    copyEB:SetText(text)
+    copyFrame:Show()
+    copyEB:SetFocus()
+    copyEB:HighlightText()
+end
+
+-- ============================================================
+-- ЗАПИСЬ ОТЫГРЫША (как у Elephant): сказать, эмоции, группа, шёпот
+-- ============================================================
+
+local CHAT_FORMATS = {
+    CHAT_MSG_SAY           = "%s говорит: %s",
+    CHAT_MSG_YELL          = "%s кричит: %s",
+    CHAT_MSG_EMOTE         = "%s %s",
+    CHAT_MSG_TEXT_EMOTE    = false,           -- в тексте уже есть имя
+    CHAT_MSG_PARTY         = "[Группа] %s: %s",
+    CHAT_MSG_PARTY_LEADER  = "[Группа] %s: %s",
+    CHAT_MSG_RAID          = "[Рейд] %s: %s",
+    CHAT_MSG_RAID_LEADER   = "[Рейд] %s: %s",
+    CHAT_MSG_RAID_WARNING  = "[Объявление] %s: %s",
+    CHAT_MSG_WHISPER       = "%s шепчет: %s",
+    CHAT_MSG_WHISPER_INFORM = "Вы шепчете %s: %s",
+}
+
+function SB.Logs.IsChatCaptureOn()
+    return SpellbreakerAccountDB and SpellbreakerAccountDB.logRoleplayChat == true
+end
+
+local chatListener = CreateFrame("Frame")
+
+local function ApplyChatCapture()
+    chatListener:UnregisterAllEvents()
+    if not SB.Logs.IsChatCaptureOn() then return end
+    for ev in pairs(CHAT_FORMATS) do chatListener:RegisterEvent(ev) end
+end
+SB.Logs.ApplyChatCapture = ApplyChatCapture
+
+function SB.Logs.SetChatCapture(on)
+    if SpellbreakerAccountDB then SpellbreakerAccountDB.logRoleplayChat = on and true or false end
+    ApplyChatCapture()
+    if chatChk then chatChk:SetChecked(on and true or false) end
+    if SBLogChatOptChk then SBLogChatOptChk:SetChecked(on and true or false) end
+    if activeCat == "chat" then Rebuild() end
+end
+
+--- Строка отыгрыша в том виде, в каком её пишет журнал.
+function SB.Logs.FormatChat(event, msg, sender)
+    local fmt = CHAT_FORMATS[event]
+    if fmt == nil or type(msg) ~= "string" or msg == "" then return nil end
+    -- Строки самого аддона сюда не пишем: они и так в журнале.
+    if msg:find("Spellbreaker", 1, true) then return nil end
+    local key  = event:gsub("^CHAT_MSG_", "")
+    local info = ChatTypeInfo and ChatTypeInfo[key]
+    local color = info and string.format("|cFF%02X%02X%02X",
+        math.floor((info.r or 1) * 255), math.floor((info.g or 1) * 255),
+        math.floor((info.b or 1) * 255)) or "|cFFFFFFFF"
+    local short = (sender and sender ~= "" and Ambiguate and Ambiguate(sender, "none"))
+               or sender or "?"
+    local who = (sender and sender ~= "")
+        and ("|Hplayer:" .. sender .. "|h" .. short .. "|h") or short
+    local body = fmt and string.format(fmt, who, msg) or msg
+    return color .. body .. "|r"
+end
+
+chatListener:SetScript("OnEvent", function(_, event, msg, sender)
+    local line = SB.Logs.FormatChat(event, msg, sender)
+    if line and LS then LS.Add(line, "chat") end
+end)
+
+-- ============================================================
+-- ПОСТРОЕНИЕ
+-- ============================================================
+
+local function SavePlacement(self)
+    if not SpellbreakerAccountDB then return end
+    local x, y = self:GetCenter()
+    if x and y then
+        local uw, uh = UIParent:GetSize()
+        SpellbreakerAccountDB.logFramePos = { x = x - uw / 2, y = y - uh / 2 }
+    end
+    SpellbreakerAccountDB.logFrameSize = { w = self:GetWidth(), h = self:GetHeight() }
+end
+
 function SB.Logs.BuildFrame()
+    LS = SB.LogStore
     local C = SB.Theme.C
 
-    logFrame = SB.Theme.Frame("SpellbreakerLogFrame", UIParent,
-        "Окно логов", 430, 510)
-    logFrame:SetPoint("CENTER", 0, 0)
-    -- #9: явно разрешаем перетаскивание и фиксируем OnDragStop
-    logFrame:SetMovable(true)
-    logFrame:EnableMouse(true)
-    logFrame:RegisterForDrag("LeftButton")
-    logFrame:SetScript("OnDragStart", function(self) self:StartMoving() end)
-    logFrame:SetScript("OnDragStop",  function(self) self:StopMovingOrSizing() end)
+    local size = SpellbreakerAccountDB and SpellbreakerAccountDB.logFrameSize
+    local w = math.max(MIN_W, (size and tonumber(size.w)) or W)
+    local h = math.max(MIN_H, (size and tonumber(size.h)) or H)
 
-    -- Скролл + EditBox
-    local sf = CreateFrame("ScrollFrame", nil, logFrame)
-    sf:SetPoint("TOPLEFT",     logFrame, "TOPLEFT",     10, logFrame.contentY)
-    sf:SetPoint("BOTTOMRIGHT", logFrame, "BOTTOMRIGHT", -10, 48)
-    sf:EnableMouseWheel(true)
-    sf:SetScript("OnMouseWheel", function(self, delta)
-        local cur = self:GetVerticalScroll()
-        self:SetVerticalScroll(
-            math.max(0, math.min(self:GetVerticalScrollRange(), cur - delta * 30)))
+    logFrame = SB.Theme.Frame("SpellbreakerLogFrame", UIParent, "Журнал", w, h)
+    SB.Theme.AttachPositionMemory(logFrame, "logFramePos", 0, 0)
+    logFrame:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+        SavePlacement(self)
     end)
 
-    logsEB = CreateFrame("EditBox", nil, sf)
-    logsEB:SetMultiLine(true)
-    logsEB:SetFontObject(ChatFontNormal)
-    logsEB:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
-    -- Ширину ведём за скролл-фреймом, а не задаём константой: место
-    -- под полосу прокрутки резервируется внутри окна (см. SB.Theme.Scroll),
-    -- и фиксированные 400px теперь вылезали бы за правый край.
-    logsEB:SetWidth(sf:GetWidth() > 0 and sf:GetWidth() or 390)
-    sf:SetScript("OnSizeChanged", function(self, w)
-        if w and w > 0 then logsEB:SetWidth(w) end
+    -- ── Растягивание ─────────────────────────────────────────
+    logFrame:SetResizable(true)
+    if logFrame.SetResizeBounds then
+        logFrame:SetResizeBounds(MIN_W, MIN_H)
+    elseif logFrame.SetMinResize then
+        logFrame:SetMinResize(MIN_W, MIN_H)
+    end
+    local grip = CreateFrame("Button", nil, logFrame)
+    grip:SetSize(16, 16)
+    grip:SetPoint("BOTTOMRIGHT", logFrame, "BOTTOMRIGHT", -3, 3)
+    grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+    grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+    grip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+    grip:SetScript("OnMouseDown", function() logFrame:StartSizing("BOTTOMRIGHT") end)
+    grip:SetScript("OnMouseUp", function()
+        logFrame:StopMovingOrSizing()
+        SavePlacement(logFrame)
     end)
-    logsEB:SetAutoFocus(false)
-	logsEB:SetHyperlinksEnabled(true)
-	logsEB:SetScript("OnHyperlinkClick", function(self, link, text, button)
-        if not link then return end
-        local spellID = link:match("^spellbreaker:(.+)$")
-        if spellID then
-            local spell = SB.Data.Spells[spellID]
-            if spell and SB.Library and SB.Library.ShowDetail then
-                 SB.Library.ShowDetail(spell)
-            end
-        end
-    end)
-    -- Наводка на число урона/лечения больше ничего не показывает:
-    -- разбивка перестала ездить внутри ссылки (см. SB.UI.AmountText в
-    -- Core/Strings.lua), и показывать по наводке нечего.
-    logsEB:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
-    logsEB:SetScript("OnTextChanged", function(self, userInput)
-        if userInput then self:SetText(lastValidText) end
-    end)
-    sf:SetScrollChild(logsEB)
-    logScroll = sf
-    updateLogScrollbar = select(3, SB.Theme.AttachScrollbar(sf, logsEB, logFrame, logFrame.contentY, 48))
 
-    -- Лог прошлой сессии. Читается ЗДЕСЬ, а не при загрузке файла:
-    -- SpellbreakerCharDB появляется только после AceDB, то есть к
-    -- моменту SB_INIT, которым и зовётся BuildFrame.
-    LoadHistory()
-    if lastValidText ~= "" then
-        logsEB:SetText(lastValidText)
-        logsEB:HighlightText(0, 0)
-        logsEB:SetCursorPosition(logsEB:GetNumLetters())
+    -- ── Вкладки категорий ────────────────────────────────────
+    local defs = { { key = "all", label = "Все" } }
+    for _, c in ipairs(LS.CATEGORIES) do defs[#defs + 1] = c end
+    for i, d in ipairs(defs) do
+        local t = SB.Theme.Tab(logFrame, d.label, 100, 22, d.key == activeCat)
+        t:SetScript("OnClick", function()
+            activeCat = d.key
+            for _, o in ipairs(tabs) do o:SetActive(o._key == activeCat) end
+            Rebuild()
+        end)
+        t._key = d.key
+        tabs[i] = t
     end
 
-    -- Прокрутка вниз — на первом показе окна, а не сейчас: фрейм создан
-    -- скрытым (см. SB.Theme.Frame), а у скрытого диапазон прокрутки
-    -- ещё нулевой, и прокручивать было бы некуда.
-    local scrolledOnce = false
-    logFrame:HookScript("OnShow", function()
-        if scrolledOnce then return end
-        scrolledOnce = true
-        ScrollToBottom()
+    -- ── Поиск и сессии ───────────────────────────────────────
+    local ROW2 = logFrame.contentY - 28
+    local searchWrap, searchEB = SB.Theme.Input(logFrame, "Поиск по журналу…", 200, 22)
+    searchWrap:SetPoint("TOPLEFT", logFrame, "TOPLEFT", 10, ROW2)
+    local searchToken = 0
+    searchEB:SetScript("OnTextChanged", function(self)
+        if searchWrap.placeholder then
+            searchWrap.placeholder:SetShown(self:GetText() == "" and not self:HasFocus())
+        end
+        -- Пауза после набора: пересобирать ленту на каждую букву незачем.
+        searchToken = searchToken + 1
+        local my = searchToken
+        C_Timer.After(0.25, function()
+            if my ~= searchToken then return end
+            searchText = searchEB:GetText() or ""
+            Rebuild()
+        end)
+    end)
+    searchEB:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    SB.Logs.SetSearch = function(text)
+        searchEB:SetText(text or "")
+        searchText = text or ""
+    end
+
+    local nextBtn = SB.Theme.Button(logFrame, ">", 22, 22, "secondary")
+    nextBtn:SetPoint("TOPRIGHT", logFrame, "TOPRIGHT", -10, ROW2)
+    sessionFS = logFrame:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
+    sessionFS:SetWidth(190)
+    sessionFS:SetWordWrap(false)
+    sessionFS:SetPoint("RIGHT", nextBtn, "LEFT", -4, 0)
+    local prevBtn = SB.Theme.Button(logFrame, "<", 22, 22, "secondary")
+    prevBtn:SetPoint("RIGHT", sessionFS, "LEFT", -4, 0)
+    searchWrap:SetPoint("RIGHT", prevBtn, "LEFT", -8, 0)
+
+    --- Листать: «<» — к старым, «>» — к новым; за самой новой — «все».
+    local function StepSession(dir)
+        local list  = LS.Sessions()           -- новые сначала
+        local order = { false }               -- false — «все сессии»
+        for _, s in ipairs(list) do order[#order + 1] = s.id end
+        local idx = 1
+        for i, id in ipairs(order) do
+            if (id or nil) == sessionSel then idx = i end
+        end
+        idx = math.max(1, math.min(#order, idx + dir))
+        sessionSel = order[idx] or nil
+        Rebuild()
+    end
+    prevBtn:SetScript("OnClick", function() StepSession(1) end)
+    nextBtn:SetScript("OnClick", function() StepSession(-1) end)
+
+    -- ── Лента ────────────────────────────────────────────────
+    local box = CreateFrame("Frame", nil, logFrame, "BackdropTemplate")
+    box:SetPoint("TOPLEFT",     logFrame, "TOPLEFT",     10, ROW2 - 28)
+    box:SetPoint("BOTTOMRIGHT", logFrame, "BOTTOMRIGHT", -10, 58)
+    box:SetBackdrop(SB.Theme.BD.card)
+    box:SetBackdropColor(0.03, 0.02, 0.05, 0.85)
+    box:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
+
+    feed = CreateFrame("ScrollingMessageFrame", nil, box)
+    feed:SetPoint("TOPLEFT",     box, "TOPLEFT",     6, -6)
+    feed:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -6, 6)
+    feed:SetFontObject(ChatFontNormal)
+    feed:SetJustifyH("LEFT")
+    feed:SetFading(false)
+    feed:SetMaxLines(DISPLAY_LIMIT + 400)
+    feed:SetInsertMode("BOTTOM")
+    if feed.SetIndentedWordWrap then feed:SetIndentedWordWrap(true) end
+    feed:SetHyperlinksEnabled(true)
+    -- Любая ссылка — штатным путём: заклинание аддона разбирает хук
+    -- SetItemRef (UI/MainFrame.lua), предмет и игрок — сам клиент.
+    feed:SetScript("OnHyperlinkClick", function(self, link, text, button)
+        if link then SetItemRef(link, text, button, self) end
+    end)
+    feed:EnableMouseWheel(true)
+    -- Колесо — по три строки; с Shift — в самый верх или низ.
+    feed:SetScript("OnMouseWheel", function(self, delta)
+        if IsShiftKeyDown() then
+            if delta > 0 then self:ScrollToTop() else self:ScrollToBottom() end
+            return
+        end
+        for _ = 1, 3 do
+            if delta > 0 then self:ScrollUp() else self:ScrollDown() end
+        end
     end)
 
-    -- ── Нижняя панель ─────────────────────────────────────────
-    local clearBtn = SB.Theme.Button(logFrame, "Очистить", 65, 24, "danger")
-    clearBtn:SetPoint("BOTTOMLEFT", logFrame, "BOTTOMLEFT", 12, 10)
+    statusFS = logFrame:CreateFontString(nil, "OVERLAY", "SBFontDisableSmall")
+    statusFS:SetPoint("BOTTOMLEFT",  logFrame, "BOTTOMLEFT",  12, 42)
+    statusFS:SetPoint("BOTTOMRIGHT", logFrame, "BOTTOMRIGHT", -12, 42)
+    statusFS:SetJustifyH("LEFT")
+    statusFS:SetWordWrap(false)
+
+    -- ── Нижняя панель ────────────────────────────────────────
+    local clearBtn = SB.Theme.Button(logFrame, "Очистить", 80, 24, "danger")
+    clearBtn:SetPoint("BOTTOMLEFT", logFrame, "BOTTOMLEFT", 12, 12)
     clearBtn:SetScript("OnClick", function()
-        lastValidText = ""
-        logsEB:SetText("")
-        logsEB:HighlightText(0, 0)
-        -- Чистим и сохранённую копию: иначе очищенный лог возвращался бы
-        -- целиком на следующем /reload.
-        SaveHistory()
-        if updateLogScrollbar then updateLogScrollbar() end
+        StaticPopupDialogs["SPELLBREAKER_LOG_CLEAR"] = {
+            text = (sessionSel == nil)
+                and "Очистить весь журнал персонажа?"
+                or  ("Очистить сессию «" .. SessionTitle() .. "»?"),
+            button1 = "Очистить",
+            button2 = "Отмена",
+            OnAccept = function() LS.Clear(sessionSel) end,
+            timeout = 0, whileDead = true, hideOnEscape = true,
+        }
+        StaticPopup_Show("SPELLBREAKER_LOG_CLEAR")
     end)
 
-    local checkBg = CreateFrame("Frame", nil, logFrame, "BackdropTemplate")
-    checkBg:SetSize(205, 26)
-    checkBg:SetPoint("BOTTOMRIGHT", logFrame, "BOTTOMRIGHT", -10, 10)
-    checkBg:SetBackdrop(SB.Theme.BD.card)
-    checkBg:SetBackdropColor(0.05, 0.04, 0.08, 0.80)
-    checkBg:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
+    local copyBtn = SB.Theme.Button(logFrame, "Копировать", 96, 24, "secondary")
+    copyBtn:SetPoint("LEFT", clearBtn, "RIGHT", 6, 0)
+    copyBtn:SetScript("OnClick", ShowCopy)
 
-    local checkBox = CreateFrame("CheckButton", "SpellbreakerHideChatCheck",
-        checkBg, "UICheckButtonTemplate")
-    checkBox:SetSize(20, 20)
-    checkBox:SetPoint("LEFT", checkBg, "LEFT", 6, 0)
-    checkBox:SetChecked(HideEnabled())
-    logFrame.hideCheckbox = checkBox
-
-    local cbLabel = checkBg:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
-    cbLabel:SetPoint("LEFT", checkBox, "RIGHT", 4, 0)
-    cbLabel:SetText("Скрывать сообщения в чате игры")
-    cbLabel:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
-
-    checkBox:SetScript("OnClick", function(self)
-        if SpellbreakerAccountDB then
-            SpellbreakerAccountDB.hideSystemMessages = self:GetChecked()
-            -- Скрыть и перенаправить в журнал боя — взаимоисключающие.
-            if self:GetChecked() then
-                SpellbreakerAccountDB.combatLogMessages = false
-                if SBCombatLogChk then SBCombatLogChk:SetChecked(false) end
-            end
-        end
+    capBtn = SB.Theme.Button(logFrame, "Хранить: " .. LS.GetCapacity(), 120, 24, "secondary")
+    capBtn:SetPoint("LEFT", copyBtn, "RIGHT", 6, 0)
+    capBtn:SetScript("OnClick", function()
+        LS.SetCapacity(LS.NextCapacity())
+        UpdateStatus()
     end)
-	
-    -- Галочка «Отправлять отписи» отсюда УБРАНА и живёт теперь только в
-    -- настройках модификации (см. UI/Options.lua). Это настройка того,
-    -- как персонаж отыгрывается, а не окна логов; выставляют её один раз
-    -- и больше не трогают, а место на рабочем окне она занимала
-    -- постоянно.
-
-    -- Синхронизировать чекбокс после инициализации AceDB
-    SB.Events.On("SB_INIT", function()
-        if logFrame and logFrame.hideCheckbox then
-            logFrame.hideCheckbox:SetChecked(HideEnabled())
-        end
+    capBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("Сколько записей хранить")
+        GameTooltip:AddLine("Щелчок — следующий объём по кругу. Когда журнал " ..
+            "полон, уходят самые старые записи.", 1, 1, 1, true)
+        GameTooltip:Show()
     end)
-end
+    capBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
--- ============================================================
--- Add — добавить строку в лог
--- ============================================================
+    local downBtn = SB.Theme.Button(logFrame, "Вниз", 56, 24, "secondary")
+    downBtn:SetPoint("LEFT", capBtn, "RIGHT", 6, 0)
+    downBtn:SetScript("OnClick", function() feed:ScrollToBottom() end)
 
--- Небольшая история последних сообщений для подавления дублей —
--- одно и то же сообщение может прийти дважды разными путями
--- (например, у ПвП: локально сразу + позже отдельным LOG-пакетом).
-local recentMessages = {}   -- [cleanedText] = timeAdded
-local RECENT_WINDOW   = 4   -- секунд
-
--- Потолок объёма лога. EditBox — не бесконечный буфер: на очень длинном
--- тексте WoW начинает рисовать его с артефактами (куски строк
--- «закрашиваются», ползёт разметка). Держим последние ~24k символов,
--- обрезая СТАРЫЕ строки целиком, чтобы не разорвать цветовой код
--- |cff....|r или гиперссылку посередине — оборванный код красит собой
--- весь остаток текста, и это ровно тот эффект «закрашивания».
-local MAX_LOG_CHARS = 24000
-
-local function TrimLog(text)
-    if #text <= MAX_LOG_CHARS then return text end
-    -- Отрезаем с запасом и выравниваем срез по началу строки.
-    local cut = #text - MAX_LOG_CHARS
-    local nl  = text:find("\n", cut, true)
-    return text:sub((nl or cut) + 1)
-end
-
--- Цвет метки времени — приглушённо-серый, как у штатного таймстампа
--- в чате игры, чтобы он не спорил с телом сообщения.
-local STAMP_COLOR = "|cFF808080"
-
--- ============================================================
--- ИСТОРИЯ ЛОГА МЕЖДУ СЕССИЯМИ
---
--- Раньше лог жил только в переменной lastValidText, то есть умирал на
--- первом же /reload — а перезагружаются в бою постоянно, и вместе с
--- логом пропадала вся запись боя.
---
--- Хранится строкой ровно в том виде, в каком она лежит в EditBox:
--- с метками времени, цветами и гиперссылками. Так восстановленный
--- кусок ничем не отличается от свежего — и ссылки на заклинания в нём
--- по-прежнему кликабельны.
---
--- Место хранения — SpellbreakerCharDB (профиль ПЕРСОНАЖА, не аккаунта):
--- лог — это запись действий конкретного героя, и сваливать в одну кучу
--- журналы всех своих чаров смысла нет.
---
--- Объём ограничен тем же MAX_LOG_CHARS (~24k символов), что и сам
--- EditBox, поэтому файл SavedVariables не растёт бесконечно.
--- ============================================================
-
--- Разделитель между тем, что было до перезагрузки, и новой сессией.
--- Em dash, а не псевдографика U+2500: длинное тире шрифты клиента
--- заведомо знают (оно уже используется в подписях интерфейса), а
--- рамочные символы у них может и не оказаться.
-local SESSION_DIVIDER = STAMP_COLOR ..
-    "———————— перезагрузка интерфейса ————————|r\n"
-
-local historyLoaded = false
-
---- Подтягивает сохранённый лог в lastValidText. Идемпотентна: второй
---- вызов ничего не делает, чтобы история не задвоилась.
-function LoadHistory()
-    if historyLoaded then return end
-    -- AceDB ещё не поднялась — выходим НЕ помечая загрузку сделанной,
-    -- иначе история потерялась бы навсегда.
-    if type(SpellbreakerCharDB) ~= "table" then return end
-    historyLoaded = true
-
-    local saved = SpellbreakerCharDB.logHistory
-    if type(saved) ~= "string" or saved == "" then return end
-
-    -- lastValidText в этот момент обычно пуст, но не обязательно:
-    -- сообщение могло прийти до постройки окна. Поэтому старое
-    -- дописывается СВЕРХУ, а не затирает новое.
-    lastValidText = TrimLog(saved .. SESSION_DIVIDER .. lastValidText)
-end
-
---- Сохраняет текущий текст лога. Зовётся на каждую строку: это запись
---- в таблицу Lua, на диск игра сбрасывает её сама при выходе/reload.
-function SaveHistory()
-    if type(SpellbreakerCharDB) ~= "table" then return end
-    SpellbreakerCharDB.logHistory = lastValidText
-end
-
---- Прокрутка лога в самый низ — к свежим строкам.
-function ScrollToBottom()
-    if not logScroll then return end
-    -- Через кадр: диапазон прокрутки считается уже после того, как
-    -- EditBox разложит новый текст, и сразу после SetText он ещё нулевой.
-    C_Timer.After(0, function()
-        if not logScroll then return end
-        logScroll:SetVerticalScroll(logScroll:GetVerticalScrollRange())
-        if updateLogScrollbar then updateLogScrollbar() end
+    chatChk = CreateFrame("CheckButton", nil, logFrame, "UICheckButtonTemplate")
+    chatChk:SetSize(20, 20)
+    chatChk:SetPoint("LEFT", downBtn, "RIGHT", 8, 0)
+    chatChk:SetChecked(SB.Logs.IsChatCaptureOn())
+    chatChk:SetScript("OnClick", function(self) SB.Logs.SetChatCapture(self:GetChecked()) end)
+    local chatLbl = logFrame:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
+    chatLbl:SetPoint("LEFT", chatChk, "RIGHT", 2, 0)
+    chatLbl:SetText("Отыгрыш")
+    chatLbl:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
+    chatChk:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("Записывать отыгрыш")
+        GameTooltip:AddLine("Сказать, крик, эмоции, группа, рейд и шёпот — во " ..
+            "вкладку «Отыгрыш».", 1, 1, 1, true)
+        GameTooltip:Show()
     end)
-end
+    chatChk:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
---- Дописывает недостающие |r, если в сообщении открыто больше цветов,
---- чем закрыто.
----
---- Это ЗАЩИТА ОТ ЧУЖИХ ОШИБОК, а не основное лечение: незакрытый
---- |cXXXXXXXX красит собой весь последующий текст окна, и одна кривая
---- строка портит вид всего лога. Чинить надо в месте, где сообщение
---- собирается, но одна опечатка не должна ломать окно целиком.
-local function BalanceColors(text)
-    local opens  = select(2, text:gsub("|c%x%x%x%x%x%x%x%x", ""))
-    local closes = select(2, text:gsub("|r", ""))
-    if opens > closes then
-        text = text .. string.rep("|r", opens - closes)
+    -- ── Раскладка по ширине ──────────────────────────────────
+    local function Relayout()
+        SB.Theme.LayoutTabs(logFrame, tabs, 10, 4)
     end
-    return text
+    logFrame:SetScript("OnSizeChanged", Relayout)
+    Relayout()
+
+    logFrame:HookScript("OnShow", function()
+        if dirty then Rebuild() else UpdateStatus() end
+    end)
+
+    LS.OnChange(OnStoreChange)
+    ApplyChatCapture()
+    UpdateStatus()
 end
 
+--- Открыть журнал; text — сразу с поиском (см. «/sb log <текст>»).
+function SB.Logs.Open(text)
+    if not logFrame then return end
+    if text ~= nil and SB.Logs.SetSearch then SB.Logs.SetSearch(text) end
+    logFrame:Show()
+    Rebuild()
+end
+
+function SB.Logs.Toggle()
+    if not logFrame then return end
+    if logFrame:IsShown() then logFrame:Hide() else SB.Logs.Open() end
+end
+
+-- ============================================================
+-- Add — строка из шины LOG_MESSAGE_RECEIVED
+--
+-- Категорию решает строка: очередь ходов узнаётся по цвету (см.
+-- SB.UI.IsTurnLine), всё прочее из шины — бой.
+-- ============================================================
 function SB.Logs.Add(message)
-    if not message then return end
-    -- Проверки на logsEB здесь НЕТ намеренно: сообщение может прийти до
-    -- постройки окна (окно строится по SB_INIT), и раньше такие строки
-    -- пропадали совсем. Теперь они копятся в lastValidText и в истории,
-    -- а виджет обновляется только если он уже есть.
-    LoadHistory()
-
-    -- Очистка цветовых кодов WoW
-	local clean = message
-    clean = string.gsub(clean, "%[Система Spellbreaker%]:%s*", "")
-    clean = string.gsub(clean, "%[Spellbreaker%]:%s*", "")
-    clean = string.gsub(clean, "^%[Spellbreaker%]:%s*", "")
-
-    local now = GetTime()
-    local lastSeen = recentMessages[clean]
-    if lastSeen and (now - lastSeen) < RECENT_WINDOW then
-        return  -- дубликат — пропускаем
-    end
-    recentMessages[clean] = now
-
-    -- Раз в какое-то время чистим окно дедупа: без этого таблица росла
-    -- бы всю сессию, храня каждое когда-либо показанное сообщение.
-    if next(recentMessages) then
-        for text, seen in pairs(recentMessages) do
-            if (now - seen) > RECENT_WINDOW * 4 then
-                recentMessages[text] = nil
-            end
-        end
-    end
-
-    local stamp = STAMP_COLOR .. date("[%H:%M:%S]") .. "|r "
-    -- Накапливаем В СВОЕЙ переменной, а не через logsEB:GetText():
-    -- обратное чтение из виджета возвращает текст уже после его
-    -- внутренней обработки, и любое расхождение накапливалось бы с
-    -- каждой новой строкой.
-    lastValidText = TrimLog(lastValidText .. stamp .. BalanceColors(clean) .. "\n")
-    SaveHistory()
-
-    if not logsEB then return end
-    logsEB:SetText(lastValidText)
-    -- Сбрасываем выделение: клик/протяжка мышью по логу оставляют
-    -- подсветку, которая переживает SetText и выглядит как «закрашенные»
-    -- куски текста.
-    logsEB:HighlightText(0, 0)
-    logsEB:SetCursorPosition(logsEB:GetNumLetters())
-    if updateLogScrollbar then updateLogScrollbar() end
+    if not message or not SB.LogStore then return end
+    local cat = (SB.UI.IsTurnLine and SB.UI.IsTurnLine(message)) and "turn" or "combat"
+    SB.LogStore.Add(message, cat)
 end
-
--- ============================================================
--- Перехватчик входящих сообщений чата — ОТКЛЮЧЁН.
--- Раньше он дублировал в лог сообщения, которые аддон и так
--- доставляет через свой явный сетевой канал (BROADCAST_LOG/
--- LOG_MESSAGE_RECEIVED). Проблема: реальное SAY-сообщение и
--- версия для лога форматируются немного по-разному (цвета/ссылки),
--- поэтому текстовый дедуп в SB.Logs.Add их не ловил, и в логе
--- появлялись почти-дубли одного и того же события.
--- ============================================================
-local logListener = CreateFrame("Frame")
---[[
-for _, ev in ipairs({
-    "CHAT_MSG_EMOTE", "CHAT_MSG_TEXT_EMOTE",
-    "CHAT_MSG_SAY",
-    "CHAT_MSG_PARTY", "CHAT_MSG_PARTY_LEADER",
-    "CHAT_MSG_RAID",  "CHAT_MSG_RAID_LEADER",
-    "CHAT_MSG_SYSTEM",
-}) do logListener:RegisterEvent(ev) end
-
-logListener:SetScript("OnEvent", function(self, event, msg, sender)
-    if not msg then return end
-    if string.find(msg, "Spellbreaker", 1, true) or string.find(msg, "Система", 1, true) then
-        local short = sender and Ambiguate(sender, "none") or "Unknown"
-        if short ~= UnitName("player") then
-            SB.Logs.Add(msg)
-        end
-    end
-end)
-]]--
 
 -- ============================================================
 -- Фильтр видимого чата (подавляем системные сообщения)
@@ -427,6 +587,13 @@ C_Timer.After(1, function()
                 -- мимо проходили все строки, где тег закрыт цветом
                 -- («[Spellbreaker]|r:»), то есть почти все.
                 if text and IsOwnLine(text) then
+                    -- СВОИ СТРОКИ ЧЕРЕЗ print — В ЖУРНАЛ, в «Личное».
+                    -- Раньше они жили только в чате, а при «Скрывать» —
+                    -- нигде. Только с основного окна: print пишет туда,
+                    -- и одна строка не должна записаться дважды.
+                    if frame == DEFAULT_CHAT_FRAME and SB.LogStore then
+                        SB.LogStore.Add(text, "personal")
+                    end
                     local route = Route()
                     if route == "hide" then return end
                     if route == "combatlog" then

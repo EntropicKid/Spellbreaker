@@ -20750,6 +20750,28 @@ do
     SB.Logic.ApplyInterruptToSelf({ canCrit = true, interrupt = true })
     check("а отказавшуюся — нет", #SB.ActiveEffects.GetAll(), 1)
     SB.ActiveEffects.Clear()
+    -- ПОТОК ТОЖЕ ПРЕРЫВАЕТСЯ: держатель — концентрация заклинателя.
+    do
+        local chanSpell
+        for id, sp in pairs(SB.Data.Spells) do
+            if sp.channel and sp.channelEffect then chanSpell = sp; break end
+        end
+        checkTrue("есть потоковое заклинание", chanSpell ~= nil)
+        SB.ActiveEffects.Add(chanSpell.channelEffect, SB.Data.GetChannelUses(chanSpell), true)
+        check("держатель повешен", #SB.ActiveEffects.GetAll(), 1)
+        local heard
+        local function catch(msg) heard = msg end
+        SB.Events.On(SB.E.BROADCAST_LOG, catch)
+        SB.Logic.ApplyInterruptToSelf({ canCrit = true, interrupt = true })
+        SB.Events.Off(SB.E.BROADCAST_LOG, catch)
+        check("прерывание обрывает поток", #SB.ActiveEffects.GetAll(), 0)
+        checkTrue("и группа видит, что прерван",
+                  type(heard) == "string" and heard:find("прерван", 1, true) ~= nil)
+        local holder = SB.Data.Spells[chanSpell.channelEffect]
+        checkTrue("держатель — концентрация и для существа",
+                  SB.Logic.IsConcentration(holder))
+        SB.ActiveEffects.Clear()
+    end
 
     -- ── НЕДОСЯГАЕМОСТЬ ─────────────────────────────────────
     checkTrue("«Исчезновение» недосягаемо",
@@ -20832,6 +20854,82 @@ do
     check("клик по потоку в свободном режиме срок не тратит", Uses("t_hold"), 3)
     SB.ActiveEffects.Clear()
     _G.SpellbreakerAccountDB.realtimeEffects = wasRT
+end
+
+-- ============================================================
+-- ЖУРНАЛ: ЗАПИСИ, СЕССИИ, ПОИСК, ОБЪЁМ (Core/LogStore.lua)
+-- ============================================================
+do
+    local LS = SB.LogStore
+    local savedChar = _G.SpellbreakerCharDB
+    _G.SpellbreakerCharDB = { logHistory = "|cFF808080[10:00:00]|r Старая строка\n" ..
+        "|cFF808080———— перезагрузка интерфейса ————|r\n" ..
+        "|cFF808080[10:05:00]|r Ещё одна" }
+    local sid = LS.Begin()
+    checkTrue("сессия начата", sid ~= nil)
+    check("старый журнал перенесён без разделителя", #LS.Query(LS.Filter(nil, 0)), 2)
+    check("и обнулён", _G.SpellbreakerCharDB.logHistory, "")
+    -- Строки прогона, пришедшие до базы, дописались в сессию — так и
+    -- задумано; для проверок ниже её чистим.
+    checkTrue("строки до базы не потерялись", #LS.Query(LS.Filter(nil, sid)) > 0)
+    LS.Clear(sid)
+
+    local T = SB.Theme
+    LS.Add(T.MSG_TAG .. "[Spellbreaker]:|r " .. T.MSG_BODY .. "Мок применяет Пинок.|r", "combat")
+    LS.Add(T.MSG_TAG .. "[Spellbreaker]:|r " .. T.MSG_BODY .. "Мок применяет Пинок.|r", "combat")
+    check("дубль в окне дедупа не пишется", LS.Count(), 3)
+    LS.Add(T.MSG_TAG .. "[Spellbreaker]|r: " .. T.MSG_BODY .. "эффект спал.|r", "personal")
+    LS.Add("|cFFFFFFFFБуба говорит: Ёжик|r", "chat")
+    LS.Add("|cFFFFFFFFБуба говорит: Ёжик|r", "chat")
+    check("отыгрыш не дедупится", LS.Count(), 6)
+
+    local last = LS.Query(nil)[3]
+    checkTrue("тег аддона срезан", not last.m:find("Spellbreaker", 1, true))
+    check("по категории", #LS.Query(LS.Filter({ personal = true })), 1)
+    check("по сессии", #LS.Query(LS.Filter(nil, sid)), 4)
+    check("поиск без регистра по кириллице", #LS.Query(LS.Filter(nil, nil, "ПИНОК")), 1)
+    check("ё == е", #LS.Query(LS.Filter(nil, nil, "ежик")), 2)
+    check("поиск не видит разметку", #LS.Query(LS.Filter(nil, nil, "cFF")), 0)
+    check("предел — последние", LS.Query(nil, 1)[1].m, "|cFFFFFFFFБуба говорит: Ёжик|r")
+    check("простой текст без цветов и ссылок",
+          LS.Plain("|cFF00FF00|Hspellbreaker:x|h[Пинок]|h|r"), "[Пинок]")
+    check("две сессии в списке", #LS.Sessions(), 2)
+    check("старая — «Старый журнал»", LS.SessionLabel(LS.Sessions()[2]), "Старый журнал")
+
+    local wasCap = _G.SpellbreakerAccountDB.logCapacity
+    _G.SpellbreakerAccountDB.logCapacity = 1000
+    for i = 1, 1300 do LS.Add("строка " .. i, "combat") end
+    checkTrue("срез пачкой: не больше предела с запасом", LS.Count() <= 1000 + 250)
+    LS.SetCapacity(1000)
+    check("смена объёма режет сразу", LS.Count(), 1000)
+    check("старый журнал ушёл вместе со строками", #LS.Sessions(), 1)
+    check("следующий объём по кругу", LS.NextCapacity(), 2500)
+    _G.SpellbreakerAccountDB.logCapacity = wasCap
+
+    LS.Clear(sid)
+    check("очистка сессии", LS.Count(), 0)
+
+    SB.UI.PrintMsg("targetOutOfRange")
+    check("отказ пишется в «Личное»", #LS.Query(LS.Filter({ personal = true })), 1)
+
+    -- Окно журнала строится на заглушке и принимает строки.
+    local chunk = loadfile("UI/Logs.lua")
+    local ok, err = pcall(chunk, "Spellbreaker", SB)
+    checkTrue("UI/Logs.lua грузится: " .. tostring(err), ok)
+    ok, err = pcall(SB.Logs.BuildFrame)
+    checkTrue("окно журнала строится: " .. tostring(err), ok)
+    ok, err = pcall(SB.Logs.Add, T.MSG_TAG .. "[Spellbreaker]:|r " .. T.MSG_TURN .. "Ходит: Мок.|r")
+    checkTrue("строка в открытое окно: " .. tostring(err), ok)
+    check("строка очереди — в «Очередь»", #LS.Query(LS.Filter({ turn = true })), 1)
+    ok, err = pcall(SB.Logs.Open, "мок")
+    checkTrue("открытие с поиском: " .. tostring(err), ok)
+    local line = SB.Logs.FormatChat("CHAT_MSG_SAY", "Привет", "Буба-Сервер")
+    checkTrue("реплика отыгрыша собирается", line and line:find("говорит: Привет", 1, true))
+    check("строки аддона в отыгрыш не идут",
+          SB.Logs.FormatChat("CHAT_MSG_PARTY", "[Spellbreaker]: x", "Буба"), nil)
+    checkTrue("ChatPrint на месте", SB.Logs.ChatPrint ~= nil)
+    LS.Clear()
+    _G.SpellbreakerCharDB = savedChar
 end
 
 -- ============================================================

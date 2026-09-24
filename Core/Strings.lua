@@ -861,6 +861,9 @@ function SB.UI.PrintMsg(key)
     -- см. SB.Logs.ChatPrint), а окна логов может ещё не быть — тогда
     -- по-старому.
     if SB.Logs and SB.Logs.ChatPrint then SB.Logs.ChatPrint(msg) else print(msg) end
+    -- В журнал, в «Личное»: отказ, скрытый в чате, не должен пропадать
+    -- совсем (см. Core/LogStore.lua).
+    if SB.LogStore and SB.LogStore.Add then SB.LogStore.Add(msg, "personal") end
 end
 
 -- ============================================================
