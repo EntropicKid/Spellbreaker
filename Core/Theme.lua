@@ -1620,6 +1620,152 @@ function SB.Theme.Input(parent, placeholder, w, h)
 end
 
 -- ============================================================
+-- СТРОИТЕЛЬНЫЕ БЛОКИ ВИДЖЕТОВ
+--
+-- Окна аддона собирались каждое по-своему: кнопки где пришлось, подписи
+-- на глаз, пустые поля под «запас». Эти четыре блока задают один язык:
+--
+--   Inset          — секция на фоне карточки (тот же материал, что у
+--                    карточек заклинаний): что сгруппировано — лежит на
+--                    одной подложке;
+--   SectionHeader  — золотая подпись секции и латунная черта до края;
+--   LayoutRow      — ряд виджетов РАВНОЙ ширины во всю строку: кнопки
+--                    действий не «где поместились», а сеткой;
+--   Segmented      — переключатель из нескольких состояний в одну
+--                    полосу (вместо кнопки, которая по кругу меняет
+--                    подпись и не показывает, что ещё бывает).
+--
+-- Общие размеры — WIDGET.*: отступ от рамки, зазор между виджетами,
+-- высота строки. Окна считают свою высоту от них, а не держат запас.
+-- ============================================================
+SB.Theme.WIDGET = { PAD = 10, GAP = 6, ROW = 22, BTN = 24 }
+
+--- Секция на фоне карточки.
+function SB.Theme.Inset(parent, alpha)
+    local f = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    f:SetBackdrop(BD.card)
+    f:SetBackdropColor(C.cardBg[1], C.cardBg[2], C.cardBg[3], alpha or 0.9)
+    f:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.55)
+    return f
+end
+
+--- Подпись секции с чертой до правого края parent.
+--- @param right number|nil  отступ черты от правого края (по умолчанию PAD)
+function SB.Theme.SectionHeader(parent, text, right)
+    local fs = parent:CreateFontString(nil, "OVERLAY", "SBFontNormal")
+    fs:SetText(text)
+    fs:SetTextColor(C.accent[1], C.accent[2], C.accent[3])
+    local line = parent:CreateTexture(nil, "ARTWORK")
+    line:SetHeight(1)
+    line:SetColorTexture(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.45)
+    line:SetPoint("LEFT", fs, "RIGHT", 8, 0)
+    line:SetPoint("RIGHT", parent, "RIGHT", -(right or SB.Theme.WIDGET.PAD), 0)
+    return fs, line
+end
+
+--- Мелкая приглушённая подпись над полем («Уровень», «Ресурс»).
+function SB.Theme.Caption(parent, text)
+    local fs = parent:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
+    fs:SetText(text)
+    fs:SetJustifyH("LEFT")
+    fs:SetWordWrap(false)
+    fs:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
+    return fs
+end
+
+--- Разложить виджеты в ряд равной ширины.
+--- @param point  string  "TOPLEFT" | "BOTTOMLEFT" — к какому углу parent
+--- @param x, y   number  смещение первого виджета от этого угла
+--- @param width  number  ширина всего ряда
+function SB.Theme.LayoutRow(parent, widgets, point, x, y, width, gap)
+    gap = gap or SB.Theme.WIDGET.GAP
+    local n = #widgets
+    if n == 0 then return end
+    local w = math.floor((width - gap * (n - 1)) / n)
+    local extra = width - gap * (n - 1) - w * n
+    for i, wd in ipairs(widgets) do
+        wd:SetWidth(w + ((i == n) and extra or 0))
+        wd:ClearAllPoints()
+        if i == 1 then
+            wd:SetPoint(point, parent, point, x, y)
+        else
+            wd:SetPoint("LEFT", widgets[i - 1], "RIGHT", gap, 0)
+        end
+    end
+end
+
+--- Сегмент-переключатель: одна полоса, активное — золотом.
+--- @return Frame  с методами :SetSelected(i, silent) и :GetSelected()
+function SB.Theme.Segmented(parent, labels, w, h, onPick)
+    local box = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    box:SetSize(w or 200, h or 22)
+    box:SetBackdrop(BD.input)
+    box:SetBackdropColor(C.inputBg[1], C.inputBg[2], C.inputBg[3], C.inputBg[4])
+    box:SetBackdropBorderColor(C.inputBd[1], C.inputBd[2], C.inputBd[3], C.inputBd[4])
+
+    local segs, selected = {}, 1
+    local function Paint()
+        for i, sg in ipairs(segs) do
+            local on = (i == selected)
+            sg.bg:SetShown(on)
+            sg.line:SetShown(on)
+            local col = on and C.accent or C.textDim
+            sg.text:SetTextColor(col[1], col[2], col[3])
+        end
+    end
+    function box:SetSelected(i, silent)
+        selected = i
+        Paint()
+        if not silent and onPick then onPick(i) end
+    end
+    function box:GetSelected() return selected end
+
+    local function Layout()
+        local n = #segs
+        local inner = box:GetWidth() - 4
+        local sw = inner / n
+        for i, sg in ipairs(segs) do
+            sg:ClearAllPoints()
+            sg:SetPoint("TOPLEFT", box, "TOPLEFT", 2 + (i - 1) * sw, -2)
+            sg:SetSize(sw, box:GetHeight() - 4)
+            sg.sep:SetShown(i < n)
+        end
+    end
+
+    for i, text in ipairs(labels) do
+        local sg = CreateFrame("Button", nil, box)
+        sg.bg = sg:CreateTexture(nil, "BACKGROUND")
+        sg.bg:SetAllPoints()
+        sg.bg:SetColorTexture(C.accent[1], C.accent[2], C.accent[3], 0.16)
+        sg.line = sg:CreateTexture(nil, "ARTWORK")
+        sg.line:SetColorTexture(C.accent[1], C.accent[2], C.accent[3], 1)
+        sg.line:SetHeight(2)
+        sg.line:SetPoint("BOTTOMLEFT", sg, "BOTTOMLEFT", 3, 0)
+        sg.line:SetPoint("BOTTOMRIGHT", sg, "BOTTOMRIGHT", -3, 0)
+        sg.sep = sg:CreateTexture(nil, "ARTWORK")
+        sg.sep:SetColorTexture(C.divider[1], C.divider[2], C.divider[3], 0.8)
+        sg.sep:SetWidth(1)
+        sg.sep:SetPoint("TOPRIGHT", sg, "TOPRIGHT", 0, -3)
+        sg.sep:SetPoint("BOTTOMRIGHT", sg, "BOTTOMRIGHT", 0, 3)
+        local hl = sg:CreateTexture(nil, "HIGHLIGHT")
+        hl:SetAllPoints()
+        hl:SetColorTexture(1, 0.9, 0.7, 0.06)
+        sg.text = sg:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
+        sg.text:SetAllPoints()
+        sg.text:SetText(text)
+        sg:SetScript("OnClick", function()
+            SB.Theme.PlaySound("click")
+            box:SetSelected(i)
+        end)
+        segs[i] = sg
+    end
+    box:SetScript("OnSizeChanged", Layout)
+    Layout()
+    Paint()
+    return box
+end
+
+-- ============================================================
 -- SB.Theme.Dropdown — СЕЛЕКТОР
 --
 -- Один на весь аддон: класс в библиотеке, класс, ресурс и фракция в

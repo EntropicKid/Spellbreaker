@@ -126,49 +126,73 @@ end
 -- ОКНО ПОДТВЕРЖДЕНИЯ
 -- ============================================================
 
+-- ============================================================
+-- ВИД ОКНА — ВИДЖЕТ ИЗ ТРЁХ ЯРУСОВ
+--
+--   1. ЧТО: карточка «иконка · кто · что применяет»;
+--   2. КОГО: строка счёта с галочкой «все» справа и ряд «В цели / Себя»;
+--   3. ИТОГ: «Отмена / Применить» во всю ширину.
+--
+-- Раньше подписи, галочка и две пары кнопок стояли столбиком каждая со
+-- своим отступом, и глазу не за что было зацепиться. Высота теперь
+-- считается от ярусов: у самокаста второго яруса нет, и окно ниже.
+-- ============================================================
+local W = 250
+local PAD, GAP, BTN = SB.Theme.WIDGET.PAD, SB.Theme.WIDGET.GAP, SB.Theme.WIDGET.BTN
+local HEAD_H = 40
+
 local function Build()
     if built then return end
     built = true
 
     panel = SB.Theme.Frame("SpellbreakerNpcCastFrame", UIParent,
-                           "Способность существа", 260, 164, "gm")
+                           "Способность существа", W, 170, "gm")
     SB.Theme.AttachPositionMemory(panel, "npcCastPos", 0, 120)
 
-    panel.what = panel:CreateFontString(nil, "OVERLAY", "SBFontHighlight")
-    panel.what:SetPoint("TOPLEFT",  panel, "TOPLEFT",  12, panel.contentY - 6)
-    panel.what:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -12, panel.contentY - 6)
+    -- ── 1. Что ───────────────────────────────────────────
+    local head = SB.Theme.Inset(panel)
+    head:SetPoint("TOPLEFT", panel, "TOPLEFT", PAD, panel.contentY - 6)
+    head:SetSize(W - PAD * 2, HEAD_H)
+    panel.icon = head:CreateTexture(nil, "ARTWORK")
+    panel.icon:SetSize(28, 28)
+    panel.icon:SetPoint("LEFT", head, "LEFT", 6, 0)
+    panel.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    panel.who = head:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
+    panel.who:SetPoint("TOPLEFT", panel.icon, "TOPRIGHT", 8, -1)
+    panel.who:SetPoint("RIGHT", head, "RIGHT", -6, 0)
+    panel.who:SetJustifyH("LEFT")
+    panel.who:SetWordWrap(false)
+    panel.what = head:CreateFontString(nil, "OVERLAY", "SBFontNormal")
+    panel.what:SetPoint("BOTTOMLEFT", panel.icon, "BOTTOMRIGHT", 8, 1)
+    panel.what:SetPoint("RIGHT", head, "RIGHT", -6, 0)
     panel.what:SetJustifyH("LEFT")
-    panel.what:SetWordWrap(true)
+    panel.what:SetWordWrap(false)
 
-    panel.count = panel:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
-    panel.count:SetPoint("TOPLEFT", panel.what, "BOTTOMLEFT", 0, -6)
-    panel.count:SetJustifyH("LEFT")
-
+    -- ── 2. Кого ──────────────────────────────────────────
     -- «Все» — галочкой, а не кнопкой: это состояние («задеты все»), и
-    -- снимать его надо тем же движением, каким поставили.
+    -- снимать его надо тем же движением, каким поставили. Справа в
+    -- строке счёта: она про то же самое.
+    panel.allFS = panel:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
+    panel.allFS:SetPoint("TOPRIGHT", head, "BOTTOMRIGHT", -2, -10)
+    panel.allFS:SetText("Все")
     panel.allChk = CreateFrame("CheckButton", nil, panel, "UICheckButtonTemplate")
-    panel.allChk:SetSize(22, 22)
-    panel.allChk:SetPoint("TOPLEFT", panel.count, "BOTTOMLEFT", -4, -6)
+    panel.allChk:SetSize(20, 20)
+    panel.allChk:SetPoint("RIGHT", panel.allFS, "LEFT", 0, 0)
     panel.allChk:SetScript("OnClick", function(self)
         SB.NpcCast.SetAll(self:GetChecked() and true or false)
     end)
 
-    panel.allFS = panel:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
-    panel.allFS:SetPoint("LEFT", panel.allChk, "RIGHT", 2, 0)
-    panel.allFS:SetText("Задеть всех")
+    panel.count = panel:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
+    panel.count:SetPoint("TOPLEFT", head, "BOTTOMLEFT", 2, -10)
+    panel.count:SetPoint("RIGHT", panel.allChk, "LEFT", -4, 0)
+    panel.count:SetJustifyH("LEFT")
+    panel.count:SetWordWrap(false)
 
-    -- ── ДВА БЫСТРЫХ СПОСОБА ОТМЕТИТЬ ─────────────────────
-    --
     -- «В ЦЕЛИ» — потому что рамками неудобно ровно там, где это нужнее
     -- всего: в рейде на сорок человек Ведущий ищет нужную табличку
-    -- глазами, а цель у него и так взята. Кнопка берёт того, кто СЕЙЧАС
-    -- в таргете, и ей всё равно, игрок это или существо: у игрока адрес
-    -- — имя, у существа — ключ спавна, а нажатие одно и то же.
-    --
-    -- Это же и есть удар существа по существу: взял в цель волка,
-    -- нажал — волк под залпом.
-    panel.targetBtn = SB.Theme.Button(panel, "В цели", 76, 20, "secondary")
-    panel.targetBtn:SetPoint("TOPLEFT", panel.allChk, "BOTTOMLEFT", 4, -4)
+    -- глазами, а цель у него и так взята. Игрок это или существо —
+    -- кнопке всё равно: у игрока адрес — имя, у существа — ключ спавна.
+    panel.targetBtn = SB.Theme.Button(panel, "В цели", 100, BTN - 2, "secondary")
     panel.targetBtn:SetScript("OnClick", function()
         if not UnitExists("target") then
             print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BAD ..
@@ -182,32 +206,38 @@ local function Build()
         end
     end)
 
-    -- «СЕБЯ» — самолечение и собственный оберег. Через «в цели» это
-    -- тоже достижимо, но требует взять в цель самого заклинателя, то
-    -- есть потерять ту цель, по которой Ведущий и работает.
-    panel.selfBtn = SB.Theme.Button(panel, "Себя", 76, 20, "secondary")
-    panel.selfBtn:SetPoint("LEFT", panel.targetBtn, "RIGHT", 6, 0)
+    -- «СЕБЯ» — самолечение и собственный оберег, не теряя цели.
+    panel.selfBtn = SB.Theme.Button(panel, "Себя", 100, BTN - 2, "secondary")
     panel.selfBtn:SetScript("OnClick", function()
         SB.NpcCast.ToggleSelf()
     end)
+    SB.Theme.LayoutRow(panel, { panel.targetBtn, panel.selfBtn }, "TOPLEFT",
+        PAD, panel.contentY - 6 - HEAD_H - 34, W - PAD * 2)
 
-    panel.castBtn = SB.Theme.Button(panel, "Применить", 96, 24, "primary")
-    panel.castBtn:SetPoint("BOTTOMRIGHT", panel, "BOTTOM", -4, 10)
-    panel.castBtn:SetScript("OnClick", function()
-        SB.NpcCast.Confirm()
-    end)
-
-    panel.cancelBtn = SB.Theme.Button(panel, "Отмена", 96, 24, "secondary")
-    panel.cancelBtn:SetPoint("BOTTOMLEFT", panel, "BOTTOM", 4, 10)
+    -- ── 3. Итог ──────────────────────────────────────────
+    panel.cancelBtn = SB.Theme.Button(panel, "Отмена", 100, BTN, "secondary")
     panel.cancelBtn:SetScript("OnClick", function()
         SB.NpcCast.Cancel()
     end)
+    panel.castBtn = SB.Theme.Button(panel, "Применить", 100, BTN, "primary")
+    panel.castBtn:SetScript("OnClick", function()
+        SB.NpcCast.Confirm()
+    end)
+    SB.Theme.LayoutRow(panel, { panel.cancelBtn, panel.castBtn }, "BOTTOMLEFT",
+        PAD, PAD, W - PAD * 2)
 
     -- Крестик окна — это отмена, а не «спрятать»: оставленная в памяти
     -- подготовка с накрытыми целями выстрелила бы неизвестно когда.
     panel:HookScript("OnHide", function()
         if SB.NpcCast.IsActive() then SB.NpcCast.Cancel() end
     end)
+end
+
+-- Высота окна по ярусам: шапка, строка счёта, [ряд целей], итог.
+local function PanelHeight(withTargets)
+    local h = -panel.contentY + 6 + HEAD_H + 10 + 14 + 8
+    if withTargets then h = h + (BTN - 2) + 10 end
+    return h + BTN + PAD
 end
 
 local function RefreshPanel()
@@ -219,8 +249,9 @@ local function RefreshPanel()
 
     Build()
     local sp = SB.Data.Spells[spellID]
-    panel.what:SetText(string.format("|cFFFFD100%s|r применяет |cFFFFD100%s|r",
-        npcName, (sp and sp.name) or spellID or "?"))
+    panel.icon:SetTexture((sp and sp.icon) or "Interface\\Icons\\INV_Misc_QuestionMark")
+    panel.who:SetText(npcName .. " применяет")
+    panel.what:SetText("|cFFFFD100" .. ((sp and sp.name) or spellID or "?") .. "|r")
 
     -- САМОКАСТ — ОТДЕЛЬНЫЙ ВИД ОКНА: ни счётчика целей, ни галочки «на
     -- всех». Стойка ложится на само существо, и вопрос «кого задеть» у
@@ -232,6 +263,7 @@ local function RefreshPanel()
         panel.targetBtn:Hide()
         panel.selfBtn:Hide()
         panel.castBtn:Enable()
+        panel:SetHeight(PanelHeight(false))
         panel:Show()
         return
     end
@@ -239,6 +271,7 @@ local function RefreshPanel()
     panel.allFS:Show()
     panel.targetBtn:Show()
     panel.selfBtn:Show()
+    panel:SetHeight(PanelHeight(true))
     -- Кнопка «Себя» — переключатель, и надпись говорит, что случится по
     -- нажатию: иначе отмеченного заклинателя видно только по счётчику.
     panel.selfBtn:SetText(SB.NpcCast.IsSelfSelected() and "Снять себя" or "Себя")
@@ -251,7 +284,7 @@ local function RefreshPanel()
     local mobs  = SB.NpcCast.NpcTargetNames()
     local line
     if n == 0 then
-        line = "|cFFFF6666Никто не отмечен|r — рамки, «В цели» или «Себя»."
+        line = "|cFFFF6666Никто не отмечен|r — рамки или кнопки ниже"
     else
         line = string.format("Задето: |cFFFFD100%d|r", n)
         if #mobs > 0 then

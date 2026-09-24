@@ -1418,15 +1418,13 @@ function SB.Library.BuildFrame()
 
     -- Скролл
     local sf
-    -- Тёмная вставка под списком — как лента журнала. Полоса прокрутки
-    -- по-прежнему снаружи окна (см. SB.Theme.AttachScrollbar).
+    -- Подложка списка — материал карточки (SB.Theme.Inset), как у секций
+    -- остальных окон. Полоса прокрутки по-прежнему снаружи окна
+    -- (см. SB.Theme.AttachScrollbar).
     local listTop = TOOLBAR_Y - 32
-    local box = CreateFrame("Frame", nil, libFrame, "BackdropTemplate")
+    local box = SB.Theme.Inset(libFrame, 0.95)
     box:SetPoint("TOPLEFT",     libFrame, "TOPLEFT",     10, listTop)
     box:SetPoint("BOTTOMRIGHT", libFrame, "BOTTOMRIGHT", -10, 44)
-    box:SetBackdrop(SB.Theme.BD.card)
-    box:SetBackdropColor(0.03, 0.02, 0.05, 0.80)
-    box:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
     sf, scrollChild = SB.Theme.Scroll(libFrame, 15, listTop - 5, -15, 49)
     libFrame._scrollFrame = sf
 
