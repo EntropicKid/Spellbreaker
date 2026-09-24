@@ -966,6 +966,12 @@ function SB.UI.UpdateGMPlayers()
         activeEffects  = myEffects,
 })
     for name, data in pairs(SB.Data.PlayersStatus or {}) do
+      -- ТОЛЬКО СОСТАВ ГРУППЫ. В PlayersStatus лежат и посторонние: те,
+      -- кого брали в цель или слышали в чате (фоновое знакомство), и
+      -- запомненные с прошлых сессий. Им место на рамке цели, а не в
+      -- списке Ведущего: выдавать ресурсы и вести очередь он может только
+      -- своей группе.
+      if SB.Net and SB.Net.GetUnitByName and SB.Net.GetUnitByName(name) then
         table.insert(allPlayers, {
             name           = name,
             class          = data.class,
@@ -977,6 +983,7 @@ function SB.UI.UpdateGMPlayers()
             preparedSpells = data.preparedSpells or {},
             activeEffects  = data.activeEffects  or {},
         })
+      end
     end
 
     -- ПОРЯДОК СПИСКА В ПОШАГОВОМ РЕЖИМЕ — по очереди хода, а не по

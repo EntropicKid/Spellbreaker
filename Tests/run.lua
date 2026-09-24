@@ -5275,6 +5275,35 @@ do
         checkTrue("а соседа бьёт", SB.NPC.GetState("focus").hp < 50)
         SB.Data.Spells["t_npc_holyshock"] = nil
 
+        -- ── ЛЕКАРЬ ЛЕЧИТ СОСЕДА, КОГДА ЦЕЛЬ УЖЕ НЕ У НЕГО ────
+        --
+        -- Жалоба Ведущих: «существа не могут лечить друг друга». Чтобы
+        -- отметить соседа, Ведущий берёт его в цель — и «target» больше
+        -- не лекарь. Раньше цена списывалась с соседа (у воина маны нет),
+        -- а «Себя» отмечало его же.
+        do
+            local healerUnit = stub.world.units["target"]
+            local healer = SB.NPC.GetState("target")
+            healer.res, healer.maxRes = 9, 9
+            SB.NpcCast.Begin("target", "t_npc_heal")
+            -- Ведущий переключил цель на раненого соседа без маны…
+            stub.world.units["target"] = { name = "Раненый воин", level = 10, npc = true,
+                creatureType = "Гуманоид", guid = "Creature-0-970-0-11-4244-00CC03" }
+            local wounded = SB.NPC.GetState("target")
+            wounded.maxHp, wounded.hp, wounded.res, wounded.maxRes = 40, 5, 0, 0
+            SB.NpcCast.ToggleNpc("target")
+            checkTrue("«Себя» — это всё ещё лекарь", not SB.NpcCast.IsSelfSelected())
+            -- …а потом и вовсе снял цель: лекаря не видно нигде.
+            stub.world.units["target"] = nil
+            local ok = SB.NpcCast.Confirm()
+            checkTrue("лечение соседа прошло", ok)
+            stub.world.units["target"] = { name = "Раненый воин", level = 10, npc = true,
+                creatureType = "Гуманоид", guid = "Creature-0-970-0-11-4244-00CC03" }
+            checkTrue("сосед вылечен", SB.NPC.GetState("target").hp > 5)
+            stub.world.units["target"] = healerUnit
+            checkTrue("цена списана с лекаря", SB.NPC.GetState("target").res < 9)
+        end
+
         -- ── ИГРОКА ЭТОТ ПУТЬ НЕ БЕРЁТ ──────────────────────
         -- У игрока свой адрес и своя доставка; попади он сюда — удар
         -- посчитали бы за него мы, а не он сам.

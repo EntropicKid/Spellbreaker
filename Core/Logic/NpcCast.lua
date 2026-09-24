@@ -83,6 +83,30 @@ end
 SB.NpcCast.UnitForKey = UnitForKey
 
 --- Отмечено ли существо, доступное этим юнитом.
+--- ЮНИТ ОСОБИ ПО КЛЮЧУ — ЖИВОЙ, А ЕСЛИ ЕЁ НЕ ВИДНО, ТО «ПО КЛЮЧУ».
+---
+--- Особь, которую не найти ни в цели, ни на табличке, всё равно есть:
+--- её состояние лежит у нас по ключу. Для такой отдаём виртуальный юнит
+--- (см. SB.NPC.VIRTUAL_UNIT) — его понимает всё, что работает с
+--- состоянием особи.
+local function UnitOrKey(key, hint)
+    if not key then return nil end
+    return UnitForKey(key, hint) or ((SB.NPC.VIRTUAL_UNIT or "sbkey:") .. key)
+end
+
+--- ЗАКЛИНАТЕЛЬ — ПО КЛЮЧУ, А НЕ ПО «target».
+---
+--- Жалоба Ведущих: «существа не могут лечить друг друга». Заклинатель
+--- хранился юнит-токеном — «target» на момент выбора способности. Чтобы
+--- отметить лечимого, Ведущий берёт ЕГО в цель, и с этого мига «target»
+--- указывал уже на лечимого: цена списывалась с него (у воина маны нет —
+--- «нужно 2, есть 0»), кнопка «Себя» отмечала его же, а бросок шёл с его
+--- эффектами. Теперь заклинатель находится заново по ключу особи.
+local function CasterUnit()
+    if not pending then return nil end
+    return UnitOrKey(pending.key, pending.unit) or pending.unit
+end
+
 function SB.NpcCast.IsNpcSelected(unit)
     if not pending or not unit then return false end
     local key = SB.NPC.SpawnKey(unit)
@@ -123,7 +147,11 @@ function SB.NpcCast.ToggleNpc(unit)
         -- ИМЯ ЗАПОМИНАЕМ СРАЗУ, а не читаем при подтверждении: в лог
         -- должно уйти имя того, кого отметили, — та же причина, по
         -- которой запоминается сам заклинатель.
-        pending.npcTargets[key] = { name = UnitName(unit) or "Существо", unit = unit }
+        -- И ХАРАКТЕРИСТИКИ — тоже сейчас: у шаблонного существа уровень
+        -- и вид берутся у живого юнита, а к подтверждению его может уже
+        -- не быть в цели (см. UnitOrKey).
+        pending.npcTargets[key] = { name = UnitName(unit) or "Существо", unit = unit,
+                                    stats = SB.NPC.StatsForUnit(unit) }
     end
     SB.Events.Fire(SB.E.NPC_CAST_CHANGED)
 end
@@ -135,22 +163,21 @@ end
 --- неё через «возьми себя в цель» неудобно ровно тогда, когда некогда.
 function SB.NpcCast.ToggleSelf()
     if not pending then return end
-    local unit = pending.unit
-    local key  = unit and SB.NPC.SpawnKey(unit)
+    local key = pending.key
     if not key then return end
     if pending.npcTargets[key] then
         pending.npcTargets[key] = nil
     else
-        pending.npcTargets[key] = { name = pending.npcName, unit = unit }
+        pending.npcTargets[key] = { name = pending.npcName, unit = CasterUnit(),
+                                    stats = pending.stats }
     end
     SB.Events.Fire(SB.E.NPC_CAST_CHANGED)
 end
 
 --- Отмечен ли сам заклинатель.
 function SB.NpcCast.IsSelfSelected()
-    if not pending or not pending.unit then return false end
-    local key = SB.NPC.SpawnKey(pending.unit)
-    return key ~= nil and pending.npcTargets[key] ~= nil
+    if not pending or not pending.key then return false end
+    return pending.npcTargets[pending.key] ~= nil
 end
 
 --- Имена отмеченных существ, для подписи окна.
@@ -187,6 +214,10 @@ function SB.NpcCast.Begin(unit, spellID)
         SB.UI.PrintMsg("npcCastNoStats")
         return false
     end
+    -- Состояние заводим СЕЙЧАС, пока заклинатель в цели: к
+    -- подтверждению его может уже не быть видно, а по ключу найдётся
+    -- только то, что уже заведено (см. CasterUnit).
+    if SB.NPC.GetState then SB.NPC.GetState(unit) end
 
     -- ЦЕЛЬ ЗАПОМИНАЕМ СРАЗУ И ЦЕЛИКОМ. Пока Ведущий отмечает игроков, он
     -- почти наверняка перещёлкает таргет — по рамкам он и кликает. Держи
@@ -196,6 +227,9 @@ function SB.NpcCast.Begin(unit, spellID)
         npcName = UnitName(unit) or stats.name or "Существо",
         npcID   = SB.NPC.UnitNpcID and SB.NPC.UnitNpcID(unit) or nil,
         unit    = unit,
+        -- Ключ особи — по нему заклинатель находится к подтверждению,
+        -- куда бы ни ушла цель (см. CasterUnit).
+        key     = SB.NPC.SpawnKey(unit),
         stats   = stats,
         spellID = spellID,
         targets = {},
@@ -423,7 +457,9 @@ function SB.NpcCast.Confirm()
     -- и тест поймал: списание стояло выше проверки целей, поэтому
     -- отменённый залп (никого не отметили) всё равно снимал ресурс.
     -- Существо платило за несостоявшееся действие.
-    local afford, have, need = SB.NpcCast.CanAfford(pending.stats, pending.unit, spell)
+    -- Заклинатель — по ключу: «target» к этому мигу мог уйти на цель.
+    local caster = CasterUnit()
+    local afford, have, need = SB.NpcCast.CanAfford(pending.stats, caster, spell)
     if not afford then
         print(SB.Theme.MSG_BAD .. "[Spellbreaker]: " .. pending.npcName ..
               " не может применить «" .. (spell.name or pending.spellID) ..
@@ -435,7 +471,7 @@ function SB.NpcCast.Confirm()
     --- целям, — но только после того, как применение состоялось.
     local function PayCost()
         if need > 0 and SB.NPC.AdjustResource then
-            SB.NPC.AdjustResource(pending.unit, -need)
+            SB.NPC.AdjustResource(caster, -need)
         end
     end
 
@@ -453,7 +489,7 @@ function SB.NpcCast.Confirm()
             -- руки, а не свой навык (то же правило, что в SB.Net.SendBuff).
             -- Без числа GetEffectDuration принял бы это за свой каст.
             local turns = SB.Logic.GetEffectDuration(effectID, spell, spell.level, 0)
-            landed = SB.NPC.AddEffect(pending.unit, effectID, turns)
+            landed = SB.NPC.AddEffect(caster, effectID, turns)
         end
         SB.Events.Fire(SB.E.BROADCAST_LOG,
             SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. pending.npcName ..
@@ -477,9 +513,11 @@ function SB.NpcCast.Confirm()
     -- к этому мигу уже могла указывать на соседа (см. UnitForKey).
     local npcs = {}
     -- Ключ самого заклинателя: по нему цикл по существам узнаёт «себя».
-    local selfKey = pending.unit and SB.NPC.SpawnKey(pending.unit)
+    local selfKey = pending.key
     for key, t in pairs(pending.npcTargets) do
-        npcs[#npcs + 1] = { unit = UnitForKey(key, t.unit), name = t.name, key = key }
+        -- Не видно особь — работаем с ней по ключу (см. UnitOrKey).
+        npcs[#npcs + 1] = { unit = UnitOrKey(key, t.unit), name = t.name, key = key,
+                            stats = t.stats }
     end
     table.sort(npcs, function(a, b) return a.name < b.name end)
 
@@ -498,7 +536,7 @@ function SB.NpcCast.Confirm()
         lone = names[1] or (npcs[1] and npcs[1].name)
     end
     local roll, mod, total, isCrit, dmgBonus, baseDmg =
-        SB.NpcCast.RollFor(pending.stats, pending.unit, spell, lone)
+        SB.NpcCast.RollFor(pending.stats, caster, spell, lone)
 
     local me         = UnitName("player")
     local guaranteed = SB.Logic.IsGuaranteed(spell)
@@ -623,7 +661,10 @@ function SB.NpcCast.Confirm()
     for _, t in ipairs(npcs) do
         local unit, nm = t.unit, t.name
         local st = SB.NPC.GetState and SB.NPC.GetState(unit)
-        local nstats = SB.NPC.StatsForUnit and SB.NPC.StatsForUnit(unit)
+        -- Живой юнит — свежие характеристики; по ключу — запомненные при
+        -- отметке (шаблонному нужен уровень живого юнита).
+        local nstats = (UnitExists(unit) and SB.NPC.StatsForUnit(unit))
+                       or t.stats or SB.NPC.StatsForUnit(unit)
         -- САМ СЕБЕ СОЮЗНИК. Двойное заклинание («Шок небес»: союзника
         -- лечит, врага жжёт) шло по существу одной веткой — ударом, —
         -- потому что канал урона проверяется первым (см. KindOf). Самого
