@@ -226,7 +226,15 @@ local SURFACES = {
     -- пересечениях. Период ромба (64 px) делит 512, поэтому плитка
     -- бесшовная; тайл 256 даёт ромб в 32 px — как у прежнего файла.
     -- Цвет уже в файле, подкраска нейтральная.
-    column  = { tex = MEDIA .. "Quilt.tga", tint = { 1, 1, 1, 1 }, tileSize = 256 },
+    column  = { tex = MEDIA .. "Tome.tga", tint = { 1, 1, 1, 1 }, tileSize = 512 },
+    -- Стёганое полотно — у окон-форм: редактор существа, создание
+    -- заклинания и эффекта.
+    quilt   = { tex = MEDIA .. "Quilt.tga", tint = { 1, 1, 1, 1 }, tileSize = 256 },
+    -- ПЕРГАМЕНТ (Assets\Parchment.tga) — тёмный старый велен: пятна
+    -- старения, потёки, волокна вдоль и поперёк. Тёмный намеренно:
+    -- текст аддона светлый. Список библиотеки («листаешь книгу») и
+    -- карточка заклинания («смотришь свиток»).
+    parchment = { tex = MEDIA .. "Parchment.tga", tint = { 1, 1, 1, 1 }, tileSize = 512, vignette = true },
     -- КНИГА ЗАКЛИНАНИЙ — КОЖАНЫЙ ПЕРЕПЛЁТ. Здесь стояло то же полотно,
     -- что у колонок, отличаясь от них одной лишь подкраской, — и
     -- библиотека читалась как ещё одна панель того же окна. Она не
@@ -253,7 +261,7 @@ local SURFACES = {
     -- ей правильнее как часть той же книги, а не как третий материал
     -- в одном окне. Тот же материал достаётся и редактору существа
     -- (UI/NPCEditor.lua) — всему, что раньше брало эту поверхность.
-    detail  = { tex = MEDIA .. "Tome.tga", tint = { 1, 1, 1, 1 }, tileSize = 512, vignette = true },
+    detail  = { tex = MEDIA .. "Parchment.tga", tint = { 1, 1, 1, 1 }, tileSize = 512, vignette = true },
 }
 SB.Theme.Surfaces = SURFACES
 
@@ -290,7 +298,7 @@ local BD = {
 		bgFile   = SB.Theme.Surface("column").tex,
 		edgeFile = SB.Theme.Tex("ColumnEdge", "Interface\\Tooltips\\UI-Tooltip-Border"),
 		tile = true,
-		tileSize = 256,
+		tileSize = 512,
 		edgeSize = 12,
 		insets = { left = 3, right = 3, top = 3, bottom = 3 },
 	},
@@ -344,6 +352,24 @@ local BD = {
 }
 
 SB.Theme.BD = BD
+
+-- ============================================================
+-- РАЗДЕЛИТЕЛЬ — ЛАТУННАЯ ПОЛОСА, ЗАТУХАЮЩАЯ К КОНЦАМ
+--
+-- Assets\Divider.tga: тело в два пикселя с бликом сверху и тенью
+-- снизу, мягкий ореол, альфа сходит на нет к обоим краям. Вместо
+-- плоской однопиксельной линии у заголовков секций и кругов. Цвет в
+-- файле, подкраска не нужна. Высота 6 — полоса с ореолом; сама
+-- «латунь» в ней около двух пикселей, и дробная позиция при прокрутке
+-- её уже не съедает.
+-- ============================================================
+function SB.Theme.Divider(parent, layer)
+    local t = parent:CreateTexture(nil, layer or "ARTWORK")
+    t:SetTexture(MEDIA .. "Divider.tga")
+    t:SetHeight(6)
+    t:SetVertexColor(1, 1, 1, 1)
+    return t
+end
 
 -- ============================================================
 -- ВОЛОСЯНАЯ ЛИНИЯ — РОВНО ОДИН ФИЗИЧЕСКИЙ ПИКСЕЛЬ
@@ -1824,6 +1850,18 @@ SB.Theme.WIDGET = { PAD = 10, GAP = 6, ROW = 22, BTN = 24 }
 ---        (как у «Атрибутов» и «Способностей»); по умолчанию — карточка.
 function SB.Theme.Inset(parent, alpha, material)
     local f = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    -- Любой другой материал из SURFACES — на кромке карточки.
+    if material and material ~= "column" and SURFACES[material] then
+        local surf = SURFACES[material]
+        local bd = {}
+        for k, v in pairs(BD.card) do bd[k] = v end
+        bd.bgFile = surf.tex
+        bd.tileSize = surf.tileSize or bd.tileSize
+        f:SetBackdrop(bd)
+        f:SetBackdropColor(surf.tint[1], surf.tint[2], surf.tint[3], alpha or surf.tint[4])
+        f:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.7)
+        return f
+    end
     if material == "column" then
         local surf = SB.Theme.Surface("column")
         f:SetBackdrop(BD.column)
@@ -1843,10 +1881,8 @@ function SB.Theme.SectionHeader(parent, text, right)
     local fs = parent:CreateFontString(nil, "OVERLAY", "SBFontNormal")
     fs:SetText(text)
     fs:SetTextColor(C.accent[1], C.accent[2], C.accent[3])
-    local line = parent:CreateTexture(nil, "ARTWORK")
-    SB.Theme.Hairline(line, "H")
-    line:SetColorTexture(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.45)
-    line:SetPoint("LEFT", fs, "RIGHT", 8, 0)
+    local line = SB.Theme.Divider(parent)
+    line:SetPoint("LEFT", fs, "RIGHT", 6, 0)
     line:SetPoint("RIGHT", parent, "RIGHT", -(right or SB.Theme.WIDGET.PAD), 0)
     return fs, line
 end

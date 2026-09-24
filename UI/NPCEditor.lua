@@ -166,7 +166,7 @@ local function Build()
     local X2  = PAD + CW + 8                -- левый край второй колонки
 
     frame = SB.Theme.Frame("SBNPCEditorFrame", UIParent, "Существо",
-                           FRAME_W, FRAME_H, "detail")
+                           FRAME_W, FRAME_H, "quilt")
     SB.Theme.AttachPositionMemory(frame, "npcEditorPos", 260, 0)
     frame:SetFrameStrata("DIALOG")
     frame:Hide()

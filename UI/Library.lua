@@ -395,9 +395,7 @@ function SB.Library.UpdateList()
             hdr:Show()
             local line = headerLines[hdrIdx]
             if not line then
-                line = scrollChild:CreateTexture(nil, "ARTWORK")
-                SB.Theme.Hairline(line, "H")
-                line:SetColorTexture(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.65)
+                line = SB.Theme.Divider(scrollChild)
                 headerLines[hdrIdx] = line
             end
             line:ClearAllPoints()
@@ -1395,7 +1393,7 @@ function SB.Library.BuildFrame()
     -- «Способности»): список заклинаний — та же колонка, что и там.
     -- Полоса прокрутки по-прежнему снаружи окна (см. AttachScrollbar).
     local listTop = TOOLBAR_Y - 32
-    local box = SB.Theme.Inset(libFrame, nil, "column")
+    local box = SB.Theme.Inset(libFrame, nil, "parchment")
     box:SetPoint("TOPLEFT",     libFrame, "TOPLEFT",     10, listTop)
     box:SetPoint("BOTTOMRIGHT", libFrame, "BOTTOMRIGHT", -10, 44)
     sf, scrollChild = SB.Theme.Scroll(libFrame, 15, listTop - 5, -15, 49)
