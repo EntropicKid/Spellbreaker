@@ -326,7 +326,7 @@ Add({
     resistable = true,
 	container = "eff_shield_block",
     distance = 0,
-    duration = 4,
+    duration = 5,
 	scaling = {
 		hit    = { ["Атлетика"] = 1, ["Ношение брони"] = 0.5 },
 	},
@@ -345,7 +345,7 @@ Add({
     isCantrip = false,
     resistable = true,
     distance = 19,
-    duration = 2,
+    duration = 3,
     container = "eff_intervene",
 	scaling = {
 		hit    = { ["Атлетика"] = 1, ["Лидерство"] = 0.5 },
@@ -526,7 +526,7 @@ Add({
     isCantrip = false,
     resistable = false,
     distance = 0,
-    duration = 4,
+    duration = 5,
     container = "eff_stone_skin_shield_wall",
     scaling = {
     	hit    = { ["Ношение брони"] = 1, ["Атлетика"] = 0.5 },
