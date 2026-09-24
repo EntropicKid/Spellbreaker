@@ -33,12 +33,12 @@ local ROW_H     = 22
 -- занимает её текст (см. TightLabel). Фиксированная колонка отрывала
 -- короткие подписи от своих полей на полокна — «NPC ID» стоял в одном
 -- конце строки, а поле для него в другом.
-local FRAME_W   = 380
+local FRAME_W   = 340
 -- НИЖЕ ПРЕЖНЕГО. Было 590 под список из тридцати полей, потом 646 под
 -- добавленный ряд способностей. Теперь характеристик в окне ровно
 -- столько, сколько задал Ведущий (обычно две-три), и держать высоту под
 -- три десятка строк, которых больше не бывает, незачем.
-local FRAME_H   = 520
+local FRAME_H   = 470
 
 -- Иконки способностей: два ряда по пять. Один ряд из десяти не влезает
 -- в 380 ни при каком размере кнопки, а десять строк списком заняли бы
@@ -142,8 +142,28 @@ end
 -- ============================================================
 -- СБОРКА ОКНА
 -- ============================================================
+-- ============================================================
+-- ВИД ОКНА — ВИДЖЕТ ИЗ СЕКЦИЙ
+--
+-- Раньше форма была столбиком «подпись — поле» с разными отступами,
+-- селекторы стояли каждый на своей высоте, а под двумя строками
+-- характеристик лежала пустая треть окна. Теперь:
+--
+--   ШАПКА (на подложке карточки): иконка, имя, NPC ID и «Взять у цели»;
+--   ПАРАМЕТРЫ: сетка в две колонки, подпись — мелко НАД полем;
+--   СПОСОБНОСТИ: один ряд из десяти иконок;
+--   ХАРАКТЕРИСТИКИ: «+ Добавить» в строке заголовка, список на подложке;
+--   ПОДВАЛ: «Удалить» слева, отдельно от «Шаблон вида / Сохранить».
+--
+-- Разрушительное действие отнесено от основного: рядом с «Сохранить»
+-- его слишком легко нажать.
+-- ============================================================
 local function Build()
-    local C = SB.Theme.C
+    local C   = SB.Theme.C
+    local PAD, GAP, BTN = SB.Theme.WIDGET.PAD, SB.Theme.WIDGET.GAP, SB.Theme.WIDGET.BTN
+    local IN  = FRAME_W - PAD * 2           -- ширина содержимого
+    local CW  = math.floor((IN - 8) / 2)    -- ширина колонки сетки
+    local X2  = PAD + CW + 8                -- левый край второй колонки
 
     frame = SB.Theme.Frame("SBNPCEditorFrame", UIParent, "Существо",
                            FRAME_W, FRAME_H, "detail")
@@ -151,12 +171,16 @@ local function Build()
     frame:SetFrameStrata("DIALOG")
     frame:Hide()
 
-    local y = frame.contentY
+    local y = frame.contentY - 6
 
-    -- ── Иконка и имя ──────────────────────────────────────
-    local iconBtn = CreateFrame("Button", nil, frame)
-    iconBtn:SetSize(44, 44)
-    iconBtn:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, y)
+    -- ── Шапка ─────────────────────────────────────────────
+    local head = SB.Theme.Inset(frame)
+    head:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, y)
+    head:SetSize(IN, 58)
+
+    local iconBtn = CreateFrame("Button", nil, head)
+    iconBtn:SetSize(46, 46)
+    iconBtn:SetPoint("LEFT", head, "LEFT", 6, 0)
     iconBtn.tex = iconBtn:CreateTexture(nil, "ARTWORK")
     iconBtn.tex:SetAllPoints()
     iconBtn.tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
@@ -178,28 +202,23 @@ local function Build()
     iconBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     frame.iconBtn = iconBtn
 
-    local nameLbl = TightLabel(frame, "Имя")
-    nameLbl:SetPoint("TOPLEFT", iconBtn, "TOPRIGHT", 10, -2)
-    local nameWrap, nameEB = SB.Theme.Input(frame, "Как зовут существо", 220, ROW_H)
-    nameWrap:SetPoint("TOPLEFT", nameLbl, "BOTTOMLEFT", 0, -2)
+    local FIELD_W = IN - 6 - 46 - 8 - 6
+    local nameWrap, nameEB = SB.Theme.Input(head, "Имя существа", FIELD_W, ROW_H)
+    nameWrap:SetPoint("TOPLEFT", iconBtn, "TOPRIGHT", 8, 0)
     nameEB:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     fields.name = nameEB
 
-    -- NPC ID — ключ записи. Отдельной строкой и с пояснением: это
-    -- единственное поле, по которому аддон свяжет тушку в мире с
-    -- настройками, и ошибиться в нём означает «настроил не того».
-    local idLbl = TightLabel(frame, "NPC ID")
-    idLbl:SetPoint("TOPLEFT", iconBtn, "BOTTOMLEFT", 0, -10)
-    -- 70 вместо 90: в поле не больше девяти знаков, и это цифры.
-    local idWrap, idEB = SB.Theme.Input(frame, nil, 70, ROW_H)
-    idWrap:SetPoint("LEFT", idLbl, "RIGHT", 6, 0)
+    -- NPC ID — ключ записи: по нему аддон свяжет тушку в мире с
+    -- настройками. Подсказка «NPC ID» лежит в самом поле.
+    local idWrap, idEB = SB.Theme.Input(head, "NPC ID", 92, ROW_H)
+    idWrap:SetPoint("BOTTOMLEFT", iconBtn, "BOTTOMRIGHT", 8, 0)
     idEB:SetMaxLetters(9)
     idEB:SetJustifyH("CENTER")
     idEB:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     fields.npcID = idEB
 
     -- «Взять у цели» — вместо того, чтобы искать id по базам снаружи.
-    local grabBtn = SB.Theme.Button(frame, "Взять у цели", 110, ROW_H, "secondary")
+    local grabBtn = SB.Theme.Button(head, "Взять у цели", FIELD_W - 92 - 6, ROW_H, "secondary")
     grabBtn:SetPoint("LEFT", idWrap, "RIGHT", 6, 0)
     grabBtn:SetScript("OnClick", function()
         local npcID = SB.NPC.UnitNpcID("target")
@@ -243,12 +262,31 @@ local function Build()
         GameTooltip:Show()
     end)
     grabBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    y = y - 58 - 10
 
-    -- ── Классификация ─────────────────────────────────────
-    local clsLbl = TightLabel(frame, "Классификация")
-    clsLbl:SetPoint("TOPLEFT", idLbl, "BOTTOMLEFT", 0, -16)
+    -- ── Параметры ─────────────────────────────────────────
+    local parHdr = SB.Theme.SectionHeader(frame, "Параметры")
+    parHdr:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, y)
+    y = y - 18
 
-    frame.classDD = MakeDropdown(frame, "SBNPCClassDD", clsLbl, -4, 150,
+    local function Cap(text, x)
+        local fs = SB.Theme.Caption(frame, text)
+        fs:SetPoint("TOPLEFT", frame, "TOPLEFT", x + 2, y)
+        return fs
+    end
+    local function Num(key, x, w, letters)
+        local wrap, eb = SB.Theme.Input(frame, nil, w, ROW_H)
+        wrap:SetPoint("TOPLEFT", frame, "TOPLEFT", x, y)
+        eb:SetJustifyH("CENTER")
+        eb:SetMaxLetters(letters)
+        eb:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+        fields[key] = eb
+        return wrap
+    end
+
+    Cap("Вид", PAD); Cap("Отношение", X2)
+    y = y - 13
+    frame.classDD = MakeDropdown(frame, nil, frame, 0, CW,
         function()
             local items = {}
             for _, c in ipairs(SB.NPC.Classifications) do
@@ -258,57 +296,11 @@ local function Build()
         end,
         function(v) current.classification = v end,
         function() return current and current.classification end)
-
-    -- ── Уровень и здоровье ────────────────────────────────
-    local lvlLbl = MakeField(frame, "level", "Уровень", 48, -14, clsLbl)
-    fields.level:SetJustifyH("CENTER"); fields.level:SetMaxLetters(3)
-    lvlLbl:ClearAllPoints()
-    lvlLbl:SetPoint("TOPLEFT", clsLbl, "BOTTOMLEFT", 0, -16)
-
-    local hpLbl = TightLabel(frame, "Здоровье")
-    hpLbl:SetPoint("LEFT", fields.level:GetParent(), "RIGHT", 14, 0)
-    local hpWrap, hpEB = SB.Theme.Input(frame, nil, 48, ROW_H)
-    hpWrap:SetPoint("LEFT", hpLbl, "RIGHT", 6, 0)
-    hpEB:SetJustifyH("CENTER"); hpEB:SetMaxLetters(4)
-    hpEB:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-    fields.maxHealth = hpEB
-
-    -- ── Ресурс ────────────────────────────────────────────
-    -- Список, а не свободная строка: у существа ресурс работает по тем же
-    -- правилам, что у игрока, а правила знают только известные имена
-    -- (см. врезку о пулах в Core/NPC.lua).
-    local resLbl = TightLabel(frame, "Ресурс")
-    resLbl:SetPoint("TOPLEFT", lvlLbl, "BOTTOMLEFT", 0, -16)
-
-    frame.resDD = MakeDropdown(frame, "SBNPCResDD", resLbl, -4, 130,
-        function()
-            local items = {}
-            for _, r in ipairs(SB.NPC.ResourceList()) do
-                items[#items + 1] = { label = r.name, value = r.name }
-            end
-            return items
-        end,
-        function(v) current.resourceName = v end,
-        function() return current and current.resourceName end)
-
-    local resAmtLbl = TightLabel(frame, "Запас")
-    resAmtLbl:SetPoint("LEFT", frame.resDD, "RIGHT", 10, 0)
-    local resWrap, resEB = SB.Theme.Input(frame, nil, 40, ROW_H)
-    resWrap:SetPoint("LEFT", resAmtLbl, "RIGHT", 6, 0)
-    resEB:SetJustifyH("CENTER"); resEB:SetMaxLetters(3)
-    resEB:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-    fields.maxResource = resEB
-
-    -- ── Отношение ─────────────────────────────────────────
-    -- Списком, а не галочкой «враг»: два из четырёх вариантов зависят от
-    -- того, КТО смотрит, и одной галочкой их не выразить (см. врезку
-    -- «ФРАКЦИЯ» в Core/NPC.lua). Стоит рядом с ресурсом, а не в общем
-    -- списке навыков: это не характеристика существа, а его место в
-    -- сцене — как и классификация выше.
-    local facLbl = TightLabel(frame, "Отношение")
-    facLbl:SetPoint("TOPLEFT", resLbl, "BOTTOMLEFT", 0, -16)
-
-    frame.facDD = MakeDropdown(frame, "SBNPCFacDD", facLbl, -4, 210,
+    frame.classDD:ClearAllPoints()
+    frame.classDD:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, y)
+    -- Отношение — списком, а не галочкой «враг»: два из четырёх вариантов
+    -- зависят от того, КТО смотрит (см. врезку «ФРАКЦИЯ» в Core/NPC.lua).
+    frame.facDD = MakeDropdown(frame, nil, frame, 0, CW,
         function()
             local items = {}
             for _, f in ipairs(SB.NPC.Factions) do
@@ -318,31 +310,54 @@ local function Build()
         end,
         function(v) current.faction = v end,
         function() return current and current.faction end)
+    frame.facDD:ClearAllPoints()
+    frame.facDD:SetPoint("TOPLEFT", frame, "TOPLEFT", X2, y)
+    y = y - ROW_H - 8
+
+    local HALF = math.floor((CW - 6) / 2)
+    Cap("Уровень", PAD); Cap("Здоровье", PAD + HALF + 6)
+    Cap("Ресурс", X2);   Cap("Запас", X2 + CW - 50)
+    y = y - 13
+    Num("level", PAD, HALF, 3)
+    Num("maxHealth", PAD + HALF + 6, CW - HALF - 6, 4)
+    -- Ресурс — списком, а не свободной строкой: правила знают только
+    -- известные имена (см. врезку о пулах в Core/NPC.lua).
+    frame.resDD = MakeDropdown(frame, nil, frame, 0, CW - 56,
+        function()
+            local items = {}
+            for _, r in ipairs(SB.NPC.ResourceList()) do
+                items[#items + 1] = { label = r.name, value = r.name }
+            end
+            return items
+        end,
+        function(v) current.resourceName = v end,
+        function() return current and current.resourceName end)
+    frame.resDD:ClearAllPoints()
+    frame.resDD:SetPoint("TOPLEFT", frame, "TOPLEFT", X2, y)
+    Num("maxResource", X2 + CW - 50, 50, 3)
+    y = y - ROW_H - 12
 
     -- ── Способности ───────────────────────────────────────
-    --
-    -- НАД атрибутами, а не под ними: атрибуты лежат в прокрутке до
-    -- нижнего края окна, и что угодно под ней оказалось бы за пределами
-    -- видимого. Да и правят способности чаще, чем два десятка цифр.
-    local spHdr = frame:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-    spHdr:SetPoint("TOPLEFT", facLbl, "BOTTOMLEFT", 0, -16)
-    spHdr:SetText("|cFFFFD100Способности|r")
+    local spHdr, spLine = SB.Theme.SectionHeader(frame, "Способности")
+    spHdr:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, y)
+    local spHint = SB.Theme.Caption(frame, "ЛКМ — выбрать, ПКМ — убрать")
+    spHint:SetPoint("RIGHT", frame, "RIGHT", -PAD, 0)
+    spHint:SetPoint("TOP", spHdr, "TOP", 0, -1)
+    spLine:ClearAllPoints()
+    spLine:SetPoint("LEFT", spHdr, "RIGHT", 8, 0)
+    spLine:SetPoint("RIGHT", spHint, "LEFT", -8, 0)
+    y = y - 18
 
-    local spHint = frame:CreateFontString(nil, "OVERLAY", "SBFontDisableSmall")
-    spHint:SetPoint("LEFT", spHdr, "RIGHT", 8, 0)
-    spHint:SetText("ЛКМ — выбрать, ПКМ — убрать")
-    spHint:SetTextColor(0.55, 0.52, 0.44, 1)
-
+    -- ОДИН РЯД ИЗ ДЕСЯТИ. Два ряда по пять занимали вдвое больше высоты,
+    -- а ширины хватает на все десять.
+    local slot = math.floor((IN - (SB.NPC.MAX_SPELLS - 1) * 4) / SB.NPC.MAX_SPELLS)
     for i = 1, SB.NPC.MAX_SPELLS do
-        local col, row = (i - 1) % SP_COLS, math.floor((i - 1) / SP_COLS)
         local b = CreateFrame("Button", nil, frame, "BackdropTemplate")
-        b:SetSize(SP_SLOT, SP_SLOT)
-        b:SetPoint("TOPLEFT", spHdr, "BOTTOMLEFT",
-                   col * (SP_SLOT + SP_GAP), -6 - row * (SP_SLOT + SP_GAP))
+        b:SetSize(slot, slot)
+        b:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD + (i - 1) * (slot + 4), y)
         b:SetBackdrop(SB.Theme.BD.card)
         b:SetBackdropColor(0, 0, 0, 0.55)
-        b:SetBackdropBorderColor(SB.Theme.C.cardBorder[1], SB.Theme.C.cardBorder[2],
-                                 SB.Theme.C.cardBorder[3], 0.8)
+        b:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.8)
         b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
         b.icon = b:CreateTexture(nil, "ARTWORK")
@@ -393,63 +408,55 @@ local function Build()
         b:SetScript("OnLeave", function() GameTooltip:Hide() end)
         spellSlots[i] = b
     end
+    y = y - slot - 12
 
-    -- ============================================================
-    -- АТРИБУТЫ И НАВЫКИ — ТОЛЬКО ТЕ, ЧТО ЗАДАНЫ
-    --
-    -- Здесь стоял список из тридцати полей: шесть атрибутов и два
-    -- десятка навыков, все с единицами. Единица — это «не задано», то
-    -- есть двадцать восемь строк из тридцати не говорили ничего и при
-    -- этом занимали три четверти окна. Найти среди них ту пару, которую
-    -- Ведущий действительно правит, было отдельной работой.
-    --
-    -- Теперь список пуст, пока в него не добавили. Кнопка «+» открывает
-    -- меню всего, чего ещё нет, сгруппированное по атрибутам; «×» в
-    -- строке убирает её обратно в умолчание. Что не добавлено — того нет
-    -- ни в окне, ни в сохранёнке.
-    -- ============================================================
-    local statsHdr = frame:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-    statsHdr:SetPoint("TOPLEFT", spellSlots[SP_COLS + 1], "BOTTOMLEFT", 0, -12)
-    statsHdr:SetText("|cFFFFD100Атрибуты и навыки|r")
-
-    local addBtn = SB.Theme.Button(frame, "+ Добавить", 92, 20, "secondary")
-    addBtn:SetPoint("LEFT", statsHdr, "RIGHT", 10, 0)
+    -- ── Характеристики ────────────────────────────────────
+    -- Список пуст, пока в него не добавили: «+» открывает меню того,
+    -- чего ещё нет, «×» в строке убирает её обратно в умолчание.
+    local stHdr, stLine = SB.Theme.SectionHeader(frame, "Характеристики")
+    stHdr:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, y)
+    local addBtn = SB.Theme.Button(frame, "+ Добавить", 90, 20, "secondary")
+    addBtn:SetPoint("RIGHT", frame, "RIGHT", -PAD, 0)
+    addBtn:SetPoint("TOP", stHdr, "TOP", 0, 3)
     addBtn:SetScript("OnClick", function(self)
         SB.NPCEditor.OpenStatMenu(self)
     end)
+    stLine:ClearAllPoints()
+    stLine:SetPoint("LEFT", stHdr, "RIGHT", 8, 0)
+    stLine:SetPoint("RIGHT", addBtn, "LEFT", -8, 0)
+    y = y - 22
 
-    local statsHint = frame:CreateFontString(nil, "OVERLAY", "SBFontDisableSmall")
-    statsHint:SetPoint("LEFT", addBtn, "RIGHT", 8, 0)
-    statsHint:SetText("не добавленное = 1")
-    statsHint:SetTextColor(0.55, 0.52, 0.44, 1)
+    local FOOT = PAD + BTN + PAD
+    local list = SB.Theme.Inset(frame)
+    list:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, y)
+    list:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PAD, FOOT)
 
-    local sf, child = SB.Theme.Scroll(frame, 10, 0, -10, 44)
-    sf:ClearAllPoints()
-    sf:SetPoint("TOPLEFT",     statsHdr, "BOTTOMLEFT", -2, -8)
-    sf:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -10, 44)
+    local sf, child = SB.Theme.Scroll(frame, PAD + 3, y - 4, -PAD - 3, FOOT + 4)
     frame.statsChild = child
 
     frame.emptyFS = child:CreateFontString(nil, "OVERLAY", "SBFontDisableSmall")
     frame.emptyFS:SetPoint("TOPLEFT", child, "TOPLEFT", 8, -8)
-    frame.emptyFS:SetText("Ничего не задано — существо по всем цифрам обычное.")
+    frame.emptyFS:SetPoint("RIGHT", child, "RIGHT", -8, 0)
+    frame.emptyFS:SetJustifyH("LEFT")
+    frame.emptyFS:SetText("Ничего не задано — по всем цифрам существо обычное " ..
+        "(не заданное равно 1).")
     frame.emptyFS:SetTextColor(0.5, 0.48, 0.42, 1)
 
-    -- ── Кнопки ────────────────────────────────────────────
-    --
-    -- ТРИ В РЯД, а не две: между «Сохранить» и «Удалить» встал шаблон
-    -- вида. Ширина ужата со 110 до 100 — три кнопки по 110 в окно 380 не
-    -- влезают ни при каком отступе, а порядок «сохранить слева, удалить
-    -- справа» остался прежним: он уже в пальцах.
-    local saveBtn = SB.Theme.Button(frame, "Сохранить", 100, 26, "primary")
-    saveBtn:SetPoint("BOTTOM", frame, "BOTTOM", -106, 12)
-    saveBtn:SetScript("OnClick", function() SB.NPCEditor.Save() end)
+    -- ── Подвал ────────────────────────────────────────────
+    local delBtn = SB.Theme.Button(frame, "Удалить", 84, BTN, "danger")
+    delBtn:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", PAD, PAD)
+    delBtn:SetScript("OnClick", function()
+        if not editingID then frame:Hide() return end
+        SB.NPC.Delete(editingID)
+        frame:Hide()
+        if SB.Library and SB.Library.UpdateList then SB.Library.UpdateList() end
+    end)
+    frame.delBtn = delBtn
 
-    -- ШАБЛОН ВИДА — МЕНЮ, А НЕ ПРЯМОЕ ДЕЙСТВИЕ. Кнопка переписывает
-    -- заготовку, по которой соберут все следующие существа этого вида;
-    -- случайно нажать такое нельзя, поэтому щелчок открывает список, а
-    -- не делает. Оттуда же и обратный путь — сброс к исходному.
-    local tmplBtn = SB.Theme.Button(frame, "Шаблон вида", 100, 26, "secondary")
-    tmplBtn:SetPoint("BOTTOM", frame, "BOTTOM", 0, 12)
+    -- ШАБЛОН ВИДА — МЕНЮ, А НЕ ПРЯМОЕ ДЕЙСТВИЕ: кнопка переписывает
+    -- заготовку для всех следующих существ этого вида, поэтому щелчок
+    -- открывает список, а не делает.
+    local tmplBtn = SB.Theme.Button(frame, "Шаблон вида", 100, BTN, "secondary")
     tmplBtn:SetScript("OnClick", function(self)
         SB.NPCEditor.OpenTemplateMenu(self)
     end)
@@ -466,15 +473,10 @@ local function Build()
     tmplBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     frame.tmplBtn = tmplBtn
 
-    local delBtn = SB.Theme.Button(frame, "Удалить", 100, 26, "danger")
-    delBtn:SetPoint("BOTTOM", frame, "BOTTOM", 106, 12)
-    delBtn:SetScript("OnClick", function()
-        if not editingID then frame:Hide() return end
-        SB.NPC.Delete(editingID)
-        frame:Hide()
-        if SB.Library and SB.Library.UpdateList then SB.Library.UpdateList() end
-    end)
-    frame.delBtn = delBtn
+    local saveBtn = SB.Theme.Button(frame, "Сохранить", 100, BTN, "primary")
+    saveBtn:SetScript("OnClick", function() SB.NPCEditor.Save() end)
+    SB.Theme.LayoutRow(frame, { tmplBtn, saveBtn }, "BOTTOMLEFT",
+        PAD + 84 + 12, PAD, IN - 84 - 12)
 end
 
 -- ============================================================

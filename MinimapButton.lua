@@ -150,13 +150,23 @@ local function BuildHoverCard()
     end
 
     local C = SB.Theme.C
+    local W = 172
 
+    -- ============================================================
+    -- КАРТОЧКА — МЕНЮ, А НЕ СТОПКА КНОПОК
+    --
+    -- Три пергаментные кнопки одна под другой занимали больше места,
+    -- чем то, что на них написано. Теперь это пункты меню: иконка,
+    -- подпись, подсветка строки на наводке — тот же вид, что у списка
+    -- селектора и всплывающих меню аддона (см. SB.Theme.PopupMenu).
+    -- Подсказки по кликам — двумя колонками в подвале.
+    -- ============================================================
     hoverCard = CreateFrame("Frame", "SpellbreakerMinimapCard", UIParent, "BackdropTemplate")
-    hoverCard:SetSize(176, 212)
+    hoverCard:SetWidth(W)
     hoverCard:SetFrameStrata("TOOLTIP")
     hoverCard:SetClampedToScreen(true)
     hoverCard:SetBackdrop(SB.Theme.BD.tooltip)
-    hoverCard:SetBackdropColor(C.frameBg[1], C.frameBg[2], C.frameBg[3], 0.97)
+    hoverCard:SetBackdropColor(0.07, 0.055, 0.045, 0.98)
     hoverCard:SetBackdropBorderColor(C.frameBorder[1], C.frameBorder[2], C.frameBorder[3], 1)
     hoverCard:EnableMouse(true)
     hoverCard:Hide()
@@ -164,43 +174,69 @@ local function BuildHoverCard()
     hoverCard:HookScript("OnHide", CancelHideTimer)
 
     local title = hoverCard:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-    title:SetPoint("TOP", hoverCard, "TOP", 0, -8)
+    title:SetPoint("TOPLEFT", hoverCard, "TOPLEFT", 10, -9)
     title:SetText("Spellbreaker")
-    title:SetTextColor(C.titleText[1], C.titleText[2], C.titleText[3])
+    title:SetTextColor(C.accent[1], C.accent[2], C.accent[3])
+    local ver = hoverCard:CreateFontString(nil, "OVERLAY", "SBFontDisableSmall")
+    ver:SetPoint("BOTTOMRIGHT", hoverCard, "TOPRIGHT", -10, -21)
+    ver:SetText("v" .. tostring(SB.Data and SB.Data.Version or ""))
+    ver:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
 
-    -- Долгий отдых
-    local restBtn = SB.Theme.Button(hoverCard, "Долгий Отдых", 156, 24, "secondary")
-    restBtn:SetPoint("TOP", title, "BOTTOM", 0, -8)
-    restBtn:SetScript("OnClick", function()
+    local topLine = hoverCard:CreateTexture(nil, "ARTWORK")
+    topLine:SetHeight(1)
+    topLine:SetPoint("TOPLEFT", hoverCard, "TOPLEFT", 8, -26)
+    topLine:SetPoint("TOPRIGHT", hoverCard, "TOPRIGHT", -8, -26)
+    topLine:SetColorTexture(C.divider[1], C.divider[2], C.divider[3], C.divider[4])
+
+    local ROW_H, y = 22, -30
+    local function MenuRow(iconPath, text, onClick)
+        local r = CreateFrame("Button", nil, hoverCard)
+        r:SetHeight(ROW_H)
+        r:SetPoint("TOPLEFT", hoverCard, "TOPLEFT", 5, y)
+        r:SetPoint("TOPRIGHT", hoverCard, "TOPRIGHT", -5, y)
+        y = y - ROW_H
+        local hl = r:CreateTexture(nil, "HIGHLIGHT")
+        hl:SetAllPoints()
+        hl:SetColorTexture(C.accent[1], C.accent[2], C.accent[3], 0.14)
+        local bar = r:CreateTexture(nil, "HIGHLIGHT")
+        bar:SetColorTexture(C.accent[1], C.accent[2], C.accent[3], 1)
+        bar:SetWidth(2)
+        bar:SetPoint("TOPLEFT", r, "TOPLEFT", 0, -3)
+        bar:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", 0, 3)
+        r.icon = r:CreateTexture(nil, "ARTWORK")
+        r.icon:SetSize(16, 16)
+        r.icon:SetPoint("LEFT", r, "LEFT", 7, 0)
+        r.icon:SetTexture(iconPath)
+        r.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+        r.text = r:CreateFontString(nil, "OVERLAY", "SBFontNormal")
+        r.text:SetPoint("LEFT", r.icon, "RIGHT", 8, 0)
+        r.text:SetText(text)
+        r.text:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+        r:SetScript("OnClick", onClick)
+        r:HookScript("OnEnter", CancelHideTimer)
+        r:HookScript("OnLeave", ScheduleHideHoverCard)
+        return r
+    end
+
+    local restBtn = MenuRow("Interface\\Icons\\Spell_Nature_Sleep", "Долгий отдых", function()
         hoverCard:Hide()
         if SB.Logic and SB.Logic.Rest then
             SB.Logic.Rest()
         end
     end)
     restBtn:HookScript("OnEnter", function(self)
-        CancelHideTimer()
         if SB.UI and SB.UI.ShowInfoTooltip then
             SB.UI.ShowInfoTooltip(self, "longRest")
         end
     end)
-    restBtn:HookScript("OnLeave", function(self)
-        HideOwnedTooltip(self)
-        ScheduleHideHoverCard()
-    end)
+    restBtn:HookScript("OnLeave", function(self) HideOwnedTooltip(self) end)
 
     -- КНОПКИ КОРОТКОГО ОТДЫХА ЗДЕСЬ БОЛЬШЕ НЕТ: механики не существует.
-    -- Панель Ведущего встала на её место, под Долгий Отдых.
-
-    -- Панель ГМа
-    local gmPanelBtn = SB.Theme.Button(hoverCard, "Панель ГМа", 156, 24, "secondary")
-    gmPanelBtn:SetPoint("TOP", restBtn, "BOTTOM", 0, -4)
-    gmPanelBtn:SetScript("OnClick", function()
+    MenuRow("Interface\\Icons\\INV_Misc_Book_11", "Панель Ведущего", function()
         hoverCard:Hide()
-
         if not SpellbreakerGMFrame and SB.UI and SB.UI.BuildGMPanel then
             SB.UI.BuildGMPanel()
         end
-
         ToggleFrame(SpellbreakerGMFrame, function()
             if SB.UI and SB.UI.UpdateGMFrame then
                 SB.UI.UpdateGMFrame()
@@ -209,43 +245,41 @@ local function BuildHoverCard()
             end
         end)
     end)
-    gmPanelBtn:HookScript("OnEnter", CancelHideTimer)
-    gmPanelBtn:HookScript("OnLeave", ScheduleHideHoverCard)
 
-    -- Логи
-    local logsBtn = SB.Theme.Button(hoverCard, "Логи", 156, 24, "secondary")
-    logsBtn:SetPoint("TOP", gmPanelBtn, "BOTTOM", 0, -4)
-    logsBtn:SetScript("OnClick", function()
+    MenuRow("Interface\\Icons\\INV_Scroll_03", "Журнал", function()
         hoverCard:Hide()
-
         if not SpellbreakerLogFrame and SB.Logs and SB.Logs.BuildFrame then
             SB.Logs.BuildFrame()
         end
-
         ToggleFrame(SpellbreakerLogFrame)
     end)
-    logsBtn:HookScript("OnEnter", CancelHideTimer)
-    logsBtn:HookScript("OnLeave", ScheduleHideHoverCard)
 
     -- Подсказки по кликам. Раньше жили в отдельном тултипе
     -- (OnTooltipShow), но он и карточка — взаимоисключающие пути в
-    -- LibDBIcon: показать можно только что-то одно. Здесь они и
-    -- нагляднее — прямо под кнопками, к которым относятся.
+    -- LibDBIcon: показать можно только что-то одно.
     local sep = hoverCard:CreateTexture(nil, "ARTWORK")
     sep:SetHeight(1)
-    sep:SetPoint("TOPLEFT",  logsBtn, "BOTTOMLEFT",  0, -7)
-    sep:SetPoint("TOPRIGHT", logsBtn, "BOTTOMRIGHT", 0, -7)
+    sep:SetPoint("TOPLEFT",  hoverCard, "TOPLEFT",  8, y - 4)
+    sep:SetPoint("TOPRIGHT", hoverCard, "TOPRIGHT", -8, y - 4)
     sep:SetColorTexture(C.divider[1], C.divider[2], C.divider[3], C.divider[4])
+    y = y - 10
 
-    local hints = hoverCard:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
-    hints:SetPoint("TOPLEFT", sep, "BOTTOMLEFT", 0, -6)
-    hints:SetPoint("RIGHT",   sep, "RIGHT",      0, 0)
-    hints:SetJustifyH("LEFT")
-    hints:SetSpacing(2)
-    hints:SetText(
-        "|cffffd100ЛКМ|r — Главная панель\n" ..
-        "|cffffd100ПКМ|r — Панель ведущего\n" ..
-        "|cffffd100Shift+ЛКМ|r — Библиотека")
+    for _, pair in ipairs({
+        { "ЛКМ",        "главная панель" },
+        { "ПКМ",        "панель Ведущего" },
+        { "Shift+ЛКМ",  "библиотека" },
+    }) do
+        local k = hoverCard:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
+        k:SetPoint("TOPLEFT", hoverCard, "TOPLEFT", 10, y)
+        k:SetText(pair[1])
+        k:SetTextColor(C.accent[1], C.accent[2], C.accent[3])
+        local v = hoverCard:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
+        v:SetPoint("TOPLEFT", hoverCard, "TOPLEFT", 74, y)
+        v:SetText(pair[2])
+        v:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
+        y = y - 14
+    end
+    hoverCard:SetHeight(-y + 8)
 
     hoverCard._restBtn = restBtn
 
@@ -274,10 +308,14 @@ local function UpdateHoverCardState()
         canRest = SB.UI.CanRest()
     end
 
+    -- Недоступный пункт гаснет целиком: у строки меню нет своего
+    -- «серого» вида, как у кнопки.
     if canRest then
         hoverCard._restBtn:Enable()
+        hoverCard._restBtn:SetAlpha(1)
     else
         hoverCard._restBtn:Disable()
+        hoverCard._restBtn:SetAlpha(0.45)
     end
 
     -- Отдых в карточке остался один — Долгий. Условие у него своё, и

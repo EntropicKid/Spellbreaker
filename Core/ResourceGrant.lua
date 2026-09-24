@@ -736,66 +736,77 @@ end
 
 local function BuildFrame()
     local C = SB.Theme.C
+    local W = 250
+    local PAD, GAP, BTN = SB.Theme.WIDGET.PAD, SB.Theme.WIDGET.GAP, SB.Theme.WIDGET.BTN
 
-    -- Имя и класс игрока переехали в ЗАГОЛОВОК окна: две отдельные
-    -- строки под шапкой съедали половину высоты, дублируя то, что и так
-    -- видно в панели Ведущего, откуда окно и открывается.
-    -- РАЗМЕР ПОСЧИТАН ПОД СОДЕРЖИМОЕ, а не взят с запасом. Считается от
-    -- contentY = −32 (см. SB.Theme.Frame): две строки ресурсов, полоса,
-    -- строка эффекта с кнопками, строка срока — и снизу ряд «Выдать /
-    -- Сброс». Запас «на всякий случай» здесь выглядел как пустая треть
-    -- окна под кнопками.
-    -- Тот же материал, что у панели Ведущего: выдача ресурсов
-    -- открывается из неё и по смыслу её часть.
+    -- ============================================================
+    -- ДВЕ СЕКЦИИ, У КАЖДОЙ СВОИ КНОПКИ
     --
-    -- ШИРИНА УМЕНЬШЕНА, ВЫСОТА ПОДРОСЛА, и это один и тот же размен:
-    -- кнопки «Наложить» и «На всех» переехали из строки в столбик
-    -- (см. ниже), забрав из ширины больше, чем добавили в высоту.
-    -- Высота на строку больше прежней: «Перманентно» съехала из строки
-    -- срока в собственную (см. ниже), и ряду «Выдать / Сброс» нужно
-    -- место под ней.
-    grantFrame = SB.Theme.Frame("SpellbreakerGrantFrame", UIParent, "Выдача ресурсов", 252, 244, "gm")
+    -- Раньше «Выдать / Сброс» стояли внизу окна, под эффектом, хотя
+    -- относились к ресурсам наверху, а «Наложить / На всех» — столбиком
+    -- у правого края. Какая кнопка что отправляет, приходилось помнить.
+    -- Теперь окно — две секции: «Ресурсы» (поля и «Сброс / Выдать») и
+    -- «Эффект» (выбор, срок и «На всех / Наложить»). Действие стоит под
+    -- тем, что оно отправляет, и ряд кнопок — во всю ширину секции.
+    --
+    -- Имя цели — в заголовке окна (см. ShowFor).
+    -- ============================================================
+    grantFrame = SB.Theme.Frame("SpellbreakerGrantFrame", UIParent, "Выдача ресурсов", W, 256, "gm")
     SB.Theme.AttachPositionMemory(grantFrame, "grantFramePos", 0, 0)
 
-    -- Колонка подписей — по самому длинному слову, а не по числу с
-    -- запасом (см. MeasureLabelWidth). Меряем ДО первой строки: ширину
-    -- они читают при создании.
     LABEL_W = MeasureLabelWidth(grantFrame, { "Здоровье", "Мана", "Ходов" })
 
-    local y = grantFrame.contentY
+    local y = grantFrame.contentY - 6
 
-    -- Здоровье идёт ПЕРВЫМ (выше ресурса) для удобства восприятия.
-    healthRow = MakeInputRow(grantFrame, y - 10, "Здоровье",
+    -- ── Ресурсы ──────────────────────────────────────────────
+    local resHdr = SB.Theme.SectionHeader(grantFrame, "Ресурсы")
+    resHdr:SetPoint("TOPLEFT", grantFrame, "TOPLEFT", PAD, y)
+    y = y - 18
+
+    healthRow = MakeInputRow(grantFrame, y, "Здоровье",
         function(v) targets.health = v; RefreshDisplay() end,
         function() return currentTarget and currentTarget.maxHealth end)
+    y = y - ROW_H - 3
 
-    -- Текст подписи перезаписывается в ShowFor под ресурс конкретного
-    -- игрока (Мана у кастеров, Ярость/Энергия/Фокус/... у некастеров) —
-    -- здесь только дефолт до первого показа панели.
-    zealRow = MakeInputRow(grantFrame, y - ROW_H - 14, "Мана",
+    -- Подпись перезаписывается в ShowFor под ресурс конкретной цели.
+    zealRow = MakeInputRow(grantFrame, y, "Мана",
         function(v) targets.zeal = v; RefreshDisplay() end,
         function() return currentTarget and currentTarget.maxZeal end)
+    y = y - ROW_H - 6
 
-    -- ── ЭФФЕКТ ───────────────────────────────────────────────
-    -- Отдельным блоком под ресурсами и со своей кнопкой: ресурсы
-    -- копятся в дельты и уходят одним «Выдать», а эффект вешается
-    -- сразу — Ведущий на событии раздаёт их подряд нескольким игрокам,
-    -- и промежуточное «подтвердить» здесь только мешает.
-    local sep = grantFrame:CreateTexture(nil, "ARTWORK")
-    sep:SetHeight(1)
-    sep:SetPoint("TOPLEFT",  grantFrame, "TOPLEFT",  10, y - ROW_H * 2 - 16)
-    sep:SetPoint("TOPRIGHT", grantFrame, "TOPRIGHT", -10, y - ROW_H * 2 - 16)
-    sep:SetColorTexture(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
+    local resetBtn = SB.Theme.Button(grantFrame, "Сброс", 100, BTN - 2, "secondary")
+    resetBtn:SetScript("OnClick", function()
+        -- Сброс трогает только НЕОТПРАВЛЕННОЕ: выбранный эффект он не
+        -- снимает — это другая секция.
+        SB.ResourceGrant.ClearInputs()
+    end)
+    local confirmBtn = SB.Theme.Button(grantFrame, "Выдать", 100, BTN - 2, "primary")
+    confirmBtn:SetScript("OnClick", SendGrant)
+    SB.Theme.LayoutRow(grantFrame, { resetBtn, confirmBtn }, "TOPLEFT", PAD, y, W - PAD * 2)
+    y = y - (BTN - 2) - 10
 
-    -- Кнопка-иконка: она же показывает выбранное, она же открывает сетку.
-    effectRow.pickBtn = CreateFrame("Button", nil, grantFrame)
-    effectRow.pickBtn:SetSize(28, 28)
-    effectRow.pickBtn:SetPoint("TOPLEFT", grantFrame, "TOPLEFT", 12, y - ROW_H * 2 - 22)
+    -- ── Эффект ───────────────────────────────────────────────
+    -- Вешается сразу, без общего «Выдать»: Ведущий на событии раздаёт
+    -- эффекты подряд нескольким игрокам, и лишнее подтверждение мешает.
+    local effHdr = SB.Theme.SectionHeader(grantFrame, "Эффект")
+    effHdr:SetPoint("TOPLEFT", grantFrame, "TOPLEFT", PAD, y)
+    y = y - 18
+
+    -- Выбор — одной строкой-карточкой: иконка и имя, щелчок по любому
+    -- месту открывает сетку эффектов.
+    effectRow.pickBtn = CreateFrame("Button", nil, grantFrame, "BackdropTemplate")
+    effectRow.pickBtn:SetPoint("TOPLEFT", grantFrame, "TOPLEFT", PAD, y)
+    effectRow.pickBtn:SetSize(W - PAD * 2, 28)
+    effectRow.pickBtn:SetBackdrop(SB.Theme.BD.card)
+    effectRow.pickBtn:SetBackdropColor(C.cardBg[1], C.cardBg[2], C.cardBg[3], 0.9)
+    effectRow.pickBtn:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.55)
     effectRow.icon = effectRow.pickBtn:CreateTexture(nil, "ARTWORK")
-    effectRow.icon:SetAllPoints()
+    effectRow.icon:SetSize(22, 22)
+    effectRow.icon:SetPoint("LEFT", effectRow.pickBtn, "LEFT", 4, 0)
     effectRow.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
     local pickHL = effectRow.pickBtn:CreateTexture(nil, "HIGHLIGHT")
-    pickHL:SetAllPoints(); pickHL:SetColorTexture(1, 1, 0, 0.22)
+    pickHL:SetPoint("TOPLEFT", 3, -3); pickHL:SetPoint("BOTTOMRIGHT", -3, 3)
+    pickHL:SetColorTexture(C.accent[1], C.accent[2], C.accent[3], 0.12)
     effectRow.pickBtn:SetScript("OnClick", function()
         SB.ResourceGrant.OpenEffectPicker(function(effectID)
             pendingEffect = effectID
@@ -817,45 +828,23 @@ local function BuildFrame()
     end)
     effectRow.pickBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    -- КНОПКИ ПРИМЕНЕНИЯ — В ОДНОЙ СТРОКЕ С ИКОНКОЙ, у правого края.
-    -- Своей строкой они занимали двадцать пикселей высоты ради двух
-    -- кнопок, а место рядом с именем эффекта всё равно пустовало.
-    -- КНОПКИ В СТОЛБИК, А НЕ В СТРОКУ. Рядом они занимали больше ста
-    -- тридцати пикселей ширины — ровно та ширина, из-за которой окно и
-    -- было широким, а название эффекта между иконкой и кнопками ужималось
-    -- до многоточия. В столбик они стоят на месте одной, и освободившееся
-    -- уходит названию.
-    effectRow.applyBtn = SB.Theme.Button(grantFrame, "Наложить", 74, 20, "primary")
-    effectRow.applyBtn:SetPoint("RIGHT", grantFrame, "RIGHT", -12, 0)
-    effectRow.applyBtn:SetPoint("TOP", effectRow.pickBtn, "TOP", 0, -4)
-
-    effectRow.allBtn = SB.Theme.Button(grantFrame, "На всех", 74, 20, "secondary")
-    effectRow.allBtn:SetPoint("TOPRIGHT", effectRow.applyBtn, "BOTTOMRIGHT", 0, -4)
-
-    effectRow.nameFS = grantFrame:CreateFontString(nil, "OVERLAY", FONT_ROW)
-    effectRow.nameFS:SetPoint("LEFT", effectRow.pickBtn, "RIGHT", 6, 0)
-    effectRow.nameFS:SetPoint("RIGHT", effectRow.applyBtn, "LEFT", -6, 0)
+    effectRow.nameFS = effectRow.pickBtn:CreateFontString(nil, "OVERLAY", FONT_ROW)
+    effectRow.nameFS:SetPoint("LEFT", effectRow.icon, "RIGHT", 8, 0)
+    effectRow.nameFS:SetPoint("RIGHT", effectRow.pickBtn, "RIGHT", -8, 0)
     effectRow.nameFS:SetJustifyH("LEFT")
     effectRow.nameFS:SetWordWrap(false)
+    y = y - 28 - 5
 
-    -- Срок — тем же полем ввода, что и ресурсы: «повесить на 15 ходов»
-    -- иначе означало пятнадцать нажатий на «+».
+    -- Срок и «Перманентно» — одной строкой: галочка отменяет срок, и
+    -- стоять им рядом понятнее, чем в двух местах окна.
     local turnsLabel = grantFrame:CreateFontString(nil, "OVERLAY", FONT_ROW)
-    turnsLabel:SetPoint("TOPLEFT", effectRow.pickBtn, "BOTTOMLEFT", 0, -12)
+    turnsLabel:SetPoint("TOPLEFT", grantFrame, "TOPLEFT", PAD + 2, y - 4)
     turnsLabel:SetText("Ходов")
     turnsLabel:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
 
-    -- НАСТОЯЩЕЕ ЧИСЛО, А НЕ СЕРАЯ ПОДСКАЗКА.
-    --
-    -- Тройка здесь была подсказкой пустого поля — то есть выглядела как
-    -- значение, но им не была, и вдобавок не гасла при вводе (свой
-    -- OnTextChanged ниже затирал тот, что её прячет). Ведущий видел «3»,
-    -- набирал «5» и получал на экране кашу из двух цифр.
-    --
-    -- Теперь в поле лежит EFFECT_TURNS_DEFAULT самим текстом: его видно
-    -- белым, его можно стереть и переписать, и «Наложить» без единого
-    -- касания поля вешает ровно на столько ходов, сколько написано.
-    local turnsWrap, turnsEB = SB.Theme.Input(grantFrame, nil, 34, ROW_H)
+    -- В поле лежит само число EFFECT_TURNS_DEFAULT, а не серая подсказка:
+    -- «Наложить» без касания поля вешает ровно на столько, сколько видно.
+    local turnsWrap, turnsEB = SB.Theme.Input(grantFrame, nil, 38, ROW_H)
     turnsWrap:SetPoint("LEFT", turnsLabel, "RIGHT", 6, 0)
     turnsEB:SetJustifyH("CENTER")
     turnsEB:SetNumeric(true)
@@ -873,33 +862,23 @@ local function BuildFrame()
     effectRow.turnsEB = turnsEB
     effectRow.turnsWrap = turnsWrap
 
-    -- «Перманентно» — не «очень много ходов», а отдельное состояние
-    -- (длительность −1, до Долгого Отдыха). Пока галочка стоит, поле
-    -- срока гаснет: держать в нём число, которое ни на что не влияет,
-    -- значит обещать, что оно влияет.
-    -- ПОД «ХОДОВ», А НЕ СПРАВА ОТ НЕГО. Справа галочка с подписью
-    -- «Перманентно» упиралась в правый край окна и читалась как часть
-    -- строки срока — то есть как ещё одно поле того же ряда. Она не
-    -- поле: она ОТМЕНЯЕТ весь ряд выше (срок гаснет, см.
-    -- RefreshEffectRow), и стоять ей правильнее отдельной строкой под
-    -- тем, что она отменяет.
+    effectRow.permFS = grantFrame:CreateFontString(nil, "OVERLAY", FONT_ROW)
+    effectRow.permFS:SetPoint("TOPRIGHT", grantFrame, "TOPRIGHT", -PAD - 2, y - 4)
+    effectRow.permFS:SetText("Перманентно")
+    effectRow.permFS:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
     effectRow.permChk = CreateFrame("CheckButton", nil, grantFrame, "UICheckButtonTemplate")
     effectRow.permChk:SetSize(20, 20)
-    effectRow.permChk:SetPoint("TOPLEFT", turnsLabel, "BOTTOMLEFT", -4, -6)
+    effectRow.permChk:SetPoint("RIGHT", effectRow.permFS, "LEFT", 0, 0)
     effectRow.permChk:SetScript("OnClick", function(self)
         effectPermanent = self:GetChecked() and true or false
         RefreshEffectRow()
     end)
-    effectRow.permFS = grantFrame:CreateFontString(nil, "OVERLAY", FONT_ROW)
-    effectRow.permFS:SetPoint("LEFT", effectRow.permChk, "RIGHT", 2, 0)
-    effectRow.permFS:SetText("Перманентно")
-    effectRow.permFS:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
-
-    effectRow.applyBtn:SetScript("OnClick", SendEffect)
+    y = y - ROW_H - 5
 
     -- «На всех» — своя кнопка, а не модификатор к первой: раздача на
     -- рейд необратима, и прятать её за Ctrl+клик значило бы делать её
     -- случайной.
+    effectRow.allBtn = SB.Theme.Button(grantFrame, "На всех", 100, BTN - 2, "secondary")
     effectRow.allBtn:SetScript("OnClick", SendEffectToAll)
     effectRow.allBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
@@ -912,19 +891,13 @@ local function BuildFrame()
     end)
     effectRow.allBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    local confirmBtn = SB.Theme.Button(grantFrame, "Выдать", 70, 22, "primary")
-    confirmBtn:SetPoint("BOTTOMLEFT", grantFrame, "BOTTOM", -74, 10)
-    confirmBtn:SetScript("OnClick", SendGrant)
+    effectRow.applyBtn = SB.Theme.Button(grantFrame, "Наложить", 100, BTN - 2, "primary")
+    effectRow.applyBtn:SetScript("OnClick", SendEffect)
+    SB.Theme.LayoutRow(grantFrame, { effectRow.allBtn, effectRow.applyBtn }, "TOPLEFT",
+        PAD, y, W - PAD * 2)
+    y = y - (BTN - 2) - PAD
 
-    local resetBtn = SB.Theme.Button(grantFrame, "Сброс", 60, 22, "secondary")
-    resetBtn:SetPoint("LEFT", confirmBtn, "RIGHT", 8, 0)
-    resetBtn:SetScript("OnClick", function()
-        -- Сброс трогает только НЕОТПРАВЛЕННОЕ. Выбранный эффект он не
-        -- снимает: тот уже применён (или ещё не применён), и «сброс»
-        -- здесь означал бы разное в двух половинах окна.
-        SB.ResourceGrant.ClearInputs()
-    end)
-
+    grantFrame:SetHeight(-y)
     RefreshEffectRow()
 end
 

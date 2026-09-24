@@ -147,96 +147,101 @@ end
 -- фиксированная высота). Поэтому наехать на кнопки оно не может в
 -- принципе: его границы — это они и есть.
 -- ============================================================
+-- ============================================================
+-- ВИД: КТО · КАК · ЧТО · ОТПРАВИТЬ
+--
+-- Сверху — кто говорит; под ним — способ речи сегментами «Речь /
+-- Эмоция / Крик» (раньше одна кнопка меняла подпись по кругу и не
+-- показывала, что ещё бывает); дальше — поле реплики с подсказкой по
+-- клавишам прямо в нём; внизу — «Очистить историю / Сказать» во всю
+-- ширину. Отдельная строка-подсказка под кнопками ушла в поле.
+-- ============================================================
 local function Build()
-    frame = SB.Theme.Frame("SBNPCSpeechFrame", UIParent, "Речь существа",
-                           286, 190, "gm")
+    local C = SB.Theme.C
+    local W = 280
+    local PAD, BTN = SB.Theme.WIDGET.PAD, SB.Theme.WIDGET.BTN
+    local INPUT_H = 64
+
+    frame = SB.Theme.Frame("SBNPCSpeechFrame", UIParent, "Речь существа", W, 190, "gm")
     SB.Theme.AttachPositionMemory(frame, "npcSpeechPos", 0, -160)
     frame:SetFrameStrata("DIALOG")
     frame:Hide()
 
-    local y = frame.contentY
+    local y = frame.contentY - 6
 
-    -- Кем говорим — подписью: цель видна и на рамке, но набирая длинную
-    -- реплику, о ней забываешь.
-    frame.whoFS = frame:CreateFontString(nil, "OVERLAY", "SBFontHighlight")
-    frame.whoFS:SetPoint("TOPLEFT",  frame, "TOPLEFT",  12, y - 4)
-    frame.whoFS:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -12, y - 4)
+    frame.whoFS = frame:CreateFontString(nil, "OVERLAY", "SBFontNormal")
+    frame.whoFS:SetPoint("TOPLEFT",  frame, "TOPLEFT",  PAD + 2, y)
+    frame.whoFS:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PAD - 2, y)
     frame.whoFS:SetJustifyH("LEFT")
     frame.whoFS:SetWordWrap(false)
+    y = y - 20
 
-    -- Переключатель канала — кнопкой по кругу, а не тремя кнопками:
-    -- каналов три, места мало, а переключают их редко.
-    frame.chanBtn = SB.Theme.Button(frame, CHANNELS[1].label, 78, 20, "secondary")
-    frame.chanBtn:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, y - 24)
-    frame.chanBtn:SetScript("OnClick", function(self)
-        channelIdx = (channelIdx % #CHANNELS) + 1
-        self:SetText(CHANNELS[channelIdx].label)
+    local labels = {}
+    for i, ch in ipairs(CHANNELS) do labels[i] = ch.label end
+    frame.chanSeg = SB.Theme.Segmented(frame, labels, W - PAD * 2, 22, function(i)
+        channelIdx = i
     end)
+    frame.chanSeg:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, y)
+    frame.chanSeg:SetSelected(channelIdx, true)
+    y = y - 22 - 6
 
-    frame.sayBtn = SB.Theme.Button(frame, "Сказать", 78, 20, "primary")
-    frame.sayBtn:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -12, y - 24)
-    frame.sayBtn:SetScript("OnClick", Say)
-    frame.sayBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        SB.Theme.StyleTooltip(GameTooltip)
-        GameTooltip:SetText("Сказать", 1, 0.82, 0)
-        GameTooltip:AddLine("Enter — отправить, Shift+Enter — перенос строки, " ..
-            "стрелки вверх/вниз — прошлые реплики. Длинная реплика уйдёт " ..
-            "частями по словам.", 0.85, 0.85, 0.85, true)
-        GameTooltip:Show()
+    -- Поле реплики: своя подложка поля ввода и прокрутка внутри —
+    -- длинная реплика уходит частями, и видеть её надо целиком.
+    local box = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+    box:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, y)
+    box:SetSize(W - PAD * 2, INPUT_H)
+    box:SetBackdrop(SB.Theme.BD.input)
+    box:SetBackdropColor(C.inputBg[1], C.inputBg[2], C.inputBg[3], C.inputBg[4])
+    box:SetBackdropBorderColor(C.inputBd[1], C.inputBd[2], C.inputBd[3], C.inputBd[4])
+    y = y - INPUT_H - 8
+
+    local scroll = CreateFrame("ScrollFrame", nil, box)
+    scroll:SetPoint("TOPLEFT", box, "TOPLEFT", 6, -5)
+    scroll:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -6, 5)
+    local eb = CreateFrame("EditBox", nil, scroll)
+    eb:SetMultiLine(true)
+    eb:SetAutoFocus(false)
+    eb:SetFontObject("SBFontHighlight")
+    eb:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+    eb:SetWidth(W - PAD * 2 - 12)
+    scroll:SetScrollChild(eb)
+    scroll:EnableMouseWheel(true)
+    scroll:SetScript("OnMouseWheel", function(self, delta)
+        local max = self:GetVerticalScrollRange()
+        self:SetVerticalScroll(math.max(0, math.min(max, self:GetVerticalScroll() - delta * 14)))
     end)
-    frame.sayBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    -- Каретка у нижнего края — прокрутить за ней.
+    eb:SetScript("OnCursorChanged", function(_, _, cy, _, ch)
+        local top, h = scroll:GetVerticalScroll(), scroll:GetHeight()
+        cy = -cy
+        if cy < top then scroll:SetVerticalScroll(cy)
+        elseif cy + ch > top + h then scroll:SetVerticalScroll(cy + ch - h) end
+    end)
+    box:EnableMouse(true)
+    box:SetScript("OnMouseDown", function() eb:SetFocus() end)
 
-    -- ── НИЖНИЙ РЯД ────────────────────────────────────────
-    -- Строится ДО поля ввода: поле привязывается к нему снизу, и к
-    -- моменту привязки ряд должен существовать.
-    frame.hintFS = frame:CreateFontString(nil, "OVERLAY", "SBFontDisableSmall")
-    frame.hintFS:SetPoint("BOTTOMLEFT",  frame, "BOTTOMLEFT",  12, 12)
-    frame.hintFS:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -12, 12)
-    frame.hintFS:SetJustifyH("LEFT")
-    -- БЕЗ ПЕРЕНОСА И КОРОТКО. С переносом длинная подсказка встала бы в
-    -- две строки и подвинула поле ввода вверх — то есть окно поехало бы
-    -- от собственной подсказки. Полный список сочетаний — в подсказке
-    -- кнопки «Сказать», где ему и место.
-    frame.hintFS:SetWordWrap(false)
-    frame.hintFS:SetText("Enter — сказать, ↑↓ — история")
+    local ph = box:CreateFontString(nil, "OVERLAY", "SBFontDisableSmall")
+    ph:SetPoint("TOPLEFT", box, "TOPLEFT", 7, -6)
+    ph:SetPoint("RIGHT", box, "RIGHT", -7, 0)
+    ph:SetJustifyH("LEFT")
+    ph:SetText("Реплика… Enter — сказать, Shift+Enter — перенос, ↑↓ — история")
+    ph:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
+    eb:SetScript("OnTextChanged", function(self) ph:SetShown(self:GetText() == "") end)
+    frame.input = eb
 
-    frame.clearBtn = SB.Theme.Button(frame, "Очистить историю", 130, 20, "danger")
-    frame.clearBtn:SetPoint("BOTTOMRIGHT", frame.hintFS, "TOPRIGHT", 0, 6)
+    frame.clearBtn = SB.Theme.Button(frame, "Очистить историю", 120, BTN, "secondary")
     frame.clearBtn:SetScript("OnClick", function()
         if SpellbreakerAccountDB then SpellbreakerAccountDB.npcSpeech = {} end
         histIdx = 1
         print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BODY ..
             "история реплик очищена.|r")
     end)
+    frame.sayBtn = SB.Theme.Button(frame, "Сказать", 120, BTN, "primary")
+    frame.sayBtn:SetScript("OnClick", Say)
+    SB.Theme.LayoutRow(frame, { frame.clearBtn, frame.sayBtn }, "TOPLEFT", PAD, y, W - PAD * 2)
+    y = y - BTN - PAD
+    frame:SetHeight(-y)
 
-    -- ── ПОЛЕ ВВОДА С ПРОКРУТКОЙ ───────────────────────────
-    --
-    -- InputScrollFrameTemplate — тот же шаблон, что у игры в почте и в
-    -- сведениях гильдии: он и есть «многострочное поле, которое
-    -- прокручивается». Своя связка ScrollFrame + EditBox повторила бы
-    -- его хуже: у шаблона уже настроено следование прокрутки за
-    -- курсором, а без этого набирать вслепую ниже видимой части.
-    local scroll = CreateFrame("ScrollFrame", "SBNPCSpeechScroll", frame,
-                               "InputScrollFrameTemplate")
-    scroll:SetPoint("TOPLEFT",     frame.chanBtn, "BOTTOMLEFT",  0, -8)
-    scroll:SetPoint("BOTTOMRIGHT", frame.clearBtn, "TOPRIGHT",   0, 8)
-
-    local eb = scroll.EditBox
-    eb:SetWidth(scroll:GetWidth() - 8)
-    eb:SetFontObject("SBFontHighlight")
-    eb:SetAutoFocus(false)
-    -- Счётчик символов шаблон показывает по умолчанию; он тут врал бы:
-    -- предел у нас не в символах, а в байтах, и считаем мы его сами при
-    -- отправке (см. SB.NPCCommands.SplitByWords).
-    if scroll.CharCount then scroll.CharCount:Hide() end
-    scroll:SetScript("OnSizeChanged", function(self, w)
-        eb:SetWidth((w or 0) - 8)
-    end)
-    frame.input = eb
-
-    -- Enter отправляет, Shift+Enter переносит строку: реплика чаще одной
-    -- строки, а тянуться к кнопке на каждую фразу — лишнее движение.
     eb:SetScript("OnEnterPressed", function(self)
         if IsShiftKeyDown() then self:Insert("\n") else Say() end
     end)
@@ -258,12 +263,10 @@ local function Build()
     end)
 end
 
---- Обновить подпись «кем говорим». Зовётся на смену цели: окно может
---- быть открыто, пока Ведущий перебирает тушки.
 function SB.NPCSpeech.Refresh()
     if not frame or not frame:IsShown() then return end
     if UnitExists("target") and not UnitIsPlayer("target") then
-        frame.whoFS:SetText("|cFFFFD100Говорит:|r " .. (UnitName("target") or "?"))
+        frame.whoFS:SetText("|cFF9A9080Говорит|r  |cFFFFD100" .. (UnitName("target") or "?") .. "|r")
     else
         frame.whoFS:SetText(SB.Theme.MSG_BAD .. "В цели нет существа|r")
     end
