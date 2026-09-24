@@ -549,15 +549,21 @@ local function BuildEntries(slots, index)
     local pending, done = {}, {}
     for i, slot in ipairs(slots) do
         for _, name in ipairs(slot) do
-            local e = { name = name, slot = i }
-            if TO.HasActed(name) or TO.WasSkipped(name) then
-                done[#done + 1] = e
-            else
-                -- Расстояние от идущего слота по кольцу: пропущенный
-                -- очередью (новичок, вставший в уже отыгравший слот)
-                -- встаёт в хвост ждущих, а не перед идущим.
-                e.rank = (index > 0) and ((i - index) % n) or i
-                pending[#pending + 1] = e
+            -- ПАВШИХ И СБЕЖАВШИХ В ПОЛОСЕ НЕТ: ходить им нечем, очередь
+            -- их пролистывает, и портрет с черепом только занимал место в
+            -- ряду. Подняли — появится снова на своём месте (из очереди
+            -- его не вычёркивали, см. SkipDownedSlots в Core/TurnOrder.lua).
+            if not (TO.IsAbsent and TO.IsAbsent(name)) then
+                local e = { name = name, slot = i }
+                if TO.HasActed(name) or TO.WasSkipped(name) then
+                    done[#done + 1] = e
+                else
+                    -- Расстояние от идущего слота по кольцу: пропущенный
+                    -- очередью (новичок, вставший в уже отыгравший слот)
+                    -- встаёт в хвост ждущих, а не перед идущим.
+                    e.rank = (index > 0) and ((i - index) % n) or i
+                    pending[#pending + 1] = e
+                end
             end
         end
     end
@@ -851,6 +857,23 @@ if SB.Events and SB.Events.On then
         TQ.Refresh()
         UpdatePulse()
     end)
+
+    -- УПАЛ ИЛИ ПОДНЯЛСЯ — полоса перерисовывается сама: павших в ней нет
+    -- (см. BuildEntries), а об этом очередь события не даёт — узнаём по
+    -- здоровью. Статусы в бою идут потоком, поэтому перерисовку гасим:
+    -- одна на пятую долю секунды.
+    local refreshQueued = false
+    local function RequestRefresh()
+        if refreshQueued or not bar or not bar:IsShown() then return end
+        refreshQueued = true
+        C_Timer.After(0.2, function()
+            refreshQueued = false
+            TQ.Refresh()
+        end)
+    end
+    SB.Events.On(SB.E.PLAYERS_STATUS_UPDATED, RequestRefresh)
+    SB.Events.On(SB.E.HEALTH_CHANGED,         RequestRefresh)
+    SB.Events.On(SB.E.PLAYER_MODEL_CHANGED,   RequestRefresh)
 end
 
 local ev = CreateFrame("Frame")

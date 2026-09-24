@@ -185,8 +185,28 @@ function SB.NPC.ParseGUID(guid)
     return id, spawnUID
 end
 
+-- ── ОСОБЬ ПО КЛЮЧУ, КОГДА ЕЁ НЕТ НИ В ЦЕЛИ, НИ НА ТАБЛИЧКЕ ──────
+--
+-- Вся работа с особью принимает юнит-токен, а к особи, которую Ведущий
+-- отметил и потом перещёлкнул цель, токена может не быть вовсе
+-- (дружественные таблички обычно выключены). Состояние же лежит по
+-- ключу, и для него юнит не нужен. Поэтому «sbkey:<ключ>» понимается
+-- там, где из юнита берут ключ или вид, — и особь остаётся доступной
+-- по тому, что о ней уже известно (см. UnitForKey в Core/Logic/NpcCast.lua).
+local VIRTUAL = "sbkey:"
+SB.NPC.VIRTUAL_UNIT = VIRTUAL
+
+local function VirtualKey(unit)
+    if type(unit) == "string" and unit:sub(1, #VIRTUAL) == VIRTUAL then
+        return unit:sub(#VIRTUAL + 1)
+    end
+    return nil
+end
+
 --- npcID юнита («какой это вид»). nil — это не НПС.
 function SB.NPC.UnitNpcID(unit)
+    local vk = VirtualKey(unit)
+    if vk then return SB.NPC.NpcIDFromKey(vk) end
     if not unit or not UnitExists(unit) then return nil end
     if UnitIsPlayer(unit) then return nil end
     return (SB.NPC.ParseGUID(UnitGUID(unit)))
@@ -198,6 +218,8 @@ end
 --- в одну запись было бы легко.
 --- @return string|nil
 function SB.NPC.SpawnKey(unit)
+    local vk = VirtualKey(unit)
+    if vk then return vk end
     if not unit or not UnitExists(unit) then return nil end
     if UnitIsPlayer(unit) then return nil end
     local npcID, spawnUID = SB.NPC.ParseGUID(UnitGUID(unit))

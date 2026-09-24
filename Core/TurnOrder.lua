@@ -1911,6 +1911,28 @@ rosterWatch:SetScript("OnEvent", function()
         end
     end
 
+    -- ПРИШЕДШИЙ ПОСРЕДИ СЦЕНЫ. Раньше он вставал в очередь только со
+    -- следующего круга, а полное состояние получал только на границе
+    -- круга — до тех пор полоса у него показывала одного себя. Теперь
+    -- Ведущий ставит его в очередь сразу (в «по игроку» — в конец) и
+    -- рассылает состояние: сейчас и ещё раз через три секунды, когда
+    -- клиент пришедшего уже в группе и слышит её канал.
+    local known = {}
+    for _, slot in ipairs(state.slots) do
+        for _, n in ipairs(slot) do known[n] = true end
+    end
+    local newcomers = false
+    for name in pairs(present) do
+        if not known[name] then newcomers = true end
+    end
+    if newcomers and (state.round or 0) > 0 then
+        AddNewcomers()
+        changed = true
+        C_Timer.After(3, function()
+            if state.active and AssertGM() then Broadcast() end
+        end)
+    end
+
     if not changed then return end
 
     -- Слот мог опустеть целиком — тогда он больше никого не ждёт.

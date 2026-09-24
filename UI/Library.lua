@@ -1112,14 +1112,17 @@ function SB.Library.BuildFrame()
     -- ПОРЯДОК ВКЛАДОК — ПО ЧАСТОТЕ, а не по времени появления:
     -- заклинания открывают каждую сцену, ремесло — иногда, существ
     -- настраивает один Ведущий. Ремесло стоит между ними, как и просили.
+    --
+    -- ВКЛАДКИ «РЕМЕСЛО» БОЛЬШЕ НЕТ. Предметы никуда не делись — они
+    -- живут в сумке и набираются там же (см. UI/Items.lua), — но листать
+    -- их через библиотеку незачем: список предметов дублировал сумку.
+    -- Режим "items" в коде остался (его зовут поиск и отрисовка списка),
+    -- просто открыть его из окна больше нечем.
     local spellTab = MakeModeTab("spells", "Interface\\Icons\\INV_Misc_Book_09",
         "Заклинания", "Способности классов и всё, что создано вручную.")
-    local itemTab = MakeModeTab("items", "Interface\\Icons\\INV_Misc_Bag_08",
-        "Ремесло", "Зелья и прочее рукоделие. Носится отдельно от заклинаний: три ячейки на любом ранге.",
-        spellTab)
     MakeModeTab("npcs", "Interface\\Icons\\INV_Misc_Head_Orc_01",
         "НПС", "Существа по классификациям: шаблоны и настроенные вручную.",
-        itemTab)
+        spellTab)
 
     -- Кнопка класса
     classBtn = SB.Theme.Button(libFrame, "Маг", 145, 24, "secondary")
@@ -1214,7 +1217,9 @@ function SB.Library.BuildFrame()
     --- сбрасывается: строка, набранная для заклинаний, к существам
     --- отношения не имеет и молча спрятала бы половину списка.
     function SB.Library.SetMode(mode)
-        if mode ~= "spells" and mode ~= "items" and mode ~= "npcs" then
+        -- «items» больше не открывается (вкладки нет): попросивший его
+        -- попадает к заклинаниям.
+        if mode ~= "spells" and mode ~= "npcs" then
             mode = "spells"
         end
         if libMode == mode then ApplyModeChrome() return end
