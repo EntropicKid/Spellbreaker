@@ -807,6 +807,14 @@ function SB.Library.ShowDetail(spell)
     else
         scalingLines = SB.Logic.GetSpellScalingLines(spell)
     end
+    -- Срыв концентрации — свойство попадания, а не броска: без этой
+    -- строки игрок узнаёт о нём, только когда чужой канал уже сорван.
+    if not spell.isContainer and SB.Logic.Interrupts and SB.Logic.Interrupts(spell) then
+        local copy = {}
+        for i = 1, #scalingLines do copy[i] = scalingLines[i] end
+        copy[#copy + 1] = "|cFFFFD100При попадании:|r срыв концентрации"
+        scalingLines = copy
+    end
     f.scalingText:ClearAllPoints()
     f.scalingText:SetPoint("TOPRIGHT", f, "TOPRIGHT", -12, 0)
     if #scalingLines > 0 then
