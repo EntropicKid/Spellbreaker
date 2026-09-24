@@ -641,50 +641,38 @@ function SB.Library.ShowDetail(spell)
     end
 
     f._spellID = spell.id
-    f.title:SetText(spell.name or "Неизвестно")
+    local C       = SB.Theme.C
+    local isItem  = SB.Items.IsItem(spell)
+    local isEff   = spell.isContainer and true or false
+
+    -- Заголовок окна — РОД карточки; имя крупно в шапке.
+    f.title:SetText(isEff and "Эффект" or (isItem and "Предмет" or "Заклинание"))
     f.icon:SetTexture(spell.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
     f.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    f.heroName:SetText(spell.name or "Неизвестно")
 
-    local C = SB.Theme.C
-
-    -- Левая часть: класс, порядок, дескриптор.
+    -- ── Шапка: класс · порядок, дескриптор, создатель ────────
     -- Чужой класс помечаем ЦВЕТОМ и только цветом: подготовить его можно
-    -- лишь на круг ниже своего потолка (см. PM.GetMaxPrepareOrder), и
-    -- узнавать об этом из красной строки в чате ПОСЛЕ перетаскивания
-    -- карточки — поздно. Приписки с числом здесь нет намеренно: она
-    -- дублировала строку «Порядок» соседней строкой и повторялась на
-    -- каждой чужой карточке, хотя правило в игре ровно одно и учится
-    -- один раз.
-    local PM        = SB.PlayerModel
-    local classStr  = spell.class or "—"
+    -- лишь на круг ниже своего потолка (см. PM.GetMaxPrepareOrder).
+    -- Свой — цветом класса, как в рамках игры.
+    local PM       = SB.PlayerModel
+    local classStr = spell.class or "—"
     if PM and not PM.IsOwnClassSpell(spell.class) then
         classStr = "|cFFFF8844" .. classStr .. "|r"
+    else
+        local token = SB.Data.ClassColorTokens and SB.Data.ClassColorTokens[spell.class]
+        local cc    = token and RAID_CLASS_COLORS and RAID_CLASS_COLORS[token]
+        if cc then classStr = string.format("|cFF%02X%02X%02X%s|r",
+            cc.r * 255, cc.g * 255, cc.b * 255, classStr) end
     end
-    -- ТРЕБОВАНИЕ К СНАРЯЖЕНИЮ ЗДЕСЬ НЕ ПИШЕТСЯ, хотя раньше писалось
-    -- припиской «(нужно: оружие ближнего боя)». Приписка не влезала:
-    -- строка дескриптора стоит в верхней плашке рядом с классом и
-    -- порядком, ширина у той фиксированная, и длинная карточка
-    -- требования вылезала за рамку.
-    --
-    -- И НИЧЕМ НЕ КОМПЕНСИРУЕТСЯ — намеренно. Требование и так видно там,
-    -- где оно применяется: кнопка «Применить» гаснет, а подсказка на ней
-    -- называет причину словами (см. SB.Data.EquipRequirements.deny).
-    -- Второе место, где то же самое сказано короче и хуже, карточке не
-    -- нужно.
-    local keyStr = spell.key or "—"
-    -- ── ШАПКА ЭФФЕКТА — СВОЯ ─────────────────────────────
-    --
-    -- У заклинания шапка отвечает на «чьё оно, какого круга, чем
-    -- кастуется». У эффекта все три вопроса бессмысленны: класс у него
-    -- всегда «Эффект», круг всегда «Заговор», дескриптор — служебная
-    -- пометка. Ровно это и стояло на карточке: три строки, не говорящие
-    -- ничего.
-    --
-    -- Эффект отвечает на другие вопросы: помогает он или вредит, чем его
-    -- снимают и что он вытесняет. Их и ставим.
-    if spell.isContainer then
+    local DOT = "  |cFF6E6250•|r  "
+
+    local kindStr
+    if isEff then
+        -- У эффекта класс, круг и дескриптор бессмысленны (всегда
+        -- «Эффект», «Заговор», служебная пометка). Он отвечает на другое:
+        -- помогает или вредит.
         local kind = SB.ActiveEffects.GetKind(spell.id)
-        local kindStr
         if SB.Logic.IsConcentration(spell) then
             kindStr = "|cFF22BFFFПоддерживаемый|r"
         elseif kind == "debuff" then
@@ -692,238 +680,216 @@ function SB.Library.ShowDetail(spell)
         else
             kindStr = "|cFF55DD55Полезный|r"
         end
-
-        local parts = { "|cFFFFD100Тип:|r " .. kindStr }
-
-        -- ЧЕМ СНИМАЕТСЯ — самое важное про эффект после того, что он
-        -- делает. Школа названа и в теле карточки, но там она сама по
-        -- себе; здесь из неё сделан ответ на вопрос.
-        local schoolLabel = SB.ActiveEffects.GetSchoolLabel(spell.id)
-        parts[#parts + 1] = "|cFFFFD100Снимается:|r " ..
-            (schoolLabel and ("рассеиванием (" .. schoolLabel .. ")")
-                         or "|cFF9D9D9Dтолько временем и Отдыхом|r")
-
-        -- СЕМЕЙСТВО — это правило вытеснения, и без него игрок узнаёт о
-        -- нём, только когда его облик молча спадёт от другого облика.
-        local family = SB.Data.GetFamily and SB.Data.GetFamily(spell.id)
-        if family then
-            parts[#parts + 1] = "|cFFFFD100Вытесняет:|r другие «" ..
-                tostring(family) .. "»"
-        end
-
-        f.metaLeft:SetText(table.concat(parts, "\n"))
+        f.heroSub:SetText(kindStr .. " эффект")
+    elseif isItem then
+        f.heroSub:SetText(classStr .. DOT .. "Предмет")
     else
-        -- ВТОРАЯ СТРОКА — ПО СУЩЕСТВУ ПРЕДМЕТА. У заклинания это круг:
-        -- он решает, сколько ресурса влить и что из этого выйдет. У
-        -- склянки круга нет вовсе (он всегда нулевой), зато есть вопрос,
-        -- который задают каждый раз перед выходом: сколько таких влезает
-        -- в ячейку. Строка «Порядок: Заговор» на зелье отвечала на
-        -- незаданный вопрос и занимала место нужного ответа.
-        local second
-        if SB.Items.IsItem(spell) then
-            second = "|cFFFFD100В связке:|r " .. SB.Items.StackSize(spell) .. " шт."
-            local have = SB.Items.CountOf(spell.id)
-            if have > 0 then
-                second = second .. "  |cFF888888(в сумке: " .. have .. ")|r"
-            end
-        else
-            second = "|cFFFFD100Порядок:|r " ..
-                ((spell.level == 0) and SB.Logic.GetCantripLabel(spell.class)
-                                    or (spell.level .. "-й"))
-        end
-
-        f.metaLeft:SetText(string.format(
-            "|cFFFFD100Класс:|r %s\n%s\n|cFFFFD100Дескриптор:|r %s",
-            classStr, second, keyStr))
+        f.heroSub:SetText(classStr .. DOT ..
+            ((spell.level == 0) and SB.Logic.GetCantripLabel(spell.class)
+                                 or (spell.level .. "-й порядок")))
     end
 
-    -- Правая часть: только дальность. Действующая, с учётом эффектов —
-    -- см. SB.Logic.FormatSpellRange.
-    --
-    -- У ЭФФЕКТА ДАЛЬНОСТИ НЕТ. Он не летит и не наводится — его носят.
-    -- «На себя» на его карточке было не описанием, а следом умолчания.
-    f.metaDistance:SetText(spell.isContainer and ""
-        or ("|cFFFFD100Дальность:|r " .. SB.Logic.FormatSpellRange(spell)))
-
-    -- Площадь — ОТДЕЛЬНОЙ строкой под дальностью, а не приписью справа:
-    -- в одну строку с дальностью она не помещалась и лезла на текст.
-    local radius = SB.Logic.GetAoeRadius and SB.Logic.GetAoeRadius(spell) or 0
-    if radius > 0 then
-        -- Где гремит площадь, карточка не подписывает: это однозначно
-        -- следует из дальности, которая стоит строкой выше (есть
-        -- дальность — в цели, «На себя» — вокруг себя, см.
-        -- SB.Logic.IsAoeAtTarget), а лишняя скобка на каждой карточке —
-        -- шум.
-        f.metaArea:SetText(string.format("|cFFFF8844Область: %g м|r", radius))
-    else
-        f.metaArea:SetText("")
+    local note = {}
+    if not isEff and spell.key and spell.key ~= "" then note[#note + 1] = spell.key end
+    if spell.createdBy and spell.createdBy ~= "" then
+        note[#note + 1] = "создал " .. spell.createdBy
     end
+    f.heroNote:SetText(table.concat(note, "  ·  "))
 
-    -- Длительность (левая колонка, под дескриптором)
-    -- -1 значит бессрочно (снимается только Долгим Отдыхом): раньше здесь
-    -- стояло «Отсутствует», и карточка прямо противоречила расчёту.
-    -- Положительное число — длина в ходах, и она же окончательная:
-    -- вливания, которое её растягивало, больше нет (см. врезку о нём в
-    -- Core/Logic.lua). Сдвинуть срок может только «Воодушевление»
-    -- заклинателя, и считается оно долей от этого же числа.
+    -- Концентрация — через SB.Logic.IsConcentration: флаг бывает и на
+    -- контейнере, и механика читает именно так.
+    f.concBadge:SetShown((not isEff) and SB.Logic.IsConcentration(spell) or false)
+
+    -- ── Плитки ────────────────────────────────────────────────
+    -- Длительность: -1 — бессрочно (до Долгого Отдыха), число — ходы,
+    -- показанные временем (см. SB.UI.TurnsAsTime). У эффекта своей
+    -- длительности нет — её задаёт заклинание, которое его вешает.
     local dur = spell.duration
     local durStr
     if dur == -1 then
-        durStr = "Бессрочно (до Долгого Отдыха)"
+        durStr = "до Отдыха"
     elseif dur and dur > 0 then
-        -- Ходы показываются временем (см. SB.UI.TurnsAsTime): в расчёте
-        -- по-прежнему ходы, на экране — минуты и секунды.
         durStr = SB.UI.TurnsAsTime(dur)
     else
-        durStr = "Мгновенно"
-    end
-    -- ДЛИТЕЛЬНОСТЬ ЭФФЕКТА ЗАДАЁТ НЕ ОН САМ, а заклинание, которое его
-    -- вешает (см. SB.Logic.GetEffectDuration): одна и та же «Боль» висит
-    -- три хода от заговора и девять от третьего круга. Своего поля
-    -- duration у контейнера нет вовсе, и «Мгновенно» на его карточке —
-    -- прямая неправда, а не безобидная пустая строка.
-    if spell.isContainer and not (dur and dur ~= 0) then
-        f.metaDuration:SetText("|cFFFFD100Длительность:|r |cFF9D9D9Dпо заклинанию|r")
-    else
-        f.metaDuration:SetText("|cFFFFD100Длительность:|r " .. durStr)
+        durStr = "мгновенно"
     end
 
-    -- Концентрация (зеркально справа)
-    --
-    -- ЧЕРЕЗ SB.Logic.IsConcentration, А НЕ ПО ПОЛЮ: флаг бывает не на
-    -- заклинании, а на его контейнере, и механика читает именно так
-    -- (см. SB.Logic.ApplyEffect). Пока карточка спрашивала одно поле,
-    -- пять заклинаний работали концентрацией, ни слова об этом не
-    -- сказав, — «Незаметность» разбойника в их числе.
-    if SB.Logic.IsConcentration(spell) then
-        f.metaConcentration:SetText("|cFF22BFFFКонцентрация|r")
-        f.metaConcentration:Show()
+    local chips = {}
+    if isEff then
+        local schoolLabel = SB.ActiveEffects.GetSchoolLabel(spell.id)
+        chips[#chips + 1] = { "Тип", kindStr }
+        chips[#chips + 1] = { "Длительность",
+            (dur and dur ~= 0) and durStr or "|cFF9D9D9Dпо заклинанию|r" }
+        chips[#chips + 1] = { "Снимается",
+            schoolLabel and "рассеиванием" or "|cFF9D9D9Dтолько временем|r" }
+    elseif isItem then
+        chips[#chips + 1] = { "В связке", SB.Items.StackSize(spell) .. " шт." }
+        chips[#chips + 1] = { "В сумке", tostring(SB.Items.CountOf(spell.id)) }
     else
-        f.metaConcentration:Hide()
+        -- Дальность действующая, с учётом эффектов (FormatSpellRange).
+        chips[#chips + 1] = { "Дальность", SB.Logic.FormatSpellRange(spell) }
+        local radius = SB.Logic.GetAoeRadius and SB.Logic.GetAoeRadius(spell) or 0
+        if radius > 0 then
+            chips[#chips + 1] = { "Область", string.format("|cFFFF8844%g м|r", radius) }
+        end
+        chips[#chips + 1] = { "Длительность", durStr }
+    end
+    local n   = #chips
+    local gap = 6
+    local cw  = math.floor((f._inner - gap * (n - 1)) / n)
+    for i, chip in ipairs(f.chips) do
+        local d = chips[i]
+        if d then
+            chip:ClearAllPoints()
+            chip:SetPoint("TOPLEFT", f.chipRow, "TOPLEFT", (i - 1) * (cw + gap), 0)
+            chip:SetWidth((i == n) and (f._inner - (n - 1) * (cw + gap)) or cw)
+            chip.cap:SetText(d[1])
+            chip.val:SetText(d[2])
+            chip:Show()
+        else
+            chip:Hide()
+        end
     end
 
-    -- Создатель (если есть)
-    if spell.createdBy and spell.createdBy ~= "" then
-        f.metaCreator:SetText("|cFFFFD100Создатель:|r " .. spell.createdBy)
-        f.metaCreator:Show()
+    -- ── Описание ──────────────────────────────────────────────
+    f.desc:SetText(spell.description or "Описание отсутствует.")
+
+    -- ── Бросок / действие ─────────────────────────────────────
+    -- У эффекта — что он делает (mods, stats, tick); у склянки — что в
+    -- неё налито; у заклинания — бросок и скейлинг.
+    local lines
+    if isEff then
+        lines = {}
+        local family = SB.Data.GetFamily and SB.Data.GetFamily(spell.id)
+        if family then
+            lines[#lines + 1] = "|cFFFFD100Вытесняет:|r другие «" .. tostring(family) .. "»"
+        end
+        for _, l in ipairs(SB.ActiveEffects.GetEffectLines(spell.id) or {}) do
+            lines[#lines + 1] = l
+        end
+    elseif isItem then
+        lines = SB.Items.EffectSummary(spell) or {}
     else
-        f.metaCreator:Hide()
+        lines = {}
+        for _, l in ipairs(SB.Logic.GetSpellScalingLines(spell) or {}) do
+            lines[#lines + 1] = l
+        end
+        -- Срыв концентрации — свойство попадания, а не броска.
+        if SB.Logic.Interrupts and SB.Logic.Interrupts(spell) then
+            lines[#lines + 1] = "|cFFFFD100При попадании:|r срыв концентрации"
+        end
     end
 
-    -- Описание — ЦЕЛИКОМ, без обрезки. Раньше здесь стояла
-    -- TruncateForDisplay(..., 300) — лимит из поля отписи, ошибочно
-    -- применённый и к описанию: текст рвался на полуслове, а карточка
-    -- переставала расти. Длину карточки задаёт само описание
-    -- (см. AutoGrowToFit в конце функции).
-    f.desc:SetText("|cFFFFFFFF" .. (spell.description or "Описание отсутствует.") .. "|r")
+    f.statsHdr:SetText(isEff and "Действие" or (isItem and "Содержимое" or "Бросок"))
+    f.statsHdr:ClearAllPoints()
+    f.statsHdr:SetPoint("TOPLEFT", f.desc, "BOTTOMLEFT", -2, -14)
+    f.kv:ClearAllPoints()
+    f.kv:SetPoint("TOPLEFT", f.statsHdr, "BOTTOMLEFT", 0, -6)
 
-    -- Скейлинг — гэп до описания только когда есть что показывать
-    -- (см. комментарий в BuildFrame).
-    --
-    -- У ЭФФЕКТА-КОНТЕЙНЕРА скейлинга нет вовсе: он не бросается и не
-    -- скейлится, он просто действует. Вместо него в той же строке
-    -- показываем, ЧТО он делает — mods, stats и tick (см.
-    -- SB.ActiveEffects.GetEffectLines). Без этого карточка эффекта,
-    -- на которую теперь ведёт строка «Накладывает» с карточки
-    -- заклинания, состояла бы из одного художественного описания.
-    local scalingLines
-    if spell.isContainer then
-        scalingLines = SB.ActiveEffects.GetEffectLines(spell.id)
-    elseif SB.Items.IsItem(spell) then
-        -- У СКЛЯНКИ СВОЙ РАЗБОР. GetSpellScalingLines считает бросок и
-        -- скейлинг от характеристик — у предмета нет ни того, ни
-        -- другого: он даёт ровно то, что в нём налито, кто бы его ни
-        -- выпил. Раньше эти числа были написаны в описании словами и
-        -- врали почти везде (см. врезку у SB.Items.EffectSummary).
-        scalingLines = SB.Items.EffectSummary(spell)
-    else
-        scalingLines = SB.Logic.GetSpellScalingLines(spell)
+    -- ТАБЛИЦА «ЧТО — ОТ ЧЕГО». Строки приходят готовыми «Ключ: значение»
+    -- с кодом цвета; ключ уходит в левую колонку, значение — в правую,
+    -- а пояснение в скобках в конце приглушается. Строка без ключа идёт
+    -- во всю ширину.
+    local LBL_W = 96
+    local y = 0
+    for _, r in ipairs(f.kvRows) do r:Hide() end
+    for i, line in ipairs(lines) do
+        local row = f.kvRows[i]
+        if not row then
+            row = CreateFrame("Frame", nil, f.kv)
+            row.bg = row:CreateTexture(nil, "BACKGROUND")
+            row.bg:SetAllPoints()
+            row.bg:SetColorTexture(1, 0.9, 0.7, 0.035)
+            row.k = row:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
+            row.k:SetPoint("TOPLEFT", row, "TOPLEFT", 6, -4)
+            row.k:SetWidth(LBL_W)
+            row.k:SetJustifyH("LEFT")
+            row.k:SetTextColor(0.85, 0.72, 0.40)
+            row.v = row:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
+            row.v:SetJustifyH("LEFT")
+            row.v:SetWordWrap(true)
+            row.v:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+            f.kvRows[i] = row
+        end
+        local key, val = line:match("^|c%x%x%x%x%x%x%x%x(.-):%s*|r%s*(.*)$")
+        row.v:ClearAllPoints()
+        if key then
+            -- Пояснение в скобках в конце — тише основного числа.
+            val = val:gsub("%s(%b())%s*$", " |cFF9D9D9D%1|r")
+            row.k:SetText(key)
+            row.k:Show()
+            row.v:SetPoint("TOPLEFT", row, "TOPLEFT", 6 + LBL_W + 6, -4)
+            row.v:SetWidth(f._inner - LBL_W - 18)
+            row.v:SetText(val)
+        else
+            row.k:Hide()
+            row.v:SetPoint("TOPLEFT", row, "TOPLEFT", 6, -4)
+            row.v:SetWidth(f._inner - 12)
+            row.v:SetText(line)
+        end
+        local h = math.max(key and (row.k:GetStringHeight() or 12) or 0,
+                           row.v:GetStringHeight() or 12) + 8
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", f.kv, "TOPLEFT", 0, -y)
+        row:SetSize(f._inner, h)
+        row.bg:SetShown(i % 2 == 1)
+        row:Show()
+        y = y + h
     end
-    -- Срыв концентрации — свойство попадания, а не броска: без этой
-    -- строки игрок узнаёт о нём, только когда чужой канал уже сорван.
-    if not spell.isContainer and SB.Logic.Interrupts and SB.Logic.Interrupts(spell) then
-        local copy = {}
-        for i = 1, #scalingLines do copy[i] = scalingLines[i] end
-        copy[#copy + 1] = "|cFFFFD100При попадании:|r срыв концентрации"
-        scalingLines = copy
-    end
-    f.scalingText:ClearAllPoints()
-    f.scalingText:SetPoint("TOPRIGHT", f, "TOPRIGHT", -12, 0)
-    if #scalingLines > 0 then
-        f.scalingText:SetText(table.concat(scalingLines, "\n"))
-        f.scalingText:SetPoint("TOPLEFT", f.desc, "BOTTOMLEFT", 0, -8)
-    else
-        f.scalingText:SetText("")
-        f.scalingText:SetPoint("TOPLEFT", f.desc, "BOTTOMLEFT", 0, 0)
-    end
+    f.kv:SetHeight(math.max(1, y))
+    local hasStats = #lines > 0
+    f.statsHdr:SetShown(hasStats)
+    f.kv:SetShown(hasStats)
+    -- Низ блока над эффектом и отписью: таблица или, если её нет, само
+    -- описание.
+    local above = hasStats and f.kv or f.desc
 
     -- ── Накладываемый эффект ──────────────────────────────────
-    -- У заклинания ровно один из трёх адресатов — container (на себя),
-    -- buff (на союзника) или debuff (на цель), — поэтому строка одна.
-    -- Имя эффекта из системных сообщений боя убрано (см.
-    -- SB.Logic.ProcessRollAndCast): смотреть, что именно вешается,
-    -- полагается здесь, и по клику открывается полная карточка эффекта.
+    -- У заклинания ровно один из адресатов — container (на себя), buff
+    -- (на союзника), debuff (на цель) — или сотворённый предмет.
     local effectID, effectVerb
     if spell.creates then
-        -- СОТВОРЁННОЕ — ТОЙ ЖЕ СТРОКОЙ, ЧТО И ЭФФЕКТ. Адресат у него
-        -- четвёртый (не персонаж, а сумка), но вопрос игрок задаёт тот
-        -- же самый: «что у меня появится и что оно делает». По клику
-        -- открывается карточка предмета — с числом в пачке и выплатой.
         local c = spell.creates
-        effectID  = (type(c) == "table") and c.item or c
-        effectVerb = "Создаёт предмет:"
+        effectID   = (type(c) == "table") and c.item or c
+        effectVerb = "Создаёт предмет"
     elseif spell.container then
-        effectID, effectVerb = spell.container, "Накладывает на себя:"
+        effectID, effectVerb = spell.container, "Накладывает на себя"
     elseif spell.buff then
-        effectID, effectVerb = spell.buff, "Накладывает:"
+        effectID, effectVerb = spell.buff, "Накладывает"
     elseif spell.debuff then
-        -- ЧЕМ ЕГО ОТБИВАТЬ — В САМОМ ЗАГОЛОВКЕ СТРОКИ, а не строчкой
-        -- ниже и не в карточке эффекта. Это первое, что игрок хочет
-        -- знать про чужой дебафф, и единственное число, которое он
-        -- может изменить заранее, — а раньше «Накладывает на цель»
-        -- сообщало ровно то же, что и стрелка на имя эффекта.
-        --
-        -- Не назван — значит и отбиваться нечем: это метки и клейма,
-        -- они не давят, а помечают (см. SB.Logic.DebuffResistStat).
-        -- Скобок в этом случае нет: пустые сказали бы, что данные
-        -- потерялись, тогда как их и не должно быть.
+        -- Чем его отбивать — прямо в подписи: единственное число, которое
+        -- игрок может изменить заранее. Не назван — отбиваться нечем.
         local stat = SB.Logic and SB.Logic.DebuffResistStat
                      and SB.Logic.DebuffResistStat(spell.debuff, spell)
         effectID   = spell.debuff
-        effectVerb = stat and ("Дебафф (" .. stat .. "):") or "Дебафф:"
+        effectVerb = stat and ("Дебафф (" .. stat .. ")") or "Дебафф"
     end
     local effectSpell = effectID and SB.Data.Spells[effectID]
 
     f.outcomeLabel:ClearAllPoints()
     if effectSpell then
-        f.effectLine:SetText(string.format("|cFFFFD100%s|r |cFF9933FF[%s]|r",
-            effectVerb, effectSpell.name or effectID))
-        -- Ширина по тексту, но не уже 80px: GetStringWidth сразу после
-        -- SetText в том же кадре может отдать ноль, и кликать было бы
-        -- некуда (та же причина, по которой авто-рост карточки отложен
-        -- на следующий кадр — см. конец функции).
-        local fsw = f.effectLine:GetFontString():GetStringWidth() or 0
-        f.effectLine:SetWidth(math.max(80, fsw + 2))
-        f.effectLine:ClearAllPoints()
-        -- ВПЛОТНУЮ К БЛОКУ СКЕЙЛИНГА, а не через восемь пикселей: это
-        -- его четвёртая строка по смыслу, и межстрочный интервал у неё
-        -- должен быть тот же, что у трёх предыдущих (SetSpacing(2)).
-        f.effectLine:SetPoint("TOPLEFT", f.scalingText, "BOTTOMLEFT", 0, -2)
-        f.effectLine:SetScript("OnClick", function()
+        local e = f.effectLine
+        e.icon:SetTexture(effectSpell.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+        e.verb:SetText(effectVerb)
+        e.name:SetText(effectSpell.name or effectID)
+        e:ClearAllPoints()
+        e:SetPoint("TOPLEFT", above, "BOTTOMLEFT", hasStats and 0 or -2, -8)
+        e:SetScript("OnClick", function()
             SB.Library.ShowDetail(effectSpell)
         end)
-        f.effectLine:SetScript("OnEnter", function(self)
+        e:SetScript("OnEnter", function(self)
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            SB.Theme.StyleTooltip(GameTooltip)
             GameTooltip:AddLine(effectSpell.name or effectID, 1, 1, 1)
-            GameTooltip:AddLine("ЛКМ — открыть карточку эффекта", 0.7, 0.7, 0.7)
+            GameTooltip:AddLine("ЛКМ — открыть карточку", 0.7, 0.7, 0.7)
             GameTooltip:Show()
         end)
-        f.effectLine:SetScript("OnLeave", function() GameTooltip:Hide() end)
-        f.effectLine:Show()
-        f.outcomeLabel:SetPoint("TOPLEFT", f.effectLine, "BOTTOMLEFT", 0, -10)
+        e:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        e:Show()
+        f.outcomeLabel:SetPoint("TOPLEFT", e, "BOTTOMLEFT", 0, -14)
     else
         f.effectLine:Hide()
-        f.outcomeLabel:SetPoint("TOPLEFT", f.scalingText, "BOTTOMLEFT", 0, -10)
+        f.outcomeLabel:SetPoint("TOPLEFT", above, "BOTTOMLEFT", hasStats and 0 or -2, -14)
     end
 
     -- Поле отписи — общее для успеха и крит. успеха (см.
@@ -1026,10 +992,11 @@ function SB.Library.ShowDetail(spell)
             -- Сначала поле под свою отпись, потом окно под поле: порядок
             -- важен, иначе окно посчитается по ещё не выросшей коробке.
             if f.outcomeBox.FitToText then f.outcomeBox.FitToText() end
-            SB.Theme.AutoGrowToFit(f, f.outcomeBox, 56, 200)
+            SB.Theme.AutoGrowToFit(f, f.outcomeBox, 46, 200)
         else
-            local bottom = f.effectLine:IsShown() and f.effectLine or f.scalingText
-            SB.Theme.AutoGrowToFit(f, bottom, 56, 200)
+            local bottom = f.effectLine:IsShown() and f.effectLine
+                or (f.kv:IsShown() and f.kv or f.desc)
+            SB.Theme.AutoGrowToFit(f, bottom, 50, 200)
         end
     end
 
@@ -1423,20 +1390,40 @@ function SB.Library.BuildFrame()
     libFrame._scrollFrame = sf
 
     -- ── Карточка детального просмотра ────────────────────────
-    detailFrame = SB.Theme.Frame("SpellbreakerDetailFrame", UIParent, "Заклинание", 380, 200, "detail")
+    -- ============================================================
+    -- КАРТОЧКА ЗАКЛИНАНИЯ — ЯРУСАМИ, А НЕ ГОРОЙ ТЕКСТА
+    --
+    -- Раньше всё лежало одним полотном на голом фоне: шесть строк «Ключ:
+    -- значение» вокруг иконки, описание, ещё столбик строк скейлинга —
+    -- глазу не за что зацепиться. Теперь сверху вниз:
+    --
+    --   ШАПКА     — на подложке карточки: иконка, имя, класс и порядок,
+    --               дескриптор; значок «Концентрация», если она есть;
+    --   ПЛИТКИ    — два-три главных числа (дальность, длительность,
+    --               область) крупно, подпись мелко сверху;
+    --   ОПИСАНИЕ  — художественный текст отдельно от механики;
+    --   БРОСОК    — таблица «что — от чего», подписи в одну колонку;
+    --   ЭФФЕКТ    — кликабельная карточка того, что заклинание вешает;
+    --   ОТПИСЬ    — своё поле под своим заголовком;
+    --   КНОПКИ    — рядом равной ширины.
+    -- ============================================================
+    local DW, DP = 380, 12
+    local DIN    = DW - DP * 2
+    detailFrame = SB.Theme.Frame("SpellbreakerDetailFrame", UIParent, "Заклинание", DW, 200, "detail")
     SB.Theme.AttachPositionMemory(detailFrame, "detailFramePos", 250, 0)
     detailFrame:SetFrameStrata("HIGH")
+    detailFrame._inner = DIN
 
-    detailFrame.icon = detailFrame:CreateTexture(nil, "ARTWORK")
-    detailFrame.icon:SetSize(52, 52)
-    detailFrame.icon:SetPoint("TOPLEFT", detailFrame, "TOPLEFT", 14, detailFrame.contentY - 4)
+    -- ── Шапка ─────────────────────────────────────────────────
+    local hero = SB.Theme.Inset(detailFrame)
+    hero:SetPoint("TOPLEFT", detailFrame, "TOPLEFT", DP, detailFrame.contentY - 6)
+    hero:SetSize(DIN, 64)
+    detailFrame.hero = hero
 
-    local ib = CreateFrame("Frame", nil, detailFrame, "BackdropTemplate")
-    ib:SetPoint("TOPLEFT",     detailFrame.icon, "TOPLEFT",     -2,  2)
-    ib:SetPoint("BOTTOMRIGHT", detailFrame.icon, "BOTTOMRIGHT",  2, -2)
-    ib:SetBackdrop({edgeFile="Interface\\Tooltips\\UI-Tooltip-Border", edgeSize=7,
-                    insets={left=2, right=2, top=2, bottom=2}})
-    ib:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.9)
+    detailFrame.icon = hero:CreateTexture(nil, "ARTWORK")
+    detailFrame.icon:SetSize(48, 48)
+    detailFrame.icon:SetPoint("LEFT", hero, "LEFT", 8, 0)
+    local ib = SB.Theme.SoftIconFrame(hero, detailFrame.icon)
 
     -- Иконка в развёрнутой карточке — третья точка, откуда заклинание
     -- отправляется группе (кроме строки библиотеки и карточки в главном
@@ -1455,137 +1442,140 @@ function SB.Library.BuildFrame()
     end)
     ib:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    -- Левая мета-информация (класс, порядок, дескриптор)
-    detailFrame.metaLeft = detailFrame:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-    detailFrame.metaLeft:SetPoint("TOPLEFT", detailFrame.icon, "TOPRIGHT", 12, 0)
-    detailFrame.metaLeft:SetJustifyH("LEFT")
-    detailFrame.metaLeft:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+    detailFrame.heroName = hero:CreateFontString(nil, "OVERLAY", "SBFontLarge")
+    detailFrame.heroName:SetPoint("TOPLEFT", detailFrame.icon, "TOPRIGHT", 10, -1)
+    detailFrame.heroName:SetPoint("RIGHT", hero, "RIGHT", -8, 0)
+    detailFrame.heroName:SetJustifyH("LEFT")
+    detailFrame.heroName:SetWordWrap(false)
+    detailFrame.heroName:SetTextColor(C.accent[1], C.accent[2], C.accent[3])
 
-    -- Правая часть: только дальность
-    detailFrame.metaDistance = detailFrame:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-    detailFrame.metaDistance:SetPoint("TOPRIGHT", detailFrame, "TOPRIGHT", -12, 0)
-    detailFrame.metaDistance:SetPoint("TOP", detailFrame.metaLeft, "TOP", 0, 0)
-    detailFrame.metaDistance:SetJustifyH("RIGHT")
-    detailFrame.metaDistance:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+    detailFrame.heroSub = hero:CreateFontString(nil, "OVERLAY", "SBFontNormal")
+    detailFrame.heroSub:SetPoint("TOPLEFT", detailFrame.heroName, "BOTTOMLEFT", 0, -4)
+    detailFrame.heroSub:SetPoint("RIGHT", hero, "RIGHT", -8, 0)
+    detailFrame.heroSub:SetJustifyH("LEFT")
+    detailFrame.heroSub:SetWordWrap(false)
+    detailFrame.heroSub:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
 
-    -- Длительность + концентрация (под дескриптором)
-    detailFrame.metaDuration = detailFrame:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-    detailFrame.metaDuration:SetPoint("TOPLEFT", detailFrame.metaLeft, "BOTTOMLEFT", 0, 0)
-    detailFrame.metaDuration:SetPoint("RIGHT", detailFrame.metaDistance, "RIGHT", 0, 0)
-    detailFrame.metaDuration:SetJustifyH("LEFT")
-    detailFrame.metaDuration:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+    detailFrame.heroNote = hero:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
+    detailFrame.heroNote:SetPoint("TOPLEFT", detailFrame.heroSub, "BOTTOMLEFT", 0, -3)
+    detailFrame.heroNote:SetPoint("RIGHT", hero, "RIGHT", -96, 0)
+    detailFrame.heroNote:SetJustifyH("LEFT")
+    detailFrame.heroNote:SetWordWrap(false)
+    detailFrame.heroNote:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
 
-    -- Радиус площадного заклинания — своя строка прямо под дальностью.
-    -- Пустой текст схлопывает FontString в нулевую высоту, поэтому у
-    -- обычных заклинаний строка не отъедает места, а «Концентрация»
-    -- поднимается на её место сама (она привязана к низу этой строки).
-    detailFrame.metaArea = detailFrame:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-    detailFrame.metaArea:SetPoint("TOPRIGHT", detailFrame.metaDistance, "BOTTOMRIGHT", 0, 0)
-    detailFrame.metaArea:SetJustifyH("RIGHT")
+    -- Значок концентрации — плашкой в углу шапки: это свойство всего
+    -- заклинания, а не одно из чисел.
+    local badge = CreateFrame("Frame", nil, hero, "BackdropTemplate")
+    badge:SetSize(88, 16)
+    badge:SetPoint("BOTTOMRIGHT", hero, "BOTTOMRIGHT", -6, 6)
+    badge:SetBackdrop(SB.Theme.BD.input)
+    badge:SetBackdropColor(0.05, 0.18, 0.28, 0.9)
+    badge:SetBackdropBorderColor(0.15, 0.75, 1.0, 0.8)
+    local badgeFS = badge:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
+    badgeFS:SetPoint("CENTER", badge, "CENTER", 0, 0)
+    badgeFS:SetText("Концентрация")
+    badgeFS:SetTextColor(0.55, 0.88, 1.0)
+    badge:Hide()
+    detailFrame.concBadge = badge
 
-    detailFrame.metaConcentration = detailFrame:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-    detailFrame.metaConcentration:SetPoint("TOPRIGHT", detailFrame.metaArea, "BOTTOMRIGHT", 0, 0)
-    detailFrame.metaConcentration:SetJustifyH("RIGHT")
-    detailFrame.metaConcentration:SetTextColor(0.15, 0.75, 1.0, 1)
-
-    -- Создатель под длительностью
-    detailFrame.metaCreator = detailFrame:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-    detailFrame.metaCreator:SetPoint("TOPLEFT", detailFrame.metaDuration, "BOTTOMLEFT", 0, 0)
-    detailFrame.metaCreator:SetPoint("RIGHT", detailFrame.metaDistance, "RIGHT", 0, 0)
-    detailFrame.metaCreator:SetJustifyH("LEFT")
-    detailFrame.metaCreator:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
-    detailFrame.metaCreator:Hide()
+    -- ── Плитки ────────────────────────────────────────────────
+    -- До трёх штук, ширина делится поровну между показанными.
+    detailFrame.chipRow = CreateFrame("Frame", nil, detailFrame)
+    detailFrame.chipRow:SetPoint("TOPLEFT", hero, "BOTTOMLEFT", 0, -8)
+    detailFrame.chipRow:SetSize(DIN, 38)
+    detailFrame.chips = {}
+    for i = 1, 3 do
+        local chip = SB.Theme.Inset(detailFrame.chipRow, 0.55)
+        chip:SetHeight(38)
+        chip.cap = chip:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
+        chip.cap:SetPoint("TOP", chip, "TOP", 0, -5)
+        chip.cap:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
+        chip.val = chip:CreateFontString(nil, "OVERLAY", "SBFontNormal")
+        chip.val:SetPoint("BOTTOM", chip, "BOTTOM", 0, 6)
+        chip.val:SetPoint("LEFT", chip, "LEFT", 4, 0)
+        chip.val:SetPoint("RIGHT", chip, "RIGHT", -4, 0)
+        chip.val:SetWordWrap(false)
+        chip.val:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+        detailFrame.chips[i] = chip
+    end
 
     -- ── Описание ──────────────────────────────────────────────
-    -- FontString без заданной высоты: с двумя горизонтальными точками
-    -- (TOPLEFT/TOPRIGHT) и word-wrap она сама вырастает ровно на
-    -- столько строк, сколько нужно тексту. Всё, что ниже, привязано к
-    -- её BOTTOMLEFT, а высоту окна под итог подгоняет AutoGrowToFit
-    -- в конце ShowDetail — так карточка тянется за длиной описания.
-    -- Описание НЕ обрезается: лимит в 300 символов относится только к
-    -- полю отписи ниже (OUTCOME_MAX_CHARS).
+    -- ШИРИНА ЧИСЛОМ, а не двумя точками: высота переносимой строки тогда
+    -- верна сразу после SetText, и всё, что ниже, встаёт на место без
+    -- лишнего кадра. Описание НЕ обрезается.
     detailFrame.desc = detailFrame:CreateFontString(nil, "OVERLAY", "SBFontChat")
-    detailFrame.desc:SetPoint("TOPLEFT", detailFrame.icon, "BOTTOMLEFT", 0, -10)
-    detailFrame.desc:SetPoint("TOPRIGHT", detailFrame, "TOPRIGHT", -12, -10)
+    detailFrame.desc:SetPoint("TOPLEFT", detailFrame.chipRow, "BOTTOMLEFT", 2, -10)
+    detailFrame.desc:SetWidth(DIN - 4)
     detailFrame.desc:SetJustifyH("LEFT")
     detailFrame.desc:SetJustifyV("TOP")
-    detailFrame.desc:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
     detailFrame.desc:SetWordWrap(true)
+    detailFrame.desc:SetSpacing(2)
+    detailFrame.desc:SetTextColor(0.93, 0.89, 0.80)
 
-    -- Скейлинг заклинания (см. SB.Logic.GetSpellScalingLines) — между
-    -- описанием и отписью. Заполняется и позиционируется в ShowDetail:
-    -- при отсутствии скейлинга текст пустой И отступ сверху равен 0,
-    -- так что строка не отъедает места (сама FontString без явной
-    -- высоты уже схлопывается до 0px на пустом тексте — как и desc).
-    detailFrame.scalingText = detailFrame:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
-    detailFrame.scalingText:SetPoint("TOPRIGHT", detailFrame, "TOPRIGHT", -12, 0)
-    detailFrame.scalingText:SetJustifyH("LEFT")
-    detailFrame.scalingText:SetWordWrap(true)
-    detailFrame.scalingText:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
-    detailFrame.scalingText:SetSpacing(2)
+    -- ── Бросок / Действие ─────────────────────────────────────
+    detailFrame.statsHdr = SB.Theme.SectionHeader(detailFrame, "Бросок", DP)
+    detailFrame.kv = CreateFrame("Frame", nil, detailFrame)
+    detailFrame.kv:SetSize(DIN, 1)
+    detailFrame.kvRows = {}
 
-    -- ── «Накладывает: <эффект>» ───────────────────────────────
-    -- Кнопка, а не FontString: по имени эффекта надо КЛИКАТЬ, чтобы
-    -- открыть его карточку и прочитать, что он, собственно, делает.
-    -- FontString кликов не принимает вовсе, а |H-ссылки работают только
-    -- внутри EditBox с SetHyperlinksEnabled (так сделан журнал, см.
-    -- UI/Logs.lua) — ради одной строки заводить здесь EditBox незачем.
-    --
-    -- ШРИФТ ТОТ ЖЕ, ЧТО У СКЕЙЛИНГА (SBFontHighlightSmall). Раньше здесь
-    -- стоял обычный, крупнее — по доводу «это не сноска к цифрам, а вход
-    -- в другую карточку». Довод верный по смыслу и неверный по виду:
-    -- строка «Дебафф (Выносливость): [Отравленный клинок]» встаёт прямо
-    -- под блоком «Атака / Крит / Урон», читается как его четвёртая
-    -- строка — и выбивалась из него и кеглем, и высотой строки. Что это
-    -- ссылка, видно и так: цвет, подсветка при наведении, курсор.
-    --
-    -- FontString заводится ЯВНО и вешается через SetFontString. Кнопка,
-    -- созданная без шаблона, своей строки не имеет вовсе: SetText ей
-    -- некуда писать, а GetFontString() возвращает nil — и обращение к
-    -- нему роняло всю BuildFrame на середине, из-за чего не создавались
-    -- ни outcomeLabel, ни всё, что объявлено ниже.
-    detailFrame.effectLine = CreateFrame("Button", nil, detailFrame)
-    local effectFS = detailFrame.effectLine:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
-    effectFS:SetPoint("LEFT", detailFrame.effectLine, "LEFT", 0, 0)
-    effectFS:SetJustifyH("LEFT")
-    detailFrame.effectLine:SetFontString(effectFS)
-    -- ВЫСОТА — ПО САМОЙ СТРОКЕ, а не числом: кегль задаётся шрифтом, и
-    -- зашитая шестнадцатка разъехалась бы с ним при первой же правке
-    -- темы. Фолбэк на случай, если шрифт ещё не прогрелся.
-    detailFrame.effectLine:SetHeight(math.max(12, effectFS:GetLineHeight() or 0))
-    -- Подсветка при наведении — текстурой слоя HIGHLIGHT, а не сменой
-    -- цвета текста: в строке зашиты свои |cFF-коды, и SetTextColor их
-    -- всё равно не переборет.
-    local effectHL = detailFrame.effectLine:CreateTexture(nil, "HIGHLIGHT")
-    effectHL:SetAllPoints()
-    effectHL:SetColorTexture(1, 1, 1, 0.08)
-    detailFrame.effectLine:Hide()
+    -- Совместимость: ScalingText читают снаружи только как «низ блока»
+    -- (см. Refit) — теперь это таблица.
+    detailFrame.scalingText = detailFrame.kv
+
+    -- ── Накладываемый эффект ──────────────────────────────────
+    -- Карточкой-ссылкой: иконка, «что делает с кем» мелко и имя эффекта.
+    -- Щелчок открывает карточку эффекта.
+    local eff = CreateFrame("Button", nil, detailFrame, "BackdropTemplate")
+    eff:SetSize(DIN, 34)
+    eff:SetBackdrop(SB.Theme.BD.card)
+    eff:SetBackdropColor(0.20, 0.10, 0.28, 0.55)
+    eff:SetBackdropBorderColor(0.60, 0.20, 1.0, 0.55)
+    eff.icon = eff:CreateTexture(nil, "ARTWORK")
+    eff.icon:SetSize(22, 22)
+    eff.icon:SetPoint("LEFT", eff, "LEFT", 7, 0)
+    eff.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    SB.Theme.SoftIconFrame(eff, eff.icon)
+    eff.verb = eff:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
+    eff.verb:SetPoint("TOPLEFT", eff.icon, "TOPRIGHT", 8, 1)
+    eff.verb:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
+    eff.name = eff:CreateFontString(nil, "OVERLAY", "SBFontNormal")
+    eff.name:SetPoint("BOTTOMLEFT", eff.icon, "BOTTOMRIGHT", 8, -1)
+    eff.name:SetPoint("RIGHT", eff, "RIGHT", -24, 0)
+    eff.name:SetJustifyH("LEFT")
+    eff.name:SetWordWrap(false)
+    eff.name:SetTextColor(0.78, 0.55, 1.0)
+    eff.arrow = eff:CreateTexture(nil, "OVERLAY")
+    eff.arrow:SetTexture("Interface\\ChatFrame\\ChatFrameExpandArrow")
+    eff.arrow:SetSize(12, 12)
+    eff.arrow:SetPoint("RIGHT", eff, "RIGHT", -8, 0)
+    eff.arrow:SetVertexColor(0.78, 0.55, 1.0, 0.8)
+    local effectHL = eff:CreateTexture(nil, "HIGHLIGHT")
+    effectHL:SetPoint("TOPLEFT", 3, -3); effectHL:SetPoint("BOTTOMRIGHT", -3, 3)
+    effectHL:SetColorTexture(0.78, 0.55, 1.0, 0.10)
+    eff:Hide()
+    detailFrame.effectLine = eff
 
     -- Отпись игрока при успехе/крит. успехе — заполняется лично,
     -- сохраняется автоматически по потере фокуса (см. ниже).
     -- Точка привязки переустанавливается в ShowDetail: строка эффекта
     -- есть не у каждого заклинания, и на пустом месте она не должна
     -- отъедать вертикаль.
-    detailFrame.outcomeLabel = detailFrame:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-    detailFrame.outcomeLabel:SetPoint("TOPLEFT", detailFrame.scalingText, "BOTTOMLEFT", 0, -10)
-    detailFrame.outcomeLabel:SetText("|cFFFFD100Ваша отпись при успехе:|r")
-    detailFrame.outcomeLabel:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+    detailFrame.outcomeLabel = SB.Theme.SectionHeader(detailFrame, "Ваша отпись при успехе", DP)
 
     local OUTCOME_MAX_CHARS = 300
     detailFrame.outcomeBox = SB.Theme.MultilineInput(detailFrame,
-        "Например: наносит удар мечом по врагу...", 354, 58, OUTCOME_MAX_CHARS)
-    detailFrame.outcomeBox:SetPoint("TOPLEFT", detailFrame.outcomeLabel, "BOTTOMLEFT", 0, -4)
-    detailFrame.outcomeBox:SetPoint("RIGHT", detailFrame, "RIGHT", -12, 0)
+        "Например: наносит удар мечом по врагу...", DIN, 54, OUTCOME_MAX_CHARS)
+    detailFrame.outcomeBox:SetPoint("TOPLEFT", detailFrame.outcomeLabel, "BOTTOMLEFT", 0, -6)
 
     -- Поле растёт под длинную отпись, а карточка — под поле. Без этого
     -- текст уезжал за нижнюю рамку окна и продолжался в пустоте.
-    SB.Theme.AttachAutoGrow(detailFrame.outcomeBox, 58, OUTCOME_MAX_CHARS, function()
+    SB.Theme.AttachAutoGrow(detailFrame.outcomeBox, 54, OUTCOME_MAX_CHARS, function()
         -- Пока карточку перезаполняют, окно не трогаем: разметка ещё от
         -- прошлого заклинания (см. f._populating в ShowDetail). Живой
         -- набор текста сюда по-прежнему доходит — замок к тому моменту снят.
         if detailFrame._populating then return end
         if detailFrame:IsShown() then
-            SB.Theme.AutoGrowToFit(detailFrame, detailFrame.outcomeBox, 56, 200)
+            SB.Theme.AutoGrowToFit(detailFrame, detailFrame.outcomeBox, 46, 200)
         end
     end)
 
@@ -1614,9 +1604,9 @@ function SB.Library.BuildFrame()
     -- ============================================================
     local BTN_W, BTN_GAP = 96, 6
 
-    detailFrame.prepareBtn = SB.Theme.Button(detailFrame, "Подготовить", BTN_W, 26, "primary")
-    detailFrame.unlearnBtn = SB.Theme.Button(detailFrame, "Разучить",    BTN_W, 26, "danger")
-    detailFrame.editBtn    = SB.Theme.Button(detailFrame, "Редактировать", BTN_W, 26, "secondary")
+    detailFrame.prepareBtn = SB.Theme.Button(detailFrame, "Подготовить", BTN_W, 24, "primary")
+    detailFrame.unlearnBtn = SB.Theme.Button(detailFrame, "Разучить",    BTN_W, 24, "danger")
+    detailFrame.editBtn    = SB.Theme.Button(detailFrame, "Редактировать", BTN_W, 24, "secondary")
     detailFrame.unlearnBtn:Hide()
     detailFrame.editBtn:Hide()
 
@@ -1633,13 +1623,9 @@ function SB.Library.BuildFrame()
         end
         if #shown == 0 then return end
 
-        local total = #shown * BTN_W + (#shown - 1) * BTN_GAP
-        local x     = -total / 2
-        for _, b in ipairs(shown) do
-            b:ClearAllPoints()
-            b:SetPoint("BOTTOMLEFT", f, "BOTTOM", x, 12)
-            x = x + BTN_W + BTN_GAP
-        end
+        -- Во всю ширину карточки, поровну: одна кнопка — во всю ширину,
+        -- три — по трети. Раньше они стояли узкой кучкой по центру.
+        SB.Theme.LayoutRow(f, shown, "BOTTOMLEFT", DP, DP, DIN)
     end
 
     -- Подсветить закладку текущего раздела. Через SelectMode, а не
