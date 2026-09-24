@@ -12,12 +12,14 @@ local SPELL_COL_GAP = 0
 local SPELL_ROW_H   = 42
 
 local libFrame, detailFrame, scrollChild
-local classBtn, classMenu, searchEB
+local classBtn, searchEB
 local currentClassIndex = 1
 local visibleClasses = {}
 local searchText        = ""
 local spellRows  = {}
 local headerRows = {}
+-- Латунная черта справа от заголовка круга — по индексу заголовка.
+local headerLines = {}
 
 -- #6: фильтр отображения — "all" | "custom" | "builtin"
 local filterMode = "all"
@@ -156,6 +158,7 @@ local NPC_ROW_H = 44
 local function HideAllRows()
     for _, r in ipairs(spellRows)  do r:Hide() end
     for _, h in ipairs(headerRows) do h:Hide() end
+    for _, l in ipairs(headerLines) do l:Hide() end
     for _, r in ipairs(npcRows)    do r:Hide() end
 end
 
@@ -299,6 +302,7 @@ function SB.Library.UpdateList()
     end
     local C = SB.Theme.C
     local selectedClass = visibleClasses[currentClassIndex]   -- было: SB.Data.Classes[currentClassIndex]
+    classBtn:SetValue(currentClassIndex)
     classBtn:SetText(selectedClass or "—")
 
     -- РАЗДЕЛ НПС РИСУЕТСЯ СВОИМ СПИСКОМ и выходит отсюда: у существ нет
@@ -378,12 +382,28 @@ function SB.Library.UpdateList()
                 hdr:SetJustifyH("LEFT")
                 headerRows[hdrIdx] = hdr
             end
-            local htxt = (lvl == 0) and (SB.Logic.GetCantripLabel(selectedClass, true) .. ": ") or (lvl .. " Порядок: ")
+            -- ЗАГОЛОВОК КРУГА — ПОДПИСЬ И ЧЕРТА ДО КРАЯ, как разделитель в
+            -- книге: «Приёмы ————». Двоеточие ушло — после него ждёшь
+            -- перечисления в строку, а не таблицу карточек.
+            local htxt = (lvl == 0) and SB.Logic.GetCantripLabel(selectedClass, true)
+                         or (lvl .. " Порядок")
             hdr:SetText("|cFFFFD100" .. htxt .. "|r")
-            yOff = yOff + (hdrIdx == 1 and 5 or 15)
-            hdr:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 10, -yOff)
+            yOff = yOff + (hdrIdx == 1 and 4 or 12)
+            hdr:ClearAllPoints()
+            hdr:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 8, -yOff)
             hdr:Show()
-            yOff = yOff + 25
+            local line = headerLines[hdrIdx]
+            if not line then
+                line = scrollChild:CreateTexture(nil, "ARTWORK")
+                line:SetHeight(1)
+                line:SetColorTexture(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.45)
+                headerLines[hdrIdx] = line
+            end
+            line:ClearAllPoints()
+            line:SetPoint("LEFT", hdr, "RIGHT", 8, 0)
+            line:SetPoint("RIGHT", scrollChild, "RIGHT", -8, 0)
+            line:Show()
+            yOff = yOff + 24
             hdrIdx = hdrIdx + 1
         end
 
@@ -392,11 +412,29 @@ function SB.Library.UpdateList()
             row = CreateFrame("Button", nil, scrollChild)
             row:SetSize(SPELL_ROW_W, 42)
 
+            -- Наводка — тёплая полоса с латунной чертой слева, как у
+            -- строки селектора (SB.Theme.Dropdown), а не белая пелена.
             local hl = row:CreateTexture(nil, "HIGHLIGHT")
-            hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0.08)
+            hl:SetAllPoints(); hl:SetColorTexture(C.accent[1], C.accent[2], C.accent[3], 0.10)
+            local hlBar = row:CreateTexture(nil, "HIGHLIGHT")
+            hlBar:SetColorTexture(C.accent[1], C.accent[2], C.accent[3], 0.9)
+            hlBar:SetWidth(2)
+            hlBar:SetPoint("TOPLEFT", row, "TOPLEFT", 0, -3)
+            hlBar:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 0, 3)
 
             row.icon = row:CreateTexture(nil, "ARTWORK")
-            row.icon:SetSize(32, 32); row.icon:SetPoint("LEFT", 5, 0)
+            row.icon:SetSize(32, 32); row.icon:SetPoint("LEFT", 6, 0)
+            row.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+            -- Тёмная окантовка под иконкой: без неё иконки с чёрным краем
+            -- и со светлым выглядели разного размера.
+            local frameTex = row:CreateTexture(nil, "BORDER")
+            frameTex:SetPoint("TOPLEFT", row.icon, "TOPLEFT", -1, 1)
+            frameTex:SetPoint("BOTTOMRIGHT", row.icon, "BOTTOMRIGHT", 1, -1)
+            frameTex:SetColorTexture(0, 0, 0, 0.85)
+            local rim = row:CreateTexture(nil, "BACKGROUND")
+            rim:SetPoint("TOPLEFT", row.icon, "TOPLEFT", -2, 2)
+            rim:SetPoint("BOTTOMRIGHT", row.icon, "BOTTOMRIGHT", 2, -2)
+            rim:SetColorTexture(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.55)
 
             -- ОДНА СТРОКА И МНОГОТОЧИЕ. Строка в списке высотой 42
             -- пикселя рассчитана ровно на две подписи — имя и
@@ -1045,7 +1083,7 @@ function SB.Library.BuildFrame()
     -- ЗАГОЛОВОК БЕЗ «ЗАКЛИНАНИЙ»: в окне теперь два раздела — сами
     -- заклинания и НПС, — и прежнее имя обещало бы только половину.
     libFrame = SB.Theme.Frame("SpellbreakerLibraryFrame", UIParent,
-        "Библиотека", 410, 510, "library")
+        "Библиотека", 424, 540, "library")
     SB.Theme.AttachPositionMemory(libFrame, "libFramePos", -200, 0)
 
     -- ── ЗАКЛАДКИ РАЗДЕЛОВ ─────────────────────────────────────
@@ -1132,55 +1170,43 @@ function SB.Library.BuildFrame()
         "НПС", "Существа по классификациям: шаблоны и настроенные вручную.",
         spellTab)
 
-    -- Кнопка класса
-    classBtn = SB.Theme.Button(libFrame, "Маг", 145, 24, "secondary")
-    classBtn:SetPoint("TOPLEFT", libFrame, "TOPLEFT", 10, libFrame.contentY)
-    classBtn:SetScript("OnClick", function()
-        if classMenu:IsShown() then classMenu:Hide() else classMenu:Show() end
-    end)
-
-    -- Выпадающее меню классов
+    -- Селектор раздела: класс у заклинаний, классификация у существ
+    -- (см. SB.Theme.Dropdown — тот же, что в редакторе существ).
+    -- ВЕРХНЯЯ ПОЛОСА: селектор, поиск во всю оставшуюся ширину и
+    -- «Создать». Ниже — тёмная вставка со списком, внизу — кнопки.
+    -- Та же раскладка, что у журнала (UI/Logs.lua).
+    local TOOLBAR_Y = libFrame.contentY - 6
     visibleClasses = ModeSections()
-    classMenu = CreateFrame("Frame", "SBClassMenu", libFrame, "BackdropTemplate")
-    classMenu:SetPoint("TOPLEFT", classBtn, "BOTTOMLEFT", -5, -2)
-    classMenu:SetFrameStrata("DIALOG")
-    classMenu:SetBackdrop(SB.Theme.BD.frame)
-    classMenu:SetBackdropColor(C.frameBg[1], C.frameBg[2], C.frameBg[3], 0.98)
-    classMenu:SetBackdropBorderColor(C.frameBorder[1], C.frameBorder[2], C.frameBorder[3], 1)
-    classMenu:Hide()
+    classBtn = SB.Theme.Dropdown(libFrame, 150, 24)
+    classBtn:SetPoint("TOPLEFT", libFrame, "TOPLEFT", 12, TOOLBAR_Y)
+    classBtn:SetOnSelect(function(index)
+        currentClassIndex = index
+        SB.Library.UpdateList()
+    end)
 
     -- МЕНЮ ПЕРЕСОБИРАЕТСЯ ПОД РАЗДЕЛ. Список классов и список
     -- классификаций разной длины, и кнопки в нём переиспользуются, а не
     -- создаются заново: меню открывают часто, а плодить фреймы на каждое
     -- переключение незачем.
-    local menuBtns = {}
     -- Наружу (SB.Library.RebuildSections ниже): пересобрать список
     -- разделов нужно не только при смене режима, но и когда у персонажа
     -- открылась новая школа — а это случается вне библиотеки, по
     -- подобранному предмету.
     local function RebuildSectionMenu()
         visibleClasses = ModeSections()
-        classMenu:SetSize(155, math.max(1, #visibleClasses) * 22 + 12)
-        for _, b in ipairs(menuBtns) do b:Hide() end
+        local list = {}
         for i, cn in ipairs(visibleClasses) do
-            local mb = menuBtns[i]
-            if not mb then
-                mb = SB.Theme.Button(classMenu, cn, 143, 20, "secondary")
-                mb:SetPoint("TOPLEFT", classMenu, "TOPLEFT", 6, -(i-1)*22 - 6)
-                menuBtns[i] = mb
-            end
-            mb._index = i
-            mb:SetText(cn)
-            mb:SetScript("OnClick", function(self)
-                currentClassIndex = self._index
-                classMenu:Hide()
-                SB.Library.UpdateList()
-            end)
-            mb:Show()
+            -- Классы — своим цветом, как в рамках игры: взгляд находит
+            -- нужный раньше, чем прочтёт подпись.
+            local token = SB.Data.ClassColorTokens and SB.Data.ClassColorTokens[cn]
+            local cc    = token and RAID_CLASS_COLORS and RAID_CLASS_COLORS[token]
+            list[i] = { value = i, label = cn, color = cc and { cc.r, cc.g, cc.b } or nil }
         end
+        classBtn:SetItems(list)
         -- Выбранный раздел мог оказаться за пределами нового списка
         -- (классов больше, чем классификаций, или наоборот).
         if currentClassIndex > #visibleClasses then currentClassIndex = 1 end
+        classBtn:SetValue(currentClassIndex)
     end
     RebuildSectionMenu()
 
@@ -1237,14 +1263,14 @@ function SB.Library.BuildFrame()
         if searchEB then searchEB:SetText("") end
         RebuildSectionMenu()
         ApplyModeChrome()
-        classMenu:Hide()
+        classBtn:Close()
         SB.Library.UpdateList()
     end
 
     -- Поле поиска
     local searchEBLocal
     searchWrap, searchEBLocal = SB.Theme.Input(libFrame,
-        "Поиск способностей...", 165, 24)
+        "Поиск способностей...", 150, 24)
     searchWrap:SetPoint("LEFT", classBtn, "RIGHT", 6, 0)
     searchEB = searchEBLocal
     searchEB:SetScript("OnTextChanged", function(self)
@@ -1259,7 +1285,9 @@ function SB.Library.BuildFrame()
 
     -- Кнопка «Создать»
     createBtn = SB.Theme.Button(libFrame, "Создать", 66, 24, "primary")
-    createBtn:SetPoint("TOPRIGHT", libFrame, "TOPRIGHT", -10, libFrame.contentY)
+    createBtn:SetPoint("TOPRIGHT", libFrame, "TOPRIGHT", -12, TOOLBAR_Y)
+    -- Поиск тянется до «Создать»: ширина окна — его, а не пустоты.
+    searchWrap:SetPoint("RIGHT", createBtn, "LEFT", -6, 0)
     createBtn:SetScript("OnClick", function()
         -- Кнопка одна, а создаёт разное — то, что показано в списке.
         -- В разделе НПС форма открывается ЗАПОЛНЕННОЙ по шаблону текущей
@@ -1281,7 +1309,7 @@ function SB.Library.BuildFrame()
     end)
 	
     purgeBtn = SB.Theme.Button(libFrame, "Очистить кастом", 145, 24, "danger")
-    purgeBtn:SetPoint("BOTTOMLEFT", libFrame, "BOTTOMLEFT", 10, 10)
+    purgeBtn:SetPoint("BOTTOMLEFT", libFrame, "BOTTOMLEFT", 12, 12)
 
     -- Диалог создаётся один раз и переиспользуется (toggle)
     local purgeDialog = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
@@ -1376,7 +1404,7 @@ function SB.Library.BuildFrame()
 
     -- #6: Переключатель фильтра (все / кастом / вшитые)
     filterBtn = SB.Theme.Button(libFrame, FILTER_LABELS[filterMode], 110, 24, "secondary")
-    filterBtn:SetPoint("BOTTOMRIGHT", libFrame, "BOTTOMRIGHT", -10, 10)
+    filterBtn:SetPoint("BOTTOMRIGHT", libFrame, "BOTTOMRIGHT", -12, 12)
     filterBtn:SetScript("OnClick", function()
         local cur = filterMode
         local next
@@ -1390,7 +1418,16 @@ function SB.Library.BuildFrame()
 
     -- Скролл
     local sf
-    sf, scrollChild = SB.Theme.Scroll(libFrame, 10, libFrame.contentY - 30, -10, 36)
+    -- Тёмная вставка под списком — как лента журнала. Полоса прокрутки
+    -- по-прежнему снаружи окна (см. SB.Theme.AttachScrollbar).
+    local listTop = TOOLBAR_Y - 32
+    local box = CreateFrame("Frame", nil, libFrame, "BackdropTemplate")
+    box:SetPoint("TOPLEFT",     libFrame, "TOPLEFT",     10, listTop)
+    box:SetPoint("BOTTOMRIGHT", libFrame, "BOTTOMRIGHT", -10, 44)
+    box:SetBackdrop(SB.Theme.BD.card)
+    box:SetBackdropColor(0.03, 0.02, 0.05, 0.80)
+    box:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
+    sf, scrollChild = SB.Theme.Scroll(libFrame, 15, listTop - 5, -15, 49)
     libFrame._scrollFrame = sf
 
     -- ── Карточка детального просмотра ────────────────────────

@@ -134,17 +134,8 @@ local combatLogOptChk = MakeCheckRow(content, hideOptChk, -8,
     end,
     "SBCombatLogChk")
 
--- Записывать отыгрыш в журнал (см. UI/Logs.lua)
-local logChatOptChk = MakeCheckRow(content, combatLogOptChk, -8,
-    "Записывать отыгрыш в журнал (сказать, эмоции, группа)",
-    "logRoleplayChat",
-    function(val)
-        if SB.Logs and SB.Logs.SetChatCapture then SB.Logs.SetChatCapture(val) end
-    end,
-    "SBLogChatOptChk")
-
 -- Плавность интерфейса (см. Core/Animate.lua)
-local animOptChk = MakeCheckRow(content, logChatOptChk, -8,
+local animOptChk = MakeCheckRow(content, combatLogOptChk, -8,
     "Плавные переходы в интерфейсе",
     "animations")
 
@@ -258,38 +249,24 @@ local fontHeader = content:CreateFontString(nil, "ARTWORK", "SBFontNormal")
 fontHeader:SetPoint("TOPLEFT", sep3, "BOTTOMLEFT", 0, -10)
 fontHeader:SetText("Шрифт интерфейса")
 
-local fontDrop = CreateFrame("Frame", "SBFontDropdown", content, "UIDropDownMenuTemplate")
-fontDrop:SetPoint("TOPLEFT", fontHeader, "BOTTOMLEFT", -16, -6)
-
-local function FontDropInit(self, level)
-    if not SB.Fonts then return end
-    local current = SB.Fonts.GetChoice()
+-- Общий селектор аддона (SB.Theme.Dropdown), а не штатный список
+-- Blizzard: тот серый и чужой рядом с остальными окнами.
+local fontDrop = SB.Theme.Dropdown(content, 260, 24)
+fontDrop:SetPoint("TOPLEFT", fontHeader, "BOTTOMLEFT", 0, -8)
+fontDrop:SetItems(function()
+    local items = {}
+    if not SB.Fonts then return items end
     for _, f in ipairs(SB.Fonts.List()) do
-        local info = UIDropDownMenu_CreateInfo()
-        info.text  = f.name
-        info.value = f.name
-        info.checked = (f.name == current)
-        -- Пункт списка рисуется тем шрифтом, который предлагает: выбирать
-        -- начертание по названию — то же самое, что выбирать цвет по
-        -- имени файла. У игрового пункта своего пути нет, и он остаётся
-        -- как есть — что и правильно, он и означает «как в игре».
-        if type(f.path) == "string" and f.path ~= SB.Fonts.GAME then
-            info.fontObject = nil
-        end
-        info.func = function()
-            SB.Fonts.SetChoice(f.name)
-            UIDropDownMenu_SetText(fontDrop, f.name)
-            CloseDropDownMenus()
-        end
-        UIDropDownMenu_AddButton(info, level)
+        items[#items + 1] = { value = f.name, label = f.name }
     end
-end
-
-UIDropDownMenu_Initialize(fontDrop, FontDropInit)
-UIDropDownMenu_SetWidth(fontDrop, 260)
+    return items
+end)
+fontDrop:SetOnSelect(function(name)
+    if SB.Fonts then SB.Fonts.SetChoice(name) end
+end)
 
 local fontHint = content:CreateFontString(nil, "ARTWORK", "SBFontDisableSmall")
-fontHint:SetPoint("TOPLEFT", fontDrop, "BOTTOMLEFT", 20, -2)
+fontHint:SetPoint("TOPLEFT", fontDrop, "BOTTOMLEFT", 4, -6)
 fontHint:SetWidth(480)
 fontHint:SetJustifyH("LEFT")
 
@@ -321,7 +298,6 @@ local function SyncOptionsFromDB()
     emoteOptChk:SetChecked(db.sendEmotes ~= false)
     hideOptChk:SetChecked(db.hideSystemMessages or false)
     combatLogOptChk:SetChecked(db.combatLogMessages == true and not db.hideSystemMessages)
-    logChatOptChk:SetChecked(db.logRoleplayChat == true)
     -- Как и SB.Animate.IsEnabled: отсутствующее значение = включено.
     animOptChk:SetChecked(db.animations ~= false)
     -- Как и в SB.Overlay.IsEnabled: отсутствующее значение = включено.
@@ -335,7 +311,8 @@ local function SyncOptionsFromDB()
     marksOptChk:SetChecked(SB.Overlay and SB.Overlay.AreTurnMarksEnabled() or false)
 
     if SB.Fonts then
-        UIDropDownMenu_SetText(fontDrop, SB.Fonts.GetChoice())
+        fontDrop:SetValue(SB.Fonts.GetChoice())
+        fontDrop:SetText(SB.Fonts.GetChoice())
         -- Подсказка пишется здесь, а не задаётся один раз: она зависит
         -- от того, стоит ли у игрока LibSharedMedia, а это выясняется
         -- только когда все аддоны уже загрузились.

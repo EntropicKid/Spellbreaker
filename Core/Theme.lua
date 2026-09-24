@@ -748,9 +748,37 @@ function SB.Theme.Tab(parent, text, w, h, isActive)
     local tab = CreateFrame("Button", nil, parent)
     tab:SetSize(w or 100, h or 28)
 
-    tab.bg = tab:CreateTexture(nil, "BACKGROUND")
+    -- ПОДСВЕТКА АКТИВНОЙ — СВЕЧЕНИЕ СНИЗУ, а не плашка. Прежняя
+    -- непрозрачная коробка с отступами от краёв окна читалась как
+    -- кнопка, положенная на вкладку. Теперь ряд — сплошная полоса во
+    -- всю ширину (см. LayoutTabs), а активная вкладка «подсвечена» тёплым
+    -- градиентом от подчёркивания вверх.
+    tab.bg = tab:CreateTexture(nil, "BACKGROUND", nil, 1)
     tab.bg:SetAllPoints()
-    tab.bg:SetColorTexture(C.titleBg[1], C.titleBg[2], C.titleBg[3], 1)
+    tab.bg:SetTexture("Interface\\Buttons\\WHITE8x8")
+    if tab.bg.SetGradientAlpha then
+        tab.bg:SetGradientAlpha("VERTICAL",
+            C.accent[1], C.accent[2], C.accent[3], 0.22,
+            C.accent[1], C.accent[2], C.accent[3], 0.0)
+    else
+        tab.bg:SetVertexColor(C.accent[1], C.accent[2], C.accent[3], 0.10)
+    end
+
+    -- Наводка — та же подсветка, но слабее.
+    tab.hover = tab:CreateTexture(nil, "BACKGROUND", nil, 2)
+    tab.hover:SetAllPoints()
+    tab.hover:SetColorTexture(1, 0.9, 0.7, 0.05)
+    tab.hover:Hide()
+    tab:HookScript("OnEnter", function(self) if not self._active then self.hover:Show() end end)
+    tab:HookScript("OnLeave", function(self) self.hover:Hide() end)
+
+    -- Разделитель справа — волосяная латунная черта; у последней
+    -- вкладки прячется (см. LayoutTabs).
+    tab.sep = tab:CreateTexture(nil, "ARTWORK")
+    tab.sep:SetColorTexture(C.divider[1], C.divider[2], C.divider[3], 0.7)
+    tab.sep:SetWidth(1)
+    tab.sep:SetPoint("TOPRIGHT", tab, "TOPRIGHT", 0, -6)
+    tab.sep:SetPoint("BOTTOMRIGHT", tab, "BOTTOMRIGHT", 0, 6)
 
     -- ПОДЧЁРКИВАНИЕ РАСТЁТ ИЗ ЦЕНТРА, а не зажигается целиком. Привязано
     -- одной точкой (BOTTOM), а не двумя (BOTTOMLEFT+BOTTOMRIGHT): при двух
@@ -772,7 +800,8 @@ function SB.Theme.Tab(parent, text, w, h, isActive)
     function tab:SetActive(active, instant)
         self._active = active and true or false
         local dur = instant and 0 or 0.16
-        SB.Animate.Alpha(self.bg, active and 0.9 or 0, dur, "outQuad")
+        if active then self.hover:Hide() end
+        SB.Animate.Alpha(self.bg, active and 1 or 0, dur, "outQuad")
         SB.Animate.Alpha(self.underline, active and 1 or 0, dur, "outQuad")
         SB.Animate.Width(self.underline,
             active and self._fullW or 1, dur, "outQuint")
@@ -812,31 +841,59 @@ end
 --- @param tabs   table  массив вкладок в порядке слева направо
 --- @param pad    number|nil  отступ от краёв окна (по умолчанию 8)
 --- @param gap    number|nil  просвет между вкладками (по умолчанию 4)
+-- Полоса под вкладками по окну. Сбоку, а не полем окна: поле с таким
+-- именем у фрейма могло бы уже значить что-то своё.
+local tabStrips = setmetatable({}, { __mode = "k" })
+
 function SB.Theme.LayoutTabs(frame, tabs, pad, gap)
-    pad = pad or 8
-    gap = gap or 4
+    -- ВКЛАДКИ — СПЛОШНАЯ ПОЛОСА ОТ РАМКИ ДО РАМКИ, прямо под заголовком.
+    -- Прежние отступы (pad/gap) давали зазоры у бортов и между
+    -- вкладками, и ряд выглядел набором плашек, а не частью окна. Доводы
+    -- оставлены ради старых вызовов, но больше ничего не значат: ряд
+    -- встаёт ровно в проём заголовка (тот же отступ 5, что у полосы
+    -- заголовка, см. SB.Theme.Frame).
+    local INSET = 5
+    local TOP   = -31      -- сразу под разделителем заголовка
 
     local shown = {}
     for _, t in ipairs(tabs) do
         if t and t:IsShown() then shown[#shown + 1] = t end
     end
     if #shown == 0 then return end
+    local h = shown[1]:GetHeight()
 
-    local total = frame:GetWidth() - pad * 2 - gap * (#shown - 1)
+    -- Полоса под вкладками и нить по её низу — одна на окно.
+    local strip = tabStrips[frame]
+    if not strip then
+        strip = frame:CreateTexture(nil, "BORDER")
+        strip:SetColorTexture(0, 0, 0, 0.28)
+        local line = frame:CreateTexture(nil, "ARTWORK")
+        line:SetColorTexture(C.divider[1], C.divider[2], C.divider[3], C.divider[4])
+        line:SetHeight(1)
+        line:SetPoint("BOTTOMLEFT", strip, "BOTTOMLEFT")
+        line:SetPoint("BOTTOMRIGHT", strip, "BOTTOMRIGHT")
+        tabStrips[frame] = strip
+    end
+    strip:ClearAllPoints()
+    strip:SetPoint("TOPLEFT", frame, "TOPLEFT", INSET, TOP)
+    strip:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -INSET, TOP)
+    strip:SetHeight(h)
+
+    local total = frame:GetWidth() - INSET * 2
     local w     = math.floor(total / #shown)
-    -- Остаток от деления отдаём ПОСЛЕДНЕЙ вкладке: иначе ряд не достаёт
-    -- до правого края на один-два пикселя, и это заметно ровно так же,
-    -- как прежний зазор.
+    -- Остаток от деления — последней вкладке, чтобы ряд доставал до
+    -- правого края без щели в пиксель.
     local extra = total - w * #shown
 
     for i, t in ipairs(shown) do
         t:SetTabWidth(w + ((i == #shown) and extra or 0))
         t:ClearAllPoints()
         if i == 1 then
-            t:SetPoint("TOPLEFT", frame, "TOPLEFT", pad, frame.contentY or -30)
+            t:SetPoint("TOPLEFT", frame, "TOPLEFT", INSET, TOP)
         else
-            t:SetPoint("LEFT", shown[i - 1], "RIGHT", gap, 0)
+            t:SetPoint("LEFT", shown[i - 1], "RIGHT", 0, 0)
         end
+        if t.sep then t.sep:SetShown(i < #shown) end
     end
 end
 
@@ -1016,64 +1073,122 @@ end
 -- см. SB.Theme.Scroll ниже, там правый край скролл-фрейма совпадает с
 -- краем родителя.
 -- ============================================================
-SB.Theme.SCROLL_TRACK_W    = 7
+SB.Theme.SCROLL_TRACK_W    = 8
 SB.Theme.SCROLL_TRACK_PAD  = 11
 
 function SB.Theme.AttachScrollbar(sf, child, parent, top, bottom)
     local TRACK_W = SB.Theme.SCROLL_TRACK_W
     local PAD     = SB.Theme.SCROLL_TRACK_PAD
 
-    local track = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    -- ============================================================
+    -- ВИД: РЕЛЬС И «ПИЛЮЛЯ»
+    --
+    -- Раньше это была коробка с рамкой и плоский прямоугольник внутри —
+    -- «кнопка из Excel» посреди латуни и кожи. Теперь дорожка — тонкий
+    -- утопленный рельс, а ползунок — латунная пилюля со скруглёнными
+    -- концами, бликом по левому краю и тремя засечками-хватом. Место
+    -- прежнее: СНАРУЖИ правого края родителя.
+    --
+    -- Скругления — половинки круглой маски клиента (та же, что режет
+    -- портреты); отдельных файлов под это аддону не нужно.
+    -- ============================================================
+    local ROUND  = "Interface\\CHARACTERFRAME\\TempPortraitAlphaMask"
+    local WHITE  = "Interface\\Buttons\\WHITE8x8"
+    local BRASS  = C.cardBorder
+    local BRIGHT = C.cardHoverBorder
+    local GOLD   = C.textGold
+
+    local track = CreateFrame("Frame", nil, parent)
     track:SetPoint("TOPRIGHT",    parent, "TOPRIGHT",    PAD, top or -34)
     track:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", PAD, bottom or 10)
     track:SetWidth(TRACK_W)
-    -- Тёмная подложка + тонкая рамка в цвете темы — иначе плоский
-    -- белый прямоугольник смотрится чужеродно на фоне карточек/рамок
-    -- с бордюром, которые есть у всего остального интерфейса.
-    track:SetBackdrop({
-        bgFile   = "Interface\\Buttons\\WHITE8x8",
-        edgeFile = "Interface\\Buttons\\WHITE8x8",
-        edgeSize = 1,
-    })
-    track:SetBackdropColor(0, 0, 0, 0.30)
-    track:SetBackdropBorderColor(C.frameBorder[1], C.frameBorder[2], C.frameBorder[3], 0.55)
     track:Hide()
 
-    local thumb = CreateFrame("Button", nil, track, "BackdropTemplate")
-    thumb:SetWidth(TRACK_W - 2)
-    thumb:SetPoint("TOP", track, "TOP", 0, -1)
-    thumb:SetBackdrop({
-        bgFile   = "Interface\\Buttons\\WHITE8x8",
-        edgeFile = "Interface\\Buttons\\WHITE8x8",
-        edgeSize = 1,
-    })
-    thumb:SetBackdropColor(0, 0, 0, 0) -- заливка не нужна, цвет даёт градиент-текстура ниже
-    thumb:SetBackdropBorderColor(C.cardHoverBorder[1], C.cardHoverBorder[2], C.cardHoverBorder[3], 0.55)
-
-    -- Лёгкий вертикальный градиент вместо плоской заливки — от
-    -- акцентного цвета темы сверху к приглушённой рамке снизу.
-    -- SetGradientAlpha (не новый SetGradient) — старый вариант API,
-    -- надёжнее работает на нестандартных клиентах/серверах.
-    local grad = thumb:CreateTexture(nil, "ARTWORK")
-    grad:SetPoint("TOPLEFT", 1, -1)
-    grad:SetPoint("BOTTOMRIGHT", -1, 1)
-    grad:SetTexture("Interface\\Buttons\\WHITE8x8")
-    if grad.SetGradientAlpha then
-        grad:SetGradientAlpha("VERTICAL",
-            C.cardHoverBorder[1], C.cardHoverBorder[2], C.cardHoverBorder[3], 0.95,
-            C.frameBorder[1],     C.frameBorder[2],     C.frameBorder[3],     0.75)
-    else
-        grad:SetVertexColor(C.frameBorder[1], C.frameBorder[2], C.frameBorder[3], 0.85)
+    -- Рельс: тёмный желобок и волосяная латунная нить по центру.
+    local groove = track:CreateTexture(nil, "BACKGROUND")
+    groove:SetTexture(WHITE)
+    groove:SetVertexColor(0, 0, 0, 0.55)
+    groove:SetWidth(3)
+    groove:SetPoint("TOP", track, "TOP", 0, -2)
+    groove:SetPoint("BOTTOM", track, "BOTTOM", 0, 2)
+    local rail = track:CreateTexture(nil, "BORDER")
+    rail:SetTexture(WHITE)
+    rail:SetVertexColor(BRASS[1], BRASS[2], BRASS[3], 0.35)
+    rail:SetWidth(1)
+    rail:SetPoint("TOP", groove, "TOP", 0, 0)
+    rail:SetPoint("BOTTOM", groove, "BOTTOM", 0, 0)
+    -- Заглушки на концах рельса — точки, чтобы он не обрывался в пустоту.
+    for _, pt in ipairs({ "TOP", "BOTTOM" }) do
+        local dot = track:CreateTexture(nil, "BORDER")
+        dot:SetTexture(ROUND)
+        dot:SetSize(5, 5)
+        dot:SetPoint(pt, track, pt, 0, 0)
+        dot:SetVertexColor(BRASS[1], BRASS[2], BRASS[3], 0.55)
     end
 
-    -- Белый блик поверх градиента при наводке/драге (плавно ярче,
-    -- а не резкая смена цвета).
-    local hi = thumb:CreateTexture(nil, "OVERLAY")
-    hi:SetPoint("TOPLEFT", 1, -1)
-    hi:SetPoint("BOTTOMRIGHT", -1, 1)
-    hi:SetTexture("Interface\\Buttons\\WHITE8x8")
-    hi:SetVertexColor(1, 1, 1, 0)
-    thumb.hi = hi
+    local THUMB_W = TRACK_W - 1
+    local thumb = CreateFrame("Button", nil, track)
+    thumb:SetWidth(THUMB_W)
+    thumb:SetPoint("TOP", track, "TOP", 0, 0)
+
+    -- Тёмный контур — та же пилюля на пиксель шире, под телом.
+    local pieces, outline = {}, {}
+    local function Pill(layer, inset, list)
+        local capT = thumb:CreateTexture(nil, layer)
+        capT:SetTexture(ROUND)
+        capT:SetTexCoord(0, 1, 0, 0.5)
+        capT:SetPoint("TOPLEFT", thumb, "TOPLEFT", inset, -inset)
+        capT:SetPoint("TOPRIGHT", thumb, "TOPRIGHT", -inset, -inset)
+        capT:SetHeight((THUMB_W - inset * 2) / 2)
+        local capB = thumb:CreateTexture(nil, layer)
+        capB:SetTexture(ROUND)
+        capB:SetTexCoord(0, 1, 0.5, 1)
+        capB:SetPoint("BOTTOMLEFT", thumb, "BOTTOMLEFT", inset, inset)
+        capB:SetPoint("BOTTOMRIGHT", thumb, "BOTTOMRIGHT", -inset, inset)
+        capB:SetHeight((THUMB_W - inset * 2) / 2)
+        local mid = thumb:CreateTexture(nil, layer)
+        mid:SetTexture(WHITE)
+        mid:SetPoint("TOPLEFT", capT, "BOTTOMLEFT")
+        mid:SetPoint("BOTTOMRIGHT", capB, "TOPRIGHT")
+        list[#list + 1] = capT; list[#list + 1] = capB; list[#list + 1] = mid
+    end
+    Pill("BACKGROUND", 0, outline)
+    Pill("ARTWORK", 1, pieces)
+    for _, t in ipairs(outline) do t:SetVertexColor(0.05, 0.03, 0.02, 0.9) end
+
+    -- Блик по левому краю — объём без градиентов (SetGradientAlpha на
+    -- части клиентов ведёт себя по-разному).
+    local shine = thumb:CreateTexture(nil, "OVERLAY")
+    shine:SetTexture(WHITE)
+    shine:SetWidth(1)
+    shine:SetPoint("TOPLEFT", thumb, "TOPLEFT", 2, -3)
+    shine:SetPoint("BOTTOMLEFT", thumb, "BOTTOMLEFT", 2, 3)
+    shine:SetVertexColor(1, 0.95, 0.8, 0.35)
+
+    -- Хват: три засечки посередине.
+    local grips = {}
+    for i = -1, 1 do
+        local g = thumb:CreateTexture(nil, "OVERLAY")
+        g:SetTexture(WHITE)
+        g:SetSize(THUMB_W - 3, 1)
+        g:SetPoint("CENTER", thumb, "CENTER", 0, i * 3)
+        g:SetVertexColor(0.1, 0.06, 0.03, 0.6)
+        grips[#grips + 1] = g
+    end
+
+    local function Paint(col, a)
+        for _, t in ipairs(pieces) do t:SetVertexColor(col[1], col[2], col[3], a or 1) end
+    end
+    Paint(BRASS, 0.95)
+    -- Прежний интерфейс: hi хранит «насколько ярко» — наводка и драг
+    -- зовут его, как и раньше.
+    thumb.hi = {
+        SetVertexColor = function(_, _, _, _, a)
+            if (a or 0) >= 0.3 then Paint(GOLD, 1)
+            elseif (a or 0) > 0 then Paint(BRIGHT, 1)
+            else Paint(BRASS, 0.95) end
+        end,
+    }
 
     thumb:SetScript("OnEnter", function(self)
         self.hi:SetVertexColor(1, 1, 1, 0.18)
@@ -1502,6 +1617,420 @@ function SB.Theme.Input(parent, placeholder, w, h)
 
     wrap.editBox = eb
     return wrap, eb
+end
+
+-- ============================================================
+-- SB.Theme.Dropdown — СЕЛЕКТОР
+--
+-- Один на весь аддон: класс в библиотеке, класс, ресурс и фракция в
+-- редакторе существ, шрифт в настройках. Раньше было два разных: меню
+-- из кнопок-пергаментов, приклеенных столбиком одна к другой, и
+-- штатный UIDropDownMenu Blizzard — серый, чужой и не похожий ни на
+-- что в окнах аддона.
+--
+-- ВИД. Поле — как поле ввода (тёмная вставка, латунная рамка) с
+-- подписью и золотым шевроном справа за тонкой чертой. Список — тёмная
+-- панель подсказки; строки плоские, без рамок: наводка подсвечивает
+-- строку тёплой полосой с латунной чертой слева, выбранное — золотом и
+-- галочкой. Длинный список листается колесом.
+--
+-- ЗАКРЫВАЕТСЯ выбором, повторным щелчком по полю, Esc и щелчком мимо.
+-- Открытым бывает только один список на весь интерфейс.
+--
+-- API:
+--   dd = SB.Theme.Dropdown(parent, w, h)
+--   dd:SetItems(list | fn)   -- { { value =, label =, color = {r,g,b} }, ... }
+--                            -- fn зовётся при каждом открытии
+--   dd:SetOnSelect(fn)       -- fn(value, item)
+--   dd:SetValue(v)           -- выбрать без вызова fn; подпись — из списка
+--   dd:GetValue()
+--   dd:SetText(t)            -- подпись поля напрямую
+--   dd:Close(), dd:IsOpen()
+-- ============================================================
+local DD_ROW_H    = 20
+local DD_MAX_ROWS = 14
+local ddOpen      -- открытый сейчас список
+local ddCount     = 0
+
+function SB.Theme.Dropdown(parent, w, h)
+    local WHITE = "Interface\\Buttons\\WHITE8x8"
+    local dd = CreateFrame("Button", nil, parent, "BackdropTemplate")
+    dd:SetSize(w or 140, h or 24)
+    dd:SetBackdrop(BD.input)
+    dd:SetBackdropColor(C.inputBg[1], C.inputBg[2], C.inputBg[3], C.inputBg[4])
+    dd:SetBackdropBorderColor(C.inputBd[1], C.inputBd[2], C.inputBd[3], C.inputBd[4])
+
+    local label = dd:CreateFontString(nil, "OVERLAY", "SBFontNormal")
+    label:SetPoint("LEFT", dd, "LEFT", 8, 0)
+    label:SetPoint("RIGHT", dd, "RIGHT", -24, 0)
+    label:SetJustifyH("LEFT")
+    label:SetWordWrap(false)
+    label:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+
+    local sep = dd:CreateTexture(nil, "ARTWORK")
+    sep:SetTexture(WHITE)
+    sep:SetVertexColor(C.divider[1], C.divider[2], C.divider[3], 0.8)
+    sep:SetWidth(1)
+    sep:SetPoint("TOPRIGHT", dd, "TOPRIGHT", -20, -5)
+    sep:SetPoint("BOTTOMRIGHT", dd, "BOTTOMRIGHT", -20, 5)
+
+    local arrow = dd:CreateTexture(nil, "OVERLAY")
+    arrow:SetTexture("Interface\\Buttons\\Arrow-Down-Up")
+    arrow:SetSize(12, 12)
+    arrow:SetPoint("CENTER", dd, "RIGHT", -10, -2)
+    arrow:SetVertexColor(C.accent[1], C.accent[2], C.accent[3], 0.9)
+
+    local items, itemsFn, onSelect, value = {}, nil, nil, nil
+
+    -- ── Список ───────────────────────────────────────────────
+    ddCount = ddCount + 1
+    local menuName = "SBDropdownMenu" .. ddCount
+    local menu = CreateFrame("Frame", menuName, UIParent, "BackdropTemplate")
+    menu:SetFrameStrata("FULLSCREEN_DIALOG")
+    menu:SetClampedToScreen(true)
+    menu:SetBackdrop(BD.tooltip)
+    menu:SetBackdropColor(0.07, 0.055, 0.045, 0.98)
+    menu:SetBackdropBorderColor(C.frameBorder[1], C.frameBorder[2], C.frameBorder[3], 1)
+    menu:EnableMouseWheel(true)
+    menu:Hide()
+    if UISpecialFrames then table.insert(UISpecialFrames, menuName) end
+    dd.menu = menu
+
+    local rows, offset = {}, 0
+    local moreUp = menu:CreateTexture(nil, "OVERLAY")
+    moreUp:SetTexture("Interface\\Buttons\\Arrow-Up-Up")
+    moreUp:SetSize(10, 10)
+    moreUp:SetPoint("TOP", menu, "TOP", 0, -1)
+    moreUp:SetVertexColor(C.accent[1], C.accent[2], C.accent[3], 0.8)
+    local moreDown = menu:CreateTexture(nil, "OVERLAY")
+    moreDown:SetTexture("Interface\\Buttons\\Arrow-Down-Up")
+    moreDown:SetSize(10, 10)
+    moreDown:SetPoint("BOTTOM", menu, "BOTTOM", 0, 1)
+    moreDown:SetVertexColor(C.accent[1], C.accent[2], C.accent[3], 0.8)
+
+    local function LabelOf(v)
+        for _, it in ipairs(items) do
+            if it.value == v then return it.label end
+        end
+    end
+
+    local function Row(i)
+        local r = rows[i]
+        if r then return r end
+        r = CreateFrame("Button", nil, menu)
+        r:SetHeight(DD_ROW_H)
+        r.hl = r:CreateTexture(nil, "BACKGROUND")
+        r.hl:SetAllPoints()
+        r.hl:SetTexture(WHITE)
+        r.hl:SetVertexColor(C.accent[1], C.accent[2], C.accent[3], 0.14)
+        r.hl:Hide()
+        r.bar = r:CreateTexture(nil, "ARTWORK")
+        r.bar:SetTexture(WHITE)
+        r.bar:SetVertexColor(C.accent[1], C.accent[2], C.accent[3], 1)
+        r.bar:SetWidth(2)
+        r.bar:SetPoint("TOPLEFT", r, "TOPLEFT", 0, -2)
+        r.bar:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", 0, 2)
+        r.bar:Hide()
+        r.text = r:CreateFontString(nil, "OVERLAY", "SBFontNormal")
+        r.text:SetPoint("LEFT", r, "LEFT", 10, 0)
+        r.text:SetPoint("RIGHT", r, "RIGHT", -22, 0)
+        r.text:SetJustifyH("LEFT")
+        r.text:SetWordWrap(false)
+        r.check = r:CreateTexture(nil, "OVERLAY")
+        r.check:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
+        r.check:SetSize(14, 14)
+        r.check:SetPoint("RIGHT", r, "RIGHT", -5, 0)
+        r:SetScript("OnEnter", function(self) self.hl:Show(); self.bar:Show() end)
+        r:SetScript("OnLeave", function(self) self.hl:Hide(); self.bar:Hide() end)
+        r:SetScript("OnClick", function(self)
+            local it = self._item
+            if not it then return end
+            SB.Theme.PlaySound("click")
+            value = it.value
+            label:SetText(it.label)
+            menu:Hide()
+            if onSelect then onSelect(it.value, it) end
+        end)
+        rows[i] = r
+        return r
+    end
+
+    local function Fill()
+        local n = math.min(#items, DD_MAX_ROWS)
+        offset = math.max(0, math.min(offset, #items - n))
+        for _, r in ipairs(rows) do r:Hide() end
+        for i = 1, n do
+            local it = items[i + offset]
+            local r  = Row(i)
+            r._item = it
+            r.text:SetText(it.label)
+            local sel = (it.value == value)
+            local col = sel and C.accent or it.color or C.textMain
+            r.text:SetTextColor(col[1], col[2], col[3])
+            r.check:SetShown(sel)
+            r:ClearAllPoints()
+            r:SetPoint("TOPLEFT", menu, "TOPLEFT", 4, -6 - (i - 1) * DD_ROW_H)
+            r:SetPoint("TOPRIGHT", menu, "TOPRIGHT", -4, -6 - (i - 1) * DD_ROW_H)
+            r:Show()
+        end
+        moreUp:SetShown(offset > 0)
+        moreDown:SetShown(offset + n < #items)
+        menu:SetHeight(n * DD_ROW_H + 12)
+    end
+
+    menu:SetScript("OnMouseWheel", function(_, delta)
+        offset = offset - delta
+        Fill()
+    end)
+    -- Щелчок мимо закрывает: так же сделано у диалога чистки в библиотеке.
+    menu:SetScript("OnUpdate", function(self)
+        if (IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton"))
+           and not self:IsMouseOver() and not dd:IsMouseOver() then
+            self:Hide()
+        end
+    end)
+    menu:SetScript("OnHide", function()
+        if ddOpen == menu then ddOpen = nil end
+        arrow:SetVertexColor(C.accent[1], C.accent[2], C.accent[3], 0.9)
+    end)
+
+    function dd:Open()
+        if itemsFn then items = itemsFn() or {} end
+        if ddOpen and ddOpen ~= menu then ddOpen:Hide() end
+        ddOpen = menu
+        -- Ширина — по полю, но не уже самой длинной подписи.
+        local wMax = dd:GetWidth()
+        local probe = Row(1).text
+        for _, it in ipairs(items) do
+            probe:SetText(it.label)
+            wMax = math.max(wMax, (probe:GetStringWidth() or 0) + 40)
+        end
+        menu:SetWidth(wMax)
+        -- Выбранное — в поле зрения, если список длинный.
+        offset = 0
+        for i, it in ipairs(items) do
+            if it.value == value and i > DD_MAX_ROWS then offset = i - DD_MAX_ROWS end
+        end
+        Fill()
+        menu:ClearAllPoints()
+        menu:SetPoint("TOPLEFT", dd, "BOTTOMLEFT", 0, -2)
+        arrow:SetVertexColor(1, 1, 1, 1)
+        menu:Show()
+        if SB.Animate and SB.Animate.Alpha then
+            menu:SetAlpha(0)
+            SB.Animate.Alpha(menu, 1, 0.12, "outQuad")
+        end
+    end
+    function dd:Close() menu:Hide() end
+    function dd:IsOpen() return menu:IsShown() end
+    function dd:SetItems(list)
+        if type(list) == "function" then itemsFn = list; items = list() or {}
+        else itemsFn = nil; items = list or {} end
+        if menu:IsShown() then Fill() end
+    end
+    function dd:SetOnSelect(fn) onSelect = fn end
+    function dd:SetValue(v)
+        value = v
+        if itemsFn then items = itemsFn() or {} end
+        local l = LabelOf(v)
+        if l then label:SetText(l) end
+    end
+    function dd:GetValue() return value end
+    function dd:SetText(t) label:SetText(t or "") end
+    function dd:GetText() return label:GetText() end
+
+    dd:SetScript("OnClick", function(self)
+        SB.Theme.PlaySound("click")
+        if menu:IsShown() then menu:Hide() else self:Open() end
+    end)
+    dd:SetScript("OnEnter", function(self)
+        self:SetBackdropBorderColor(C.cardHoverBorder[1], C.cardHoverBorder[2], C.cardHoverBorder[3], 1)
+    end)
+    dd:SetScript("OnLeave", function(self)
+        self:SetBackdropBorderColor(C.inputBd[1], C.inputBd[2], C.inputBd[3], C.inputBd[4])
+    end)
+    dd:HookScript("OnHide", function() menu:Hide() end)
+    return dd
+end
+
+-- ============================================================
+-- SB.Theme.PopupMenu — ВСПЛЫВАЮЩЕЕ МЕНЮ С ПОДМЕНЮ
+--
+-- Замена EasyMenu Blizzard в том же виде, что и список селектора
+-- (SB.Theme.Dropdown): меню существа, «добавить характеристику» и
+-- «шаблон» в редакторе, меню склянки. Понимает ровно те поля, что
+-- аддон передавал в EasyMenu:
+--
+--   { text =, func = function() end, disabled =, isTitle =,
+--     hasArrow = true, menuList = { ... }, icon = "путь" }
+--
+-- notCheckable и прочее штатное — молча игнорируется: галочек в этих
+-- меню и не было.
+--
+-- Подменю открывается наводкой справа от строки; длинные списки
+-- листаются колесом. Закрывается выбором, Esc и щелчком мимо.
+-- ============================================================
+local POP_ROW_H, POP_TITLE_H, POP_MAX_ROWS = 20, 18, 18
+local popPanels, popAnchor = {}, nil
+
+local function PopClose(fromLevel)
+    for lvl = fromLevel or 1, #popPanels do popPanels[lvl]:Hide() end
+end
+SB.Theme.ClosePopupMenu = function() PopClose(1) end
+
+local PopShow   -- объявлена выше тела: строки открывают следующий уровень
+
+local function PopPanel(level)
+    local p = popPanels[level]
+    if p then return p end
+    local WHITE = "Interface\\Buttons\\WHITE8x8"
+    local name = "SBPopupMenu" .. level
+    p = CreateFrame("Frame", name, UIParent, "BackdropTemplate")
+    p:SetFrameStrata("FULLSCREEN_DIALOG")
+    p:SetFrameLevel(10 + level * 5)
+    p:SetClampedToScreen(true)
+    p:SetBackdrop(BD.tooltip)
+    p:SetBackdropColor(0.07, 0.055, 0.045, 0.98)
+    p:SetBackdropBorderColor(C.frameBorder[1], C.frameBorder[2], C.frameBorder[3], 1)
+    p:EnableMouseWheel(true)
+    p:Hide()
+    if UISpecialFrames then table.insert(UISpecialFrames, name) end
+    p.rows, p.offset, p.level = {}, 0, level
+
+    function p:Row(i)
+        local r = self.rows[i]
+        if r then return r end
+        r = CreateFrame("Button", nil, self)
+        r.hl = r:CreateTexture(nil, "BACKGROUND")
+        r.hl:SetAllPoints()
+        r.hl:SetTexture(WHITE)
+        r.hl:SetVertexColor(C.accent[1], C.accent[2], C.accent[3], 0.14)
+        r.hl:Hide()
+        r.bar = r:CreateTexture(nil, "ARTWORK")
+        r.bar:SetTexture(WHITE)
+        r.bar:SetVertexColor(C.accent[1], C.accent[2], C.accent[3], 1)
+        r.bar:SetWidth(2)
+        r.bar:SetPoint("TOPLEFT", r, "TOPLEFT", 0, -2)
+        r.bar:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", 0, 2)
+        r.bar:Hide()
+        r.icon = r:CreateTexture(nil, "ARTWORK")
+        r.icon:SetSize(16, 16)
+        r.icon:SetPoint("LEFT", r, "LEFT", 8, 0)
+        r.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+        r.text = r:CreateFontString(nil, "OVERLAY", "SBFontNormal")
+        r.text:SetJustifyH("LEFT")
+        r.text:SetWordWrap(false)
+        r.arrow = r:CreateTexture(nil, "OVERLAY")
+        r.arrow:SetTexture("Interface\\ChatFrame\\ChatFrameExpandArrow")
+        r.arrow:SetSize(12, 12)
+        r.arrow:SetPoint("RIGHT", r, "RIGHT", -4, 0)
+        r.arrow:SetVertexColor(C.accent[1], C.accent[2], C.accent[3], 0.9)
+        r.line = r:CreateTexture(nil, "ARTWORK")
+        r.line:SetTexture(WHITE)
+        r.line:SetHeight(1)
+        r.line:SetVertexColor(C.divider[1], C.divider[2], C.divider[3], 0.8)
+        r.line:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", 8, 1)
+        r.line:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", -8, 1)
+        r:SetScript("OnEnter", function(row)
+            local it = row._item
+            if not it or it.isTitle then return end
+            if not it.disabled then row.hl:Show(); row.bar:Show() end
+            if it.hasArrow and it.menuList and not it.disabled then
+                PopShow(self.level + 1, it.menuList, row, "TOPLEFT", "TOPRIGHT", 4, 6)
+            else
+                PopClose(self.level + 1)
+            end
+        end)
+        r:SetScript("OnLeave", function(row) row.hl:Hide(); row.bar:Hide() end)
+        r:SetScript("OnClick", function(row)
+            local it = row._item
+            if not it or it.isTitle or it.disabled or it.hasArrow then return end
+            SB.Theme.PlaySound("click")
+            PopClose(1)
+            if it.func then it.func() end
+        end)
+        self.rows[i] = r
+        return r
+    end
+
+    function p:Fill()
+        local list = self.list or {}
+        local n = math.min(#list, POP_MAX_ROWS)
+        self.offset = math.max(0, math.min(self.offset, #list - n))
+        for _, r in ipairs(self.rows) do r:Hide() end
+        local y, wMax = -6, 120
+        for i = 1, n do
+            local it = list[i + self.offset]
+            local r  = self:Row(i)
+            r._item = it
+            local h = it.isTitle and POP_TITLE_H or POP_ROW_H
+            r:SetHeight(h)
+            r.icon:SetShown(it.icon ~= nil)
+            if it.icon then r.icon:SetTexture(it.icon) end
+            r.text:ClearAllPoints()
+            r.text:SetPoint("LEFT", r, "LEFT", it.icon and 28 or 10, 0)
+            r.text:SetPoint("RIGHT", r, "RIGHT", -18, 0)
+            r.text:SetText(it.text or "")
+            local col = it.isTitle and C.accent or (it.disabled and C.disText) or C.textMain
+            r.text:SetTextColor(col[1], col[2], col[3])
+            r.text:SetFontObject(it.isTitle and "SBFontHighlightSmall" or "SBFontNormal")
+
+            r.arrow:SetShown(it.hasArrow and true or false)
+            r.line:SetShown(it.isTitle and true or false)
+            r:ClearAllPoints()
+            r:SetPoint("TOPLEFT", self, "TOPLEFT", 4, y)
+            r:SetPoint("TOPRIGHT", self, "TOPRIGHT", -4, y)
+            r:Show()
+            y = y - h
+            wMax = math.max(wMax, (r.text:GetStringWidth() or 0) + (it.icon and 28 or 10) + 30)
+        end
+        self:SetWidth(math.min(wMax + 8, 360))
+        self:SetHeight(-y + 6)
+    end
+
+    p:SetScript("OnMouseWheel", function(self, delta)
+        self.offset = self.offset - delta
+        PopClose(self.level + 1)
+        self:Fill()
+    end)
+    p:SetScript("OnHide", function(self) PopClose(self.level + 1) end)
+    if level == 1 then
+        p:SetScript("OnUpdate", function(self)
+            if not (IsMouseButtonDown("LeftButton") or IsMouseButtonDown("RightButton")) then
+                return
+            end
+            for _, q in ipairs(popPanels) do
+                if q:IsShown() and q:IsMouseOver() then return end
+            end
+            if popAnchor and popAnchor.IsMouseOver and popAnchor:IsMouseOver() then return end
+            PopClose(1)
+        end)
+    end
+    popPanels[level] = p
+    return p
+end
+
+PopShow = function(level, list, anchor, point, relPoint, x, y)
+    PopClose(level)
+    local p = PopPanel(level)
+    p.list, p.offset = list, 0
+    p:Fill()
+    p:ClearAllPoints()
+    p:SetPoint(point, anchor, relPoint, x, y)
+    p:Show()
+    if SB.Animate and SB.Animate.Alpha then
+        p:SetAlpha(0)
+        SB.Animate.Alpha(p, 1, 0.10, "outQuad")
+    end
+end
+
+--- Показать меню под anchor. Повторный вызов с тем же anchor при
+--- открытом меню — закрывает (как щелчок по кнопке-переключателю).
+function SB.Theme.PopupMenu(list, anchor, x, y)
+    local top = popPanels[1]
+    if top and top:IsShown() and popAnchor == anchor then PopClose(1); return end
+    popAnchor = anchor
+    PopShow(1, list or {}, anchor or UIParent, "TOPLEFT", "BOTTOMLEFT", x or 0, y or -2)
 end
 
 local function Utf8Len(s)

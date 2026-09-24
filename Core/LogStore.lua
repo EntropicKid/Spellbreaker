@@ -19,8 +19,8 @@
 --
 --   • КАТЕГОРИИ: бой (всё, что аддон пишет группе), очередь ходов,
 --     личное (свои отказы и срывы, которые раньше шли только в чат и
---     пропадали вовсе, если чат скрыт) и отыгрыш (сказать, эмоции,
---     группа — по желанию, как у Elephant);
+--     пропадали вовсе, если чат скрыт). Чат игры не пишется: для
+--     отыгрыша есть свои аддоны;
 --
 --   • ОБЪЁМ настраивается: 1000–20000 записей на персонажа. Старое
 --     срезается пачками, а не по одной строке, — table.remove(t, 1) на
@@ -43,7 +43,6 @@ LS.CATEGORIES = {
     { key = "combat",   label = "Бой" },
     { key = "turn",     label = "Очередь" },
     { key = "personal", label = "Личное" },
-    { key = "chat",     label = "Отыгрыш" },
 }
 local KNOWN_CAT = {}
 for _, c in ipairs(LS.CATEGORIES) do KNOWN_CAT[c.key] = true end
@@ -264,7 +263,7 @@ function LS.CurrentSession() return sessionID end
 
 --- Записать строку.
 --- @param msg string   строка как есть — с цветами и ссылками
---- @param cat string|nil  "combat" | "turn" | "personal" | "chat"
+--- @param cat string|nil  "combat" | "turn" | "personal"
 --- @return table|nil   запись (nil — дубль или пусто)
 function LS.Add(msg, cat)
     if type(msg) ~= "string" or msg == "" then return nil end
@@ -273,8 +272,7 @@ function LS.Add(msg, cat)
     local clean = LS.StripTag(msg)
     if clean == "" then return nil end
 
-    -- Отыгрыш не дедупим: «Да.» дважды подряд — это две реплики.
-    if cat ~= "chat" then
+    do
         local now  = Clock()
         local seen = recent[clean]
         if seen and (now - seen) < DEDUP_WINDOW then return nil end

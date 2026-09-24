@@ -13520,7 +13520,9 @@ end
 -- кому вкладку «Настройки» не показывают.
 -- ============================================================
 do
-    local PAD, GAP = 8, 4
+    -- Ряд — сплошная полоса от рамки до рамки: отступ 5 (как у полосы
+    -- заголовка) и без просветов между вкладками.
+    local PAD, GAP = 5, 0
     local frame = CreateFrame("Frame")
     frame:SetSize(380, 440)
     frame.contentY = -30
@@ -20879,18 +20881,17 @@ do
     LS.Add(T.MSG_TAG .. "[Spellbreaker]:|r " .. T.MSG_BODY .. "Мок применяет Пинок.|r", "combat")
     check("дубль в окне дедупа не пишется", LS.Count(), 3)
     LS.Add(T.MSG_TAG .. "[Spellbreaker]|r: " .. T.MSG_BODY .. "эффект спал.|r", "personal")
-    LS.Add("|cFFFFFFFFБуба говорит: Ёжик|r", "chat")
-    LS.Add("|cFFFFFFFFБуба говорит: Ёжик|r", "chat")
-    check("отыгрыш не дедупится", LS.Count(), 6)
+    LS.Add("|cFFFFFFFFБуба: Ёжик|r", "combat")
+    check("разные строки пишутся", LS.Count(), 5)
 
     local last = LS.Query(nil)[3]
     checkTrue("тег аддона срезан", not last.m:find("Spellbreaker", 1, true))
     check("по категории", #LS.Query(LS.Filter({ personal = true })), 1)
-    check("по сессии", #LS.Query(LS.Filter(nil, sid)), 4)
+    check("по сессии", #LS.Query(LS.Filter(nil, sid)), 3)
     check("поиск без регистра по кириллице", #LS.Query(LS.Filter(nil, nil, "ПИНОК")), 1)
-    check("ё == е", #LS.Query(LS.Filter(nil, nil, "ежик")), 2)
+    check("ё == е", #LS.Query(LS.Filter(nil, nil, "ежик")), 1)
     check("поиск не видит разметку", #LS.Query(LS.Filter(nil, nil, "cFF")), 0)
-    check("предел — последние", LS.Query(nil, 1)[1].m, "|cFFFFFFFFБуба говорит: Ёжик|r")
+    check("предел — последние", LS.Query(nil, 1)[1].m, "|cFFFFFFFFБуба: Ёжик|r")
     check("простой текст без цветов и ссылок",
           LS.Plain("|cFF00FF00|Hspellbreaker:x|h[Пинок]|h|r"), "[Пинок]")
     check("две сессии в списке", #LS.Sessions(), 2)
@@ -20923,13 +20924,43 @@ do
     check("строка очереди — в «Очередь»", #LS.Query(LS.Filter({ turn = true })), 1)
     ok, err = pcall(SB.Logs.Open, "мок")
     checkTrue("открытие с поиском: " .. tostring(err), ok)
-    local line = SB.Logs.FormatChat("CHAT_MSG_SAY", "Привет", "Буба-Сервер")
-    checkTrue("реплика отыгрыша собирается", line and line:find("говорит: Привет", 1, true))
-    check("строки аддона в отыгрыш не идут",
-          SB.Logs.FormatChat("CHAT_MSG_PARTY", "[Spellbreaker]: x", "Буба"), nil)
+    check("вкладки «Отыгрыш» больше нет", #LS.CATEGORIES, 3)
     checkTrue("ChatPrint на месте", SB.Logs.ChatPrint ~= nil)
     LS.Clear()
     _G.SpellbreakerCharDB = savedChar
+end
+
+-- ============================================================
+-- СЕЛЕКТОР И ВСПЛЫВАЮЩЕЕ МЕНЮ АДДОНА (SB.Theme.Dropdown / PopupMenu)
+-- ============================================================
+do
+    local parent = CreateFrame("Frame")
+    local picked
+    local dd = SB.Theme.Dropdown(parent, 140, 24)
+    dd:SetItems({ { value = 1, label = "Воин" }, { value = 2, label = "Маг" } })
+    dd:SetOnSelect(function(v) picked = v end)
+    dd:SetValue(2)
+    check("селектор помнит выбор", dd:GetValue(), 2)
+    local ok, err = pcall(dd.Open, dd)
+    checkTrue("селектор открывается: " .. tostring(err), ok)
+    ok, err = pcall(dd.Close, dd)
+    checkTrue("и закрывается: " .. tostring(err), ok)
+    check("SetValue не зовёт выбор", picked, nil)
+
+    local fired = false
+    ok, err = pcall(SB.Theme.PopupMenu, {
+        { text = "Заголовок", isTitle = true },
+        { text = "Подменю", hasArrow = true, menuList = {
+            { text = "Пункт", func = function() fired = true end } } },
+        { text = "Нельзя", disabled = true },
+    }, parent)
+    checkTrue("меню с подменю строится: " .. tostring(err), ok)
+    ok, err = pcall(SB.Theme.ClosePopupMenu)
+    checkTrue("меню закрывается: " .. tostring(err), ok)
+    checkTrue("EasyMenu Blizzard больше не зовётся",
+              not ReadFile("UI/NPCControl.lua"):find("EasyMenu(", 1, true)
+              and not ReadFile("UI/NPCEditor.lua"):find("EasyMenu(", 1, true)
+              and not ReadFile("UI/Items.lua"):find("EasyMenu(", 1, true))
 end
 
 -- ============================================================

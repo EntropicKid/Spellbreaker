@@ -260,9 +260,8 @@ function SB.UI.ShowItemUseMenu(anchor, spell)
         }
     end
 
-    SB.UI._itemMenu = SB.UI._itemMenu
-        or CreateFrame("Frame", "SpellbreakerItemUseMenu", UIParent, "UIDropDownMenuTemplate")
-    EasyMenu(menu, SB.UI._itemMenu, anchor, 0, 0, "MENU")
+    -- Меню аддона, а не EasyMenu Blizzard (см. SB.Theme.PopupMenu).
+    SB.Theme.PopupMenu(menu, anchor)
 end
 
 --- Перерисовать ряд по текущей сумке.

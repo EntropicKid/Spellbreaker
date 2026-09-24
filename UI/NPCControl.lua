@@ -24,7 +24,7 @@ local addonName, SB = ...
 
 SB.NPCControl = SB.NPCControl or {}
 
-local menuFrame, button
+local button
 local savedDisplayID = nil    -- последний облик, полученный «.npc info»
 
 local NC = SB.NPCCommands
@@ -373,11 +373,10 @@ local function EnsureButton()
     button:SetFrameStrata("MEDIUM")
     button:Hide()
 
-    menuFrame = CreateFrame("Frame", "SBNPCControlMenu", UIParent,
-                            "UIDropDownMenuTemplate")
-
+    -- Меню аддона, а не EasyMenu Blizzard (см. SB.Theme.PopupMenu):
+    -- тот же вид, что у селекторов и остальных окон.
     button:SetScript("OnClick", function(self)
-        EasyMenu(BuildMenu(), menuFrame, self, -16, 0, "MENU")
+        SB.Theme.PopupMenu(BuildMenu(), self)
     end)
 
     -- ── ВТОРАЯ КНОПКА: РЕЧЬ ───────────────────────────────
