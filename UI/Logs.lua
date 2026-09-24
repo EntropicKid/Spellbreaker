@@ -7,8 +7,9 @@
 --
 -- УСТРОЕНО ПО ОБРАЗЦУ ELEPHANT И PRAT:
 --
---   • ВКЛАДКИ ПО КАТЕГОРИЯМ — «Все», «Бой», «Очередь», «Личное»,
---     «Отыгрыш». Бой читается без строк очереди, отказы — отдельно;
+--   • ВКЛАДКИ ПО КАТЕГОРИЯМ — «Все», «Бой», «Очередь», «Личное». Бой
+--     читается без строк очереди, отказы — отдельно. Чат игры журнал не
+--     пишет: для отыгрыша есть свои аддоны (Elephant, Prat);
 --
 --   • ПОИСК по всему журналу, а не по тому, что видно в окне. Регистр
 --     не важен, кириллица тоже (см. SB.LogStore.Lower);
@@ -33,7 +34,7 @@ SB.Logs = SB.Logs or {}
 
 local LS -- SB.LogStore; берётся при постройке — файл Core грузится раньше
 
-local logFrame, feed, statusFS, sessionFS, capBtn, chatChk
+local logFrame, feed, statusFS, sessionFS, capBtn
 local copyFrame, copyEB
 local tabs = {}
 
@@ -184,8 +185,6 @@ local function Rebuild()
     local list = LS.Query(CurrentFilter(), DISPLAY_LIMIT)
     if #list == 0 then
         feed:AddMessage(STAMP_COLOR .. ((searchText ~= "") and "Ничего не найдено."
-            or (activeCat == "chat" and not SB.Logs.IsChatCaptureOn())
-                and "Запись отыгрыша выключена — включите галочкой внизу окна."
             or "Журнал пуст.") .. "|r")
     end
     for _, e in ipairs(list) do Append(e) end
@@ -254,69 +253,6 @@ local function ShowCopy()
     copyEB:SetFocus()
     copyEB:HighlightText()
 end
-
--- ============================================================
--- ЗАПИСЬ ОТЫГРЫША (как у Elephant): сказать, эмоции, группа, шёпот
--- ============================================================
-
-local CHAT_FORMATS = {
-    CHAT_MSG_SAY           = "%s говорит: %s",
-    CHAT_MSG_YELL          = "%s кричит: %s",
-    CHAT_MSG_EMOTE         = "%s %s",
-    CHAT_MSG_TEXT_EMOTE    = false,           -- в тексте уже есть имя
-    CHAT_MSG_PARTY         = "[Группа] %s: %s",
-    CHAT_MSG_PARTY_LEADER  = "[Группа] %s: %s",
-    CHAT_MSG_RAID          = "[Рейд] %s: %s",
-    CHAT_MSG_RAID_LEADER   = "[Рейд] %s: %s",
-    CHAT_MSG_RAID_WARNING  = "[Объявление] %s: %s",
-    CHAT_MSG_WHISPER       = "%s шепчет: %s",
-    CHAT_MSG_WHISPER_INFORM = "Вы шепчете %s: %s",
-}
-
-function SB.Logs.IsChatCaptureOn()
-    return SpellbreakerAccountDB and SpellbreakerAccountDB.logRoleplayChat == true
-end
-
-local chatListener = CreateFrame("Frame")
-
-local function ApplyChatCapture()
-    chatListener:UnregisterAllEvents()
-    if not SB.Logs.IsChatCaptureOn() then return end
-    for ev in pairs(CHAT_FORMATS) do chatListener:RegisterEvent(ev) end
-end
-SB.Logs.ApplyChatCapture = ApplyChatCapture
-
-function SB.Logs.SetChatCapture(on)
-    if SpellbreakerAccountDB then SpellbreakerAccountDB.logRoleplayChat = on and true or false end
-    ApplyChatCapture()
-    if chatChk then chatChk:SetChecked(on and true or false) end
-    if SBLogChatOptChk then SBLogChatOptChk:SetChecked(on and true or false) end
-    if activeCat == "chat" then Rebuild() end
-end
-
---- Строка отыгрыша в том виде, в каком её пишет журнал.
-function SB.Logs.FormatChat(event, msg, sender)
-    local fmt = CHAT_FORMATS[event]
-    if fmt == nil or type(msg) ~= "string" or msg == "" then return nil end
-    -- Строки самого аддона сюда не пишем: они и так в журнале.
-    if msg:find("Spellbreaker", 1, true) then return nil end
-    local key  = event:gsub("^CHAT_MSG_", "")
-    local info = ChatTypeInfo and ChatTypeInfo[key]
-    local color = info and string.format("|cFF%02X%02X%02X",
-        math.floor((info.r or 1) * 255), math.floor((info.g or 1) * 255),
-        math.floor((info.b or 1) * 255)) or "|cFFFFFFFF"
-    local short = (sender and sender ~= "" and Ambiguate and Ambiguate(sender, "none"))
-               or sender or "?"
-    local who = (sender and sender ~= "")
-        and ("|Hplayer:" .. sender .. "|h" .. short .. "|h") or short
-    local body = fmt and string.format(fmt, who, msg) or msg
-    return color .. body .. "|r"
-end
-
-chatListener:SetScript("OnEvent", function(_, event, msg, sender)
-    local line = SB.Logs.FormatChat(event, msg, sender)
-    if line and LS then LS.Add(line, "chat") end
-end)
 
 -- ============================================================
 -- ПОСТРОЕНИЕ
@@ -510,27 +446,9 @@ function SB.Logs.BuildFrame()
     downBtn:SetPoint("LEFT", capBtn, "RIGHT", 6, 0)
     downBtn:SetScript("OnClick", function() feed:ScrollToBottom() end)
 
-    chatChk = CreateFrame("CheckButton", nil, logFrame, "UICheckButtonTemplate")
-    chatChk:SetSize(20, 20)
-    chatChk:SetPoint("LEFT", downBtn, "RIGHT", 8, 0)
-    chatChk:SetChecked(SB.Logs.IsChatCaptureOn())
-    chatChk:SetScript("OnClick", function(self) SB.Logs.SetChatCapture(self:GetChecked()) end)
-    local chatLbl = logFrame:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
-    chatLbl:SetPoint("LEFT", chatChk, "RIGHT", 2, 0)
-    chatLbl:SetText("Отыгрыш")
-    chatLbl:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
-    chatChk:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine("Записывать отыгрыш")
-        GameTooltip:AddLine("Сказать, крик, эмоции, группа, рейд и шёпот — во " ..
-            "вкладку «Отыгрыш».", 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-    chatChk:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
     -- ── Раскладка по ширине ──────────────────────────────────
     local function Relayout()
-        SB.Theme.LayoutTabs(logFrame, tabs, 10, 4)
+        SB.Theme.LayoutTabs(logFrame, tabs)
     end
     logFrame:SetScript("OnSizeChanged", Relayout)
     Relayout()
@@ -540,7 +458,6 @@ function SB.Logs.BuildFrame()
     end)
 
     LS.OnChange(OnStoreChange)
-    ApplyChatCapture()
     UpdateStatus()
 end
 

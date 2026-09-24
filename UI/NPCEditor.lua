@@ -116,27 +116,26 @@ local function MakeField(parent, key, labelText, width, y, anchor)
     return lbl, wrap
 end
 
---- Выпадающий список. Обёртка над штатным шаблоном: их в форме два
---- (классификация и ресурс), и оба устроены одинаково.
+--- Выпадающий список — общий селектор аддона (SB.Theme.Dropdown).
+--- Раньше здесь был штатный UIDropDownMenu Blizzard: серый, со своим
+--- сдвигом в -16 пикселей и не похожий ни на одно окно аддона.
+--- name больше не нужен — оставлен, чтобы не трогать вызовы.
 local function MakeDropdown(parent, name, anchor, y, width, itemsFn, onPick, currentFn)
-    local dd = CreateFrame("Frame", name, parent, "UIDropDownMenuTemplate")
-    dd:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", -16, y)
-    UIDropDownMenu_Initialize(dd, function(self, level)
+    local dd = SB.Theme.Dropdown(parent, width or 130, 24)
+    -- В строку с подписью, как поля ввода (см. MakeField): селектор
+    -- ростом с поле, и отдельная строка под ним была бы пустой тратой
+    -- высоты. y больше не значит ничего — оставлен ради вызовов.
+    dd:SetPoint("LEFT", anchor, "RIGHT", 6, 0)
+    dd:SetItems(itemsFn)
+    dd:SetOnSelect(function(v) onPick(v) end)
+    -- Галочка в списке — у того, что стоит в записи сейчас, а не у
+    -- выбранного в прошлый раз: форма открывается на разных существах.
+    local open = dd.Open
+    dd.Open = function(self)
         local cur = currentFn()
-        for _, item in ipairs(itemsFn()) do
-            local info = UIDropDownMenu_CreateInfo()
-            info.text    = item.label
-            info.value   = item.value
-            info.checked = (item.value == cur)
-            info.func    = function()
-                onPick(item.value)
-                UIDropDownMenu_SetText(dd, item.label)
-                CloseDropDownMenus()
-            end
-            UIDropDownMenu_AddButton(info, level)
-        end
-    end)
-    UIDropDownMenu_SetWidth(dd, width or 130)
+        if cur ~= nil then self:SetValue(cur) end
+        return open(self)
+    end
     return dd
 end
 
@@ -216,8 +215,7 @@ local function Build()
             nameEB:SetText(UnitName("target") or "")
         end
         current.classification = SB.NPC.ClassifyByType(UnitCreatureType("target"))
-        UIDropDownMenu_SetText(frame.classDD,
-            SB.NPC.GetClassification(current.classification).name)
+        frame.classDD:SetText(SB.NPC.GetClassification(current.classification).name)
         local lvl = UnitLevel("target")
         if lvl and lvl > 0 then fields.level:SetText(tostring(lvl)) end
 
@@ -234,7 +232,7 @@ local function Build()
         elseif UnitIsFriend and UnitIsFriend("player", "target") then fac = "ally"
         else fac = "enemy" end
         current.faction = fac
-        UIDropDownMenu_SetText(frame.facDD, SB.NPC.GetFaction(fac).name)
+        frame.facDD:SetText(SB.NPC.GetFaction(fac).name)
     end)
     grabBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
@@ -248,7 +246,7 @@ local function Build()
 
     -- ── Классификация ─────────────────────────────────────
     local clsLbl = TightLabel(frame, "Классификация")
-    clsLbl:SetPoint("TOPLEFT", idLbl, "BOTTOMLEFT", 0, -12)
+    clsLbl:SetPoint("TOPLEFT", idLbl, "BOTTOMLEFT", 0, -16)
 
     frame.classDD = MakeDropdown(frame, "SBNPCClassDD", clsLbl, -4, 150,
         function()
@@ -265,7 +263,7 @@ local function Build()
     local lvlLbl = MakeField(frame, "level", "Уровень", 48, -14, clsLbl)
     fields.level:SetJustifyH("CENTER"); fields.level:SetMaxLetters(3)
     lvlLbl:ClearAllPoints()
-    lvlLbl:SetPoint("TOPLEFT", frame.classDD, "BOTTOMLEFT", 16, -6)
+    lvlLbl:SetPoint("TOPLEFT", clsLbl, "BOTTOMLEFT", 0, -16)
 
     local hpLbl = TightLabel(frame, "Здоровье")
     hpLbl:SetPoint("LEFT", fields.level:GetParent(), "RIGHT", 14, 0)
@@ -280,7 +278,7 @@ local function Build()
     -- правилам, что у игрока, а правила знают только известные имена
     -- (см. врезку о пулах в Core/NPC.lua).
     local resLbl = TightLabel(frame, "Ресурс")
-    resLbl:SetPoint("TOPLEFT", lvlLbl, "BOTTOMLEFT", 0, -14)
+    resLbl:SetPoint("TOPLEFT", lvlLbl, "BOTTOMLEFT", 0, -16)
 
     frame.resDD = MakeDropdown(frame, "SBNPCResDD", resLbl, -4, 130,
         function()
@@ -294,7 +292,7 @@ local function Build()
         function() return current and current.resourceName end)
 
     local resAmtLbl = TightLabel(frame, "Запас")
-    resAmtLbl:SetPoint("LEFT", frame.resDD, "RIGHT", -6, 2)
+    resAmtLbl:SetPoint("LEFT", frame.resDD, "RIGHT", 10, 0)
     local resWrap, resEB = SB.Theme.Input(frame, nil, 40, ROW_H)
     resWrap:SetPoint("LEFT", resAmtLbl, "RIGHT", 6, 0)
     resEB:SetJustifyH("CENTER"); resEB:SetMaxLetters(3)
@@ -308,7 +306,7 @@ local function Build()
     -- списке навыков: это не характеристика существа, а его место в
     -- сцене — как и классификация выше.
     local facLbl = TightLabel(frame, "Отношение")
-    facLbl:SetPoint("TOPLEFT", resLbl, "BOTTOMLEFT", 0, -14)
+    facLbl:SetPoint("TOPLEFT", resLbl, "BOTTOMLEFT", 0, -16)
 
     frame.facDD = MakeDropdown(frame, "SBNPCFacDD", facLbl, -4, 210,
         function()
@@ -327,7 +325,7 @@ local function Build()
     -- нижнего края окна, и что угодно под ней оказалось бы за пределами
     -- видимого. Да и правят способности чаще, чем два десятка цифр.
     local spHdr = frame:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-    spHdr:SetPoint("TOPLEFT", facLbl, "BOTTOMLEFT", 0, -14)
+    spHdr:SetPoint("TOPLEFT", facLbl, "BOTTOMLEFT", 0, -16)
     spHdr:SetText("|cFFFFD100Способности|r")
 
     local spHint = frame:CreateFontString(nil, "OVERLAY", "SBFontDisableSmall")
@@ -640,9 +638,8 @@ function SB.NPCEditor.OpenStatMenu(anchor)
         menu[1] = { text = "Всё уже добавлено", notCheckable = true, disabled = true }
     end
 
-    frame.statMenu = frame.statMenu
-        or CreateFrame("Frame", "SBNPCStatMenu", UIParent, "UIDropDownMenuTemplate")
-    EasyMenu(menu, frame.statMenu, anchor, 0, 0, "MENU")
+    -- Меню аддона, а не EasyMenu Blizzard (см. SB.Theme.PopupMenu).
+    SB.Theme.PopupMenu(menu, anchor)
 end
 
 --- Перерисовать ряд иконок по текущему spellIDs.
@@ -677,11 +674,9 @@ local function Fill(rec)
     fields.maxHealth:SetText(tostring(rec.maxHealth or 1))
     fields.maxResource:SetText(tostring(rec.maxResource or 0))
 
-    UIDropDownMenu_SetText(frame.classDD,
-        SB.NPC.GetClassification(rec.classification).name)
-    UIDropDownMenu_SetText(frame.resDD, rec.resourceName or "Мана")
-    UIDropDownMenu_SetText(frame.facDD,
-        SB.NPC.GetFaction(rec.faction).name)
+    frame.classDD:SetText(SB.NPC.GetClassification(rec.classification).name)
+    frame.resDD:SetText(rec.resourceName or "Мана")
+    frame.facDD:SetText(SB.NPC.GetFaction(rec.faction).name)
 
     -- Список строится ИЗ САМОЙ ЗАПИСИ: что в ней есть — то и показано.
     -- Таблицы заводим на месте, чтобы правка списка не спотыкалась о nil
@@ -784,9 +779,7 @@ function SB.NPCEditor.OpenTemplateMenu(anchor)
                             disabled = true }
     end
 
-    frame.tmplMenu = frame.tmplMenu
-        or CreateFrame("Frame", "SBNPCTemplateMenu", UIParent, "UIDropDownMenuTemplate")
-    EasyMenu(menu, frame.tmplMenu, anchor, 0, 0, "MENU")
+    SB.Theme.PopupMenu(menu, anchor)
 end
 
 --- Собрать запись из полей и сохранить.
