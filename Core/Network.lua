@@ -70,16 +70,52 @@ end
 --- Боевые/интерактивные пакеты — NORMAL (не ALERT, чтобы не мешать
 --- служебным сообщениям blizzard-клиента), статус/эффекты — BULK,
 --- т.к. они не критичны по времени и их могут пересылать все разом.
+-- ============================================================
+-- ФОНОВОЕ — СВОИМ ПРЕФИКСОМ
+--
+-- Жалоба: «атаки теряются, пакеты доходят не до всех». Одна из причин
+-- сидела ниже аддона, на стыке двух библиотек.
+--
+-- Длинный пакет AceComm режет на части, и получатель склеивает их по
+-- ключу «префикс + канал + отправитель». Приоритета в ключе НЕТ. А вот
+-- ChatThrottleLib держит очереди разных приоритетов раздельно и шлёт их
+-- ВПЕРЕМЕШКУ — по кусочку из каждой. Значит, два длинных пакета в один
+-- канал, один NORMAL (строки боя, состояние очереди, итог удара со
+-- строкой), другой BULK (статус со списком подготовленного, эффекты,
+-- кастомные заклинания), перемежались частями — и у получателя начало
+-- одного затирало склейку другого. Терялись ОБА, молча.
+--
+-- Своим префиксом у фонового потока свой ключ склейки, и перемешаться
+-- ему больше не с чем. Приоритеты остаются прежними: фоновое так же
+-- уступает боевому.
+--
+-- СРОЧНОЕ (ALERT) ОСТАЁТСЯ НА ОСНОВНОМ ПРЕФИКСЕ: это только короткие
+-- опросы по наведению и ответы на них — одна часть, в склейку они не
+-- попадают вовсе, а старые клиенты их по-прежнему слышат.
+--
+-- СОВМЕСТИМОСТЬ: клиент прошлой версии второго префикса не слушает и
+-- фоновых пакетов от новых не получит (статусы, эффекты, кастомки). Новый
+-- слушает оба и старых понимает. Обновляться группе — вместе, как и
+-- положено при сверке версий в панели Ведущего.
+-- ============================================================
+local COMM_PREFIX_BULK = "SB_RP3B"
+
+local function PrefixFor(priority)
+    return (priority == "BULK") and COMM_PREFIX_BULK or COMM_PREFIX
+end
+
 local function SendToGroup(tbl, priority)
     if not IsInGroup() then return end
     local payload = SB.Net:Serialize(tbl)
-    SB.Net:SendCommMessage(COMM_PREFIX, payload, GroupChannel(), nil, priority or "NORMAL")
+    priority = priority or "NORMAL"
+    SB.Net:SendCommMessage(PrefixFor(priority), payload, GroupChannel(), nil, priority)
 end
 
 local function SendToPlayer(tbl, playerName, priority)
     if not playerName or playerName == "" then return end
     local payload = SB.Net:Serialize(tbl)
-    SB.Net:SendCommMessage(COMM_PREFIX, payload, "WHISPER", playerName, priority or "NORMAL")
+    priority = priority or "NORMAL"
+    SB.Net:SendCommMessage(PrefixFor(priority), payload, "WHISPER", playerName, priority)
 end
 
 -- ============================================================
@@ -1131,6 +1167,14 @@ end
 local BATCH_SIZE     = 8
 local BATCH_INTERVAL = 0.05
 local incomingQueue   = {}
+-- Что заменяется свежим от того же игрока, пока не разобрано.
+local COALESCE  = { STATUS = true, AEFFECT = true }
+-- Что можно выбросить при переполнении: снимки состояния и опросы,
+-- которые отправитель повторит сам.
+local DROPPABLE = { STATUS = true, AEFFECT = true, REQ_STATUS = true,
+                    REQ_PEER = true, RTDECR = true }
+local coalesceAt = {}   -- [действие\tотправитель] = индекс в incomingQueue
+
 local batchTimerHandle = nil
 
 -- ============================================================
@@ -1247,10 +1291,13 @@ local function ProcessQueueBatch()
         local item = incomingQueue[queueHead]
         incomingQueue[queueHead] = nil
         queueHead = queueHead + 1
-        Dispatch(item.sender, item.t)
+        -- Выброшенный переполнением остаётся на месте (сдвигать очередь
+        -- дорого) и просто пропускается.
+        if item and not item.dropped then Dispatch(item.sender, item.t) end
     end
     if queueHead > #incomingQueue then
         wipe(incomingQueue)
+        wipe(coalesceAt)
         queueHead = 1
     end
 
@@ -1295,13 +1342,42 @@ local function EnqueueIncoming(sender, t, urgentPacket)
         return
     end
 
-    -- Переполнение — выбрасываем самый старый тем же курсором.
+    -- ПОЛНЫЙ СНИМОК ЗАМЕНЯЕТ НЕРАЗОБРАННЫЙ СТАРЫЙ. Статус и список
+    -- эффектов описывают состояние целиком: второй от того же игрока
+    -- делает первый ненужным. В шторм это держит очередь короткой, и до
+    -- переполнения доходит реже. Место в очереди — старое: порядок
+    -- относительно прочих пакетов того же игрока не меняется.
+    --
+    -- Короткий статус (ответ на опрос по наведению) полный не заменяет:
+    -- списка подготовленного в нём нет, и замена его потеряла бы.
+    local key = COALESCE[t.action] and (t.action .. "\t" .. tostring(sender))
+    if key then
+        local at   = coalesceAt[key]
+        local item = at and at >= queueHead and incomingQueue[at]
+        if item and item.sender == sender and item.t.action == t.action
+           and not (item.t.preparedSpells ~= nil and t.preparedSpells == nil) then
+            item.t = t
+            return
+        end
+    end
+
+    -- ПЕРЕПОЛНЕНИЕ ВЫБРАСЫВАЕТ ТОЛЬКО ТО, ЧТО ОБНОВИТСЯ САМО. Раньше
+    -- уходил самый старый пакет любого рода — в том числе синхронизация
+    -- кастомного заклинания или шаблона существа, которые второй раз не
+    -- придут. Теперь ищем самый старый из заменимых; не нашлось — очередь
+    -- просто растёт: лучше разобрать позже, чем не разобрать никогда.
     if (#incomingQueue - queueHead + 1) >= MAX_QUEUE then
-        queueDropped = queueDropped + 1
-        incomingQueue[queueHead] = nil
-        queueHead = queueHead + 1
+        for i = queueHead, #incomingQueue do
+            local item = incomingQueue[i]
+            if item and not item.dropped and DROPPABLE[item.t.action] then
+                item.dropped = true
+                queueDropped = queueDropped + 1
+                break
+            end
+        end
     end
     incomingQueue[#incomingQueue + 1] = { sender = sender, t = t }
+    if key then coalesceAt[key] = #incomingQueue end
     if not batchTimerHandle then
         -- Первый пакет пачки обрабатывается почти сразу (не ждём кадр),
         -- чтобы одиночные события (например, чей-то одиночный REQ) не
@@ -1368,6 +1444,20 @@ local IMMEDIATE_ACTIONS = {
     TURN    = true,
     TURNM   = true,
     TURNACT = true,
+    -- ДЕЙСТВИЯ, КОТОРЫЕ НЕЛЬЗЯ ПОТЕРЯТЬ. Эти шли общей очередью наравне
+    -- со статусами — то есть ждали позади сотен статусов рейда, а при
+    -- переполнении очереди могли быть выброшены вместе с ними. Заявка
+    -- Ведущему, выдача ресурса, эффект от Ведущего, кража, склянка,
+    -- отдых — каждое из них случается один раз и само не повторится.
+    REQ     = true,
+    GRANT   = true,
+    ADDEFF  = true,
+    REMEFF  = true,
+    STEAL   = true,
+    STEALR  = true,
+    ITEMPAY = true,
+    REST    = true,
+    RTSYNC  = true,
     -- СТРОКИ ЛОГА — ТОЖЕ СРАЗУ. Шли через пакетную очередь (~0.1 с), а
     -- «я походил» и итог удара — мимо неё. Пришедшая раньше строка
     -- каста печаталась позже «Круг пройден», который она и вызвала.
@@ -1464,7 +1554,7 @@ end
 --- Обработчик AceComm. sender здесь уже полное имя-Realm — Ambiguate
 --- приводим сами, т.к. остальной код исторически сравнивает короткие имена.
 local function OnCommReceived(prefix, message, distribution, sender)
-    if prefix ~= COMM_PREFIX then return end
+    if prefix ~= COMM_PREFIX and prefix ~= COMM_PREFIX_BULK then return end
     local shortSender = Ambiguate(sender, "none")
     if shortSender == UnitName("player") then return end
 
@@ -1487,6 +1577,9 @@ local function OnCommReceived(prefix, message, distribution, sender)
     end
 end
 
+-- Фоновый префикс — первым: основной регистрируется последним (прогон
+-- без игры запоминает последний и шлёт пакеты от его имени).
+SB.Net:RegisterComm(COMM_PREFIX_BULK, OnCommReceived)
 SB.Net:RegisterComm(COMM_PREFIX, OnCommReceived)
 
 -- ============================================================
