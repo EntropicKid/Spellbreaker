@@ -9110,7 +9110,7 @@ do
     checkTrue("у Скрытности есть описание механики", type(tip) == "string")
     checkTrue("в нём названы метры", tip:find("метр", 1, true) ~= nil)
     checkTrue("и оговорка про вредоносность",
-              tip:find("ВРЕДОНОСН", 1, true) ~= nil)
+              tip:find("вредоносн", 1, true) ~= nil)
     checkTrue("и про ближний бой",
               tip:find("ближн", 1, true) ~= nil)
 end
@@ -13188,15 +13188,15 @@ do
         -- Второй канал того же баг-репорта: «хп не меняется от баффа
         -- живучести». Здоровье вида Ведущий проставил числом, но бафф
         -- Живучести обязан прибавить сверх — ровно столько же, сколько
-        -- прибавил бы игроку (SB.Skills.GetVitalityBonus: очко = единица).
+        -- прибавил бы игроку (SB.Skills.GetVitalityBonus: очко = VITALITY_PER_POINT).
         SB.Data.Spells["t_npc_hardy"] = { id = "t_npc_hardy", name = "Закалка",
             class = "Эффект", level = 0,
             effect = { kind = "buff", stats = { ["Живучесть"] = 6 } } }
         N.ClearEffects("target")
         local maxBare = N.GetState("target").maxHp
         N.AddEffect("target", "t_npc_hardy", 5)
-        check("живучесть подняла максимум очко в очко",
-              N.GetState("target").maxHp - maxBare, 6)
+        check("живучесть подняла максимум тем же шагом, что у игрока",
+              N.GetState("target").maxHp - maxBare, 6 * SB.Skills.VITALITY_PER_POINT)
         N.RemoveEffect("target", "t_npc_hardy")
         check("а снятие вернуло его назад", N.GetState("target").maxHp, maxBare)
 
@@ -15759,8 +15759,10 @@ do
               at:find('if skillName == "Воля"', 1, true) ~= nil)
     checkTrue("и она называет запас словами",
               at:find('AddDoubleLine("Запас срывов"', 1, true) ~= nil)
+    -- Цена срыва объяснена в описании навыка, а не второй строкой под
+    -- запасом (подсказка должна быть короткой).
     checkTrue("а цену срыва объясняет кругом",
-              at:find("каков круг заклинания", 1, true) ~= nil)
+              SB.Data.SkillEffects["Воля"]:find("каков круг", 1, true) ~= nil)
     checkTrue("наведённую половину показывает отдельно",
               at:find('PoolFromEffects("will")', 1, true) ~= nil)
 
@@ -20767,9 +20769,9 @@ do
     SB.ActiveEffects.Clear()
     local t0 = stub.world.time
     SB.ActiveEffects.Add("t_pain", 2, false)          -- два отрезка по 6 с
-    local function Uses()
+    local function Uses(id)
         for _, e in ipairs(SB.ActiveEffects.GetAll()) do
-            if e.spellID == "t_pain" then return e.uses end
+            if e.spellID == (id or "t_pain") then return e.uses end
         end
     end
     stub.world.time = t0 + 5.9; SB.ActiveEffects.RealtimeClock()
@@ -20788,6 +20790,19 @@ do
     _G.SpellbreakerAccountDB.realtimeEffects = true
     SB.ActiveEffects.RealtimeClock()
     check("простоявшее время не списывается", Uses(), 2)
+    SB.ActiveEffects.Clear()
+
+    -- ПОТОК В СВОБОДНОМ РЕЖИМЕ: срок считают часы, клик его не тратит.
+    _G.SpellbreakerAccountDB.realtimeEffects = true
+    SB.Data.Spells["t_hold"] = { id = "t_hold", name = "Проба держателя",
+        class = "Эффект", level = 0, isContainer = true, isPassive = false,
+        effect = { kind = "buff" } }
+    SB.ActiveEffects.Add("t_hold", 3, false)
+    local realCheck = SB.Cooldowns.Check
+    SB.Cooldowns.Check = function() return true end
+    pcall(SB.ActiveEffects.Use, "t_hold")
+    SB.Cooldowns.Check = realCheck
+    check("клик по потоку в свободном режиме срок не тратит", Uses("t_hold"), 3)
     SB.ActiveEffects.Clear()
     _G.SpellbreakerAccountDB.realtimeEffects = wasRT
 end

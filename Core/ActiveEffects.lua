@@ -2050,11 +2050,19 @@ function SB.ActiveEffects.Use(spellID)
         end
     end
 
+    -- СВОБОДНЫЙ РЕЖИМ: СРОК СЧИТАЮТ ЧАСЫ, А НЕ КЛИК. Пока время идёт само
+    -- (см. «СВОИ ЧАСЫ»), держатель потока убывает раз в шесть секунд, и
+    -- клик-продолжение, списывая ещё и своё, съедал его вдвое быстрее.
+    -- Чаще раза в шесть секунд продолжить и так нельзя — держит темп.
+    local TO = SB.TurnOrder
+    local clockRuns = SpellbreakerAccountDB and SpellbreakerAccountDB.realtimeEffects
+        and not (TO and TO.IsActive and TO.IsActive())
+
     for i, eff in ipairs(effects) do
         if eff.spellID == spellID then
             -- Бессрочный эффект применением не расходуется.
             local expired = false
-            if eff.uses ~= INFINITE then
+            if eff.uses ~= INFINITE and not clockRuns then
                 eff.uses = eff.uses - 1
                 if eff.uses <= 0 then
                     table.remove(effects, i)
@@ -2063,7 +2071,7 @@ function SB.ActiveEffects.Use(spellID)
             end
             -- Этот ход держатель уже списал — тик начала следующего хода
             -- его пропустит (см. «ПОТОК» у TurnStartOne).
-            if not expired then eff.stepped = true end
+            if not expired and not clockRuns then eff.stepped = true end
             -- Израсходован до конца — тот же прощальный расчёт, что и у
             -- истёкшего по ходам (см. ApplyOnRemove).
             if expired then ApplyOnRemove(spellID) end

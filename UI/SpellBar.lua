@@ -155,8 +155,8 @@ local INFO_SLOTS = {
             if SB.UI.ShowMoveTooltip then SB.UI.ShowMoveTooltip(owner) end
         end,
         click = function() SB.Logic.SpendTurnManually() end,
-        -- Эта плашка и есть кнопка окончания хода: после действия она
-        -- мерцает золотом (см. SB.UI.AttachEndTurnPulse).
+        -- Эта плашка — метры: в режиме «Закончить ход» остаётся только она
+        -- (см. SB.SpellBar.IsEndMode).
         endTurn = true,
     },
     {   -- Общий модификатор броска. БЕЗ заклинания: ранг, уровень,
@@ -415,13 +415,6 @@ local function MakeInfoTag(i)
         -- причина, что у бейджей в шапке главного окна).
         if self:IsMouseOver() and self._slot.tooltip then self._slot.tooltip(self) end
     end)
-    if SB.UI.AttachEndTurnPulse then
-        -- Плашки переиспользуются под разные строки сводки — мерцает
-        -- только та, что сейчас показывает метры.
-        SB.UI.AttachEndTurnPulse(f, function(self)
-            return self._slot and self._slot.endTurn == true
-        end)
-    end
     infoTags[i] = f
     return f
 end
@@ -593,7 +586,6 @@ local function EnsureEndButton()
         GameTooltip:Show()
     end)
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    if SB.UI.AttachEndTurnPulse then SB.UI.AttachEndTurnPulse(b) end
     b:Hide()
     endBtn = b
     return b

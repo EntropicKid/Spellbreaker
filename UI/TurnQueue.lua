@@ -33,9 +33,9 @@ local CARD       = 40    -- сторона обычной карточки
 local CARD_CUR   = 54    -- сторона карточки того, кто ходит
 local GAP        = 6     -- зазор между карточками одного слота
 local SLOT_GAP   = 14    -- зазор между слотами (режим «по группе»)
--- Черта шире самой линии: подпись «Круг: N+1» под ней обязана уместиться
--- в своё место и не заезжать на подписи соседних карточек.
-local DIVIDER_W  = 62    -- место под черту «Круг: N+1»
+-- Черта — узкая, вплотную к портретам: подписи «Круг: N+1» под ней
+-- больше нет, это и так понятно из хода сцены.
+local DIVIDER_W  = 10
 local HEADER_H   = 22
 local EDGE       = 2     -- толщина металлической рамки карточки
 local NAME_H     = 14
@@ -517,11 +517,6 @@ local function EnsureBar()
     divider.line:SetSize(2, CARD)
     divider.line:SetPoint("CENTER")
     divider.line:SetColorTexture(C.frameBorder[1], C.frameBorder[2], C.frameBorder[3], 0.9)
-    divider.text = divider:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-    divider.text:SetPoint("TOP", divider, "BOTTOM", 0, -3)
-    divider.text:SetWidth(DIVIDER_W + GAP)
-    divider.text:SetTextColor(C.textGold[1], C.textGold[2], C.textGold[3])
-    divider.text:SetWordWrap(false)
     divider.x, divider.a, divider.tx, divider.ta = 0, 0, 0, 0
     divider:Hide()
 
@@ -658,7 +653,6 @@ function TQ.Refresh()
 
         if e.divider then
             divider.tx, divider.ta = cx, 1
-            divider.text:SetText("Круг: " .. (round + 1))
             if divider.a <= 0.01 then divider.x = cx end
         else
             local c = cards[e.name]
@@ -758,94 +752,6 @@ local function RepaintPortraits()
 end
 
 -- ============================================================
--- МЕРЦАНИЕ КНОПКИ «ОКОНЧИТЬ ХОД»
---
--- Ход больше не кончается действием — его кончает кнопка (бейдж
--- передвижения). Забыть её нажать после удара — самое частое, что
--- теперь будет случаться: игрок ударил, очередь стоит, все ждут. Поэтому
--- после действия кнопка мерцает тёплым золотом до тех пор, пока ход не
--- окончен (см. TO.IsEndTurnPending).
---
--- ОДИН ДРАЙВЕР НА ВСЕ КНОПКИ: их две (шапка главного окна и сводка
--- панели способностей), и мерцать им положено в такт. Тикает он только
--- пока есть что подсвечивать.
--- ============================================================
-local pulseTargets = {}   -- [кнопка] = true | function(кнопка) -> boolean
-local pulseDriver, pulseClock = nil, 0
-
-local function PulseParts(f)
-    if f.sbPulse then return f.sbPulse end
-    local p = {}
-    p.fill = f:CreateTexture(nil, "OVERLAY", nil, 6)
-    p.fill:SetAllPoints()
-    p.fill:SetColorTexture(1, 0.78, 0.35, 1)
-    p.fill:SetBlendMode("ADD")
-    p.glow = f:CreateTexture(nil, "OVERLAY", nil, 7)
-    p.glow:SetTexture(GLOW_TEX)
-    p.glow:SetBlendMode("ADD")
-    p.glow:SetVertexColor(1, 0.75, 0.30)
-    p.glow:SetPoint("CENTER")
-    p.fill:Hide(); p.glow:Hide()
-    f.sbPulse = p
-    return p
-end
-
-local function PulseWanted(f, rule)
-    if not f:IsVisible() then return false end
-    if type(rule) == "function" and not rule(f) then return false end
-    return true
-end
-
-local function StepPulse(_, dt)
-    pulseClock = pulseClock + dt
-    local pending = SB.TurnOrder and SB.TurnOrder.IsEndTurnPending
-        and SB.TurnOrder.IsEndTurnPending()
-    -- Мягкая волна: от едва заметного к тёплому и обратно, полторы
-    -- секунды на вдох — мерцание, а не мигалка.
-    local wave = 0.5 + 0.5 * math.sin(pulseClock * 4.2)
-    local any = false
-    for f, rule in pairs(pulseTargets) do
-        local p = PulseParts(f)
-        if pending and PulseWanted(f, rule) then
-            any = true
-            local w, h = f:GetSize()
-            p.glow:SetSize((w or 60) * 1.45, (h or 24) * 2.1)
-            p.fill:SetAlpha(0.06 + 0.22 * wave)
-            p.glow:SetAlpha(0.35 + 0.65 * wave)
-            p.fill:Show(); p.glow:Show()
-        else
-            p.fill:Hide(); p.glow:Hide()
-        end
-    end
-    if not pending and pulseDriver then
-        pulseDriver:SetScript("OnUpdate", nil)
-    end
-    return any
-end
-
-local function UpdatePulse()
-    if not next(pulseTargets) then return end
-    pulseDriver = pulseDriver or CreateFrame("Frame")
-    local pending = SB.TurnOrder and SB.TurnOrder.IsEndTurnPending
-        and SB.TurnOrder.IsEndTurnPending()
-    if pending then
-        pulseDriver:SetScript("OnUpdate", StepPulse)
-    else
-        StepPulse(nil, 0)   -- погасить всё сразу
-    end
-end
-
---- Подключить кнопку окончания хода к мерцанию.
---- @param frame Frame
---- @param rule function|nil  (frame) -> boolean — мерцать ли именно
----        сейчас (плашки сводки переиспользуются под разные строки).
-function SB.UI.AttachEndTurnPulse(frame, rule)
-    if not frame then return end
-    pulseTargets[frame] = rule or true
-    UpdatePulse()
-end
-
--- ============================================================
 -- ПОДПИСКИ
 -- ============================================================
 if SB.Events and SB.Events.On then
@@ -853,10 +759,7 @@ if SB.Events and SB.Events.On then
         EnsureBar()
         TQ.Refresh()
     end)
-    SB.Events.On(SB.E.TURN_ORDER_CHANGED, function()
-        TQ.Refresh()
-        UpdatePulse()
-    end)
+    SB.Events.On(SB.E.TURN_ORDER_CHANGED, function() TQ.Refresh() end)
 
     -- УПАЛ ИЛИ ПОДНЯЛСЯ — полоса перерисовывается сама: павших в ней нет
     -- (см. BuildEntries), а об этом очередь события не даёт — узнаём по
