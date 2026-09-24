@@ -1641,8 +1641,17 @@ end
 SB.Theme.WIDGET = { PAD = 10, GAP = 6, ROW = 22, BTN = 24 }
 
 --- Секция на фоне карточки.
-function SB.Theme.Inset(parent, alpha)
+--- @param material string|nil  "column" — материал колонок главного окна
+---        (как у «Атрибутов» и «Способностей»); по умолчанию — карточка.
+function SB.Theme.Inset(parent, alpha, material)
     local f = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    if material == "column" then
+        local surf = SB.Theme.Surface("column")
+        f:SetBackdrop(BD.column)
+        f:SetBackdropColor(surf.tint[1], surf.tint[2], surf.tint[3], alpha or surf.tint[4])
+        f:SetBackdropBorderColor(C.columnBorder[1], C.columnBorder[2], C.columnBorder[3], 1)
+        return f
+    end
     f:SetBackdrop(BD.card)
     f:SetBackdropColor(C.cardBg[1], C.cardBg[2], C.cardBg[3], alpha or 0.9)
     f:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.55)

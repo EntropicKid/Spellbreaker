@@ -440,8 +440,8 @@ local function RefreshLevelBtnText()
     if not fLevel then return end
     local cls = SB.Data.Classes[fClassIdx]
     fLevel:SetText(fLevelVal == 0
-        and ("Порядок: " .. SB.Logic.GetCantripLabel(cls))
-        or ("Порядок: " .. fLevelVal))
+        and SB.Logic.GetCantripLabel(cls)
+        or (fLevelVal .. " порядок"))
 end
 
 -- ============================================================
@@ -476,7 +476,8 @@ local function RefreshCreateFormGrowth()
     local neededH = SB.Theme.MeasureCappedTextHeight(fDesc:GetText(), width, "SBFontChat", DESC_GROW_CAP)
     fDescWrap:SetHeight(math.max(DESC_MIN_H, math.min(DESC_MAX_H, neededH + 14)))
     C_Timer.After(0, function()
-        SB.Theme.AutoGrowToFit(createFrame, createFrame.ccBg, 116, 480)
+        SB.Theme.AutoGrowToFit(createFrame, createFrame.growAnchor,
+                               createFrame.growReserve, 406)
     end)
 end
 
@@ -493,140 +494,187 @@ local function RefreshContFormGrowth()
         -- Якорь — saveBtn (contFrame.saveBtn), а не deleteBtn: последняя
         -- скрыта при создании нового эффекта, а позиция/GetBottom()
         -- скрытого фрейма — ненадёжный источник для замера.
-        SB.Theme.AutoGrowToFit(contFrame, contFrame.saveBtn, 14, 340)
+        SB.Theme.AutoGrowToFit(contFrame, contFrame.growAnchor,
+                               contFrame.growReserve, 310)
     end)
+end
+
+-- ============================================================
+-- ВИД ФОРМ — ТОТ ЖЕ, ЧТО У ОСТАЛЬНЫХ ВИДЖЕТОВ АДДОНА
+--
+-- Кастомные заклинания и эффекты несут только нарративный вес — нового
+-- в них ничего не прибавилось, переложено только расположение:
+--
+--   ШАПКА (на подложке карточки): иконка, название, школа;
+--   ПАРАМЕТРЫ: подпись мелко над полем, селекторы вместо кнопок,
+--              которые по кругу меняли подпись «Класс: …»;
+--   ОПИСАНИЕ: растёт под текст, окно — следом;
+--   ЭФФЕКТ: «Создать эффект» или «Изменить / Удалить» одним рядом;
+--   ПОДВАЛ: «Удалить» слева, отдельно от «Отмена / Сохранить».
+-- ============================================================
+
+--- Селектор, который понимает прежние вызовы SetText("Класс: Маг"):
+--- подпись поля — над ним, и префикс до двоеточия отрезается.
+--- current() — выбранное сейчас, для галочки в списке.
+local function FormDropdown(parent, w, items, onPick, current)
+    local dd = SB.Theme.Dropdown(parent, w, 24)
+    dd:SetItems(items)
+    dd:SetOnSelect(onPick)
+    local setText = dd.SetText
+    dd.SetText = function(self, t)
+        setText(self, ((tostring(t or "")):gsub("^[^:]*:%s*", "")))
+    end
+    local open = dd.Open
+    dd.Open = function(self)
+        local label = self:GetText()
+        self:SetValue(current())
+        setText(self, label)
+        return open(self)
+    end
+    return dd
+end
+
+local function DistItems()
+    local out = {}
+    for i, l in ipairs(DIST_LABELS) do out[i] = { value = i, label = l } end
+    return out
+end
+
+--- Круги от заговора до потолка реалма (на Origins — три, на Sanctuary
+--- — пять). Подпись нулевого — по классу: у некастера это «Приём».
+local function LevelItems(cls)
+    local out = {}
+    for lvl = 0, SB.Data.GetRealmMaxOrder() do
+        out[#out + 1] = { value = lvl,
+            label = (lvl == 0) and SB.Logic.GetCantripLabel(cls) or (lvl .. " порядок") }
+    end
+    return out
+end
+
+--- Шапка формы: иконка слева, поля справа. Возвращает иконку-кнопку,
+--- её текстуру и левый край полей.
+local function FormHead(frame, W, PAD, height, onIcon)
+    local head = SB.Theme.Inset(frame)
+    head:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, frame.contentY - 6)
+    head:SetSize(W - PAD * 2, height)
+    local iconBtn = CreateFrame("Button", nil, head, "BackdropTemplate")
+    iconBtn:SetSize(height - 12, height - 12)
+    iconBtn:SetPoint("LEFT", head, "LEFT", 6, 0)
+    local tex = iconBtn:CreateTexture(nil, "ARTWORK")
+    tex:SetAllPoints()
+    tex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    local hl = iconBtn:CreateTexture(nil, "HIGHLIGHT")
+    hl:SetAllPoints(); hl:SetColorTexture(1, 1, 0.6, 0.2)
+    iconBtn:SetScript("OnClick", onIcon)
+    iconBtn:SetScript("OnEnter", function(self)
+        SB.UI.ShowInfoTooltip(self, "chooseIcon", "ANCHOR_RIGHT")
+    end)
+    iconBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    return head, iconBtn, tex, W - PAD * 2 - 6 - (height - 12) - 8 - 6
+end
+
+--- Галочка с подписью; возвращает CheckButton.
+local function FormCheck(parent, text, color)
+    local chk = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
+    chk:SetSize(20, 20)
+    local lbl = parent:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
+    lbl:SetPoint("LEFT", chk, "RIGHT", 2, 0)
+    lbl:SetText(text)
+    local c = color or C.textMain
+    lbl:SetTextColor(c[1], c[2], c[3])
+    chk._label = lbl
+    return chk
 end
 
 local function BuildCreateFrame()
     C = C or SB.Theme.C
-    local fw = 400
-    -- #4: концентрация + длительность добавляют высоту (+60)
-    -- Высота уменьшена (было 740) — outcome-поля переехали в
-    -- детальную карточку заклинания (UI/Library.lua).
+    local W   = 360
+    local PAD, GAP, BTN = SB.Theme.WIDGET.PAD, SB.Theme.WIDGET.GAP, SB.Theme.WIDGET.BTN
+    local IN  = W - PAD * 2
+    local CW3 = math.floor((IN - GAP * 2) / 3)
+
     createFrame = SB.Theme.Frame("SBCustomSpellCreateFrame", UIParent,
-        "Создать заклинание", fw, 480)
+        "Создать заклинание", W, 406)
     createFrame:SetPoint("CENTER")
     createFrame:SetFrameStrata("DIALOG")
     SB.Theme.AttachPositionMemory(createFrame, "sbCreateFramePos", 0, 0)
-    local cY = createFrame.contentY - 4
 
-    -- Icon
-    local iconBtn = CreateFrame("Button", nil, createFrame, "BackdropTemplate")
-    iconBtn:SetSize(52, 52)
-    iconBtn:SetPoint("TOPLEFT", createFrame, "TOPLEFT", 14, cY)
-    iconBtn:SetBackdrop({edgeFile="Interface\\Tooltips\\UI-Tooltip-Border", edgeSize=7,
-        insets={left=2,right=2,top=2,bottom=2}})
-    iconBtn:SetBackdropBorderColor(C.cardBorder[1],C.cardBorder[2],C.cardBorder[3],0.9)
-    fIconTex = iconBtn:CreateTexture(nil, "ARTWORK")
-    fIconTex:SetPoint("TOPLEFT",     iconBtn, "TOPLEFT",     3, -3)
-    fIconTex:SetPoint("BOTTOMRIGHT", iconBtn, "BOTTOMRIGHT", -3, 3)
-    fIconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    fIconTex:SetTexture(fIconPath)
-    iconBtn:SetScript("OnClick", function()
+    -- ── Шапка ─────────────────────────────────────────────
+    local head, iconBtn, tex, FW = FormHead(createFrame, W, PAD, 58, function()
         SB.CustomSpells.OpenIconPicker(function(path)
             fIconPath = path; fIconTex:SetTexture(path)
         end)
     end)
-    iconBtn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-		SB.UI.ShowInfoTooltip(self, "chooseIcon", "ANCHOR_RIGHT")
-        GameTooltip:Show()
-    end)
-    iconBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    fIconTex = tex
+    fIconTex:SetTexture(fIconPath)
 
-    -- Name  (#2: лимит 17 символов)
-    local nameW, nameEB = SB.Theme.Input(createFrame, "Название заклинания", fw-52-8-28, 24)
+    local nameW, nameEB = SB.Theme.Input(head, "Название заклинания", FW, 22)
     nameW:SetPoint("TOPLEFT", iconBtn, "TOPRIGHT", 8, 0)
     fName = nameEB
     AttachCharLimit(fName, LIMIT_NAME, nameW)
 
-    -- Class / Level
-    local classBtn = SB.Theme.Button(createFrame, "Класс: Маг", 175, 24, "secondary")
-    classBtn:SetPoint("TOPLEFT", iconBtn, "BOTTOMLEFT", 0, -8)
-    classBtn:SetScript("OnClick", function()
-        fClassIdx = fClassIdx % #SB.Data.Classes + 1
-        classBtn:SetText("Класс: " .. SB.Data.Classes[fClassIdx])
-        RefreshLevelBtnText()
-    end)
-    fClass = classBtn
-
-    local levelBtn = SB.Theme.Button(createFrame, "Порядок: Заговор", 175, 24, "secondary")
-    levelBtn:SetPoint("LEFT", classBtn, "RIGHT", 4, 0)
-    -- Кругов столько, сколько открывает высший ранг реалма: на Origins
-    -- их три, на Sanctuary — пять. Раньше здесь стояло жёсткое % 4, и
-    -- создать кастомное заклинание четвёртого круга было нечем.
-    levelBtn:SetScript("OnClick", function()
-        fLevelVal = (fLevelVal + 1) % (SB.Data.GetRealmMaxOrder() + 1)
-        RefreshLevelBtnText()
-    end)
-    fLevel = levelBtn
-
-    -- Distance
-    local distBtn = SB.Theme.Button(createFrame, "Дальность: На себя", fw-28, 24, "secondary")
-    distBtn:SetPoint("TOPLEFT", classBtn, "BOTTOMLEFT", 0, -8)
-    distBtn:SetScript("OnClick", function()
-        fDistIdx = fDistIdx % #DIST_VALS + 1
-        distBtn:SetText("Дальность: " .. DIST_LABELS[fDistIdx])
-    end)
-    fDist = distBtn
-
-    -- Key / Descriptor  (#2: лимит 17 символов)
-    local keyW, keyEB = SB.Theme.Input(createFrame, "Школа/Направление", fw-28, 24)
-    keyW:SetPoint("TOPLEFT", distBtn, "BOTTOMLEFT", 0, -8)
+    local keyW, keyEB = SB.Theme.Input(head, "Школа / направление", FW, 22)
+    keyW:SetPoint("BOTTOMLEFT", iconBtn, "BOTTOMRIGHT", 8, 0)
     fKey = keyEB
     AttachCharLimit(fKey, LIMIT_KEY, keyW)
 
-    -- Description  (#2: лимит 1550)
-    local descLabel = createFrame:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
-    descLabel:SetPoint("TOPLEFT", keyW, "BOTTOMLEFT", 0, -6)
-    descLabel:SetText("Полное описание работы:")
-    descLabel:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
-    fDescWrap, fDesc = MakeMLInput(createFrame, fw-28, 56)
-    fDescWrap:SetPoint("TOPLEFT", descLabel, "BOTTOMLEFT", 0, -2)
-    AttachCharLimit(fDesc, LIMIT_DESC, fDescWrap)
-    -- Авто-рост бокса + окна (#4) — хук поверх уже навешенного
-    -- AttachCharLimit, тем же паттерном цепочки OnTextChanged.
-    do
-        local prevOnChanged = fDesc:GetScript("OnTextChanged")
-        fDesc:SetScript("OnTextChanged", function(self, userInput)
-            if prevOnChanged then prevOnChanged(self, userInput) end
-            RefreshCreateFormGrowth()
-        end)
+    local y = createFrame.contentY - 6 - 58 - 10
+
+    -- ── Параметры ─────────────────────────────────────────
+    local parHdr = SB.Theme.SectionHeader(createFrame, "Параметры")
+    parHdr:SetPoint("TOPLEFT", createFrame, "TOPLEFT", PAD, y)
+    y = y - 18
+
+    local function Cap(text, col)
+        local fs = SB.Theme.Caption(createFrame, text)
+        fs:SetPoint("TOPLEFT", createFrame, "TOPLEFT", PAD + 2 + (col - 1) * (CW3 + GAP), y)
     end
+    local function ColX(col) return PAD + (col - 1) * (CW3 + GAP) end
 
-    -- ── #4: Duration + Concentration (основной спелл) ────────
-    local effectBg = CreateFrame("Frame", nil, createFrame, "BackdropTemplate")
-    effectBg:SetSize(fw-28, 28)
-    effectBg:SetPoint("TOPLEFT", fDescWrap, "BOTTOMLEFT", 0, -8)
-    effectBg:SetBackdrop(SB.Theme.BD.card)
-    effectBg:SetBackdropColor(0.06, 0.05, 0.10, 0.80)
-    effectBg:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
+    Cap("Класс", 1); Cap("Порядок", 2); Cap("Дальность", 3)
+    y = y - 13
 
-    local durLabel = effectBg:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
-    durLabel:SetPoint("LEFT", effectBg, "LEFT", 8, 0)
-    durLabel:SetText("Длительность:")
-    durLabel:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
+    local classItems = function()
+        local out = {}
+        for i, cn in ipairs(SB.Data.Classes) do
+            local token = SB.Data.ClassColorTokens and SB.Data.ClassColorTokens[cn]
+            local cc    = token and RAID_CLASS_COLORS and RAID_CLASS_COLORS[token]
+            out[i] = { value = i, label = cn, color = cc and { cc.r, cc.g, cc.b } or nil }
+        end
+        return out
+    end
+    fClass = FormDropdown(createFrame, CW3, classItems, function(i)
+        fClassIdx = i
+        RefreshLevelBtnText()
+    end, function() return fClassIdx end)
+    fClass:SetPoint("TOPLEFT", createFrame, "TOPLEFT", ColX(1), y)
 
-    local durW, durEB = SB.Theme.Input(effectBg, "0", 44, 20)
-    durW:SetPoint("LEFT", durLabel, "RIGHT", 6, 0)
+    fLevel = FormDropdown(createFrame, CW3,
+        function() return LevelItems(SB.Data.Classes[fClassIdx]) end,
+        function(v)
+            fLevelVal = v
+            RefreshLevelBtnText()
+        end, function() return fLevelVal end)
+    fLevel:SetPoint("TOPLEFT", createFrame, "TOPLEFT", ColX(2), y)
+
+    fDist = FormDropdown(createFrame, CW3, DistItems, function(i)
+        fDistIdx = i
+        fDist:SetText(DIST_LABELS[i])
+    end, function() return fDistIdx end)
+    fDist:SetPoint("TOPLEFT", createFrame, "TOPLEFT", ColX(3), y)
+    y = y - 24 - 8
+
+    Cap("Длительность, ходов", 1); Cap(".caura", 2)
+    y = y - 13
+    local durW, durEB = SB.Theme.Input(createFrame, "0", CW3, 22)
+    durW:SetPoint("TOPLEFT", createFrame, "TOPLEFT", ColX(1), y)
+    durEB:SetJustifyH("CENTER")
     fDuration = durEB
 
-    local concChk = CreateFrame("CheckButton", nil, effectBg, "UICheckButtonTemplate")
-    concChk:SetSize(20, 20)
-    concChk:SetPoint("LEFT", durW, "RIGHT", 14, 0)
-    local concLbl = effectBg:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-    concLbl:SetPoint("LEFT", concChk, "RIGHT", 4, 0)
-    concLbl:SetText("Концентрация")
-    concLbl:SetTextColor(0.15, 0.75, 1.0)
-    fIsConc = concChk
-
-    -- #3: .caura поле (только int, до 4 символов) — перенесено из контейнера
-    local cauraLbl = effectBg:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
-    cauraLbl:SetPoint("LEFT", concLbl, "RIGHT", 14, 0)
-    cauraLbl:SetText(".caura:")
-    cauraLbl:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
-    local cauraW, cauraEB = SB.Theme.Input(effectBg, "0000", 52, 20)
-    cauraW:SetPoint("LEFT", cauraLbl, "RIGHT", 6, 0)
+    -- .caura — только число, до четырёх знаков.
+    local cauraW, cauraEB = SB.Theme.Input(createFrame, "0000", CW3, 22)
+    cauraW:SetPoint("TOPLEFT", createFrame, "TOPLEFT", ColX(2), y)
+    cauraEB:SetJustifyH("CENTER")
     fCaura = cauraEB
     cauraEB:SetScript("OnTextChanged", function(self)
         local t = self:GetText():gsub("[^0-9]", "")
@@ -636,31 +684,39 @@ local function BuildCreateFrame()
         end
     end)
 
-    -- Can Crit
-    local ccBg = CreateFrame("Frame", nil, createFrame, "BackdropTemplate")
-    ccBg:SetSize(fw-28, 26)
-    ccBg:SetPoint("TOPLEFT", effectBg, "BOTTOMLEFT", 0, -6)
-    ccBg:SetBackdrop(SB.Theme.BD.card)
-    ccBg:SetBackdropColor(0.06, 0.05, 0.10, 0.80)
-    ccBg:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
-    createFrame.ccBg = ccBg -- якорь для RefreshCreateFormGrowth (#4) — всегда виден
+    -- Галочки — в третью колонку, одна над другой: строка выходит той
+    -- же высоты, что поля рядом, и лишнего ряда под них не нужно.
+    fIsConc = FormCheck(createFrame, "Концентрация", { 0.15, 0.75, 1.0 })
+    fIsConc:SetPoint("TOPLEFT", createFrame, "TOPLEFT", ColX(3) - 2, y + 15)
+    fCanCrit = FormCheck(createFrame, "Может критовать")
+    fCanCrit:SetPoint("TOPLEFT", fIsConc, "BOTTOMLEFT", 0, 2)
+    y = y - 22 - 12
 
-    fCanCrit = CreateFrame("CheckButton", nil, ccBg, "UICheckButtonTemplate")
-    fCanCrit:SetSize(20, 20)
-    fCanCrit:SetPoint("LEFT", ccBg, "LEFT", 6, 0)
-    local ccLabel = ccBg:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-    ccLabel:SetPoint("LEFT", fCanCrit, "RIGHT", 4, 0)
-    ccLabel:SetText("Способно ли заклинание критовать?")
-    ccLabel:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
+    -- ── Описание ──────────────────────────────────────────
+    local descHdr = SB.Theme.SectionHeader(createFrame, "Описание")
+    descHdr:SetPoint("TOPLEFT", createFrame, "TOPLEFT", PAD, y)
+    y = y - 18
+    fDescWrap, fDesc = MakeMLInput(createFrame, IN, 56)
+    fDescWrap:SetPoint("TOPLEFT", createFrame, "TOPLEFT", PAD, y)
+    AttachCharLimit(fDesc, LIMIT_DESC, fDescWrap)
+    -- Авто-рост бокса + окна — хук поверх AttachCharLimit.
+    do
+        local prevOnChanged = fDesc:GetScript("OnTextChanged")
+        fDesc:SetScript("OnTextChanged", function(self, userInput)
+            if prevOnChanged then prevOnChanged(self, userInput) end
+            RefreshCreateFormGrowth()
+        end)
+    end
 
-    -- Отписи (успех/провал/крит) больше не задаются здесь — игрок
-    -- вписывает единственную отпись (успех/крит-успех) прямо в
-    -- детальной карточке заклинания (UI/Library.lua), она хранится
-    -- per-character в SB.SpellOutcomes.
+    -- ── Эффект ────────────────────────────────────────────
+    -- Под описанием и цепочкой анкоров от него: описание растёт — секция
+    -- едет вниз вместе с ним.
+    local effHdr = SB.Theme.SectionHeader(createFrame, "Эффект")
+    effHdr:SetPoint("TOPLEFT", fDescWrap, "BOTTOMLEFT", 0, -10)
+    createFrame.growAnchor  = effHdr
+    createFrame.growReserve = 4 + (BTN - 2) + 12 + BTN + PAD
 
-    -- Create / Edit Container button
-    fContBtn = SB.Theme.Button(createFrame, "Создать эффект", fw-28, 26, "primary")
-    fContBtn:SetPoint("TOPLEFT", ccBg, "BOTTOMLEFT", 0, -8)
+    fContBtn = SB.Theme.Button(createFrame, "Создать эффект", IN, BTN - 2, "secondary")
     fContBtn:SetScript("OnClick", function()
         if not currentEditID then
             if not SB.CustomSpells.SaveForm(true) then return end
@@ -669,13 +725,11 @@ local function BuildCreateFrame()
         SB.CustomSpells.OpenContainerFrame(currentEditID, fContID)
     end)
 
-    -- Remove Container button (#5: удаление контейнера удаляет его из эффектов)
-    fContDelBtn = SB.Theme.Button(createFrame, "Удалить эффект", fw-28, 24, "danger")
-    fContDelBtn:SetPoint("TOPLEFT", fContBtn, "BOTTOMLEFT", 0, -4)
+    -- Удаление эффекта убирает его и с тех, на ком он висит.
+    fContDelBtn = SB.Theme.Button(createFrame, "Удалить эффект", 100, BTN - 2, "danger")
     fContDelBtn:Hide()
     fContDelBtn:SetScript("OnClick", function()
         if fContID then
-            -- #5: сначала удаляем из ActiveEffects, потом сам контейнер
             if SB.ActiveEffects then SB.ActiveEffects.Remove(fContID) end
             SB.CustomSpells.Delete(fContID, true)
             fContID = nil
@@ -684,18 +738,26 @@ local function BuildCreateFrame()
             SB.UI.PrintMsg("effectDeleted")
         end
     end)
+    -- Ряд эффекта перекладывается сам: одна кнопка во всю ширину или
+    -- «Изменить / Удалить» пополам.
+    local function LayoutEffectRow()
+        if fContDelBtn:IsShown() then
+            SB.Theme.LayoutRow(createFrame, { fContBtn, fContDelBtn }, "TOPLEFT", 0, 0, IN)
+        else
+            fContBtn:SetWidth(IN)
+        end
+        fContBtn:ClearAllPoints()
+        fContBtn:SetPoint("TOPLEFT", effHdr, "BOTTOMLEFT", 0, -6)
+    end
+    fContDelBtn:HookScript("OnShow", LayoutEffectRow)
+    fContDelBtn:HookScript("OnHide", LayoutEffectRow)
+    -- Show/Hide у скрытого окна событий не шлют — раскладываем и на показе.
+    createFrame:HookScript("OnShow", LayoutEffectRow)
+    LayoutEffectRow()
 
-    -- Action buttons
-    local saveBtn = SB.Theme.Button(createFrame, "Сохранить заклинание", 150, 28, "primary")
-    saveBtn:SetPoint("BOTTOMLEFT", createFrame, "BOTTOMLEFT", 14, 14)
-    saveBtn:SetScript("OnClick", function() SB.CustomSpells.SaveForm() end)
-
-    local cancelBtn = SB.Theme.Button(createFrame, "Отмена", 100, 28, "secondary")
-    cancelBtn:SetPoint("LEFT", saveBtn, "RIGHT", 8, 0)
-    cancelBtn:SetScript("OnClick", function() createFrame:Hide() end)
-
-    createFrame.deleteBtn = SB.Theme.Button(createFrame, "Удалить", 100, 28, "danger")
-    createFrame.deleteBtn:SetPoint("BOTTOMRIGHT", createFrame, "BOTTOMRIGHT", -14, 14)
+    -- ── Подвал ────────────────────────────────────────────
+    createFrame.deleteBtn = SB.Theme.Button(createFrame, "Удалить", 84, BTN, "danger")
+    createFrame.deleteBtn:SetPoint("BOTTOMLEFT", createFrame, "BOTTOMLEFT", PAD, PAD)
     createFrame.deleteBtn:Hide()
     createFrame.deleteBtn:SetScript("OnClick", function()
         if currentEditID then
@@ -703,6 +765,13 @@ local function BuildCreateFrame()
             createFrame:Hide()
         end
     end)
+
+    local cancelBtn = SB.Theme.Button(createFrame, "Отмена", 100, BTN, "secondary")
+    cancelBtn:SetScript("OnClick", function() createFrame:Hide() end)
+    local saveBtn = SB.Theme.Button(createFrame, "Сохранить", 100, BTN, "primary")
+    saveBtn:SetScript("OnClick", function() SB.CustomSpells.SaveForm() end)
+    SB.Theme.LayoutRow(createFrame, { cancelBtn, saveBtn }, "BOTTOMLEFT",
+        PAD + 84 + 12, PAD, IN - 84 - 12)
 end
 
 -- ============================================================
@@ -716,67 +785,97 @@ local contParentID, contEditID
 
 local function BuildContainerFrame()
     C = C or SB.Theme.C
-    local fw = 400
+    local W   = 360
+    local PAD, GAP, BTN = SB.Theme.WIDGET.PAD, SB.Theme.WIDGET.GAP, SB.Theme.WIDGET.BTN
+    local IN  = W - PAD * 2
+    local CW3 = math.floor((IN - GAP * 2) / 3)
+
     contFrame = SB.Theme.Frame("SBCustomSpellContFrame", UIParent,
-        "Effect Container", fw, 340)
+        "Новый эффект", W, 310)
     contFrame:SetFrameStrata("DIALOG")
     SB.Theme.AttachPositionMemory(contFrame, "contFramePos", 0, 0)
-    local cY = contFrame.contentY - 4
 
-    -- Icon
-    local iconBtn = CreateFrame("Button", nil, contFrame, "BackdropTemplate")
-    iconBtn:SetSize(52, 52)
-    iconBtn:SetPoint("TOPLEFT", contFrame, "TOPLEFT", 14, cY)
-    iconBtn:SetBackdrop({edgeFile="Interface\\Tooltips\\UI-Tooltip-Border", edgeSize=7,
-        insets={left=2,right=2,top=2,bottom=2}})
-    iconBtn:SetBackdropBorderColor(C.cardBorder[1],C.cardBorder[2],C.cardBorder[3],0.9)
-    fC_Icon = iconBtn:CreateTexture(nil, "ARTWORK")
-    fC_Icon:SetPoint("TOPLEFT",     iconBtn, "TOPLEFT",     3, -3)
-    fC_Icon:SetPoint("BOTTOMRIGHT", iconBtn, "BOTTOMRIGHT", -3, 3)
-    fC_Icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    fC_IconPath = "Interface\\Icons\\INV_Misc_QuestionMark"
-    fC_Icon:SetTexture(fC_IconPath)
-    iconBtn:SetScript("OnClick", function()
+    -- ── Шапка ─────────────────────────────────────────────
+    local head, iconBtn, tex, FW = FormHead(contFrame, W, PAD, 46, function()
         SB.CustomSpells.OpenIconPicker(function(path)
             fC_IconPath = path; fC_Icon:SetTexture(path)
         end)
     end)
+    fC_Icon = tex
+    fC_IconPath = "Interface\\Icons\\INV_Misc_QuestionMark"
+    fC_Icon:SetTexture(fC_IconPath)
 
-    -- Name (#2: лимит 17)
-    local nameW, nameEB = SB.Theme.Input(contFrame, "Название эффекта", fw-52-8-28, 24)
-    nameW:SetPoint("TOPLEFT", iconBtn, "TOPRIGHT", 8, 0)
+    local nameW, nameEB = SB.Theme.Input(head, "Название эффекта", FW, 22)
+    nameW:SetPoint("LEFT", iconBtn, "RIGHT", 8, 0)
     fC_Name = nameEB
     AttachCharLimit(fC_Name, LIMIT_NAME, nameW)
 
-    -- #4: Level (класс убран — всегда "Эффект")
-    local levelBtn = SB.Theme.Button(contFrame, "Порядок: 0", fw-28, 24, "secondary")
-    levelBtn:SetPoint("TOPLEFT", iconBtn, "BOTTOMLEFT", 0, -8)
-    levelBtn:SetScript("OnClick", function()
-        fC_LevelVal = ((fC_LevelVal or 0) + 1) % (SB.Data.GetRealmMaxOrder() + 1)
-        levelBtn:SetText(fC_LevelVal == 0 and "Порядок: Заговор" or ("Порядок: " .. fC_LevelVal))
-    end)
-    fC_Level = levelBtn
+    local y = contFrame.contentY - 6 - 46 - 10
+
+    -- ── Параметры ─────────────────────────────────────────
+    local parHdr = SB.Theme.SectionHeader(contFrame, "Параметры")
+    parHdr:SetPoint("TOPLEFT", contFrame, "TOPLEFT", PAD, y)
+    y = y - 18
+    local function ColX(col) return PAD + (col - 1) * (CW3 + GAP) end
+    for col, text in ipairs({ "Порядок", "Дальность", "Длительность, ходов" }) do
+        local fs = SB.Theme.Caption(contFrame, text)
+        fs:SetPoint("TOPLEFT", contFrame, "TOPLEFT", ColX(col) + 2, y)
+    end
+    y = y - 13
+
+    -- Класс у эффекта всегда «Эффект» — выбирать нечего.
+    fC_Level = FormDropdown(contFrame, CW3,
+        function()
+            local out = {}
+            for lvl = 0, SB.Data.GetRealmMaxOrder() do
+                out[#out + 1] = { value = lvl, label = (lvl == 0) and "Заговор" or (lvl .. " порядок") }
+            end
+            return out
+        end,
+        function(v)
+            fC_LevelVal = v
+            fC_Level:SetText(v == 0 and "Заговор" or (v .. " порядок"))
+        end, function() return fC_LevelVal end)
+    fC_Level:SetPoint("TOPLEFT", contFrame, "TOPLEFT", ColX(1), y)
     fC_LevelVal = 0
 
-    -- Distance
-    local distBtn = SB.Theme.Button(contFrame, "Дальность: На себя", fw-28, 24, "secondary")
-    distBtn:SetPoint("TOPLEFT", levelBtn, "BOTTOMLEFT", 0, -4)
-    distBtn:SetScript("OnClick", function()
-        fC_DistIdx = (fC_DistIdx or 1) % #DIST_VALS + 1
-        distBtn:SetText("Дальность: " .. DIST_LABELS[fC_DistIdx])
-    end)
-    fC_Dist = distBtn
+    fC_Dist = FormDropdown(contFrame, CW3, DistItems, function(i)
+        fC_DistIdx = i
+        fC_Dist:SetText(DIST_LABELS[i])
+    end, function() return fC_DistIdx end)
+    fC_Dist:SetPoint("TOPLEFT", contFrame, "TOPLEFT", ColX(2), y)
     fC_DistIdx = 1
 
-    -- Description (#2: лимит 1550)
-    local descLabel = contFrame:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
-    descLabel:SetPoint("TOPLEFT", distBtn, "BOTTOMLEFT", 0, -8)
-    descLabel:SetText("Полное описание эффекта:")
-    descLabel:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
-    fC_DescWrap, fC_Desc = MakeMLInput(contFrame, fw-28, 56)
-    fC_DescWrap:SetPoint("TOPLEFT", descLabel, "BOTTOMLEFT", 0, -2)
+    local durWrap, durEB = SB.Theme.Input(contFrame, "1", CW3, 22)
+    durWrap:SetPoint("TOPLEFT", contFrame, "TOPLEFT", ColX(3), y + 1)
+    durEB:SetJustifyH("CENTER")
+    fC_Dur = durEB
+    y = y - 24 - 8
+
+    fC_CanCrit = FormCheck(contFrame, "Может критовать")
+    fC_CanCrit:SetPoint("TOPLEFT", contFrame, "TOPLEFT", PAD - 2, y)
+    -- Пассивный — нельзя «применить» повторно, пока действие не
+    -- закончится (см. Core/ActiveEffects.lua IsPassiveEffect).
+    fC_IsPassive = FormCheck(contFrame, "Пассивный")
+    fC_IsPassive:SetPoint("TOPLEFT", contFrame, "TOPLEFT", PAD - 2 + math.floor(IN / 2), y)
+    fC_IsPassive:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        SB.Theme.StyleTooltip(GameTooltip)
+        GameTooltip:SetText("Пассивный эффект", 1, 0.82, 0)
+        GameTooltip:AddLine("Щелчок по иконке не применяет его повторно, " ..
+            "пока действие не закончится.", 0.85, 0.85, 0.85, true)
+        GameTooltip:Show()
+    end)
+    fC_IsPassive:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    y = y - 20 - 10
+
+    -- ── Описание ──────────────────────────────────────────
+    local descHdr = SB.Theme.SectionHeader(contFrame, "Описание")
+    descHdr:SetPoint("TOPLEFT", contFrame, "TOPLEFT", PAD, y)
+    y = y - 18
+    fC_DescWrap, fC_Desc = MakeMLInput(contFrame, IN, 56)
+    fC_DescWrap:SetPoint("TOPLEFT", contFrame, "TOPLEFT", PAD, y)
     AttachCharLimit(fC_Desc, LIMIT_DESC, fC_DescWrap)
-    -- Авто-рост бокса + окна (#4) — тот же паттерн, что и в основной форме.
     do
         local prevOnChanged = fC_Desc:GetScript("OnTextChanged")
         fC_Desc:SetScript("OnTextChanged", function(self, userInput)
@@ -784,74 +883,12 @@ local function BuildContainerFrame()
             RefreshContFormGrowth()
         end)
     end
+    contFrame.growAnchor  = fC_DescWrap
+    contFrame.growReserve = 12 + BTN + PAD
 
-    -- Duration + Concentration
-    local durBg = CreateFrame("Frame", nil, contFrame, "BackdropTemplate")
-    durBg:SetSize(fw-28, 28)
-    durBg:SetPoint("TOPLEFT", fC_DescWrap, "BOTTOMLEFT", 0, -8)
-    durBg:SetBackdrop(SB.Theme.BD.card)
-    durBg:SetBackdropColor(0.06, 0.05, 0.10, 0.80)
-    durBg:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
-
-    local durLabel = durBg:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
-    durLabel:SetPoint("LEFT", durBg, "LEFT", 8, 0)
-    durLabel:SetText("Длительность:")
-    durLabel:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
-    local durWrap, durEB = SB.Theme.Input(durBg, "1", 52, 20)
-    durWrap:SetPoint("LEFT", durLabel, "RIGHT", 8, 0)
-    fC_Dur = durEB
-
-    -- Can Crit (#4: добавлено в контейнер)
-    local ccBg = CreateFrame("Frame", nil, contFrame, "BackdropTemplate")
-    ccBg:SetSize(fw-28, 26)
-    ccBg:SetPoint("TOPLEFT", durBg, "BOTTOMLEFT", 0, -6)
-    ccBg:SetBackdrop(SB.Theme.BD.card)
-    ccBg:SetBackdropColor(0.06, 0.05, 0.10, 0.80)
-    ccBg:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
-
-    fC_CanCrit = CreateFrame("CheckButton", nil, ccBg, "UICheckButtonTemplate")
-    fC_CanCrit:SetSize(20, 20)
-    fC_CanCrit:SetPoint("LEFT", ccBg, "LEFT", 6, 0)
-    local ccLabel = ccBg:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-    ccLabel:SetPoint("LEFT", fC_CanCrit, "RIGHT", 4, 0)
-    ccLabel:SetText("Способно ли заклинание критовать?")
-    ccLabel:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
-
-    -- Пассивный эффект — нельзя "юзнуть" повторно, пока действие не
-    -- закончится (см. Core/ActiveEffects.lua IsPassiveEffect).
-    -- Независим от canCrit — canCrit лишь про способность наносить
-    -- урон/критовать, isPassive про повторное применение.
-    local ipBg = CreateFrame("Frame", nil, contFrame, "BackdropTemplate")
-    ipBg:SetSize(fw-28, 26)
-    ipBg:SetPoint("TOPLEFT", ccBg, "BOTTOMLEFT", 0, -6)
-    ipBg:SetBackdrop(SB.Theme.BD.card)
-    ipBg:SetBackdropColor(0.06, 0.05, 0.10, 0.80)
-    ipBg:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.5)
-
-    fC_IsPassive = CreateFrame("CheckButton", nil, ipBg, "UICheckButtonTemplate")
-    fC_IsPassive:SetSize(20, 20)
-    fC_IsPassive:SetPoint("LEFT", ipBg, "LEFT", 6, 0)
-    local ipLabel = ipBg:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-    ipLabel:SetPoint("LEFT", fC_IsPassive, "RIGHT", 4, 0)
-    ipLabel:SetText("Пассивный эффект (нельзя применить повторно)")
-    ipLabel:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
-
-    -- Отписи (успех/провал/крит) больше не задаются здесь — единственная
-    -- отпись (успех/крит-успех) вводится в детальной карточке этого
-    -- эффекта (UI/Library.lua), хранится per-character в SB.SpellOutcomes.
-
-    -- Buttons
-    local saveBtn = SB.Theme.Button(contFrame, "Сохранить эффект", 150, 28, "primary")
-    saveBtn:SetPoint("TOPLEFT", ipBg, "BOTTOMLEFT", 0, -14)
-    saveBtn:SetScript("OnClick", function() SB.CustomSpells.SaveContainer() end)
-    contFrame.saveBtn = saveBtn -- якорь для RefreshContFormGrowth (#4) — всегда виден
-
-    local cancelBtn = SB.Theme.Button(contFrame, "Отмена", 100, 28, "secondary")
-    cancelBtn:SetPoint("LEFT", saveBtn, "RIGHT", 8, 0)
-    cancelBtn:SetScript("OnClick", function() contFrame:Hide() end)
-
-    contFrame.deleteBtn = SB.Theme.Button(contFrame, "Удалить", 100, 28, "danger")
-    contFrame.deleteBtn:SetPoint("LEFT", cancelBtn, "RIGHT", 8, 0)
+    -- ── Подвал ────────────────────────────────────────────
+    contFrame.deleteBtn = SB.Theme.Button(contFrame, "Удалить", 84, BTN, "danger")
+    contFrame.deleteBtn:SetPoint("BOTTOMLEFT", contFrame, "BOTTOMLEFT", PAD, PAD)
     contFrame.deleteBtn:Hide()
     contFrame.deleteBtn:SetScript("OnClick", function()
         if contEditID then
@@ -864,6 +901,14 @@ local function BuildContainerFrame()
             contFrame:Hide()
         end
     end)
+
+    local cancelBtn = SB.Theme.Button(contFrame, "Отмена", 100, BTN, "secondary")
+    cancelBtn:SetScript("OnClick", function() contFrame:Hide() end)
+    local saveBtn = SB.Theme.Button(contFrame, "Сохранить", 100, BTN, "primary")
+    saveBtn:SetScript("OnClick", function() SB.CustomSpells.SaveContainer() end)
+    contFrame.saveBtn = saveBtn
+    SB.Theme.LayoutRow(contFrame, { cancelBtn, saveBtn }, "BOTTOMLEFT",
+        PAD + 84 + 12, PAD, IN - 84 - 12)
 end
 
 function SB.CustomSpells.OpenContainerFrame(parentID, existingContID)
@@ -886,14 +931,14 @@ function SB.CustomSpells.OpenContainerFrame(parentID, existingContID)
             if fC_IsPassive  then fC_IsPassive:SetChecked(sp.isPassive or false) end
 
             fC_LevelVal = sp.level or 0
-            fC_Level:SetText(fC_LevelVal == 0 and "Порядок: Заговор" or ("Порядок: " .. fC_LevelVal))
+            fC_Level:SetText(fC_LevelVal == 0 and "Заговор" or (fC_LevelVal .. " порядок"))
             fC_DistIdx = 1
             for i, v in ipairs(DIST_VALS) do
                 if v == (sp.distance or 0) then fC_DistIdx = i; break end
             end
             fC_Dist:SetText("Дальность: " .. DIST_LABELS[fC_DistIdx])
 
-            contFrame.title:SetText("Редактировать эффект: " .. (sp.name or ""))
+            contFrame.title:SetText("Эффект: " .. (sp.name or ""))
             contFrame.deleteBtn:Show()
             contFrame:Show()
             RefreshContFormGrowth() -- SetText() не триггерит OnTextChanged сам по себе
@@ -966,7 +1011,7 @@ function SB.CustomSpells.SaveContainer()
     fContID     = id
     fContDur    = dur
     fContIsConc = isConc
-    if fContBtn    then fContBtn:SetText("Редактировать эффект") end
+    if fContBtn    then fContBtn:SetText("Изменить эффект") end
     if fContDelBtn then fContDelBtn:Show() end
 
     contFrame:Hide()
@@ -1060,7 +1105,7 @@ function SB.CustomSpells.OpenEdit(spellID)
         fContID     = EffectOf(sp)
         fContDur    = sp.duration
         fContIsConc = sp.isConcentration
-        fContBtn:SetText("Редактировать эффект")
+        fContBtn:SetText("Изменить эффект")
         fContDelBtn:Show()
     else
         fContID = nil

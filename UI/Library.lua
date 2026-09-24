@@ -1418,11 +1418,11 @@ function SB.Library.BuildFrame()
 
     -- Скролл
     local sf
-    -- Подложка списка — материал карточки (SB.Theme.Inset), как у секций
-    -- остальных окон. Полоса прокрутки по-прежнему снаружи окна
-    -- (см. SB.Theme.AttachScrollbar).
+    -- Подложка списка — материал колонок главного окна («Атрибуты»,
+    -- «Способности»): список заклинаний — та же колонка, что и там.
+    -- Полоса прокрутки по-прежнему снаружи окна (см. AttachScrollbar).
     local listTop = TOOLBAR_Y - 32
-    local box = SB.Theme.Inset(libFrame, 0.95)
+    local box = SB.Theme.Inset(libFrame, nil, "column")
     box:SetPoint("TOPLEFT",     libFrame, "TOPLEFT",     10, listTop)
     box:SetPoint("BOTTOMRIGHT", libFrame, "BOTTOMRIGHT", -10, 44)
     sf, scrollChild = SB.Theme.Scroll(libFrame, 15, listTop - 5, -15, 49)
