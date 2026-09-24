@@ -20675,6 +20675,25 @@ do
 end
 
 -- ============================================================
+-- ПАНЕЛЬ «ЗАКОНЧИТЬ ХОД»: ПОСЛЕ ДЕЙСТВИЯ — ТОЛЬКО МЕТРЫ И КНОПКА
+-- ============================================================
+do
+    local me = stub.world.playerName
+    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = 1,
+        index = 1, slots = { { me } }, acted = {}, session = 505 })
+    _G.SpellbreakerCharDB.turnActionKey = nil
+    if SB.SpellBar and SB.SpellBar.IsEndMode then
+        checkTrue("до действия — обычная панель", not SB.SpellBar.IsEndMode())
+        SB.TurnOrder.NoteMainActionUsed()
+        checkTrue("после действия — «Закончить ход»", SB.SpellBar.IsEndMode())
+        local ok, err = pcall(SB.SpellBar.Relayout)
+        checkTrue("и панель в этом виде строится", ok)
+        if not ok then print("          " .. tostring(err)) end
+    end
+    SB.TurnOrder.ApplyRemoteState({ active = false })
+end
+
+-- ============================================================
 -- ДРОБЯЩЕЕ, ПРЕРЫВАНИЕ, НЕДОСЯГАЕМОСТЬ
 -- ============================================================
 do

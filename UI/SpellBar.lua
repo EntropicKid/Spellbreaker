@@ -567,6 +567,7 @@ end
 -- сумке главного окна.
 -- ============================================================
 local END_BTN_W = 118
+local endBtn   -- кнопка «Закончить ход», строится лениво
 
 function SB.SpellBar.IsEndMode()
     local TO = SB.TurnOrder
@@ -578,7 +579,7 @@ function SB.SpellBar.IsEndMode()
 end
 
 local function EnsureEndButton()
-    if bar.endBtn then return bar.endBtn end
+    if endBtn then return endBtn end
     local b = SB.Theme.Button(bar, "Закончить ход", END_BTN_W, 32, "primary")
     b:SetScript("OnClick", function()
         if SB.Logic and SB.Logic.SpendTurnManually then SB.Logic.SpendTurnManually() end
@@ -594,7 +595,7 @@ local function EnsureEndButton()
     b:SetScript("OnLeave", function() GameTooltip:Hide() end)
     if SB.UI.AttachEndTurnPulse then SB.UI.AttachEndTurnPulse(b) end
     b:Hide()
-    bar.endBtn = b
+    endBtn = b
     return b
 end
 
@@ -712,7 +713,7 @@ function SB.SpellBar.Refresh()
 
         for _, btn in ipairs(buttons) do btn:Hide() end
         for _, f in ipairs(infoTags) do f:Hide() end
-        if bar.endBtn then bar.endBtn:Hide() end
+        if endBtn then endBtn:Hide() end
 
         -- РЕЖИМ «ЗАКОНЧИТЬ ХОД»: метры и кнопка, больше ничего.
         if endMode then
