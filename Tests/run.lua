@@ -20675,6 +20675,57 @@ do
 end
 
 -- ============================================================
+-- ДРОБЯЩЕЕ, ПРЕРЫВАНИЕ, НЕДОСЯГАЕМОСТЬ
+-- ============================================================
+do
+    local mace = SB.Data.WeaponBonuses.mace
+    check("дробящее — +1 к «Внушению»", mace.value, 1)
+    check("и складывается в двух руках", mace.stacks, true)
+
+    -- ── ПРЕРЫВАНИЕ ─────────────────────────────────────────
+    checkTrue("interrupt = true — прерывает", SB.Logic.Interrupts({ interrupt = true }))
+    checkTrue("[\"break\"] = true — тоже", SB.Logic.Interrupts({ ["break"] = true }))
+    checkTrue("без поля — нет", not SB.Logic.Interrupts({ canCrit = true }))
+
+    SB.Data.Spells["t_conc_eff"] = { id = "t_conc_eff", name = "Проба сосредоточения",
+        class = "Эффект", level = 0, effect = { kind = "buff" } }
+    SB.Data.Spells["t_conc_stubborn"] = { id = "t_conc_stubborn", name = "Упрямое сосредоточение",
+        class = "Эффект", level = 0, effect = { kind = "buff", breakOn = { interrupted = false } } }
+    -- Своя концентрация одна — проверяем по очереди.
+    SB.ActiveEffects.Clear()
+    SB.ActiveEffects.Add("t_conc_eff", 3, true)
+    SB.Logic.ApplyInterruptToSelf({ canCrit = true })
+    check("без прерывания концентрация цела", #SB.ActiveEffects.GetAll(), 1)
+    SB.Logic.ApplyInterruptToSelf({ canCrit = true, interrupt = true })
+    check("прерывание сорвало концентрацию", #SB.ActiveEffects.GetAll(), 0)
+    SB.ActiveEffects.Add("t_conc_stubborn", 3, true)
+    SB.Logic.ApplyInterruptToSelf({ canCrit = true, interrupt = true })
+    check("а отказавшуюся — нет", #SB.ActiveEffects.GetAll(), 1)
+    SB.ActiveEffects.Clear()
+
+    -- ── НЕДОСЯГАЕМОСТЬ ─────────────────────────────────────
+    checkTrue("«Исчезновение» недосягаемо",
+              SB.Data.Spells["eff_vanish"].effect.untouchable == true)
+    checkTrue("«Притвориться мертвым» — тоже",
+              SB.Data.Spells["eff_feign_death"].effect.untouchable == true)
+    SB.Data.Spells["t_hide_eff"] = { id = "t_hide_eff", name = "Проба тени",
+        class = "Эффект", level = 0, effect = { kind = "buff", untouchable = true } }
+    SB.Data.Spells["t_curse_eff"] = { id = "t_curse_eff", name = "Проба проклятия",
+        class = "Эффект", level = 0, effect = { kind = "debuff" } }
+    SB.Data.Spells["t_curse"] = { id = "t_curse", name = "Наслать проклятие",
+        class = "Маг", level = 1, distance = 20, debuff = "t_curse_eff" }
+    SB.ActiveEffects.Add("t_hide_eff", 3, false)
+    checkTrue("свой эффект делает недосягаемым", SB.ActiveEffects.IsUntouchable())
+    SB.Logic.HandleBuffReceived("Злодей", "t_curse", "t_curse_eff", 1)
+    local cursed = false
+    for _, e in ipairs(SB.ActiveEffects.GetAll()) do
+        if e.spellID == "t_curse_eff" then cursed = true end
+    end
+    checkTrue("вредоносный эффект недосягаемого не находит", not cursed)
+    SB.ActiveEffects.Clear()
+end
+
+-- ============================================================
 -- СТРОКИ ОЧЕРЕДИ ХОДОВ — В ЛОГ, НО НЕ В ЧАТ (SB.UI.IsTurnLine)
 -- ============================================================
 do

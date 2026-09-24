@@ -1507,7 +1507,8 @@ AddEffect({
     name = "Исчезновение",
     icon = "Interface\\Icons\\Ability_vanish",
     description = "Силуэт существа расплывается к облачной дымке. Атаки до него доходят лишь покасательной, а само оно готово контратаковать из тени.",
-    effect = { kind = "buff", mods = { resistAll = 2 }, stats = { ["Скрытность"] = 10 } },
+    -- untouchable: вредоносным не навести и площадью не задеть, пока висит.
+    effect = { kind = "buff", untouchable = true, mods = { resistAll = 2 }, stats = { ["Скрытность"] = 10 } },
 })
 
 AddEffect({
@@ -2548,6 +2549,8 @@ AddEffect({
 	isConcentration = true,
     effect = {
         kind  = "buff",
+        -- Лежащего «мертвеца» не выбирают целью и не задевают площадью.
+        untouchable = true,
         mods = { movePct = -100 , defense = 300 },
         -- ЛЮБОЕ ДЕЙСТВИЕ, а не только удар: лежать и баффаться — не
         -- притворяться мёртвым. Пропуск хода эффект не срывает.

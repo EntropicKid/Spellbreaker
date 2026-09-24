@@ -491,11 +491,17 @@ end
 --- действие в нём уже сделано. По этому признаку кнопка окончания хода
 --- мерцает (см. SB.UI.AttachEndTurnPulse в UI/TurnQueue.lua).
 function TO.IsEndTurnPending()
+    return TO.IsMyTurnOpen() and not TO.CanUseMainAction()
+end
+
+--- Идёт ли сейчас СВОЙ ход: пошаговый режим, очередь дошла (или «все
+--- сразу») и ход ещё не окончен.
+function TO.IsMyTurnOpen()
     if not state.active then return false end
     local me = UnitName("player")
     if state.acted[me] then return false end
     if state.mode ~= "all" and not TO.IsCurrent(me) then return false end
-    return not TO.CanUseMainAction()
+    return true
 end
 
 function TO.NoteMainActionUsed()

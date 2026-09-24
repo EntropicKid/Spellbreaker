@@ -614,6 +614,8 @@ function SB.Logic.HandleAoeEffectReceived(casterName, spellID, effectID, radius,
     local harmful = SB.ActiveEffects and SB.ActiveEffects.GetKind
         and SB.ActiveEffects.GetKind(effectID) == "debuff"
     if FriendIgnoresAoe(imFriend, harmful) then return end
+    -- Недосягаемого вредоносная площадь не задевает.
+    if harmful and SB.Logic.SelfUntouchable and SB.Logic.SelfUntouchable() then return end
     if not SB.Logic.IsInAoeEpicenter(epi, casterName, radius) then return end
     -- Задело — набор заперт (см. SB.Logic.NoteTargetedBySpell).
     SB.Logic.NoteTargetedBySpell(casterName)
@@ -651,6 +653,7 @@ function SB.Logic.HandleAoeEffectReceived(casterName, spellID, effectID, radius,
     local success     = SB.Logic.IsGuaranteed(sourceSpell) or (total >= threshold)
 
     if success then
+        if isDebuff then SB.Logic.ApplyInterruptToSelf(sourceSpell) end
         -- fromOther: залп чужой, концентрацию держит заклинатель.
         -- casterName — он же и провокатор, если залп провоцирует.
         -- enc — его же навык на срок (см. описание параметра выше).
