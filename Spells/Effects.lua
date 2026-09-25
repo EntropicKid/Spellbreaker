@@ -412,7 +412,7 @@ AddEffect({
     -- Власть доливает сверху единицу за каждое его попадание — и это
     -- работает против существ Ведущего тоже, потому что повод живёт на
     -- рыцаре, а не на цели. Цена — полоса крита: кровь стоит, а не рубит.
-    effect = { kind = "buff", family = "Власть",
+    effect = { kind = "buff", family = "Стойка",
                mods = { healTaken = 1, crit = -3 },
                tick = { armor = 10 },
                onAction = { when = "hit", spell = "death_strike",
@@ -427,7 +427,7 @@ AddEffect({
     -- РАЗГОН ОТ ПОПАДАНИЙ. Лёд не держит удар — он заканчивает бой
     -- раньше: каждый попавший выпад может зарядить следующий приём
     -- широкой полосой крита.
-    effect = { kind = "buff", family = "Власть",
+    effect = { kind = "buff", family = "Стойка",
                mods = { damageFrost = 1, defense = -8 },
                onAction = { when = "hit", melee = true, chance = 30,
                             effect = "eff_dk_killing_machine", turns = 2 } },
@@ -440,7 +440,7 @@ AddEffect({
     description = "Тьма в чарах гуще. Попавшее заклинание с шансом 30% приносит «Внезапную гибель». Доспех тоньше.",
     -- МАГ В ЛАТАХ. Нечестивость бьёт издалека и заразой, поэтому прок
     -- от МАГИИ, а не от клинка, и расплачивается она доспехом.
-    effect = { kind = "buff", family = "Власть",
+    effect = { kind = "buff", family = "Стойка",
                mods = { damageShadow = 1, armor = -10 },
                onAction = { when = "hit", magic = true, chance = 30,
                             effect = "eff_dk_sudden_doom", turns = 2 } },
@@ -1659,7 +1659,7 @@ AddEffect({
     name = "Разоружение",
     icon = "Interface\\Icons\\Ability_warrior_disarm",
     description = "В результате вражеского финта теряет возможность пользоваться своим оружием!",
-    effect = { kind = "debuff", resist = "Сила", disarm = true },
+    effect = { kind = "debuff", disarm = true },
 })
 
 AddEffect({
@@ -1675,7 +1675,7 @@ AddEffect({
     name = "Броня напоказ",
     icon = "Interface\\Icons\\Ability_warrior_riposte",
     description = "В результате атаки разбойника броня цели остается вскрыта для последующих атак.",
-    effect = { kind = "debuff", mods = { armor = -35 } },
+    effect = { kind = "debuff", mods = { armor = -50 } },
 })
 
 AddEffect({
