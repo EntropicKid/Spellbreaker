@@ -462,7 +462,7 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-    duration = 1,
+    duration = 2,
     debuff = "eff_thunder_clap",
     aoe = { radius = 6 },
     scaling = {
