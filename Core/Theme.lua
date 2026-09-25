@@ -244,7 +244,12 @@ local SURFACES = {
     -- КОЛОНКИ И КАРТОЧКИ ПОМЕНЯЛИСЬ МАТЕРИАЛАМИ: колонки — чёрный мрамор
     -- (Assets\Marble.tga), карточки на них — кожа (см. BD.card). Переплёт
     -- библиотеки остаётся кожаным — у него своя строка ниже.
-    column  = { tex = MEDIA .. "Marble.tga", tint = { 1, 1, 1, 1 }, tileSize = 512 },
+    --
+    -- ФАЙЛ 1024, ПЛИТКА 384. При файле 512 и плитке 512 одна точка файла
+    -- ложилась на полторы-две экранных (масштаб интерфейса больше
+    -- единицы), и камень выглядел мыльным. Теперь на точку интерфейса
+    -- приходится почти три точки файла: рисунок мельче и резче.
+    column  = { tex = MEDIA .. "Marble.tga", tint = { 1, 1, 1, 1 }, tileSize = 384 },
     -- Стёганое полотно — у окон-форм: редактор существа, создание
     -- заклинания и эффекта.
     quilt   = { tex = MEDIA .. "Quilt.tga", tint = { 1, 1, 1, 1 }, tileSize = 256 },
@@ -331,7 +336,7 @@ local BD = {
 		bgFile   = SB.Theme.Surface("column").tex,
 		edgeFile = SB.Theme.Tex("ColumnEdge", "Interface\\Tooltips\\UI-Tooltip-Border"),
 		tile = true,
-		tileSize = 512,
+		tileSize = SB.Theme.Surface("column").tileSize,
 		edgeSize = 12,
 		insets = { left = 3, right = 3, top = 3, bottom = 3 },
 	},

@@ -49,7 +49,7 @@ local bar, buttons = nil, {}
 local PANEL_BD = {
     bgFile   = SB.Theme.Assets.Marble,
     edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    tile = true, tileSize = 512, edgeSize = 12,
+    tile = true, tileSize = 384, edgeSize = 12,   -- как у колонок (см. SURFACES.column)
     insets = { left = 3, right = 3, top = 3, bottom = 3 },
 }
 local SLOT_BD = {
