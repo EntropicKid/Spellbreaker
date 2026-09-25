@@ -402,12 +402,11 @@ Add({
     canCrit = true,
 	duration = 1,
     isConcentration = false,
-	aoe = { radius = 12 },
-    container = "eff_mana_food",
+	aoe = { radius = 6 },
 	scaling = {
 		hit    = { ["Наука"] = 1 },
 		crit   = { ["Анализ"] = 1 },
-		damage = { ["Интеллект"] = 0.5 },
+		damage = { ["Интеллект"] = 2 },
 	},
 })
 
