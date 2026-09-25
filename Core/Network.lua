@@ -1754,8 +1754,30 @@ end
 --- Отправить решение ГМа игроку.
 --- Круг в подписи больше не нужен: получатель берёт его из своей
 --- библиотеки (см. врезку «КРУГ НЕ ЕЗДИТ ПО СЕТИ» выше).
+-- ============================================================
+-- РЕШЕНИЕ ПО ЧУЖОЙ ЗАЯВКЕ — ТОЛЬКО ТОМУ, КТО ЕЁ ПОДАЛ
+--
+-- Здесь стояло «не в группе ИЛИ заявка моя — выполнить у себя». Игрок
+-- подал «Кровавую ярость» и вышел из группы, группа распалась — и
+-- одобрение Ведущего проходило по первой половине условия: эффект
+-- ложился на САМОГО Ведущего. Теперь у себя выполняется только своя
+-- заявка, а решение для того, кого в группе уже нет, не выполняется
+-- вовсе: ответ ему не дойдёт, и чужой каст не должен случиться ни с кем.
+-- ============================================================
+local function RecipientGone(target)
+    if target == UnitName("player") then return false end
+    if not IsInGroup() then return true end
+    return not (UnitInParty(target) or UnitInRaid(target))
+end
+
+local function ReportGone(target)
+    print("|cFF9933FF[Spellbreaker]|r: " .. tostring(target) ..
+        " уже не в группе — заявка снята, решение не применено.")
+end
+
 function SB.Net.SendGMApproval(targetPlayer, spellID, dc, scaleDamage)
-    if not IsInGroup() or targetPlayer == UnitName("player") then
+    if RecipientGone(targetPlayer) then ReportGone(targetPlayer); return end
+    if targetPlayer == UnitName("player") then
         SB.Logic.ProcessRollAndCast(spellID, dc,
             tonumber(SB.Data.Spells[spellID] and SB.Data.Spells[spellID].level) or 0,
             scaleDamage == "SCALE", true)
@@ -2797,7 +2819,8 @@ end
 
 --- slotLevel в подписи остался ради вызывающих; в пакете его нет.
 function SB.Net.SendForceOutcome(targetName, spellID, outcomeIndex, slotLevel)
-    if not IsInGroup() or targetName == UnitName("player") then
+    if RecipientGone(targetName) then ReportGone(targetName); return end
+    if targetName == UnitName("player") then
         if SB.Logic.ExecuteForcedOutcome then
             SB.Logic.ExecuteForcedOutcome(spellID, outcomeIndex, slotLevel)
         end
@@ -2868,7 +2891,8 @@ function SB.Net.SendRealtimeSync(enabled)
 end
 
 function SB.Net.SendReject(targetPlayer, spellID)
-    if not IsInGroup() or targetPlayer == UnitName("player") then
+    if RecipientGone(targetPlayer) then return end
+    if targetPlayer == UnitName("player") then
         SB.Events.Fire("CAST_REJECTED", spellID)
         return
     end
@@ -3101,7 +3125,7 @@ local leaderFrame = CreateFrame("Frame")
 leaderFrame:RegisterEvent("PARTY_LEADER_CHANGED")
 leaderFrame:RegisterEvent("GROUP_ROSTER_UPDATE")
 leaderFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-leaderFrame:SetScript("OnEvent", function()
+leaderFrame:SetScript("OnEvent", function(_, event)
     RebuildRosterCache()
 
     -- Скрываем GM-панель если игрок больше не лидер
@@ -3117,12 +3141,17 @@ leaderFrame:SetScript("OnEvent", function()
     -- ОЧЕРЕДЬ ЗАЯВОК ПЕРЕЖИВАЕТ /reload ВЕДУЩЕГО (см. Core/Init.lua), и
     -- чистится здесь — по живому составу: заявки тех, кого в группе уже
     -- нет, принять нельзя (ответ некому получить).
+    -- Группы нет вовсе — чужих заявок не держим тоже: ответить некому.
     local q = SpellbreakerAccountDB and SpellbreakerAccountDB.requestQueue
-    if type(q) == "table" and #q > 0 and IsInGroup() then
+    if type(q) == "table" and #q > 0 then
         local qChanged = false
         for i = #q, 1, -1 do
             local c = q[i].caster
-            if c ~= UnitName("player") and not UnitInParty(c) and not UnitInRaid(c) then
+            -- На входе в мир состав может ещё не приехать — «группы нет»
+            -- там не повод стирать очередь, пережившую /reload.
+            local noGroup = not IsInGroup() and event ~= "PLAYER_ENTERING_WORLD"
+            if c ~= UnitName("player")
+               and (noGroup or (IsInGroup() and not UnitInParty(c) and not UnitInRaid(c))) then
                 table.remove(q, i)
                 qChanged = true
             end

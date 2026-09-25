@@ -694,10 +694,12 @@ local function BuildMainFrame()
     end)
     portFrame:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    healthBar = SB.Theme.Bar(header, 140, 13, "health")
-    healthBar:SetPoint("TOPLEFT", portFrame, "TOPRIGHT", 8, -20)
+    -- ТОНЬШЕ: 11 вместо 13. Длину не трогаем (140), а по толщине
+    -- полоски с оправой подходили вплотную к передвижению и атрибутам.
+    healthBar = SB.Theme.Bar(header, 140, 11, "health")
+    healthBar:SetPoint("TOPLEFT", portFrame, "TOPRIGHT", 8, -22)
  
-    manaBar = SB.Theme.Bar(header, 140, 13, "mana")
+    manaBar = SB.Theme.Bar(header, 140, 11, "mana")
     manaBar:SetPoint("TOPLEFT", healthBar, "BOTTOMLEFT", 0, -8)
     manaBar:EnableMouse(true)
     manaBar:SetScript("OnEnter", function(self)
