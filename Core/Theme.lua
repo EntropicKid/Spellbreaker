@@ -54,6 +54,8 @@ SB.Theme.Assets.Background = MEDIA .. "Background.blp"
 -- рядом под именем Leather.orig.tga.
 SB.Theme.Assets.Wood    = MEDIA .. "Wood.tga"
 SB.Theme.Assets.Leather = MEDIA .. "Leather.tga"
+-- Чёрный мрамор с золотыми жилами — подложка карточек (см. BD.card).
+SB.Theme.Assets.Marble  = MEDIA .. "Marble.tga"
 
 -- Полотно и рамка окна. Nil — прежний вид (Background.blp + тултиповая
 -- рамка Blizzard).
@@ -142,8 +144,8 @@ local C = {
     cardHoverBg     = { 1.00, 1.00, 1.00, 1.00 }, -- мрамор как есть — светлее покоя
     -- ТУЛТИП — ГРАФИТ ПО СВЕТЛОМУ ВОЙЛОКУ (Assets\GMPanel.tga), тот, что
     -- раньше лежал под карточками: светлый файл, цвет задаёт подкраска.
-    tooltipBg      = { 0.26, 0.26, 0.34, 1.00 },
-    tooltipHoverBg = { 0.29, 0.29, 0.37, 1.00 },
+    tooltipBg      = { 0.19, 0.19, 0.25, 1.00 },
+    tooltipHoverBg = { 0.24, 0.24, 0.31, 1.00 },
     cardHoverBorder= { 0.78, 0.62, 0.32, 0.90 },  -- латунь ярче на наводке
 	columnBg       = { 0.61, 0.59, 0.58, 1.00 },
 	columnBorder   = { 0.62, 0.48, 0.24, 0.85 },
@@ -300,7 +302,7 @@ local BD = {
 		-- построению. Спокойнее прежнего Card.blp: камень облачный, а не
 		-- рваный, жилы тонкие и местами гаснут — текст поверх читается.
 		-- Цвет в файле, подкраска C.cardBg почти нейтральная.
-		bgFile   = MEDIA .. "Marble.tga",
+		bgFile   = SB.Theme.Assets.Marble,
 		edgeFile = SB.Theme.Tex("CardEdge", "Interface\\Tooltips\\UI-Tooltip-Border"),
 		tile = true,
 		-- ТАЙЛ ВО ВЕСЬ ФАЙЛ: при 256 жилы сжимались вдвое и на карточке
@@ -1657,11 +1659,14 @@ function SB.Theme.Bar(parent, w, h, kind)
     -- Высота полоски прежняя: оправа лежит на её двухпиксельном поле
     -- (INSET ниже) и наружу выходит на те же два пикселя, что у иконок.
     local soft = CreateFrame("Frame", nil, bar, "BackdropTemplate")
-    soft:SetPoint("TOPLEFT", bar, "TOPLEFT", -2, 2)
-    soft:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", 2, -2)
+    -- Толщина — SB.Theme.BAR_RIM (объявлен у IconBorder ниже, читается
+    -- при создании полоски, то есть уже после загрузки файла).
+    local BR = SB.Theme.BAR_RIM
+    soft:SetPoint("TOPLEFT", bar, "TOPLEFT", -BR.pad, BR.pad)
+    soft:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", BR.pad, -BR.pad)
     soft:SetBackdrop({
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        edgeSize = 7,
+        edgeSize = BR.edge,
         insets = { left = 2, right = 2, top = 2, bottom = 2 },
     })
     soft:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.9)
@@ -3067,15 +3072,25 @@ function SB.Theme.PortraitInset(port, layer)
 end
 -- ============================================================
 -- IconBorder — декоративная рамка вокруг иконки заклинания
+--
+-- ТОЛЩИНА ОПРАВЫ — ОДНА НА ВЕСЬ АДДОН (ICON_RIM). Видимая кромка
+-- тултиповой рамки — около трети edgeSize: при 7 было ~2 px, при 10
+-- стало ~3. Оправа выходит наружу на те же пиксели, что прибавила, —
+-- иконка под ней не уменьшается. Панелька способностей у полоски
+-- ресурса (UI/SpellBar.lua) эту оправу не берёт: у неё своя, мельче.
 -- ============================================================
+SB.Theme.ICON_RIM = { edge = 10, pad = 3 }
+-- Оправа полосок здоровья и ресурсов — на два пикселя толще прежней.
+SB.Theme.BAR_RIM  = { edge = 13, pad = 4 }
 function SB.Theme.IconBorder(card, iconWidget)
     local ib = CreateFrame("Frame", nil, card, "BackdropTemplate")
-    ib:SetPoint("TOPLEFT", iconWidget, "TOPLEFT", -2, 2)
-    ib:SetPoint("BOTTOMRIGHT", iconWidget, "BOTTOMRIGHT", 2, -2)
+    local R = SB.Theme.ICON_RIM
+    ib:SetPoint("TOPLEFT", iconWidget, "TOPLEFT", -R.pad, R.pad)
+    ib:SetPoint("BOTTOMRIGHT", iconWidget, "BOTTOMRIGHT", R.pad, -R.pad)
 
     ib:SetBackdrop({
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        edgeSize = 7,
+        edgeSize = R.edge,
         insets = { left = 2, right = 2, top = 2, bottom = 2 },
     })
 
@@ -3119,11 +3134,12 @@ end
 --- @param color table|nil  {r,g,b[,a]}; по умолчанию латунь карточек
 function SB.Theme.SoftIconFrame(parent, icon, color)
     local ib = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-    ib:SetPoint("TOPLEFT", icon, "TOPLEFT", -2, 2)
-    ib:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 2, -2)
+    local R = SB.Theme.ICON_RIM
+    ib:SetPoint("TOPLEFT", icon, "TOPLEFT", -R.pad, R.pad)
+    ib:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", R.pad, -R.pad)
     ib:SetBackdrop({
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        edgeSize = 7,
+        edgeSize = R.edge,
         insets = { left = 2, right = 2, top = 2, bottom = 2 },
     })
     local c = color or C.cardBorder

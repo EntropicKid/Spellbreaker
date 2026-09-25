@@ -692,7 +692,7 @@ local function BuildMainFrame()
     healthBar:SetPoint("TOPLEFT", portFrame, "TOPRIGHT", 8, -20)
  
     manaBar = SB.Theme.Bar(header, 155, 13, "mana")
-    manaBar:SetPoint("TOPLEFT", healthBar, "BOTTOMLEFT", 0, -4)
+    manaBar:SetPoint("TOPLEFT", healthBar, "BOTTOMLEFT", 0, -8)
     manaBar:EnableMouse(true)
     manaBar:SetScript("OnEnter", function(self)
         local key = SB.Logic.GetResourceTooltipKey(SB.PlayerModel.GetClass())

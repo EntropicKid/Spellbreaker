@@ -725,16 +725,35 @@ function SB.UI.BuildAttributesColumn(parentFrame, headerParent)
     headerInside = (headerParent == nil)
     local head   = headerParent or column
 
-    pointsLabel = head:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-    pointsLabel:SetPoint("TOPLEFT", head, "TOPLEFT", 4, -6)
+    -- МРАМОРНАЯ ПЛИТКА СЧЁТЧИКОВ — та же карточка, что у Силы, Ловкости
+    -- и остальных ниже, и по тем же краям: прокрутка отступает от тела
+    -- колонки на 4, карточки в ней — ещё на 4. Высота 44 из 48 шапки,
+    -- сверху 4 — до первой карточки остаются привычные 8.
+    --
+    -- Без headerParent (проверки и старые точки вызова) плитку не
+    -- строим: там шапка живёт в прокрутке, и раскладка у неё своя.
+    local tile = head
+    if not headerInside then
+        tile = CreateFrame("Frame", nil, head, "BackdropTemplate")
+        tile:SetPoint("TOPLEFT",  head, "TOPLEFT",  8, -4)
+        tile:SetPoint("TOPRIGHT", head, "TOPRIGHT", -8, -4)
+        tile:SetHeight(SB.UI.ATTR_HEADER_H - 4)
+        tile:SetBackdrop(SB.Theme.BD.card)
+        tile:SetBackdropColor(C.cardBg[1], C.cardBg[2], C.cardBg[3], C.cardBg[4])
+        tile:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], C.cardBorder[4])
+    end
+
+    pointsLabel = tile:CreateFontString(nil, "OVERLAY", "SBFontNormal")
+    pointsLabel:SetPoint("TOPLEFT", tile, "TOPLEFT", headerInside and 4 or 8,
+                         headerInside and -6 or -8)
     pointsLabel:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
 
-    skillPointsLabel = head:CreateFontString(nil, "OVERLAY", "SBFontNormal")
-    skillPointsLabel:SetPoint("TOPLEFT", pointsLabel, "BOTTOMLEFT", 0, -8)
+    skillPointsLabel = tile:CreateFontString(nil, "OVERLAY", "SBFontNormal")
+    skillPointsLabel:SetPoint("TOPLEFT", pointsLabel, "BOTTOMLEFT", 0, headerInside and -8 or -6)
     skillPointsLabel:SetTextColor(C.textMain[1], C.textMain[2], C.textMain[3])
 
     -- Галочки подтверждения — появляются только при наличии черновика.
-    attrCheckBox = BuildConfirmCheck(head, pointsLabel, function()
+    attrCheckBox = BuildConfirmCheck(tile, pointsLabel, function()
         local ok, reason = SB.Attributes.Commit()
         if ok then
             print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_GOOD ..
@@ -746,7 +765,7 @@ function SB.UI.BuildAttributesColumn(parentFrame, headerParent)
         "Зафиксирует распределение. До подтверждения очки не дают никаких бонусов, " ..
         "а после — понизить значения можно только кнопкой «Сбросить».")
 
-    skillCheckBox = BuildConfirmCheck(head, skillPointsLabel, function()
+    skillCheckBox = BuildConfirmCheck(tile, skillPointsLabel, function()
         local ok, reason = SB.Skills.Commit()
         if ok then
             print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_GOOD ..

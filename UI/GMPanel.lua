@@ -1071,7 +1071,7 @@ function SB.UI.UpdateGMPlayers()
     -- не стоят справа.
     local TEXT_X  = PORTRAIT_X + 52 + 8
     local perRow  = math.max(4, math.floor((listW - TEXT_X - 8) / iconStride))
-    local barW    = math.floor((listW - TEXT_X - 8 - 4) / 2)
+    local barW    = math.floor((listW - TEXT_X - 10 - 8) / 2)
     -- От верха строки до первого ряда эффектов: имя, строка класса,
     -- полоски и зазоры между ними.
     local ICONS_TOP = 62
@@ -1169,7 +1169,7 @@ function SB.UI.UpdateGMPlayers()
             row.hpBar:SetPoint("TOPLEFT", row, "TOPLEFT", TEXT_X, -40)
 
             row.zealBar = SB.Theme.Bar(row, barW, 14, "mana")
-            row.zealBar:SetPoint("LEFT", row.hpBar, "RIGHT", 4, 0)
+            row.zealBar:SetPoint("LEFT", row.hpBar, "RIGHT", 8, 0)
 
             -- ── ГАЛОЧКА «ДРУГ» ───────────────────────────────────
             -- Под полосками, у правого края. Отмечает тех, по кому Я не
