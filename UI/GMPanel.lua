@@ -1499,7 +1499,9 @@ function SB.UI.UpdateGMPlayers()
                 sub = CreateFrame("Frame", nil, playersChild, "BackdropTemplate")
                 sub:SetHeight(subH)
                 sub:SetBackdrop(SB.Theme.BD.card)
-                sub:SetBackdropColor(0.04, 0.03, 0.07, 0.85)
+                -- Дуб строк игроков, а не тёмная заливка: подстрока выезжает
+                -- из-под строки — и сделана из того же материала.
+                sub:SetBackdropColor(C.cardBg[1], C.cardBg[2], C.cardBg[3], C.cardBg[4])
                 sub:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.35)
                 sub.icons = {}
                 playerSubs[index] = sub

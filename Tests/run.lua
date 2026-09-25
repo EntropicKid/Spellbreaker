@@ -13633,7 +13633,8 @@ do
     check("карточки на дубе", T.BD.card.bgFile:find("Oak", 1, true) ~= nil, true)
     check("карточка — пергамент", T.Surface("detail").tex, T.Surface("parchment").tex)
     checkTrue("карточка отличается от кожи переплёта", T.Surface("detail").tex ~= leather)
-    check("панель Ведущего на ромбе", T.Surface("gm").tex, T.Surface("quilt").tex)
+    check("панель Ведущего на мраморе колонок", T.Surface("gm").tex, T.Surface("column").tex)
+    check("и в том же масштабе", T.Surface("gm").tileSize, T.Surface("column").tileSize)
 
     -- ── ФАЙЛЫ, КОТОРЫЕ КЛИЕНТ ВООБЩЕ ЗАГРУЗИТ ──────────────
     --
