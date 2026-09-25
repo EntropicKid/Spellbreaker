@@ -353,7 +353,8 @@ local function FlashToast(toast, times)
  
     local baseColor  = toast._bgColor
     local baseBorder = toast._borderColor
-    local highColor  = CC.cardHoverBg
+    -- Тост лежит на подложке тултипа — и вспыхивает её же наводкой.
+    local highColor  = CC.tooltipHoverBg
     local highBorder = CC.cardHoverBorder
  
     local pulseDuration = 0.6  -- Длительность одного "вздоха"
