@@ -1855,7 +1855,14 @@ function SB.ActiveEffects.ConcentrationBlockedBy()
 end
 
 --- Снять всё, что подавляет только что наложенный подавитель.
---- @return number, string  сколько снято и ЧТО именно (списком имён)
+---
+--- СНЯТОЕ ПОДАВЛЕНИЕМ — СПАЛО, и прощальный эффект (onRemove.effect) у
+--- него срабатывает так же, как у спавшего по сроку: оглушение, которое
+--- сбросил «Скачок», оставляет невосприимчивость к оглушению. Иначе
+--- подавитель становился бы лазейкой мимо неё — сбил оглушение, и цель
+--- снова можно оглушать немедленно.
+--- @return number, string, table  сколько снято, ЧТО именно (списком
+---         имён) и id снятого — для прощальных эффектов
 local function DropSuppressed(containerSpellID)
     local sp  = SB.Data.Spells[containerSpellID]
     local lst = sp and sp.effect and sp.effect.suppress
@@ -1864,7 +1871,7 @@ local function DropSuppressed(containerSpellID)
     -- ИМЕНА, А НЕ СЧЁТ. «Свобода действий снимает: 1» не сообщает
     -- ничего: игрок и так видел, что на нём висело, а вот ЧТО именно
     -- слетело — единственное, ради чего строка написана.
-    local dropped, names = 0, {}
+    local dropped, names, ids = 0, {}, {}
     for i = #effects, 1, -1 do
         local victim = SB.Data.Spells[effects[i].spellID]
         -- Подавителя не трогаем — ни чужого, ни своего.
@@ -1872,11 +1879,12 @@ local function DropSuppressed(containerSpellID)
                       and type(victim.effect.suppress) == "table"
         if not isSup and MatchesSuppress(victim, lst, sp.effect.suppressBuffs) then
             table.insert(names, 1, (victim and victim.name) or effects[i].spellID)
+            table.insert(ids, 1, effects[i].spellID)
             table.remove(effects, i)
             dropped = dropped + 1
         end
     end
-    return dropped, table.concat(names, ", ")
+    return dropped, table.concat(names, ", "), ids
 end
 
 -- ============================================================
@@ -1935,6 +1943,20 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc, source, level)
         print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_GOOD ..
             "«" .. ((sp and sp.name) or containerSpellID) ..
             "» не лёг — «" .. (by or "?") .. "».|r")
+        -- НЕ ЛЁГ — НО ПРИШЁЛ. Оглушение, отбитое «Скачком», всё равно
+        -- оставляет невосприимчивость: иначе подавитель давал бы окно, в
+        -- которое цель оглушают сразу после его конца. Прощальный эффект
+        -- кладётся, только если его ещё НЕТ: Воздержанность, не пустившая
+        -- Божественный щит, иначе продлевала бы сама себя, а висящая
+        -- невосприимчивость — каждую новую попытку оглушить.
+        local r = sp and sp.effect and sp.effect.onRemove
+        if type(r) == "table" and type(r.effect) == "string" then
+            local present = false
+            for _, e in ipairs(effects) do
+                if e.spellID == r.effect then present = true; break end
+            end
+            if not present then SB.ActiveEffects.FireEndEffect(containerSpellID) end
+        end
         return true
     end
     if Refused() then return end
@@ -2110,17 +2132,20 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc, source, level)
     -- действий» снимает оглушение тем, что она уже висит, — и порядок
     -- этих двух строк ровно об этом.
     local sup = SB.Data.Spells[containerSpellID].effect
-    local cleared, what
+    local cleared, what, droppedIDs
     if sup and sup.suppressClears == false then
         cleared = 0
     else
-        cleared, what = DropSuppressed(containerSpellID)
+        cleared, what, droppedIDs = DropSuppressed(containerSpellID)
     end
     if cleared > 0 then
         local sp = SB.Data.Spells[containerSpellID]
         print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_GOOD ..
             "«" .. ((sp and sp.name) or containerSpellID) .. "» снимает: " ..
             what .. ".|r")
+        for _, id in ipairs(droppedIDs or {}) do
+            SB.ActiveEffects.FireEndEffect(id)
+        end
     end
 
     Redraw(); FireChanged()

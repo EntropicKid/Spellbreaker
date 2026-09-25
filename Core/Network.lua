@@ -2611,6 +2611,25 @@ local PEER_URGENT_REPLY_CD = 1.5
 local peerUrgentSent  = {}   -- [name] = GetTime()
 local peerUrgentReply = {}   -- [name] = GetTime()
 
+-- ── НАБЛЮДАТЕЛИ: КТО ДЕРЖИТ НАС В ЦЕЛИ ──────────────────────
+--
+-- Жалоба: «держу в цели игрока не из группы, его ударили — а на рамке
+-- прежние числа, пока не возьмёшь в цель заново». Так и было: вне
+-- группы статус едет только ОТВЕТОМ на вопрос, а вопрос задаётся при
+-- наведении. Сокомандникам изменения приходят рассылкой, постороннему
+-- — никогда.
+--
+-- Теперь срочный вопрос (наведение) заодно ПОДПИСЫВАЕТ спросившего: пока
+-- подписка жива, каждое изменение наших чисел уходит ему само, тем же
+-- коротким пакетом. Держать цель — не событие, и узнать, что нас из неё
+-- выпустили, нам не из чего, поэтому подписка живёт PEER_WATCH_TTL
+-- секунд, а наблюдатель продлевает её, пока держит цель (см.
+-- SB.Overlay, опрос удерживаемой цели). Старый клиент подписок не знает,
+-- но получает то же продление опросом — не мгновенно, но не «никогда».
+local PEER_WATCH_TTL = 45
+local peerWatchers   = {}   -- [name] = GetTime(), до которого подписан
+local lastPeerPushSig
+
 -- ============================================================
 -- ФОНОВОЕ ЗНАКОМСТВО: СПРАШИВАЕМ ТЕХ, КОГО СЛЫШИМ
 --
@@ -2697,6 +2716,12 @@ function SB.Net.NotePeerSeen(name)
     end
 end
 
+--- Отпечаток короткого пакета — те же поля, что в нём едут.
+local function PeerSignature(p)
+    return table.concat({ p.class or "", p.mastery or "", p.zeal or 0,
+        p.maxZeal or 0, p.health or 0, p.maxHealth or 0, p.stealth or 0 }, "|")
+end
+
 local function BuildPeerStatusPayload()
     local snap = SB.PlayerModel.GetStatusSnapshot()
     return {
@@ -2725,12 +2750,18 @@ function SB.Net.ReplyPeerStatusTo(requester, urgent)
     if not SpellbreakerCharDB then return end   -- модель ещё не поднялась
     local now  = GetTime()
     if urgent then
+        -- Подписка — ДО кулдауна: продление не должно теряться оттого,
+        -- что ответ на прошлый вопрос ушёл секунду назад.
+        peerWatchers[requester] = now + PEER_WATCH_TTL
         -- Свой кулдаун: недавний фоновый ответ срочному не помеха.
         local last = peerUrgentReply[requester]
         if last and (now - last) < PEER_URGENT_REPLY_CD then return end
         peerUrgentReply[requester] = now
         peerLastReply[requester]   = now
         local payload = BuildPeerStatusPayload()
+        -- Наблюдатели получают каждое изменение, значит все они видят
+        -- ровно эти числа — рассылать их снова незачем.
+        lastPeerPushSig = PeerSignature(payload)
         payload.urgent = true
         SendToPlayer(payload, requester, "ALERT")
         return
@@ -2739,6 +2770,29 @@ function SB.Net.ReplyPeerStatusTo(requester, urgent)
     if last and (now - last) < PEER_REPLY_CD then return end
     peerLastReply[requester] = now
     SendToPlayer(BuildPeerStatusPayload(), requester, "BULK")
+end
+
+--- Разослать наши изменившиеся числа тем, кто держит нас в цели вне
+--- группы (см. «НАБЛЮДАТЕЛИ» выше). Сокомандникам не шлём: им уходит
+--- обычная рассылка статуса.
+function SB.Net.PushPeerWatchers()
+    if not next(peerWatchers) then return end
+    if not SpellbreakerCharDB then return end
+    local payload = BuildPeerStatusPayload()
+    local sig = PeerSignature(payload)
+    if sig == lastPeerPushSig then return end
+    lastPeerPushSig = sig
+    payload.urgent = true
+
+    local now, grouped = GetTime(), IsInGroup()
+    for name, untilT in pairs(peerWatchers) do
+        if untilT < now then
+            peerWatchers[name] = nil
+        elseif not (grouped and InGroupByName(name)) then
+            peerUrgentReply[name] = now
+            SendToPlayer(payload, name, "ALERT")
+        end
+    end
 end
 
 --- Спросить статус конкретного игрока по имени. Имя — ровно то, что
@@ -2780,6 +2834,9 @@ local function ScheduleStatusBroadcast()
     statusDebounceTimer = SB.Net:ScheduleTimer(function()
         statusDebounceTimer = nil
         SB.Net.BroadcastStatus()
+        -- И тем, кто держит нас в цели вне группы: BroadcastStatus без
+        -- группы молчит, а им изменения нужны так же.
+        SB.Net.PushPeerWatchers()
     end, 0.3)
 end
 

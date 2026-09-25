@@ -370,9 +370,25 @@ local function FireEnd(st, effectID)
 end
 
 --- Наложить на состояние особи, без пересчёта и рассылки.
+--- Не лёг из-за подавления — прощальный эффект всё равно кладётся, если
+--- его ещё нет (то же правило, что у игрока, см. Refused в
+--- SB.ActiveEffects.Add): оглушение, отбитое подавителем, оставляет
+--- невосприимчивость, а Воздержанность не продлевает сама себя.
+local function FireEndIfAbsent(st, effectID)
+    local id = EndEffectOf(effectID)
+    if not id then return end
+    for _, e in ipairs(ListOf(st)) do
+        if e.spellID == id then return end
+    end
+    FireEnd(st, effectID)
+end
+
 function AddToState(st, effectID, turns, source)
     local list = ListOf(st)
-    if SuppressedBy(list, effectID) then return false end
+    if SuppressedBy(list, effectID) then
+        FireEndIfAbsent(st, effectID)
+        return false
+    end
 
     -- Не разменивать висящее на отказ (см. то же место у игрока).
     local newSp = SB.Data.Spells[effectID]
@@ -394,7 +410,10 @@ function AddToState(st, effectID, turns, source)
     DropFamily(list, effectID)
     for _, id in ipairs(ending) do FireEnd(st, id) end
     list = ListOf(st)
-    if SuppressedBy(list, effectID) then return false end
+    if SuppressedBy(list, effectID) then
+        FireEndIfAbsent(st, effectID)
+        return false
+    end
 
     -- Повторное наложение ПРОДЛЕВАЕТ, а не складывает — как у игрока.
     local found
@@ -415,13 +434,17 @@ function AddToState(st, effectID, turns, source)
     local def = newSp and newSp.effect
     if type(def) == "table" and type(def.suppress) == "table"
        and def.suppressClears ~= false and M then
+        local dropped = {}
         for i = #list, 1, -1 do
             local v = SB.Data.Spells[list[i].spellID]
             local isSup = v and type(v.effect) == "table" and type(v.effect.suppress) == "table"
             if not isSup and M(v, def.suppress, def.suppressBuffs) then
+                dropped[#dropped + 1] = list[i].spellID
                 table.remove(list, i)
             end
         end
+        -- Снятое подавлением — спало: прощальный эффект срабатывает.
+        for _, id in ipairs(dropped) do FireEnd(st, id) end
     end
     return true
 end

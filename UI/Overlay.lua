@@ -1929,8 +1929,25 @@ end
 -- ============================================================
 local driver = CreateFrame("Frame")
 local sinceTick = 0
+-- УДЕРЖИВАЕМАЯ ЦЕЛЬ ПЕРЕСПРАШИВАЕТСЯ. Игрок вне группы рассылает свои
+-- изменения тем, кто на него навёлся, но подписка у него живёт 45 секунд
+-- (см. «НАБЛЮДАТЕЛИ» в Core/Network.lua): держать цель — не событие, и
+-- узнать, что его выпустили из неё, ему не из чего. Раз в 20 секунд
+-- продлеваем её тем же срочным вопросом; старому клиенту без подписок
+-- это заодно освежает числа.
+local TARGET_RENEW = 20
+local sinceRenew = 0
 driver:SetScript("OnUpdate", function(_, dt)
     sinceTick = sinceTick + dt
+    sinceRenew = sinceRenew + dt
+    if sinceRenew >= TARGET_RENEW then
+        sinceRenew = 0
+        -- Только игрока в цели: существо своё состояние не подписывает.
+        if (SB.Overlay.IsEnabled() or SB.Overlay.AreAurasEnabled())
+           and SB.Net and SB.Net.ProbePlayerStatus then
+            ProbeUnit("target")
+        end
+    end
     if sinceTick < TICK then return end
     sinceTick = 0
     Refresh()
@@ -1971,6 +1988,7 @@ driver:SetScript("OnEvent", function(_, event)
 
     elseif event == "PLAYER_TARGET_CHANGED" or event == "UNIT_TARGET" then
         ProbeTarget()
+        sinceRenew = 0
         -- ПЕРЕКЛАДЫВАЕМ НЕМЕДЛЕННО, не дожидаясь тика. Клиент собирает
         -- рамку новой цели прямо в этом событии, и до ближайшего тика
         -- (до 0.1с) на ней успевали мелькнуть ванильные цифры и цвета —

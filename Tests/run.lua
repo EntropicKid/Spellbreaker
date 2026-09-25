@@ -21263,6 +21263,116 @@ do
     AE.Clear()
 end
 
+-- ============================================================
+-- ПОДАВЛЕННОЕ ОГЛУШЕНИЕ ТОЖЕ ДАЁТ НЕВОСПРИИМЧИВОСТЬ
+--
+-- «Скачок» подавляет оглушение. Снятое им оглушение — спавшее, и
+-- невосприимчивость после него обязана лечь; отбитое на входе — тоже.
+-- Но прощальный эффект не продлевается повторным отказом: иначе
+-- Воздержанность, не пустившая щит, продлевала бы сама себя.
+-- ============================================================
+do
+    local AE = SB.ActiveEffects
+    local STUN = "eff_hummer_of_justice"
+    local function has(id)
+        for _, e in ipairs(AE.GetAll()) do if e.spellID == id then return e end end
+    end
+
+    AE.Clear()
+    AE.Add(STUN, 3, false)
+    AE.Add("eff_blink", 2, false)
+    checkTrue("Скачок снимает оглушение", has(STUN) == nil)
+    checkTrue("и снятое оставляет невосприимчивость", has("eff_stun_immunity") ~= nil)
+
+    AE.Clear()
+    AE.Add("eff_blink", 2, false)
+    AE.Add(STUN, 3, false)
+    checkTrue("под Скачком оглушение не ложится", has(STUN) == nil)
+    checkTrue("но невосприимчивость — ложится", has("eff_stun_immunity") ~= nil)
+
+    AE.Clear()
+    AE.Add("eff_stun_immunity", 3, false)
+    local before = has("eff_stun_immunity").uses
+    AE.Add(STUN, 3, false)
+    check("отбитое невосприимчивостью её не продлевает",
+          has("eff_stun_immunity").uses, before)
+
+    AE.Clear()
+    AE.Add("eff_forbearance", 5, false)
+    AE.Add("eff_divineshield", 2, false)
+    check("Воздержанность, не пустившая щит, сама себя не продлевает",
+          has("eff_forbearance").uses, 5)
+    AE.Clear()
+
+    -- СУЩЕСТВА — то же правило.
+    local savedDB     = _G.SpellbreakerNPCDB
+    local savedTarget = stub.world.units["target"]
+    _G.SpellbreakerNPCDB = { npcs = {} }
+    stub.world.units["target"] = { name = "Пробный кабан", level = 5, npc = true,
+        creatureType = "Животное", guid = "Creature-0-970-0-11-4343-00BB02" }
+    SB.NPC.Save({ npcID = 4343, name = "Пробный кабан", classification = "beast",
+        level = 5, maxHealth = 20 })
+    SB.NPC.AddEffect("target", STUN, 3)
+    SB.NPC.AddEffect("target", "eff_blink", 2)
+    checkTrue("существо: Скачок снимает оглушение и даёт невосприимчивость",
+              not SB.NPC.HasEffect("target", STUN)
+              and SB.NPC.HasEffect("target", "eff_stun_immunity"))
+    SB.NPC.ClearEffects("target")
+    SB.NPC.AddEffect("target", "eff_blink", 2)
+    SB.NPC.AddEffect("target", STUN, 3)
+    checkTrue("существо: отбитое Скачком — тоже",
+              not SB.NPC.HasEffect("target", STUN)
+              and SB.NPC.HasEffect("target", "eff_stun_immunity"))
+    SB.NPC.ClearEffects("target")
+    stub.world.units["target"] = savedTarget
+    _G.SpellbreakerNPCDB = savedDB
+end
+
+-- ============================================================
+-- ЦЕЛЬ ВНЕ ГРУППЫ ПРИСЫЛАЕТ ИЗМЕНЕНИЯ САМА
+--
+-- Навёлся — подписался: пока подписка жива, изменение чисел уходит
+-- наблюдателю без повторного наведения. Сокомандникам — нет (им идёт
+-- обычная рассылка), истёкшим — нет.
+-- ============================================================
+do
+    local realSerialize, realSend = SB.Net.Serialize, SB.Net.SendCommMessage
+    local savedGroup = stub.world.inGroup
+    SB.Net.Serialize = function(_, t) return t end
+    local sent = {}
+    SB.Net.SendCommMessage = function(_, _, msg, _, target)
+        sent[#sent + 1] = { msg = msg, to = target }
+    end
+    local function to(name)
+        for _, p in ipairs(sent) do if p.to == name then return p.msg end end
+    end
+    stub.world.inGroup = false
+
+    SB.Net.ReplyPeerStatusTo("Чужак", true)
+    checkTrue("наведение отвечается сразу", to("Чужак") ~= nil)
+
+    sent = {}
+    SB.Net.PushPeerWatchers()
+    checkTrue("без изменений не шлём", to("Чужак") == nil)
+
+    local PM = SB.PlayerModel
+    local hp = PM.GetHealth and PM.GetHealth() or SpellbreakerCharDB.health
+    PM.SetHealth(math.max(1, (hp or 5) - 1))
+    SB.Net.PushPeerWatchers()
+    local m = to("Чужак")
+    checkTrue("изменение уходит наблюдателю само", m ~= nil)
+    check("срочно — мимо общей очереди", m and m.urgent, true)
+
+    sent = {}
+    stub.world.time = stub.world.time + 60
+    PM.SetHealth(hp or 5)
+    SB.Net.PushPeerWatchers()
+    checkTrue("подписка истекает", to("Чужак") == nil)
+
+    SB.Net.Serialize, SB.Net.SendCommMessage = realSerialize, realSend
+    stub.world.inGroup = savedGroup
+end
+
 -- ИТОГ
 -- ============================================================
 print("")
