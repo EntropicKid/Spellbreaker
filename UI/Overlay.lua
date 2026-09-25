@@ -1204,6 +1204,48 @@ local function LayoutAuraHost(host, list)
     return n
 end
 
+-- ============================================================
+-- ИКОНКИ ЦЕЛИ НЕ ЛОЖАТСЯ НА «МЕНЮ НПС»
+--
+-- Кнопка «Меню НПС» (UI/NPCControl.lua) висит под рамкой цели, пока в
+-- цели существо, — ровно там, где начинается ряд аур. И наши иконки, и
+-- ванильные ауры цели ложились на неё, и нажать её было нельзя. Пока
+-- кнопка видна, оба ряда съезжают ниже на её высоту.
+--
+-- Ванильные ауры клиент расставляет сам, на каждое обновление цели, —
+-- двигаем их ПОСЛЕ него, пост-хуком на расстановку первой иконки: всё
+-- остальное в ряду привязано к ней цепочкой и едет следом.
+-- ============================================================
+local NPC_MENU_SHIFT = 22
+
+--- Насколько опустить ауры цели прямо сейчас: высота кнопки «Меню НПС»,
+--- если она видна, иначе ноль.
+function SB.Overlay.NpcMenuShift()
+    local b = _G.SBNPCControlButton
+    return (b and b:IsShown()) and NPC_MENU_SHIFT or 0
+end
+
+local function ShiftFirstAura(frame, name, index)
+    if frame ~= _G.TargetFrame or index ~= 1 then return end
+    local shift = SB.Overlay.NpcMenuShift()
+    if shift == 0 then return end
+    local b = _G[name .. index]
+    if not (b and b.GetPoint) then return end
+    local point, rel, relPoint, x, y = b:GetPoint(1)
+    -- Только привязанную к самой рамке: первый дебафф, стоящий под рядом
+    -- баффов, едет вместе с ним и второго сдвига не просит.
+    if rel ~= frame then return end
+    b:SetPoint(point, rel, relPoint, x, (y or 0) - shift)
+end
+if hooksecurefunc then
+    if _G.TargetFrame_UpdateBuffAnchor then
+        hooksecurefunc("TargetFrame_UpdateBuffAnchor", ShiftFirstAura)
+    end
+    if _G.TargetFrame_UpdateDebuffAnchor then
+        hooksecurefunc("TargetFrame_UpdateDebuffAnchor", ShiftFirstAura)
+    end
+end
+
 --- Хосты создаём лениво и привязываем к ванильным рамкам, а не к экрану:
 --- игрок мог двигать и панель баффов, и рамку цели (в том числе чужим
 --- аддоном), и наши иконки должны ехать за ними.
@@ -1235,10 +1277,13 @@ local function EnsureAuraHosts()
     -- («неопрятно»). Здесь иконки размером с ванильные ауры цели, по
     -- пять в ряд — ровно в ширину полосок, — и прижаты под полоску
     -- ресурса.
-    t.size, t.inset, t.perRow, t.gap, t.rowGap = 21, 2, 5, 2, 2
+    --
+    -- ЧЕТЫРЕ, А НЕ ПЯТЬ: пятая иконка ряда заезжала на рамку цели цели.
+    t.size, t.inset, t.perRow, t.gap, t.rowGap = 21, 2, 4, 2, 2
     t.hideCount = true
     local manaBar = _G.TargetFrameManaBar or (_G.TargetFrame and _G.TargetFrame.manabar)
     if manaBar then
+        t._anchor = manaBar
         t:SetPoint("TOPLEFT", manaBar, "BOTTOMLEFT", -1, -4)
     elseif _G.TargetFrame then
         -- ПОДЖАТО К САМОЙ РАМКЕ. Прежние отступы отрывали ряд от
@@ -1403,6 +1448,15 @@ local function RefreshAuras()
     local list = wantTgt and TargetAddonAuras() or nil
     hosts.target.npcUnit = (list and UnitExists("target")
         and not UnitIsPlayer("target")) and "target" or nil
+    -- Под кнопкой «Меню НПС» — ниже неё (см. NpcMenuShift).
+    if hosts.target._anchor then
+        local want = -4 - SB.Overlay.NpcMenuShift()
+        if hosts.target._dy ~= want then
+            hosts.target._dy = want
+            hosts.target:ClearAllPoints()
+            hosts.target:SetPoint("TOPLEFT", hosts.target._anchor, "BOTTOMLEFT", -1, want)
+        end
+    end
     if list then
         LayoutAuraHost(hosts.target, list)
         RefreshAuraCounts(hosts.target)

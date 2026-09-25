@@ -346,11 +346,8 @@ SB.Logic.RegisterModifierSource("acrobatics", "Акробатика", function()
        and SB.Skills.GetAcrobaticsDefenseBonus() or 0
 end, "defense")
 
--- Концентрация — только пока реально поддерживаешь эффект.
-SB.Logic.RegisterModifierSource("concentration", "Концентрация", function()
-    return SB.Skills and SB.Skills.GetConcentrationDefenseBonus
-       and SB.Skills.GetConcentrationDefenseBonus() or 0
-end, "defense")
+-- Концентрация больше не прибавляет к защите: её навык — удержания
+-- (см. SB.Skills.SpendHold и SB.ActiveEffects.BreakOn).
 
 -- Внушение — только для заклинаний, не наносящих урон (нужен ctx.spell).
 SB.Logic.RegisterModifierSource("persuasion", "Внушение", function(ctx)

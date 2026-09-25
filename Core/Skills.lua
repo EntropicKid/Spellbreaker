@@ -1311,9 +1311,14 @@ function SB.Skills.GetAcrobaticsDefenseBonus()
     return Over("Акробатика") * RollStep()
 end
 
--- ── Концентрация: защита, пока поддерживаешь концентрацию ────
--- Отражает удержание заклинания под давлением: бонус есть только
--- когда реально висит эффект с концентрацией.
+-- ── Концентрация: УДЕРЖАНИЯ ─────────────────────────────────
+-- Была «+3 к защите, пока держишь концентрацию» — та же Акробатика,
+-- только хуже: защищала тело, а не заклинание, и к срыву концентрации
+-- отношения не имела. Теперь навык делает ровно то, что обещает его
+-- описание, — не даёт сбить начатое: запас удержаний, по одному за
+-- очко, тратится на срыв концентрации контролем или прерыванием.
+-- Устроен как Воля (см. SB.Data.Pools): надетое плюс наведённое,
+-- возвращает Долгий Отдых.
 function SB.Skills.IsConcentrating()
     if not SB.ActiveEffects or not SB.ActiveEffects.GetAll then return false end
     for _, eff in ipairs(SB.ActiveEffects.GetAll() or {}) do
@@ -1322,9 +1327,33 @@ function SB.Skills.IsConcentrating()
     return false
 end
 
-function SB.Skills.GetConcentrationDefenseBonus()
-    if not SB.Skills.IsConcentrating() then return 0 end
-    return Over("Концентрация") * RollStep()
+--- Надетая половина удержаний: сам навык и прибавки от снаряжения.
+function SB.Skills.GetHoldBase()
+    local v = SB.Skills.Get("Концентрация") - MIN_SKILL
+    if SB.Skills.GetWeaponStatBonus then
+        v = v + (SB.Skills.GetWeaponStatBonus("Концентрация"))
+    end
+    if SB.Skills.GetGearStatBonus then
+        v = v + (SB.Skills.GetGearStatBonus("Концентрация"))
+    end
+    return math.max(0, v)
+end
+
+function SB.Skills.GetHoldMax()  return SB.Skills.PoolMax("hold")  end
+function SB.Skills.GetHoldLeft() return SB.Skills.PoolLeft("hold") end
+
+--- Потратить одно удержание. false — не осталось.
+function SB.Skills.SpendHold()
+    if SB.Skills.GetHoldLeft() < 1 then return false end
+    return SB.Skills.SpendFromPool("hold", 1) == 1
+end
+
+--- Вернуть удержания целиком — Долгим Отдыхом, как и Волю.
+function SB.Skills.RestoreHold()
+    SB.Skills.ResetPool("hold")
+    if SB.ActiveEffects and SB.ActiveEffects.ResetPoolUsed then
+        SB.ActiveEffects.ResetPoolUsed("hold")
+    end
 end
 
 -- ── Милосердие: ШАНС исцеления ───────────────────────────────
@@ -1468,6 +1497,7 @@ end
 function SB.Skills.PoolBase(pool)
     if pool == "armor" then return SB.Skills.GetArmorBase() end
     if pool == "will"  then return SB.Skills.GetWillBase()  end
+    if pool == "hold"  then return SB.Skills.GetHoldBase()  end
     return 0
 end
 
@@ -1774,7 +1804,9 @@ SB.Data.SkillEffects = {
     ["Воля"]           = "Очко срыва за каждое вложенное. Срыв (ПКМ по иконке эффекта) " ..
                          "снимает оглушение, контроль, ослепление или замедление, не тратя хода; " ..
                          "стоит столько очков, каков круг чар. Вернёт Долгий Отдых.",
-    ["Концентрация"]   = "+3 к броску защиты за каждое очко, пока держишь концентрацию.",
+    ["Концентрация"]   = "Удержание за каждое очко: когда контроль или прерывание сорвали бы " ..
+                         "твою концентрацию или поток, тратится одно удержание, и она остаётся. " ..
+                         "Вернёт Долгий Отдых.",
     ["Милосердие"]     = "+3 к броску лечения за каждое очко.",
     ["Внушение"]       = "Каждое очко продлевает твои дебаффы на чужих на 1/5 срока; " ..
                          "на пяти очках — вдвое. Доля округляется вниз.",

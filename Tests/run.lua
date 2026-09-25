@@ -20473,6 +20473,11 @@ do
                     if type(ref) == "string" then used[ref] = true end
                 end
             end
+            -- И прощальный эффект: onRemove = { effect = "id" }.
+            local rm = sp.effect.onRemove
+            if type(rm) == "table" and type(rm.effect) == "string" then
+                used[rm.effect] = true
+            end
         end
     end
 
@@ -20952,6 +20957,131 @@ do
 end
 
 -- ============================================================
+-- ============================================================
+-- ПРОЩАЛЬНЫЙ ЭФФЕКТ: onRemove = { effect, duration }
+--
+-- Оглушение по окончании даёт невосприимчивость на 3 хода; обновление
+-- висящего оглушения считается его концом. Божественный щит, защита и
+-- Длань защиты — одно семейство, и после любого из них Воздержанность
+-- не пускает следующий. У существ — те же правила.
+-- ============================================================
+do
+    local AE = SB.ActiveEffects
+    local STUN, STUN2 = "eff_hummer_of_justice", "eff_kidney_shot"
+    local function has(id)
+        for _, e in ipairs(AE.GetAll()) do if e.spellID == id then return e end end
+        return nil
+    end
+
+    check("у оглушения прощальный эффект",
+          SB.Data.Spells[STUN].effect.onRemove.effect, "eff_stun_immunity")
+
+    AE.Clear()
+    AE.Add(STUN, 2, false)
+    AE.Remove(STUN, true)
+    local imm = has("eff_stun_immunity")
+    checkTrue("снятое оглушение даёт невосприимчивость", imm ~= nil)
+    check("на три хода", imm and imm.uses, 3)
+    AE.Add(STUN, 2, false)
+    checkTrue("и оглушить снова нельзя", has(STUN) == nil)
+
+    AE.Clear()
+    AE.Add(STUN, 1, false)
+    AE.DecrementOne(STUN)
+    checkTrue("истёкшее по ходам — тоже", has("eff_stun_immunity") ~= nil)
+
+    AE.Clear()
+    AE.Add(STUN, 4, false)
+    AE.Add(STUN, 4, false)
+    checkTrue("обновление кончает оглушение", has(STUN) == nil)
+    checkTrue("и даёт невосприимчивость", has("eff_stun_immunity") ~= nil)
+
+    AE.Clear()
+    AE.Add(STUN, 4, false)
+    AE.Add(STUN2, 2, false)
+    checkTrue("другое оглушение поверх — тоже конец первого", has(STUN) == nil)
+    checkTrue("и второе не ложится", has(STUN2) == nil)
+
+    AE.Clear()
+    AE.Add("eff_divineshield", 2, false)
+    AE.Add("eff_divine_protection", 2, false)
+    checkTrue("щит не разменивается на отказ", has("eff_divineshield") ~= nil)
+    checkTrue("защита поверх щита не ложится", has("eff_divine_protection") == nil)
+    checkTrue("и Воздержанности ещё нет", has("eff_forbearance") == nil)
+    AE.Remove("eff_divineshield", true)
+    checkTrue("щит спал — Воздержанность", has("eff_forbearance") ~= nil)
+    AE.Add("eff_sealofprotection", 1, false)
+    checkTrue("Длань защиты под Воздержанностью не ложится",
+              has("eff_sealofprotection") == nil)
+    check("все трое — одно семейство",
+          SB.Data.GetFamily("eff_sealofprotection") .. "/" ..
+          SB.Data.GetFamily("eff_divine_protection"), "Божественная защита/Божественная защита")
+    AE.Clear()
+
+    -- СУЩЕСТВА
+    local savedDB     = _G.SpellbreakerNPCDB
+    local savedTarget = stub.world.units["target"]
+    _G.SpellbreakerNPCDB = { npcs = {} }
+    stub.world.units["target"] = { name = "Пробный кабан", level = 5, npc = true,
+        creatureType = "Животное", guid = "Creature-0-970-0-11-4343-00BB02" }
+    SB.NPC.Save({ npcID = 4343, name = "Пробный кабан", classification = "beast",
+        level = 5, maxHealth = 20 })
+    SB.NPC.AddEffect("target", STUN, 2)
+    SB.NPC.RemoveEffect("target", STUN)
+    checkTrue("существо: снятое оглушение даёт невосприимчивость",
+              SB.NPC.HasEffect("target", "eff_stun_immunity"))
+    check("существо: и оглушить снова нельзя", SB.NPC.AddEffect("target", STUN, 2), false)
+    SB.NPC.ClearEffects("target")
+    SB.NPC.AddEffect("target", STUN, 3)
+    SB.NPC.AddEffect("target", STUN, 3)
+    checkTrue("существо: обновление кончает оглушение",
+              not SB.NPC.HasEffect("target", STUN)
+              and SB.NPC.HasEffect("target", "eff_stun_immunity"))
+    SB.NPC.ClearEffects("target")
+    stub.world.units["target"] = savedTarget
+    _G.SpellbreakerNPCDB = savedDB
+end
+
+-- ============================================================
+-- КОНЦЕНТРАЦИЯ — УДЕРЖАНИЯ
+--
+-- Навык больше не прибавляет к защите: он даёт запас удержаний, и одно
+-- удержание спасает концентрацию от срыва контролем или прерыванием.
+-- ============================================================
+do
+    local AE = SB.ActiveEffects
+    SB.Data.Spells["t_hold_gift"] = { id = "t_hold_gift", name = "Проба сосредоточения",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff", stats = { ["Концентрация"] = 1 } } }
+    SB.Data.Spells["t_hold_conc"] = { id = "t_hold_conc", name = "Проба концентрации",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff", mods = { defense = 1 } } }
+    local function has(id)
+        for _, e in ipairs(AE.GetAll()) do if e.spellID == id then return true end end
+        return false
+    end
+
+    AE.Clear()
+    SB.Skills.RestoreHold()
+    local base = SB.Skills.GetHoldLeft()
+    AE.Add("t_hold_gift", 5, false)
+    check("эффект со стат-прибавкой даёт удержание", SB.Skills.GetHoldLeft() - base, 1)
+    AE.Add("t_hold_conc", 5, true)
+    -- Надетые удержания в прогоне обнуляем расходом, чтобы считать ровно одно.
+    if base > 0 then SB.Skills.SpendFromPool("hold", base) end
+    AE.BreakOn("controlled")
+    checkTrue("удержание спасает концентрацию от контроля", has("t_hold_conc"))
+    check("и тратится", SB.Skills.GetHoldLeft(), 0)
+    AE.BreakOn("interrupted")
+    checkTrue("без удержаний прерывание её снимает", not has("t_hold_conc"))
+    check("к защите навык больше не прибавляет",
+          SB.Skills.GetConcentrationDefenseBonus, nil)
+
+    AE.Clear()
+    SB.Skills.RestoreHold()
+    SB.Data.Spells["t_hold_gift"], SB.Data.Spells["t_hold_conc"] = nil, nil
+end
+
 -- ИТОГ
 -- ============================================================
 print("")

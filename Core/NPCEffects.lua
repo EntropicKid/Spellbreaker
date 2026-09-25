@@ -325,13 +325,76 @@ end
 ---        (см. SB.NPC.TauntPenaltyOf ниже): по провокатору существо бьёт
 ---        без штрафа, и без имени исключение назвать нечем.
 --- @return boolean ok
-function SB.NPC.AddEffect(unit, effectID, turns, source)
-    if not effectID or not SB.Data.Spells[effectID] then return false end
-    local st = SB.NPC.GetState(unit)
-    if not st then return false end
+-- ============================================================
+-- ПОДАВЛЕНИЕ И ПРОЩАЛЬНЫЙ ЭФФЕКТ — ТЕ ЖЕ, ЧТО У ИГРОКА
+--
+-- Невосприимчивость к оглушению после оглушения нужна существу больше,
+-- чем кому-либо: оглушают в сцене чаще всего именно их. Правила взяты
+-- ровно из SB.ActiveEffects.Add — подавитель не пускает и чистит,
+-- прощальный эффект (onRemove.effect) срабатывает на снятии, вытеснении
+-- семейством и продлении, а висящее не разменивается на отказ.
+-- ============================================================
+
+--- Чем подавлен эффект в этом списке. nil — ничем.
+local function SuppressedBy(list, effectID)
+    local sp = SB.Data.Spells[effectID]
+    local M  = SB.ActiveEffects and SB.ActiveEffects.MatchesSuppress
+    if not sp or not M then return nil end
+    local isSup = type(sp.effect) == "table" and type(sp.effect.suppress) == "table"
+    for _, e in ipairs(list) do
+        local by = SB.Data.Spells[e.spellID]
+        local d  = by and by.effect
+        if type(d) == "table" and (not isSup or d.suppressBuffs)
+           and M(sp, d.suppress, d.suppressBuffs) then
+            return (by.name or e.spellID)
+        end
+    end
+    return nil
+end
+
+--- Прощальный эффект: id и срок в ходах, или nil.
+local function EndEffectOf(effectID)
+    local sp = SB.Data.Spells[effectID]
+    local r  = sp and sp.effect and sp.effect.onRemove
+    if type(r) ~= "table" or type(r.effect) ~= "string" then return nil end
+    if r.effect == effectID or not SB.Data.Spells[r.effect] then return nil end
+    local d = tonumber(r.duration) or 1
+    return r.effect, (d < 0) and INFINITE or math.max(1, math.floor(d))
+end
+
+local AddToState
+
+local function FireEnd(st, effectID)
+    local id, turns = EndEffectOf(effectID)
+    if id then AddToState(st, id, turns) end
+end
+
+--- Наложить на состояние особи, без пересчёта и рассылки.
+function AddToState(st, effectID, turns, source)
     local list = ListOf(st)
+    if SuppressedBy(list, effectID) then return false end
+
+    -- Не разменивать висящее на отказ (см. то же место у игрока).
+    local newSp = SB.Data.Spells[effectID]
+    local fam   = SB.Data.GetFamily and SB.Data.GetFamily(effectID)
+    local M     = SB.ActiveEffects and SB.ActiveEffects.MatchesSuppress
+    local ending = {}
+    for _, e in ipairs(list) do
+        if e.spellID == effectID or (fam and SB.Data.GetFamily(e.spellID) == fam) then
+            local endID = EndEffectOf(e.spellID)
+            local ed = endID and SB.Data.Spells[endID].effect
+            if M and type(ed) == "table" and ed.suppressClears == false
+               and M(newSp, ed.suppress, ed.suppressBuffs) then
+                return false
+            end
+            ending[#ending + 1] = e.spellID
+        end
+    end
 
     DropFamily(list, effectID)
+    for _, id in ipairs(ending) do FireEnd(st, id) end
+    list = ListOf(st)
+    if SuppressedBy(list, effectID) then return false end
 
     -- Повторное наложение ПРОДЛЕВАЕТ, а не складывает — как у игрока.
     local found
@@ -348,9 +411,31 @@ function SB.NPC.AddEffect(unit, effectID, turns, source)
         list[#list + 1] = { spellID = effectID, uses = turns or 1, src = source }
     end
 
+    -- Подавитель чистит за собой, если не сказано обратное.
+    local def = newSp and newSp.effect
+    if type(def) == "table" and type(def.suppress) == "table"
+       and def.suppressClears ~= false and M then
+        for i = #list, 1, -1 do
+            local v = SB.Data.Spells[list[i].spellID]
+            local isSup = v and type(v.effect) == "table" and type(v.effect.suppress) == "table"
+            if not isSup and M(v, def.suppress, def.suppressBuffs) then
+                table.remove(list, i)
+            end
+        end
+    end
+    return true
+end
+
+function SB.NPC.AddEffect(unit, effectID, turns, source)
+    if not effectID or not SB.Data.Spells[effectID] then return false end
+    local st = SB.NPC.GetState(unit)
+    if not st then return false end
+
+    local ok = AddToState(st, effectID, turns, source)
+
     SB.NPC.RestatEffects(st, unit)
     SB.NPC.PublishEffects(SB.NPC.SpawnKey(unit), st)
-    return true
+    return ok
 end
 
 --- Снять эффект с особи.
@@ -384,6 +469,7 @@ function SB.NPC.RemoveEffect(unit, effectID)
     for i, e in ipairs(list) do
         if e.spellID == effectID then
             table.remove(list, i)
+            FireEnd(st, effectID)
             SB.NPC.RestatEffects(st, unit)
             SB.NPC.PublishEffects(SB.NPC.SpawnKey(unit), st)
             return true
@@ -515,7 +601,7 @@ local function TickOne(st)
 
     local AE = SB.ActiveEffects
     local hp, res, names = 0, 0, nil
-    local expired
+    local expired, ended
 
     for i = #list, 1, -1 do
         local e   = list[i]
@@ -544,6 +630,8 @@ local function TickOne(st)
             table.remove(list, i)
             expired = expired or {}
             expired[#expired + 1] = (sp and sp.name) or e.spellID
+            ended = ended or {}
+            ended[#ended + 1] = e.spellID
         end
 
         if h ~= 0 or r ~= 0 then
@@ -551,6 +639,11 @@ local function TickOne(st)
             names[#names + 1] = (sp and sp.name) or e.spellID
         end
     end
+
+    -- Прощальные эффекты — ПОСЛЕ обхода: обход идёт по живому списку,
+    -- и вставка в него посреди цикла сбила бы индексы. И нового тика в
+    -- этом же ходу они не получают — легли уже после него.
+    for _, id in ipairs(ended or {}) do FireEnd(st, id) end
 
     return hp, res, names, expired
 end
