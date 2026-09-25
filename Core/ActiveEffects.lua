@@ -235,6 +235,63 @@ function SB.ActiveEffects.IsUntouchableList(list)
     return false, nil
 end
 
+-- ============================================================
+-- ЧАРЫ ОРУЖИЯ: УРОН СВОЕЙ ШКОЛЫ ПРИ УДАРЕ — effect.onHit
+--
+--     effect = { family = "Чары оружия", onHit = { damage = 2, damageType = "holy" } }
+--
+-- Раньше чары давали плоскую прибавку к физическому урону, и «Благословлённое
+-- оружие», «Пламенное клеймо» и «Клеймо молний» отличались одним названием.
+-- Теперь каждое бьёт СВОЕЙ стихией поверх удара: пламя гасит сопротивление
+-- огню, Свет — сопротивление Свету, а доспех их не держит вовсе («к каждому
+-- удару добавляется то, от чего доспех не спасает»). Крит прибавку не
+-- удваивает: удваивается удар клинка, а не чары на нём.
+--
+-- КОГДА: попавший ФИЗИЧЕСКИЙ удар БЛИЖНЕГО боя — удар оружием, на котором
+-- чары и висят. Заклинания и выстрелы их не несут.
+--
+-- ГДЕ СЧИТАЕТСЯ — у того, кто знает сопротивление цели:
+--   • удар по игроку — у ЦЕЛИ, по списку эффектов атакующего из его
+--     статуса (см. HandlePvpAttackReceived). Нового поля в пакете нет, и
+--     подделать прибавку со стороны атакующего нельзя;
+--   • удар по существу — у атакующего (см. ResolveNpcAttack);
+--   • бросок на Ведущего — прибавка входит в итоговое число.
+-- В чат отдельной строкой не пишется: входит в итог удара.
+-- ============================================================
+
+--- Подходит ли удар под чары оружия.
+function SB.ActiveEffects.IsWeaponStrike(spell)
+    if type(spell) ~= "table" or spell.damageType ~= "physical" then return false end
+    local d = tonumber(spell.distance) or 0
+    return d > 0 and d <= ((SB.Logic and SB.Logic.MELEE_RANGE) or 2.5)
+end
+
+--- Прибавки чар к этому удару.
+--- @param list table|nil  записи эффектов атакующего ({ spellID = ... });
+---        nil — свои висящие
+--- @return table  { { damage = N, damageType = "holy" }, ... }
+function SB.ActiveEffects.OnHitExtras(spell, list)
+    local out = {}
+    if not SB.ActiveEffects.IsWeaponStrike(spell) then return out end
+    for _, e in ipairs(list or effects) do
+        local sp = e and SB.Data.Spells[e.spellID]
+        local oh = sp and type(sp.effect) == "table" and sp.effect.onHit
+        local n  = type(oh) == "table" and tonumber(oh.damage) or 0
+        if n > 0 then
+            out[#out + 1] = { damage = n, damageType = oh.damageType }
+        end
+    end
+    return out
+end
+
+--- Сумма прибавок без чьего-либо сопротивления — для броска на Ведущего
+--- и карточки заклинания.
+function SB.ActiveEffects.OnHitRaw(spell, list)
+    local sum = 0
+    for _, x in ipairs(SB.ActiveEffects.OnHitExtras(spell, list)) do sum = sum + x.damage end
+    return sum
+end
+
 --- Недосягаем ли сам игрок прямо сейчас.
 function SB.ActiveEffects.IsUntouchable()
     return SB.ActiveEffects.IsUntouchableList(effects)
@@ -614,6 +671,11 @@ function SB.ActiveEffects.GetEffectLines(spellID)
     local endEff = SB.ActiveEffects.EndEffectText(def.onRemove)
     if endEff then
         table.insert(lines, "|cFFFFD100Когда спадёт:|r " .. endEff)
+    end
+    if type(def.onHit) == "table" and (tonumber(def.onHit.damage) or 0) > 0 then
+        local dt = SB.Data.DamageTypes and SB.Data.DamageTypes[def.onHit.damageType or ""]
+        table.insert(lines, "|cFFFFD100Удар оружием:|r +" .. def.onHit.damage ..
+            " урона" .. (dt and (" — |c" .. dt.color .. dt.name .. "|r") or ""))
     end
 
     if def.untouchable == true then
@@ -1089,14 +1151,6 @@ function SB.ActiveEffects.ResetPoolUsed(pool)
     end
     if any then SaveEffects() end
 end
-
--- ИМЕНА БРОНИ ОСТАЮТСЯ — но уже обёртками в одну строку. Звать их из
--- десятка мест «SpendPool("armor", n)» значило бы размазать имя запаса
--- по всему аддону ради экономии пяти строк здесь.
-function SB.ActiveEffects.GetArmorUsed()      return SB.ActiveEffects.GetPoolUsed("armor")      end
-function SB.ActiveEffects.SpendArmor(units)   return SB.ActiveEffects.SpendPool("armor", units) end
-function SB.ActiveEffects.RestoreArmor(units) return SB.ActiveEffects.RestorePool("armor", units) end
-function SB.ActiveEffects.ResetArmorUsed()    return SB.ActiveEffects.ResetPoolUsed("armor")    end
 
 -- ============================================================
 -- ПРИБАВКА К УРОНУ С УЧЁТОМ ШКОЛЫ
@@ -1751,20 +1805,6 @@ end
 -- Наружу — для существ: их эффекты живут своим списком
 -- (Core/NPCEffects.lua), а правило подавления обязано быть одно.
 SB.ActiveEffects.MatchesSuppress = MatchesSuppress
-
---- Список подавляемого, объявленный ВИСЯЩИМИ эффектами.
-local function SuppressedNow()
-    local out
-    for _, eff in ipairs(effects) do
-        local sp  = SB.Data.Spells[eff.spellID]
-        local lst = sp and sp.effect and sp.effect.suppress
-        if type(lst) == "table" then
-            out = out or {}
-            for _, name in ipairs(lst) do out[#out + 1] = name end
-        end
-    end
-    return out
-end
 
 --- Подавлен ли этот эффект прямо сейчас.
 --- @return boolean, string|nil  подавлен и чем именно (для строки в чат)
@@ -3007,10 +3047,6 @@ end
 -- честно говорит «столько ещё осталось», просто не притворяется, что
 -- знает, сколько из текущего хода уже прошло.
 -- lastTickAt и tickSeq объявлены в начале файла (см. там).
-
---- Номер текущего тика. Пишется эффекту в момент его убавления
---- (см. DecrementOne) и спрашивается подписью (см. SecondsLeft).
-function SB.ActiveEffects.TickSeq() return tickSeq end
 
 --- Сколько секунд осталось эффекту.
 --- @param uses number  счётчик ходов (отрицательный — бессрочный)

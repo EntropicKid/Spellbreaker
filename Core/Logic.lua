@@ -2450,6 +2450,10 @@ function SB.Logic.GetSpellScalingLines(spell)
         -- ледяной стреле не работает.
         local eff  = (SB.ActiveEffects and SB.ActiveEffects.GetDamageMod)
             and (SB.ActiveEffects.GetDamageMod(spell)) or 0
+        -- И чары оружия — карточка обещает то, что уйдёт в удар.
+        if SB.ActiveEffects and SB.ActiveEffects.OnHitRaw then
+            eff = eff + SB.ActiveEffects.OnHitRaw(spell)
+        end
         local sum  = base + SB.Logic.GetSpellScaling(spell, "damage", slot) + eff
         -- Тот же пол, что и в резолве: попавший удар не стоит ноль
         -- (см. Config.MinDamageOnHit). Без него карточка обещала бы
@@ -3718,6 +3722,15 @@ function SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, totalScaling, turnS
         dmgBonus = dmgBonus + effDmg
         for _, p in ipairs(effParts) do table.insert(dmgParts, p) end
     end
+    -- Чары оружия: Ведущий видит итог с ними, сопротивление цели он
+    -- учтёт сам, если оно есть (см. SB.ActiveEffects.OnHitExtras).
+    if SB.ActiveEffects and SB.ActiveEffects.OnHitRaw then
+        local oh = SB.ActiveEffects.OnHitRaw(spell)
+        if oh > 0 then
+            dmgBonus = dmgBonus + oh
+            table.insert(dmgParts, { label = "Чары оружия", value = oh })
+        end
+    end
     local critThresh = SB.Logic.GetCritThreshold(critBonus, rollMax)
 
     -- Базовый урон от вложенного ресурса (см. GetCastPower). Прибавка к
@@ -4563,6 +4576,15 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
         local through
         through, resisted, reduction = SB.Skills.MitigateDamage(sum, dmgType)
         dmg = SB.Logic.ApplyCritDamage(through, atkCrit)
+        -- ЧАРЫ ОРУЖИЯ АТАКУЮЩЕГО — своей школой поверх удара, мимо доспеха
+        -- и без удвоения критом (см. SB.ActiveEffects.OnHitExtras). Список
+        -- его эффектов — из его статуса: пакет ничего нового не везёт.
+        if not fromNpc and SB.ActiveEffects and SB.ActiveEffects.OnHitExtras then
+            local st = SB.Data.PlayersStatus and SB.Data.PlayersStatus[attackerName]
+            for _, x in ipairs(SB.ActiveEffects.OnHitExtras(spell, st and st.activeEffects or {})) do
+                dmg = dmg + (SB.Skills.ApplyResistance(x.damage, x.damageType))
+            end
+        end
         -- rawDmg — сила удара ДО защиты: её показывает лог («удар
         -- выдержан целиком» считается именно по ней).
         rawDmg = sum

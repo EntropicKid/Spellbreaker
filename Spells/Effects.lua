@@ -655,7 +655,9 @@ AddEffect({
     icon = "Interface\\Icons\\Inv_ability_lightsmithpaladin_sacredweapon",
     description = "Клинок отзывается теплом и находит нечистую плоть охотнее живой.",
     -- «Атаки, совершаемые ОСВЯЩЁННЫМ ОРУЖИЕМ» — сказано прямо.
-    effect = { kind = "buff", school = "magic", mods = { damagePhysical = 2 } },
+    -- Семейство «Чары оружия»: на клинке одни чары — благословение жреца
+    -- не складывается с клеймом шамана.
+    effect = { kind = "buff", family = "Чары оружия", school = "magic", onHit = { damage = 2, damageType = "holy" } },
 })
 
 AddEffect({
@@ -2384,7 +2386,7 @@ AddEffect({
     name = "Дубинка",
     icon = "Interface\\Icons\\Spell_fire_flametounge",
     description = "Орудие обёрнуто стихией: к каждому удару добавляется то, от чего доспех не спасает.",
-    effect = { family = "Чары оружия", kind = "buff", school = "magic", mods = { damage = 1 } },
+    effect = { family = "Чары оружия", kind = "buff", school = "magic", onHit = { damage = 1, damageType = "nature" } },
 })
 
 AddEffect({
@@ -2395,7 +2397,7 @@ AddEffect({
     description = "Орудие обёрнуто стихией: к каждому удару добавляется то, от чего доспех не спасает.",
     -- СИЛА ЗВЕРЯ — КЛЫК, А НЕ ПРОСТО ПРИБАВКА: удар ближнего боя с
     -- шансом оставляет кровящий укол (тот же, что у Шипов).
-    effect = { family = "Чары оружия", kind = "buff", school = "magic", mods = { damage = 1 },
+    effect = { family = "Чары оружия", kind = "buff", school = "magic", onHit = { damage = 1, damageType = "nature" },
                onAction = { when = "hit", melee = true, chance = 25,
                             toTarget = "eff_thorn_prick" } },
 })
@@ -3043,7 +3045,7 @@ AddEffect({
     name = "Печать праведности",
     icon = "Interface\\Icons\\Ability_thunderbolt",
     description = "Свет держит доспех целым: вмятины расходятся сами, пока печать горит на нагруднике.",
-    effect = { kind = "buff", family = "Печать паладина", school = "magic", mods = { damageHoly = 1 } },
+    effect = { kind = "buff", family = "Печать паладина", school = "magic", onHit = { damage = 1, damageType = "holy" } },
 })
 
 AddEffect({
@@ -3379,7 +3381,7 @@ AddEffect({
     -- что-нибудь из семейства» заклинание не умеет, а эффект про себя
     -- знает всё. Висят двое чар разом — не бывает: семейство одно
     -- (см. family), и новое вытесняет старое.
-    effect = { family = "Чары оружия", kind = "buff", school = "magic", mods = { damagePhysical = 2 },
+    effect = { family = "Чары оружия", kind = "buff", school = "magic", onHit = { damage = 2, damageType = "fire" },
                onAction = {
                    { when = "cast", spell = "stormstrike", payload = { mana = 1 } },
                    -- ВСКИПАНИЕ ЛАВЫ БЬЁТ ЗЛЕЕ, ПОКА ГОРИТ КЛЕЙМО.
@@ -3408,7 +3410,7 @@ AddEffect({
     -- что-нибудь из семейства» заклинание не умеет, а эффект про себя
     -- знает всё. Висят двое чар разом — не бывает: семейство одно
     -- (см. family), и новое вытесняет старое.
-    effect = { family = "Чары оружия", kind = "buff", school = "magic", mods = { damagePhysical = 2 },
+    effect = { family = "Чары оружия", kind = "buff", school = "magic", onHit = { damage = 2, damageType = "frost" },
                -- ВОДА ДЕРЖИТ, А НЕ ДОБИВАЕТ: удар окаймлённым льдом
                -- оружием с шансом сковывает цель на ход — те же «Ледяные
                -- оковы», что у заклинания, чтобы семейство «Замедление»
@@ -3432,7 +3434,7 @@ AddEffect({
     -- что-нибудь из семейства» заклинание не умеет, а эффект про себя
     -- знает всё. Висят двое чар разом — не бывает: семейство одно
     -- (см. family), и новое вытесняет старое.
-    effect = { family = "Чары оружия", kind = "buff", school = "magic", mods = { damagePhysical = 2 },
+    effect = { family = "Чары оружия", kind = "buff", school = "magic", onHit = { damage = 2, damageType = "nature" },
                -- ВОЗДУХ КОПИТ БУРЮ КЛИНКОМ: каждый попавший удар ближнего
                -- боя заряжает «Оружие Водоворота», и следующее заклинание
                -- срывается молнией злее. Удар Бури к тому же снимает с
@@ -3463,7 +3465,7 @@ AddEffect({
     -- полтинник, но тот срабатывает от чужого удара по тотему — раз за
     -- размен; чары же висят на оружии всю сцену и щёлкают с КАЖДОГО
     -- взмаха. Полтинник здесь означал бы оглушение через удар.
-    effect = { family = "Чары оружия", kind = "buff", school = "magic", mods = { damage = 1 },
+    effect = { family = "Чары оружия", kind = "buff", school = "magic", onHit = { damage = 1, damageType = "nature" },
                onAction = { when = "hit", melee = true, chance = 15,
                             toTarget = "eff_stone_claw_stun" } },
 })
@@ -3961,7 +3963,7 @@ AddEffect({
     -- знает всё. Висят двое чар разом — не бывает: семейство одно
     -- (см. family), и новое вытесняет старое.
     effect = { family = "Чары оружия", kind = "buff", school = "magic",
-               mods = { damagePhysical = 1, heal = 1 },
+               mods = { heal = 1 }, onHit = { damage = 1, damageType = "nature" },
                onAction = { when = "cast", spell = "stormstrike", payload = { mana = 1 } } },
 })
 

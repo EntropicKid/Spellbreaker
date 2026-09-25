@@ -1764,10 +1764,22 @@ end
 -- заявка, а решение для того, кого в группе уже нет, не выполняется
 -- вовсе: ответ ему не дойдёт, и чужой каст не должен случиться ни с кем.
 -- ============================================================
+-- СОСТАВ — ПО КЭШУ ГРУППЫ (SB.Net.GetUnitByName), а не UnitInParty:
+-- имя заклинателя в заявке едет коротким, а UnitInParty с коротким
+-- именем игрока с другого игрового мира отвечает «нет» — и Ведущий не
+-- смог бы одобрить ему ни одной заявки.
+local function InGroupByName(name)
+    if not name or name == "" then return false end
+    if SB.Net.GetUnitByName(name) then return true end
+    -- Кэш мог отстать от события состава — перестраиваем и спрашиваем снова.
+    RebuildRosterCache()
+    return SB.Net.GetUnitByName(name) ~= nil
+end
+
 local function RecipientGone(target)
     if target == UnitName("player") then return false end
     if not IsInGroup() then return true end
-    return not (UnitInParty(target) or UnitInRaid(target))
+    return not InGroupByName(target)
 end
 
 local function ReportGone(target)
@@ -3151,7 +3163,7 @@ leaderFrame:SetScript("OnEvent", function(_, event)
             -- там не повод стирать очередь, пережившую /reload.
             local noGroup = not IsInGroup() and event ~= "PLAYER_ENTERING_WORLD"
             if c ~= UnitName("player")
-               and (noGroup or (IsInGroup() and not UnitInParty(c) and not UnitInRaid(c))) then
+               and (noGroup or (IsInGroup() and not InGroupByName(c))) then
                 table.remove(q, i)
                 qChanged = true
             end

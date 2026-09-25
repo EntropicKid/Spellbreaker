@@ -113,6 +113,15 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
         through, resisted, reduction = SB.NPC.MitigateDamage(
             sum, stats, "target", spell and spell.damageType)
         dmg = SB.Logic.ApplyCritDamage(through, isCrit)
+        -- Чары оружия — своей школой, мимо шкуры, без удвоения критом;
+        -- гасит их сопротивление существа этой школе (см.
+        -- SB.ActiveEffects.OnHitExtras).
+        if SB.ActiveEffects and SB.ActiveEffects.OnHitExtras then
+            for _, x in ipairs(SB.ActiveEffects.OnHitExtras(spell)) do
+                local r = SB.NPC.Resistance("target", x.damageType)
+                dmg = dmg + math.max(0, x.damage - math.min(r, x.damage))
+            end
+        end
     end
 
     -- ── Применение ────────────────────────────────────────
