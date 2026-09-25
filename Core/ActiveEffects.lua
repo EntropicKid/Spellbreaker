@@ -1152,14 +1152,6 @@ function SB.ActiveEffects.ResetPoolUsed(pool)
     if any then SaveEffects() end
 end
 
--- ИМЕНА БРОНИ ОСТАЮТСЯ — но уже обёртками в одну строку. Звать их из
--- десятка мест «SpendPool("armor", n)» значило бы размазать имя запаса
--- по всему аддону ради экономии пяти строк здесь.
-function SB.ActiveEffects.GetArmorUsed()      return SB.ActiveEffects.GetPoolUsed("armor")      end
-function SB.ActiveEffects.SpendArmor(units)   return SB.ActiveEffects.SpendPool("armor", units) end
-function SB.ActiveEffects.RestoreArmor(units) return SB.ActiveEffects.RestorePool("armor", units) end
-function SB.ActiveEffects.ResetArmorUsed()    return SB.ActiveEffects.ResetPoolUsed("armor")    end
-
 -- ============================================================
 -- ПРИБАВКА К УРОНУ С УЧЁТОМ ШКОЛЫ
 --
@@ -1813,20 +1805,6 @@ end
 -- Наружу — для существ: их эффекты живут своим списком
 -- (Core/NPCEffects.lua), а правило подавления обязано быть одно.
 SB.ActiveEffects.MatchesSuppress = MatchesSuppress
-
---- Список подавляемого, объявленный ВИСЯЩИМИ эффектами.
-local function SuppressedNow()
-    local out
-    for _, eff in ipairs(effects) do
-        local sp  = SB.Data.Spells[eff.spellID]
-        local lst = sp and sp.effect and sp.effect.suppress
-        if type(lst) == "table" then
-            out = out or {}
-            for _, name in ipairs(lst) do out[#out + 1] = name end
-        end
-    end
-    return out
-end
 
 --- Подавлен ли этот эффект прямо сейчас.
 --- @return boolean, string|nil  подавлен и чем именно (для строки в чат)
@@ -3069,10 +3047,6 @@ end
 -- честно говорит «столько ещё осталось», просто не притворяется, что
 -- знает, сколько из текущего хода уже прошло.
 -- lastTickAt и tickSeq объявлены в начале файла (см. там).
-
---- Номер текущего тика. Пишется эффекту в момент его убавления
---- (см. DecrementOne) и спрашивается подписью (см. SecondsLeft).
-function SB.ActiveEffects.TickSeq() return tickSeq end
 
 --- Сколько секунд осталось эффекту.
 --- @param uses number  счётчик ходов (отрицательный — бессрочный)

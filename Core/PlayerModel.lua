@@ -254,21 +254,6 @@ function PM.GetOpenClasses()
     return out
 end
 
---- Есть ли у нас хоть один предмет ЛЮБОГО класса на этот ранг.
---- Нужна общему рангу персонажа (см. PM.RefreshMastery): он по-прежнему
---- один на всего героя и берётся по лучшей вещи в сумке.
-local function HasItemOfRank(rank)
-    local allowMaster = SB.Data.IsSanctuaryRealm and SB.Data.IsSanctuaryRealm()
-    for itemID, def in pairs(SB.Data.Config.MasteryItems or {}) do
-        if type(def) == "table" and def.rank == rank then
-            if def.class ~= SB.Data.ALL_CLASSES or allowMaster then
-                if (GetItemCount(itemID, false) or 0) > 0 then return true end
-            end
-        end
-    end
-    return false
-end
-
 -- ============================================================
 -- СУМКИ ЧИТАЮТСЯ НЕ СРАЗУ
 --

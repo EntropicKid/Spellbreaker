@@ -13638,7 +13638,9 @@ do
     -- окно выходит без фона. Кожа пришла 1254x1254 и ровно так бы себя и
     -- повела; ловим это здесь, а не глазами в игре.
     local bad = {}
-    for _, name in ipairs({ "Wood.tga", "Leather.tga", "Bar.tga" }) do
+    for _, name in ipairs({ "Wood.tga", "Bar.tga", "Tome.tga", "Marble.tga", "Oak.tga",
+                            "Parchment.tga", "Quilt.tga", "GMPanel.tga", "Divider.tga",
+                            "PlayerFrame.tga" }) do
         local f = io.open("Assets/" .. name, "rb")
         if not f then
             bad[#bad + 1] = name .. ": файла нет"

@@ -100,22 +100,6 @@ local function TightLabel(parent, text, main)
     return lbl
 end
 
---- Подпись + поле ввода в одну строку, вплотную друг к другу.
-local function MakeField(parent, key, labelText, width, y, anchor)
-    local lbl = TightLabel(parent, labelText)
-    if anchor then
-        lbl:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, y)
-    else
-        lbl:SetPoint("TOPLEFT", parent, "TOPLEFT", 12, y)
-    end
-
-    local wrap, eb = SB.Theme.Input(parent, nil, width or 90, ROW_H)
-    wrap:SetPoint("LEFT", lbl, "RIGHT", 6, 0)
-    eb:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
-    fields[key] = eb
-    return lbl, wrap
-end
-
 --- Выпадающий список — общий селектор аддона (SB.Theme.Dropdown).
 --- Раньше здесь был штатный UIDropDownMenu Blizzard: серый, со своим
 --- сдвигом в -16 пикселей и не похожий ни на одно окно аддона.

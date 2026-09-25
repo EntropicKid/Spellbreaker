@@ -59,11 +59,6 @@ local HEAD_COLOR  = "|cFFB89A5A"
 local dirty = true      -- окно скрыто, а журнал менялся — пересобрать на показе
 local lastDay, lastSession
 
--- Удобный геттер флага (с защитой от nil до инициализации AceDB)
-local function HideEnabled()
-    return SpellbreakerAccountDB and SpellbreakerAccountDB.hideSystemMessages == true
-end
-
 -- ============================================================
 -- КУДА ИДУТ СООБЩЕНИЯ АДДОНА В ЧАТЕ ИГРЫ
 --

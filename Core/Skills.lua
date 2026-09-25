@@ -712,14 +712,6 @@ function SB.Skills.HasShield()
     return EquipState().shield
 end
 
---- СКОЛЬКО ПРЕДМЕТОВ КАЖДОГО ВИДА В РУКАХ — копией, для подсказок.
---- @return table  { [вид] = число }
-function SB.Skills.GetWeaponCounts()
-    local out = {}
-    for k, v in pairs(EquipState().counts) do out[k] = v end
-    return out
-end
-
 --- Сколько раз засчитать бонус этого вида: столько, сколько предметов
 --- в руках, если он складывается, и один, если нет.
 local function TimesFor(key, def)
@@ -1316,16 +1308,9 @@ end
 -- только хуже: защищала тело, а не заклинание, и к срыву концентрации
 -- отношения не имела. Теперь навык делает ровно то, что обещает его
 -- описание, — не даёт сбить начатое: запас удержаний, по одному за
--- очко, тратится на срыв концентрации контролем или прерыванием.
+-- очко, тратится на срыв концентрации контролем (от прерывания не спасает).
 -- Устроен как Воля (см. SB.Data.Pools): надетое плюс наведённое,
 -- возвращает Долгий Отдых.
-function SB.Skills.IsConcentrating()
-    if not SB.ActiveEffects or not SB.ActiveEffects.GetAll then return false end
-    for _, eff in ipairs(SB.ActiveEffects.GetAll() or {}) do
-        if eff.isConc then return true end
-    end
-    return false
-end
 
 --- Надетая половина удержаний: сам навык и прибавки от снаряжения.
 function SB.Skills.GetHoldBase()
@@ -1611,12 +1596,6 @@ function SB.Skills.GetWillMax()  return SB.Skills.PoolMax("will")  end
 
 --- Сколько очков срыва осталось прямо сейчас.
 function SB.Skills.GetWillLeft() return SB.Skills.PoolLeft("will") end
-
---- Сколько потрачено — считается разницей, а не хранится: слагаемых
---- два, и третье число рядом разъехалось бы на первом снятом обереге.
-function SB.Skills.GetWillSpent()
-    return math.max(0, SB.Skills.GetWillMax() - SB.Skills.GetWillLeft())
-end
 
 --- Потратить очки срыва. false — не хватило, и тогда НИЧЕГО не списано:
 --- частично сорвать контроль нельзя.
