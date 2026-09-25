@@ -43,6 +43,21 @@ local PAD      = 5
 local MOVE_W   = 52   -- ширина счётчика передвижения слева
 
 local bar, buttons = nil, {}
+
+-- Подложки панели и гнезда кнопки. Строятся здесь, а не в теме: это
+-- детали одной панели, другим окнам они ни к чему.
+local PANEL_BD = {
+    bgFile   = SB.Theme.Assets.Marble,
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile = true, tileSize = 512, edgeSize = 12,
+    insets = { left = 3, right = 3, top = 3, bottom = 3 },
+}
+local SLOT_BD = {
+    bgFile   = "Interface\\Buttons\\WHITE8x8",
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile = false, edgeSize = 12,
+    insets = { left = 3, right = 3, top = 3, bottom = 3 },
+}
 local infoTags = {}   -- по одной плашке на строку иконок
 local lastSig = nil
 
@@ -266,8 +281,11 @@ local function MakeButton(i)
     local C   = SB.Theme.C
     local btn = CreateFrame("Button", nil, bar, "BackdropTemplate")
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    btn:SetBackdrop(SB.Theme.BD.card)
-    btn:SetBackdropColor(0, 0, 0, 0.6)
+    -- ГНЕЗДО, А НЕ КАРТОЧКА: ровное тёмное дно под иконкой и латунная
+    -- кайма. Мрамор здесь — у самой панели; на каждой кнопке он
+    -- превращался в рябь из двадцати одинаковых уголков файла.
+    btn:SetBackdrop(SLOT_BD)
+    btn:SetBackdropColor(0.02, 0.02, 0.03, 0.9)
     btn:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 1)
 
     btn.icon = btn:CreateTexture(nil, "ARTWORK")
@@ -284,18 +302,32 @@ local function MakeButton(i)
     btn.cd:SetHideCountdownNumbers(false)
     btn.cd:SetDrawEdge(false)
 
+    -- НАВЕДЕНИЕ — СВЕТОМ НА ИКОНКЕ И КАЙМОЙ, а не жёлтой плёнкой во всю
+    -- кнопку: плёнка гасила саму картинку, по которой кнопку и узнают.
     local hl = btn:CreateTexture(nil, "HIGHLIGHT")
-    hl:SetAllPoints(); hl:SetColorTexture(1, 1, 0.6, 0.2)
+    hl:SetAllPoints(btn.icon); hl:SetColorTexture(1, 0.95, 0.75, 0.10)
 
-    -- Круг заклинания в углу: на голой иконке это единственное, что
-    -- отличает заговор от заклинания третьего круга, а решение «чем
-    -- ударить» начинается именно с него.
+    -- Круг заклинания — ЯРЛЫЧКОМ в углу: тёмная плашка с золотой цифрой.
+    -- Голая цифра поверх иконки терялась на светлых картинках, а решение
+    -- «чем ударить» начинается именно с неё.
+    btn.levelBg = btn:CreateTexture(nil, "OVERLAY", nil, 1)
+    btn.levelBg:SetPoint("BOTTOMRIGHT", btn.icon, "BOTTOMRIGHT", 0, 0)
+    btn.levelBg:SetSize(11, 11)
+    btn.levelBg:SetColorTexture(0.03, 0.02, 0.02, 0.85)
     btn.levelFS = btn:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
-    btn.levelFS:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -2, 2)
+    btn.levelFS:SetDrawLayer("OVERLAY", 2)
+    btn.levelFS:SetPoint("CENTER", btn.levelBg, "CENTER", 0, 0)
     btn.levelFS:SetTextColor(C.textGold[1], C.textGold[2], C.textGold[3])
 
-    btn:SetScript("OnEnter", ButtonTooltip)
-    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    btn:SetScript("OnEnter", function(self)
+        self:SetBackdropBorderColor(C.cardHoverBorder[1], C.cardHoverBorder[2],
+                                    C.cardHoverBorder[3], 1)
+        ButtonTooltip(self)
+    end)
+    btn:SetScript("OnLeave", function(self)
+        self:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 1)
+        GameTooltip:Hide()
+    end)
     btn:SetScript("OnClick", ButtonClick)
 
     -- ── ПЕРЕТАСКИВАНИЕ ──────────────────────────────────────
@@ -386,8 +418,10 @@ local function MakeInfoTag(i)
     -- Button, а не Frame: у трёх из четырёх плашек есть щелчок — тот же,
     -- что у бейджа в шапке главного окна.
     local f = CreateFrame("Button", nil, bar, "BackdropTemplate")
+    -- Мраморная плашка — та же, что карточки главного окна: сводка
+    -- читается как часть персонажа, а не как дыра в панели.
     f:SetBackdrop(SB.Theme.BD.card)
-    f:SetBackdropColor(0, 0, 0, 0.5)
+    f:SetBackdropColor(C.cardBg[1], C.cardBg[2], C.cardBg[3], 1)
     f:SetBackdropBorderColor(C.cardBorder[1], C.cardBorder[2], C.cardBorder[3], 0.8)
 
     -- Две раскладки на одну плашку: в столбце сбоку подпись под
@@ -486,7 +520,7 @@ local function RefreshInfoTags()
             if bad ~= f._bad then
                 f._bad = bad
                 if bad then f.valueFS:SetTextColor(1, 0.35, 0.35)
-                else        f.valueFS:SetTextColor(0.85, 0.85, 0.85) end
+                else        f.valueFS:SetTextColor(1.00, 0.82, 0.42) end
             end
         end
     end
@@ -509,8 +543,11 @@ local function BuildBar()
     local C = SB.Theme.C
 
     bar = CreateFrame("Frame", "SpellbreakerSpellBar", UIParent, "BackdropTemplate")
-    bar:SetBackdrop(SB.Theme.BD.frame)
-    bar:SetBackdropColor(C.frameBg[1], C.frameBg[2], C.frameBg[3], 0.75)
+    -- МРАМОР С ТОНКОЙ КРОМКОЙ. Толстая рамка окна (20 px) на панели в
+    -- сорок пикселей высотой съедала половину её воздуха; здесь кромка
+    -- карточки, а под иконками — тот же камень, что под карточками.
+    bar:SetBackdrop(PANEL_BD)
+    bar:SetBackdropColor(0.80, 0.80, 0.80, 0.97)
     bar:SetBackdropBorderColor(C.frameBorder[1], C.frameBorder[2], C.frameBorder[3], 0.9)
 
     -- ЗА ЭКРАН НЕ УХОДИТ. Без зажима панель утаскивается за край и
@@ -762,7 +799,9 @@ function SB.SpellBar.Refresh()
                 btn._iconPath  = sp.icon or "Interface\\Icons\\INV_Misc_QuestionMark"
                 btn._spellName = sp.name or "?"
                 btn.icon:SetTexture(btn._iconPath)
-                btn.levelFS:SetText((sp.level or 0) > 0 and tostring(sp.level) or "")
+                local lvl = (sp.level or 0) > 0 and tostring(sp.level) or ""
+                btn.levelFS:SetText(lvl)
+                btn.levelBg:SetShown(lvl ~= "")
                 btn:Show()
             end
         end

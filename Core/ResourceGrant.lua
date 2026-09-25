@@ -484,12 +484,12 @@ local function BuildEffectPicker()
     local ROW2  = 26   -- ряд «Все / Избранные» и счётчик
 
     effFrame = SB.Theme.Frame("SBEffectPickerFrame", UIParent,
-        "Выбор эффекта", gridW + 14 * 2 + 22, gridH + 34 + 32 + 20 + ROW2, "gm")
+        "Выбор эффекта", gridW + 8 + 14 * 2 + 22, gridH + 8 + 34 + 32 + 20 + ROW2, "gm")
     SB.Theme.AttachPositionMemory(effFrame, "effectPickerPos", 0, 0)
     -- Поверх окна выдачи, из которого он открывается.
     effFrame:SetFrameStrata("FULLSCREEN_DIALOG")
 
-    local sw, seb = SB.Theme.Input(effFrame, "Поиск по названию или описанию...", gridW + 18, 24)
+    local sw, seb = SB.Theme.Input(effFrame, "Поиск по названию или описанию...", gridW + 8 + 18, 24)
     sw:SetPoint("TOPLEFT", effFrame, "TOPLEFT", 14, effFrame.contentY - 2)
     seb:SetScript("OnTextChanged", function(self)
         if sw.placeholder then sw.placeholder:SetShown(self:GetText() == "") end
@@ -507,8 +507,11 @@ local function BuildEffectPicker()
     effCountFS:SetPoint("TOP", effFavSeg, "TOP", 0, -5)
     effCountFS:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
 
+    -- Поля по 4 со всех сторон: мягкая рамка иконки выступает за клетку
+    -- на два пикселя, звезда избранного — ещё на пару, и без полей нижний
+    -- ряд и правая колонка вылезали за подложку.
     local gridBg = CreateFrame("Frame", nil, effFrame, "BackdropTemplate")
-    gridBg:SetSize(gridW, gridH)
+    gridBg:SetSize(gridW + 8, gridH + 8)
     gridBg:SetPoint("TOPLEFT", effFavSeg, "BOTTOMLEFT", 0, -5)
     gridBg:SetBackdrop(SB.Theme.BD.card)
     gridBg:SetBackdropColor(0.03, 0.03, 0.06, 0.97)
@@ -527,7 +530,7 @@ local function BuildEffectPicker()
         local btn = CreateFrame("Button", nil, gridBg)
         btn:SetSize(EF_SLOT, EF_SLOT)
         btn:SetPoint("TOPLEFT", gridBg, "TOPLEFT",
-            col * (EF_SLOT + EF_GAP) + 2, -row * (EF_SLOT + EF_GAP) - 2)
+            col * (EF_SLOT + EF_GAP) + 4, -row * (EF_SLOT + EF_GAP) - 4)
         btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
         btn.icon = btn:CreateTexture(nil, "ARTWORK")
@@ -543,7 +546,7 @@ local function BuildEffectPicker()
         btn.star = btn.frame:CreateTexture(nil, "OVERLAY")
         btn.star:SetTexture("Interface\\Common\\FavoritesIcon")
         btn.star:SetSize(18, 18)
-        btn.star:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 5, 5)
+        btn.star:SetPoint("TOPRIGHT", btn, "TOPRIGHT", 3, 3)
         btn.star:Hide()
 
         local hl = btn:CreateTexture(nil, "HIGHLIGHT")
@@ -580,7 +583,7 @@ local function BuildEffectPicker()
     end
 
     local sbBg = CreateFrame("Frame", nil, effFrame, "BackdropTemplate")
-    sbBg:SetSize(14, gridH)
+    sbBg:SetSize(14, gridH + 8)
     sbBg:SetPoint("TOPLEFT", gridBg, "TOPRIGHT", 4, 0)
     sbBg:SetBackdrop(SB.Theme.BD.card)
     sbBg:SetBackdropColor(0.04, 0.03, 0.07, 0.70)

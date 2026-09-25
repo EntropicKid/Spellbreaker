@@ -594,7 +594,7 @@ local function BuildCreateFrame()
     local CW3 = math.floor((IN - GAP * 2) / 3)
 
     createFrame = SB.Theme.Frame("SBCustomSpellCreateFrame", UIParent,
-        "Создать заклинание", W, 406)
+        "Создать заклинание", W, 406, "quilt")
     createFrame:SetPoint("CENTER")
     createFrame:SetFrameStrata("DIALOG")
     SB.Theme.AttachPositionMemory(createFrame, "sbCreateFramePos", 0, 0)
@@ -791,7 +791,7 @@ local function BuildContainerFrame()
     local CW3 = math.floor((IN - GAP * 2) / 3)
 
     contFrame = SB.Theme.Frame("SBCustomSpellContFrame", UIParent,
-        "Новый эффект", W, 310)
+        "Новый эффект", W, 310, "quilt")
     contFrame:SetFrameStrata("DIALOG")
     SB.Theme.AttachPositionMemory(contFrame, "contFramePos", 0, 0)
 
