@@ -1782,16 +1782,11 @@ AddEffect({
 })
 
 AddEffect({
-    -- НЕВОСПРИИМЧИВОСТЬ К ОГЛУШЕНИЮ — прощальный эффект всех оглушений
-    -- (onRemove у каждого эффекта семейства «Оглушение»). Три хода, за
-    -- которые оглушить носителя снова нельзя. Обновление висящего
-    -- оглушения тоже считается его концом: невосприимчивость ложится и
-    -- снимает его — цепочку оглушений не выстроить (см. SB.ActiveEffects.Add).
     id   = "eff_stun_immunity",
     name = "Невосприимчивость к оглушению",
     icon = "Interface\\Icons\\Ability_warrior_unrelentingassault",
     description = "Тело ещё помнит удар и не даёт себя оглушить снова.",
-    effect = { kind = "buff", suppress = { "Оглушение" } },
+    effect = { kind = "debuff", suppress = { "Оглушение" } },
 })
 
 AddEffect({
@@ -1808,55 +1803,12 @@ AddEffect({
     name = "Суд света",
     icon = "Interface\\Icons\\Ability_paladin_judgementblue",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
-    -- «Каждый раз, когда по отмеченному врагу наносится удар,
-    -- нападающего касается исцеляющее прикосновение Света» — половина
-    -- описания, до сих пор не выраженная ничем: приговор только мешал
-    -- цели, а союзников не кормил.
-    --
-    -- ЭТО ОБЫЧНОЕ ВОЗМЕЗДИЕ, только доброе. Механизм тот же самый, что
-    -- у огненного щита: носитель получил удар — его клиент шлёт эффект
-    -- ударившему (см. SendAside). Разница ровно в знаке того, что
-    -- прилетает, и в том, что носитель здесь враг, а не союзник.
-    --
-    -- ЕДИНИЦА, И ЧИСЛО ЭТО МОЁ. «Соразмерно жизненной силе атакующего»
-    -- аддон не считает — доли от чужого максимума здоровья у него нет.
-    -- Единица же — общая ступень лечения, и она здесь БЕЗ броска и БЕЗ
-    -- шанса, на каждый удар каждого союзника за все четыре хода: у
-    -- Печати Света вдвое меньше поводов (только свои удары, только
-    -- 30%), и та тоже даёт единицу.
-    -- «Каждый раз, когда по отмеченному врагу наносится удар,
-    -- нападающего касается исцеляющее прикосновение Света» — половина
-    -- описания, до сих пор не выраженная ничем: приговор только мешал
-    -- цели, а союзников не кормил.
-    --
-    -- ЭТО ОБЫЧНОЕ ВОЗМЕЗДИЕ, только доброе. Механизм тот же самый, что
-    -- у огненного щита: носитель получил удар — его клиент шлёт эффект
-    -- ударившему (см. SendAside). Разница ровно в знаке того, что
-    -- прилетает, и в том, что носитель здесь враг, а не союзник.
-    --
-    -- ЕДИНИЦА, И ЧИСЛО ЭТО МОЁ. «Соразмерно жизненной силе атакующего»
-    -- аддон не считает — доли от чужого максимума здоровья у него нет.
-    -- Единица же — общая ступень лечения, и она здесь БЕЗ броска и БЕЗ
-    -- шанса, на каждый удар каждого союзника: у Печати Света вдвое
-    -- меньше поводов (только свои удары, только 30%), и та тоже даёт
-    -- единицу.
-    --
-    -- СЕМЕЙСТВО «ПРАВОСУДИЕ» — из описания обоих судов: «вы можете
-    -- поддерживать лишь одно заклинание категории „Правосудие“ за раз,
-    -- старый приговор немедленно рассеивается». Семейство разводит их
-    -- на одной цели; «лишь одно на ВСЮ сцену, на кого бы ни легло»
-    -- клиент проверить не может — чужой приговор висит на чужом
-    -- клиенте, и снять его отсюда нечем.
     effect = { kind = "debuff", resist = "Дух", family = "Правосудие",
                mods = { defense = -10 }, stats = { ["Ловкость"] = -3, ["Акробатика"] = -3 },
                onAction = { when = "damaged", toAttacker = "eff_justice_of_light_touch" } },
 })
 
 AddEffect({
-    -- Прилетает тому, кто ударил отмеченного «Судом света»: срок ему
-    -- считает получатель, и по общему правилу это один ход (источник
-    -- длительности не задаёт — см. SB.Logic.GetEffectDuration). То есть
-    -- вспыхнуло и погасло, ровно как «мимолётное прикосновение».
     id   = "eff_justice_of_light_touch",
     name = "Прикосновение Света",
     icon = "Interface\\Icons\\Spell_holy_flashheal",
@@ -1864,10 +1816,6 @@ AddEffect({
     effect = { kind = "buff", school = "magic", tick = { heal = 1 } },
 })
 AddEffect({
-    -- НОСИМЫЙ: висит, пока камень лежит в сумке, и уходит вместе с ним
-    -- (см. SB.Items.SyncCarried). Первый эффект такого рода в
-    -- библиотеке — до него предмет умел только срабатывать при
-    -- применении, а камень душ применять не по чему.
     id   = "eff_soulstone_bound",
     name = "Душа в камне",
     icon = "Interface\\Icons\\Inv_misc_gem_pearl_03",
@@ -1951,8 +1899,8 @@ AddEffect({
 AddEffect({
     -- Тёмное повеление (Рыцарь смерти, круг 0). Из гнезда eff_demoralized_*.
     id   = "eff_demoralized_dark_command",
-    name = "Деморализация",
-    icon = "Interface\\Icons\\Ability_warrior_warcry",
+    name = "Тёмное повеление",
+    icon = "Interface\\Icons\\Spell_nature_shamanrage",
     description = "Решимость сменилась сомнением. Рука делает то, что велено, но без веры в исход.",
     effect = { kind = "debuff", resist = "Характер", mods = { attack = -8 } },
 })
@@ -1960,8 +1908,8 @@ AddEffect({
 AddEffect({
     -- Льдистый путь (Рыцарь смерти, круг 0). Из гнезда eff_evasion_*.
     id   = "eff_evasion_path_of_frost",
-    name = "Уклонение",
-    icon = "Interface\\Icons\\Spell_shadow_shadowward",
+    name = "Льдистый путь",
+    icon = "Interface\\Icons\\Spell_deathknight_pathoffrost",
     description = "Тело движется раньше, чем разум успевает испугаться: удары проходят мимо.",
     effect = { kind = "buff", mods = { defense = 8 } },
 })
@@ -1970,7 +1918,7 @@ AddEffect({
     -- Зимний горн (Рыцарь смерти, круг 1). Из гнезда eff_battle_shout_*.
     id   = "eff_battle_shout_horn_of_winter",
     name = "Зимний горн",
-    icon = "Interface\\Icons\\Ability_warrior_battleshout",
+    icon = "Interface\\Icons\\INV_Misc_Horn_02",
     description = "Крик выбивает из головы сомнения. Мышцы наливаются силой, рука перестаёт дрожать.",
     effect = { kind = "buff", school = "magic", mods = { attack = 12, maxHealth = 1 } },
 })
@@ -1980,7 +1928,7 @@ AddEffect({
     id   = "eff_bleeding_blood_plague",
     name = "Кровавая чума",
     damageType = "shadow",
-    icon = "Interface\\Icons\\Ability_rogue_bloodyeye",
+    icon = "Interface\\Icons\\Spell_deathvortex",
     description = "Кровь не сворачивается: раны открыты для стали и почти не закрываются от лечения. Каждый ход чума отнимает немного жизни.",
     -- БОЛЕЗНЬ КРОВИ ОТКРЫВАЕТ ЦЕЛЬ СТАЛИ. Удар смерти и Рунический удар
     -- физические, и минус к сопротивлению — это +1 к каждому из них; а
@@ -2000,7 +1948,7 @@ AddEffect({
     id   = "eff_bleeding_plague_strike",
     name = "Зловонная чума",
     damageType = "shadow",
-    icon = "Interface\\Icons\\Ability_creature_disease_02",
+    icon = "Interface\\Icons\\Spell_deathknight_plaguestrike",
     description = "Гниющая плоть беззащитна перед тьмой. Удар Плети разрывает гнойники — чума выплёскивается лишним тиком и спадает на ход раньше.",
     -- УЯЗВИМОСТЬ К ТЬМЕ: вся Нечестивость — Лик смерти, Жнец души,
     -- Взрыв трупа, Апокалипсис — бьёт тьмой. Разрыв гнойников тем же
@@ -2018,7 +1966,7 @@ AddEffect({
     id   = "eff_pain_mind_freeze",
     name = "Заморозка разума",
     damageType = "frost",
-    icon = "Interface\\Icons\\Spell_shadow_shadowwordpain",
+    icon = "Interface\\Icons\\Spell_deathknight_mindfreeze",
     description = "Мучительная мигрень мешает и сотворять заклинания, и просто держать строй.",
     effect = {
         kind = "debuff", resist = "Выносливость", school = "magic",
@@ -2049,7 +1997,7 @@ AddEffect({
     -- Ледяные оковы (Рыцарь смерти, круг 1). Из гнезда eff_slowed_*.
     id   = "eff_slowed_chains_of_ice",
     name = "Ледяные оковы",
-    icon = "Interface\\Icons\\Spell_nature_slow",
+    icon = "Interface\\Icons\\Spell_frost_chainsofice",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
     effect = { family = "Замедление", kind = "debuff", resist = "Сила", school = "magic", mods = { defense = -12, attack = -4, movePct = -50 } },
@@ -2084,7 +2032,7 @@ AddEffect({
     -- Удушение (Рыцарь смерти, круг 2). Отщеплён от «eff_mana_burn».
     id   = "eff_mana_burn_strangulate",
     name = "Удушение",
-    icon = "Interface\\Icons\\Spell_shadow_manaburn",
+    icon = "Interface\\Icons\\Ability_deathknight_asphixiate",
     description = "Внутренний источник обожжён. Черпать из него больно и почти нечего.",
     effect = {
         -- «СОРВАТЬ ЗАКЛИНАНИЕ ВРАЖЕСКОГО МАГА»: нити на глотке мешают
@@ -2097,22 +2045,17 @@ AddEffect({
     -- Панцирь антимагии (Рыцарь смерти, круг 3). Из гнезда eff_armor_magic_*.
     id   = "eff_armor_magic_anti_magic_shell",
     name = "Панцирь антимагии",
-    icon = "Interface\\Icons\\Spell_frost_frostarmor02",
+    icon = "Interface\\Icons\\Spell_shadow_antimagicshell",
     description = "Тело укрыто слоем затвердевшей магии: удары теряют часть силы, но чары стесняют движения.",
-    -- «Барьер, поглощающий вредоносные заклинания» — вся магия разом, и
-    -- всего на четыре хода.
     effect = {
-        -- «Выдерживать проклятия колдунов». Проклятия в библиотеке
-        -- помечены двояко — школой curse и семейством «Проклятие», —
-        -- поэтому названы оба: список читает и то, и другое.
-        suppress = { "curse", "Проклятие" }, kind = "buff", school = "magic", mods = { resistMagic = 2, armor = 20, attack = -9 } },
+        suppress = { "curse", "magic" }, kind = "buff", mods = { resistMagic = 2 } },
 })
 
 AddEffect({
     -- Пляшущее рунное оружие (Рыцарь смерти, круг 3). Из гнезда eff_bloodlust_*.
     id   = "eff_bloodlust_dancing_rune_weapon",
     name = "Кровавая жажда",
-    icon = "Interface\\Icons\\Spell_nature_bloodlust",
+    icon = "Interface\\Icons\\Inv_sword_07",
     description = "Ярость предков вытесняет осторожность: бьёшь чаще и злее, но забываешь защищаться.",
     effect = {
         kind  = "buff",
@@ -2125,19 +2068,17 @@ AddEffect({
     -- Вампирская кровь (Рыцарь смерти, круг 3). Отщеплён от «eff_fortitude».
     id   = "eff_fortitude_vampiric_blood",
     name = "Вампирская кровь",
-    icon = "Interface\\Icons\\Spell_holy_wordfortitude",
+    icon = "Interface\\Icons\\Spell_shadow_lifedrain",
     description = "Тело помнит, что умеет терпеть больше, чем кажется.",
     effect = {
-        -- «Невосприимчивым к мелким ранам»: кровь, которая не
-        -- вытекает, — единственное буквальное прочтение.
-        suppress = { "bleed" }, kind = "buff", mods = { maxHealth = 2 } },
+        suppress = { "bleed" }, kind = "buff", mods = { healTaken = 3 } },
 })
 
 AddEffect({
     -- Апокалипсис (Рыцарь смерти, круг 4). Из гнезда eff_fear_*.
     id   = "eff_fear_apocalypse",
     name = "Апокалипсис",
-    icon = "Interface\\Icons\\Spell_shadow_possession",
+    icon = "Interface\\Icons\\Artifactability_unholydeathknight_deathsembrace",
     description = "Тело хочет бежать, а не драться. Разум занят чужими кошмарами.",
     effect = { kind = "debuff", resist = "Дух", mods = { attack = -32, defense = -22 } },
 })
@@ -2146,7 +2087,7 @@ AddEffect({
     -- Порождение лича (Рыцарь смерти, круг 4). Отщеплён от «eff_fortitude».
     id   = "eff_fortitude_lichborne",
     name = "Порождение лица",
-    icon = "Interface\\Icons\\Spell_holy_wordfortitude",
+    icon = "Interface\\Icons\\Spell_shadow_raisedead",
     description = "Тело помнит, что умеет терпеть больше, чем кажется.",
     effect = { kind = "buff", mods = { maxHealth = 2 } },
 })
@@ -2155,7 +2096,7 @@ AddEffect({
     -- Ярость ледяного змея (Рыцарь смерти, круг 5). Из гнезда eff_slowed_*.
     id   = "eff_slowed_frostwyrms_fury",
     name = "Ярость ледяного змея",
-    icon = "Interface\\Icons\\Spell_nature_slow",
+    icon = "Interface\\Icons\\Ability_deathwing_bloodcorruption_earth",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
     effect = { family = "Замедление", kind = "debuff", resist = "Сила", school = "magic", mods = { defense = -40, attack = -10, movePct = -50 } },
@@ -2512,7 +2453,7 @@ AddEffect({
     description = "Цель разобрана на слабые места: остаётся только выбрать, куда именно.",
     effect = {
         kind  = "buff",
-        stats = { ["Точность"] = 2, ["Концентрация"] = 2, ["Анализ"] = 2 },
+        stats = { ["Точность"] = 2, ["Анализ"] = 2 },
     },
 })
 
@@ -2543,8 +2484,7 @@ AddEffect({
     -- что под ним: и «Живучесть», и саму «Атлетику». Гепард — про бег,
     -- который не кончается, а не только про скорость первого рывка.
     effect = { kind = "buff",
-               mods = { movePct = 25 },
-               stats = { ["Выносливость"] = 2 } },
+               mods = { movePct = 20 } },
 })
 
 AddEffect({
@@ -2774,10 +2714,10 @@ AddEffect({
 AddEffect({
     -- Знание зверя (Охотник, заговор). Из гнезда eff_owl_wisdom_*.
     id   = "eff_owl_wisdom_beast_lore",
-    name = "Знание зверя",
+    name = "Знание жертвы",
     icon = "Interface\\Icons\\Spell_nature_polymorph",
     description = "Мысль идёт ровнее и дальше обычного: связи между вещами видны без усилия.",
-    effect = { kind = "buff", stats = { ["Интеллект"] = 1, ["Эрудиция"] = 2 } },
+    effect = { kind = "buff", mods = { damage = 1 }, stats = { ["Точность"] = 3 },
 })
 
 AddEffect({
@@ -2789,7 +2729,7 @@ AddEffect({
     effect = {
         kind  = "buff",
         untouchable = true,
-        mods = { movePct = -100 },
+        mods = { movePct = -200 },
 		breakOn = { damaged = true, action = true },
     },
 })
@@ -3198,7 +3138,7 @@ AddEffect({
     icon = "Interface\\Icons\\Ability_rogue_preparation",
     description = "Шум, боль и суета вокруг перестают существовать. Есть только замысел и его исполнение.",
     isConcentration = true,
-    effect = { kind = "buff", stats = { ["Ловкость"] = 4, ["Концентрация"] = 4, ["Точность"] = 4 }, },
+    effect = { kind = "buff", stats = { ["Ловкость"] = 4, ["Точность"] = 4 }, },
 })
 
 AddEffect({
