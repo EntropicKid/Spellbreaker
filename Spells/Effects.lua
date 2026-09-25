@@ -399,6 +399,71 @@ AddEffect({
     effect = { kind = "buff", mods = { attack = 40, damage = 2, defense = -16 } },
 })
 
+-- ── ВЛАСТИ РЫЦАРЯ СМЕРТИ ─────────────────────────────────────
+-- Взаимоисключающи семейством «Власть», как стойки воина: одна руна
+-- правит рыцарем за раз. Каждая задаёт ритм ветви, а не просто числа.
+
+AddEffect({
+    id   = "eff_blood_presence",
+    name = "Власть крови",
+    icon = "Interface\\Icons\\Spell_deathknight_bloodpresence",
+    description = "Доспех сам затягивает вмятины, лечение ложится охотнее, а каждый попавший Удар смерти дополнительно исцеляет рыцаря. Крит слабее.",
+    -- ТАНК, КОТОРЫЙ ЛЕЧИТСЯ УДАРОМ. Удар смерти уже пьёт дошедший урон;
+    -- Власть доливает сверху единицу за каждое его попадание — и это
+    -- работает против существ Ведущего тоже, потому что повод живёт на
+    -- рыцаре, а не на цели. Цена — полоса крита: кровь стоит, а не рубит.
+    effect = { kind = "buff", family = "Власть",
+               mods = { healTaken = 1, crit = -3 },
+               tick = { armor = 10 },
+               onAction = { when = "hit", spell = "death_strike",
+                            payload = { heal = 1 } } },
+})
+
+AddEffect({
+    id   = "eff_frost_presence",
+    name = "Власть льда",
+    icon = "Interface\\Icons\\Spell_deathknight_frostpresence",
+    description = "Холод в каждом ударе злее. Попавший приём ближнего боя с шансом 30% будит «Машину смерти». Защита ниже.",
+    -- РАЗГОН ОТ ПОПАДАНИЙ. Лёд не держит удар — он заканчивает бой
+    -- раньше: каждый попавший выпад может зарядить следующий приём
+    -- широкой полосой крита.
+    effect = { kind = "buff", family = "Власть",
+               mods = { damageFrost = 1, defense = -8 },
+               onAction = { when = "hit", melee = true, chance = 30,
+                            effect = "eff_dk_killing_machine", turns = 2 } },
+})
+
+AddEffect({
+    id   = "eff_unholy_presence",
+    name = "Власть нечестивости",
+    icon = "Interface\\Icons\\Spell_deathknight_unholypresence",
+    description = "Тьма в чарах гуще. Попавшее заклинание с шансом 30% приносит «Внезапную гибель». Доспех тоньше.",
+    -- МАГ В ЛАТАХ. Нечестивость бьёт издалека и заразой, поэтому прок
+    -- от МАГИИ, а не от клинка, и расплачивается она доспехом.
+    effect = { kind = "buff", family = "Власть",
+               mods = { damageShadow = 1, armor = -10 },
+               onAction = { when = "hit", magic = true, chance = 30,
+                            effect = "eff_dk_sudden_doom", turns = 2 } },
+})
+
+AddEffect({
+    id   = "eff_dk_killing_machine",
+    name = "Машина смерти",
+    icon = "Interface\\Icons\\Inv_sword_122",
+    description = "Следующий приём рыцаря гораздо вероятнее станет критическим. Расходуется им.",
+    effect = { kind = "buff", mods = { crit = 8 },
+               onAction = { when = "cast", consume = true } },
+})
+
+AddEffect({
+    id   = "eff_dk_sudden_doom",
+    name = "Внезапная гибель",
+    icon = "Interface\\Icons\\Spell_shadow_painspike",
+    description = "Следующее заклинание тьмы срывается с рук тяжелее. Расходуется первым же применением.",
+    effect = { kind = "buff", mods = { damageShadow = 2 },
+               onAction = { when = "cast", consume = true } },
+})
+
 -- ==========================================================
 -- ПАЛАДИН
 -- ==========================================================
@@ -1073,8 +1138,12 @@ AddEffect({
     description = "Мягкая лапа, ночное зрение, шаг без звука. Ни оружия, ни заклинаний в этой форме не удержать.",
     -- Клык — СКРЫТНОСТЬ И ВНЕЗАПНОСТЬ: «преимущество на скрытность,
     -- погони, обоняние», «нельзя застать врасплох».
+    -- ДВИГАТЕЛЬ КОШКИ: попавшее «Полоснуть» будит «Кровавые когти», и
+    -- следующий приём — Глубокая рана, Разорвать, Свирепый укус — злее.
     effect = { kind = "buff", family = "Облик", mods = { crit = 3 },
-               stats = { ["Скрытность"] = 2 } },
+               stats = { ["Скрытность"] = 2 },
+               onAction = { when = "hit", spell = "druid_shred",
+                            effect = "eff_druid_bloodtalons", turns = 2 } },
 })
 
 AddEffect({
@@ -1084,7 +1153,11 @@ AddEffect({
     description = "Тяжёлая шкура и вес, которым можно сбить с ног. Быстрым в этой форме не будешь.",
     -- Лапа — БРОНЯ: «любой физический урон уменьшается вполовину».
     -- Минус к защите остаётся: медведь держит удар, но не уворачивается.
-    effect = { kind = "buff", family = "Облик", mods = { armor = 20, defense = -4 } },
+    -- ДВИГАТЕЛЬ МЕДВЕДЯ — ЯРОСТЬ ОТ УДАРОВ, как у воина: пропущенный
+    -- удар в облике медведя с шансом возвращает ману. Медведю выгодно
+    -- стоять под ударом, а не ждать своей очереди бить.
+    effect = { kind = "buff", family = "Облик", mods = { armor = 20, defense = -4 },
+               onAction = { when = "damaged", chance = 50, payload = { mana = 1 } } },
 })
 
 AddEffect({
@@ -1104,7 +1177,12 @@ AddEffect({
     description = "Кора вместо кожи, корни вместо ног. Сдвинуть такого трудно, а сам он почти не двигается.",
     -- Древо — ЛЕЧЕНИЕ СТОЯ: «его заклинание исцеления лёгких ранений не
     -- затрачивает ману». Дерево не ходит — отсюда минус к движению.
-    effect = { kind = "buff", family = "Облик", mods = { heal = 1, movePct = -40 } },
+    -- ДВИГАТЕЛЬ ВОССТАНОВЛЕНИЯ — ИЗОБИЛИЕ: Омоложение в облике древня
+    -- с шансом ничего не стоит (мана возвращается сразу). Древень
+    -- расставляет исцеление по всей группе, а не заливает одного.
+    effect = { kind = "buff", family = "Облик", mods = { heal = 1, movePct = -40 },
+               onAction = { when = "cast", spell = "rejuvenation", chance = 50,
+                            payload = { mana = 1 } } },
 })
 
 AddEffect({
@@ -1838,16 +1916,6 @@ AddEffect({
 })
 
 AddEffect({
-    -- Ледяное касание (Рыцарь смерти, круг 0). Из гнезда eff_slowed_*.
-    id   = "eff_slowed_icy_touch",
-    name = "Ледяное касание",
-    icon = "Interface\\Icons\\Spell_nature_slow",
-    description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
-    -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { family = "Замедление", kind = "debuff", resist = "Сила", school = "magic", mods = { defense = -8, attack = -3, movePct = -50 } },
-})
-
-AddEffect({
     -- Зимний горн (Рыцарь смерти, круг 1). Из гнезда eff_battle_shout_*.
     id   = "eff_battle_shout_horn_of_winter",
     name = "Зимний горн",
@@ -1857,30 +1925,40 @@ AddEffect({
 })
 
 AddEffect({
-    -- Кровавая чума (Рыцарь смерти, круг 1). Из гнезда eff_bleeding_*.
+    -- Кровавая чума (Рыцарь смерти, Кровь). Из гнезда eff_bleeding_*.
     id   = "eff_bleeding_blood_plague",
     name = "Кровавая чума",
     damageType = "shadow",
     icon = "Interface\\Icons\\Ability_rogue_bloodyeye",
-    description = "Рана не закрывается. Сил становится меньше с каждым движением.",
+    description = "Кровь не сворачивается: раны открыты для стали и почти не закрываются от лечения. Каждый ход чума отнимает немного жизни.",
+    -- БОЛЕЗНЬ КРОВИ ОТКРЫВАЕТ ЦЕЛЬ СТАЛИ. Удар смерти и Рунический удар
+    -- физические, и минус к сопротивлению — это +1 к каждому из них; а
+    -- раз Удар смерти пьёт ДОШЕДШИЙ урон, чума кормит и вампиризм.
+    -- «Раны перестают закрываться» — буквально, каналом healTaken.
+    -- Прежний «Мощь −2» снят: третья строка поверх двух тяжёлых делала
+    -- заразу первого круга сильнее проклятий третьего.
     effect = {
         kind = "debuff", resist = "Выносливость", school = "disease",
         tick = { damage = 1 },
-		stats = { ["Мощь"] = -2 },
+        mods = { resistPhysical = -1, healTaken = -1 },
     },
 })
 
 AddEffect({
-    -- Удар чумы (Рыцарь смерти, круг 1). Из гнезда eff_bleeding_*.
+    -- Удар чумы (Рыцарь смерти, Нечестивость). Из гнезда eff_bleeding_*.
     id   = "eff_bleeding_plague_strike",
-    name = "Удар чумы",
+    name = "Зловонная чума",
     damageType = "shadow",
-    icon = "Interface\\Icons\\Ability_rogue_bloodyeye",
-    description = "Рана не закрывается. Сил становится меньше с каждым движением.",
+    icon = "Interface\\Icons\\Ability_creature_disease_02",
+    description = "Гниющая плоть беззащитна перед тьмой. Удар Плети разрывает гнойники — чума выплёскивается лишним тиком и спадает на ход раньше.",
+    -- УЯЗВИМОСТЬ К ТЬМЕ: вся Нечестивость — Лик смерти, Жнец души,
+    -- Взрыв трупа, Апокалипсис — бьёт тьмой. Разрыв гнойников тем же
+    -- поводом, что и раскол лихорадки (см. eff_weakness_frost_fever).
     effect = {
         kind = "debuff", resist = "Выносливость", school = "disease",
         tick = { damage = 1 },
-		stats = { ["Мощь"] = -2 },
+        mods = { resistShadow = -1 },
+        onAction = { when = "damaged", spell = "scourge_strike", consume = true },
     },
 })
 
@@ -1927,17 +2005,27 @@ AddEffect({
 })
 
 AddEffect({
-    -- Ледяная лихорадка (Рыцарь смерти, круг 1). Из гнезда eff_weakness_*.
+    -- Ледяная лихорадка (Рыцарь смерти, Лёд). Из гнезда eff_weakness_*.
     id   = "eff_weakness_frost_fever",
     name = "Ледяная лихорадка",
+    damageType = "frost",
     icon = "Interface\\Icons\\Spell_shadow_curseofmannoroth",
-    description = "Доспех тяжелеет, оружие держится без уверенности. Удары выходят вялыми.",
+    description = "Холод в крови: цель вязнет, бьёт слабее и беззащитна перед льдом. Уничтожение раскалывает лихорадку — она выплёскивается лишним тиком и спадает на ход раньше.",
     -- «Неспособной ни к точному удару, ни к тяжёлому усилию»: холод
     -- бьёт по телу, а не по чарам.
+    --
+    -- УЯЗВИМОСТЬ КО ЛЬДУ — сердце ветви: Ледяное касание, Уничтожение,
+    -- Вихрь ветров и Ярость змея бьют холодом, и каждый получает +1.
+    --
+    -- «РАСКОЛОТЬ ЛИХОРАДКУ». Повод живёт на цели и слушает только
+    -- Уничтожение: consume списывает ход, а списание хода — это тик
+    -- (см. SB.ActiveEffects.DecrementOne). Лишний урон сейчас в обмен на
+    -- более короткую болезнь — ровно размен ледяного рыцаря.
     effect = {
         kind  = "debuff", resist = "Выносливость", school = "disease",
-        mods = { damagePhysical = -1, movePct = -30 },
-        stats = { ["Мощь"] = -2 },
+        mods = { damagePhysical = -1, resistFrost = -1, movePct = -30 },
+        tick = { damage = 1 },
+        onAction = { when = "damaged", spell = "obliterate", consume = true },
     },
 })
 
@@ -1952,16 +2040,6 @@ AddEffect({
         -- именно говорить — значит, платит тот, кто пытается.
         onAction = { when = "cast", magic = true, payload = { mana = -1 } },
         kind = "debuff", resist = "Сила", school = "magic", mods = { maxMana = -2 } },
-})
-
-AddEffect({
-    -- Вихрь ветров (Рыцарь смерти, круг 2). Из гнезда eff_slowed_*.
-    id   = "eff_slowed_howling_blast",
-    name = "Вихрь ветров",
-    icon = "Interface\\Icons\\Spell_nature_slow",
-    description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
-    -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { family = "Замедление", kind = "debuff", resist = "Сила", school = "magic", mods = { defense = -18, attack = -5, movePct = -50 } },
 })
 
 AddEffect({
@@ -2323,7 +2401,11 @@ AddEffect({
     name = "Могучие клыки",
     icon = "Interface\\Icons\\Spell_fire_flametounge",
     description = "Орудие обёрнуто стихией: к каждому удару добавляется то, от чего доспех не спасает.",
-    effect = { family = "Чары оружия", kind = "buff", school = "magic", mods = { damage = 1 } },
+    -- СИЛА ЗВЕРЯ — КЛЫК, А НЕ ПРОСТО ПРИБАВКА: удар ближнего боя с
+    -- шансом оставляет кровящий укол (тот же, что у Шипов).
+    effect = { family = "Чары оружия", kind = "buff", school = "magic", mods = { damage = 1 },
+               onAction = { when = "hit", melee = true, chance = 25,
+                            toTarget = "eff_thorn_prick" } },
 })
 
 AddEffect({
@@ -2474,6 +2556,120 @@ AddEffect({
     -- ночном пламени» — это не огонь, и школа у родителя стоит arcane.
     effect = { kind = "debuff", resist = "Выносливость", school = "magic",
                tick = { damage = 1 } },
+})
+
+-- ── ДРУИД: ЗАТМЕНИЕ И ФЕРАЛ ──────────────────────────────────
+
+AddEffect({
+    id   = "eff_moonkin_form",
+    name = "Облик лунного совуха",
+    icon = "Interface\\Icons\\Spell_nature_forceofnature",
+    description = "Попавший Гнев открывает Лунное затмение, попавшее Лунное пламя — Солнечное. Чередуя школы, друид держит прибавку всё время.",
+    -- ЗАТМЕНИЕ — ЭТО ЧЕРЕДОВАНИЕ. Каждое затмение гаснет на первом же
+    -- касте, так что два Гнева подряд теряют прибавку, а Гнев и Пламя по
+    -- очереди — нет. Срок два хода по той же причине, что у всех
+    -- проков от "hit": повод приходит после резолва.
+    effect = { kind = "buff", family = "Облик", mods = { armor = 10 },
+               onAction = {
+                   { when = "hit", spell = "druid_wrath",
+                     effect = "eff_lunar_eclipse", turns = 2 },
+                   { when = "hit", spell = "lunar_flame",
+                     effect = "eff_solar_eclipse", turns = 2 },
+               } },
+})
+
+AddEffect({
+    id   = "eff_lunar_eclipse",
+    name = "Лунное затмение",
+    icon = "Interface\\Icons\\Ability_druid_eclipse",
+    description = "Следующее заклинание тайной магии — Лунное пламя, Звездопад — сильнее. Расходуется следующим применением.",
+    effect = { kind = "buff", school = "magic", mods = { damageArcane = 1 },
+               onAction = { when = "cast", consume = true } },
+})
+
+AddEffect({
+    id   = "eff_solar_eclipse",
+    name = "Солнечное затмение",
+    icon = "Interface\\Icons\\Ability_druid_eclipseorange",
+    description = "Следующее заклинание природы — Гнев, Рой насекомых, Ураган — сильнее. Расходуется следующим применением.",
+    effect = { kind = "buff", school = "magic", mods = { damageNature = 1 },
+               onAction = { when = "cast", consume = true } },
+})
+
+AddEffect({
+    id   = "eff_druid_bloodtalons",
+    name = "Кровавые когти",
+    icon = "Interface\\Icons\\Spell_druid_bloodythrash",
+    description = "Следующий удар когтями сильнее. Расходуется следующим применением.",
+    effect = { kind = "buff", mods = { damagePhysical = 1 },
+               onAction = { when = "cast", consume = true } },
+})
+
+AddEffect({
+    id   = "eff_tigers_fury",
+    name = "Тигриное неистовство",
+    icon = "Interface\\Icons\\Ability_mount_jungletiger",
+    description = "Когти и клыки бьют злее.",
+    effect = { kind = "buff", mods = { damagePhysical = 1 } },
+})
+
+AddEffect({
+    -- Глубокая рана (Друид, Круг Клыка, круг 1). Из гнезда eff_bleeding_*.
+    id   = "eff_bleeding_rake",
+    name = "Глубокая рана",
+    damageType = "physical",
+    icon = "Interface\\Icons\\Ability_druid_disembowel",
+    description = "Рана от когтей кровит каждый ход.",
+    -- Слабее Гарроты (2 за тик) — зато приём ещё и бьёт сам.
+    effect = { kind = "debuff", resist = "Выносливость", school = "bleed",
+               tick = { damage = 1 } },
+})
+
+AddEffect({
+    -- Разорвать (Друид, Круг Клыка, круг 2). Из гнезда eff_bleeding_*.
+    id   = "eff_bleeding_rip",
+    name = "Разорвать",
+    damageType = "physical",
+    icon = "Interface\\Icons\\Ability_ghoulfrenzy",
+    description = "Рваная рана сильно кровит и почти не поддаётся лечению. Свирепый укус раздирает её — кровь выплёскивается лишним тиком, рана закрывается на ход раньше.",
+    -- ДОБИВАНИЕ КОШКИ. consume списывает ход, а списание хода — это тик
+    -- (см. SB.ActiveEffects.DecrementOne): укус «раздирает» рану.
+    effect = { kind = "debuff", resist = "Выносливость", school = "bleed",
+               mods = { healTaken = -1 },
+               tick = { damage = 2 },
+               onAction = { when = "damaged", spell = "druid_ferocious_bite", consume = true } },
+})
+
+AddEffect({
+    -- Взбучка (Друид, Круг Лапы, круг 2). Из гнезда eff_bleeding_*.
+    id   = "eff_bleeding_thrash",
+    name = "Взбучка",
+    damageType = "physical",
+    icon = "Interface\\Icons\\Spell_druid_thrash",
+    description = "Рваные раны от когтей медведя кровят каждый ход.",
+    effect = { kind = "debuff", resist = "Выносливость", school = "bleed",
+               tick = { damage = 1 } },
+})
+
+AddEffect({
+    id   = "eff_druid_mangle",
+    name = "Увечье",
+    icon = "Interface\\Icons\\Ability_druid_mangle2",
+    description = "Искалеченное тело беззащитно перед сталью: удары и кровотечения ложатся глубже.",
+    -- ОТКРЫВАЕТ ЦЕЛЬ ФЕРАЛУ ЦЕЛИКОМ. Кровотечения — тоже сталь
+    -- (damageType physical), и минус к сопротивлению делает злее каждый
+    -- их тик, а не только следующий удар (см. врезку о сопротивлениях в
+    -- Core/DamageTypes.lua).
+    effect = { kind = "debuff", resist = "Выносливость",
+               mods = { resistPhysical = -1 } },
+})
+
+AddEffect({
+    id   = "eff_frenzied_regeneration",
+    name = "Неистовое восстановление",
+    icon = "Interface\\Icons\\Ability_bullrush",
+    description = "Раны стягиваются сами каждый ход, чужое лечение ложится охотнее.",
+    effect = { kind = "buff", mods = { healTaken = 1 }, tick = { heal = 1 } },
 })
 
 AddEffect({
@@ -3063,11 +3259,18 @@ AddEffect({
     name = "Воспламенение",
     damageType = "fire",
     icon = "Interface\\Icons\\Inv_everburningignition_yellow",
-    description = "Рана не закрывается. Сил становится меньше с каждым движением.",
+    description = "Жар тлеет в ране: цель уязвима к огню. Выброс лавы раздувает его — рана выплёскивает лишний тик и гаснет на ход раньше.",
+    -- ОГОНЬ ИГРАЕТ ОТ ТЛЕЮЩЕЙ РАНЫ. Воспламенение — заговор, который
+    -- держит на цели жар: пока он тлеет, огонь ложится в уязвимость, а
+    -- Выброс лавы раздувает его — рана выплёскивает лишний тик и сгорает
+    -- на ход раньше (consume списывает ход, списание — это тик, см.
+    -- SB.ActiveEffects.DecrementOne). «Мощь −2» снят: заговору хватает
+    -- уязвимости, третья строка делала его сильнее дебаффов второго круга.
     effect = {
         kind = "debuff", resist = "Выносливость", school = "magic",
         tick = { damage = 1 },
-		stats = { ["Мощь"] = -2 },
+        mods = { resistFire = -1 },
+        onAction = { when = "damaged", spell = "lava_burst", consume = true },
     },
 })
 
@@ -3081,8 +3284,15 @@ AddEffect({
     -- «До тех пор, пока кто-либо не попытается навредить цели; В ОТВЕТ
     -- огненный щит вспыхнет снопом искр, рискуя поджечь всё вокруг,
     -- вплоть до одежды врага и волос». Поджиг — уже готовый «eff_burn».
+    -- ВТОРОЙ ПОВОД — ДВИГАТЕЛЬ ОГНЯ: попавшее Воспламенение раскаляет
+    -- шамана «Раскалённым жаром», и следующий огненный удар ложится злее.
+    -- Срок два хода, а не один: повод "hit" приходит после резолва, и
+    -- одноходовый прилив сгорал бы вместе с ходом, который его вызвал.
     effect = { family = "Щит стихии", kind = "buff", school = "magic", mods = { armor = 10, defense = 12 },
-               onAction = { when = "damaged", toAttacker = "eff_burn" } },
+               onAction = {
+                   { when = "damaged", toAttacker = "eff_burn" },
+                   { when = "hit", spell = "ignition", effect = "eff_searing_heat", turns = 2 },
+               } },
 })
 
 AddEffect({
@@ -3111,7 +3321,14 @@ AddEffect({
     -- приобретает устойчивость к огню и медленно регенерирует в
     -- течение 2 раундов». Два раунда — срок у автора.
     effect = { family = "Щит стихии", kind = "buff", school = "magic", mods = { resistFire = 2, armor = 10, defense = 12 },
-               onAction = { when = "damaged", effect = "eff_water_shield_burst", turns = 2 } },
+               -- ВОДА ИГРАЕТ ОТ ПРИЛИВА: Быстрина под щитом поднимает
+               -- «Приливные волны», и исцеление, которое идёт за ней,
+               -- сильнее. Повод "cast" приходит до резолва, поэтому
+               -- волна подхватывает и саму Быстрину.
+               onAction = {
+                   { when = "damaged", effect = "eff_water_shield_burst", turns = 2 },
+                   { when = "cast", spell = "riptide", effect = "eff_tidal_waves", turns = 2 },
+               } },
 })
 
 AddEffect({
@@ -3198,7 +3415,14 @@ AddEffect({
     -- знает всё. Висят двое чар разом — не бывает: семейство одно
     -- (см. family), и новое вытесняет старое.
     effect = { family = "Чары оружия", kind = "buff", school = "magic", mods = { damagePhysical = 2 },
-               onAction = { when = "cast", spell = "stormstrike", payload = { mana = 1 } } },
+               -- ВОДА ДЕРЖИТ, А НЕ ДОБИВАЕТ: удар окаймлённым льдом
+               -- оружием с шансом сковывает цель на ход — те же «Ледяные
+               -- оковы», что у заклинания, чтобы семейство «Замедление»
+               -- разводило их между собой.
+               onAction = {
+                   { when = "cast", spell = "stormstrike", payload = { mana = 1 } },
+                   { when = "hit", melee = true, chance = 30, toTarget = "eff_slowed_ice_shackles" },
+               } },
 })
 
 AddEffect({
@@ -3215,7 +3439,14 @@ AddEffect({
     -- знает всё. Висят двое чар разом — не бывает: семейство одно
     -- (см. family), и новое вытесняет старое.
     effect = { family = "Чары оружия", kind = "buff", school = "magic", mods = { damagePhysical = 2 },
-               onAction = { when = "cast", spell = "stormstrike", payload = { mana = 1 } } },
+               -- ВОЗДУХ КОПИТ БУРЮ КЛИНКОМ: каждый попавший удар ближнего
+               -- боя заряжает «Оружие Водоворота», и следующее заклинание
+               -- срывается молнией злее. Удар Бури к тому же снимает с
+               -- цели сопротивление природе — молния после него бьёт вдвойне.
+               onAction = {
+                   { when = "cast", spell = "stormstrike", payload = { mana = 1 } },
+                   { when = "hit", melee = true, effect = "eff_maelstrom_weapon", turns = 2 },
+               } },
 })
 
 AddEffect({
@@ -3781,6 +4012,54 @@ AddEffect({
                mods = { armor = 15, defense = 8 },
                onAction = { when = "damaged", chance = 50,
                             toAttacker = "eff_stone_claw_stun" } },
+})
+
+-- ── ДВИГАТЕЛИ СТИХИЙ ШАМАНА ──────────────────────────────────
+-- Огонь тлеет и взрывается, вода приливает, земля держит удар,
+-- воздух копит бурю клинком. Каждая стихия заводится от своего якоря:
+-- щита или чар на оружии (см. их onAction выше).
+
+AddEffect({
+    id   = "eff_tidal_waves",
+    name = "Приливные волны",
+    icon = "Interface\\Icons\\Spell_shaman_tidalwaves",
+    description = "Быстрина и следующее за ней исцеление сильнее. Расходуется следующим применением.",
+    effect = { kind = "buff", school = "magic", mods = { heal = 1 },
+               onAction = { when = "cast", consume = true } },
+})
+
+AddEffect({
+    id   = "eff_searing_heat",
+    name = "Раскалённый жар",
+    icon = "Interface\\Icons\\Spell_fire_immolation",
+    description = "Тлеющая рана на враге отзывается в ладонях шамана: следующий огненный удар сильнее. Расходуется следующим применением.",
+    -- Не «Прилив лавы»: тот держится ход целиком и разгоняет вдвое, но
+    -- приходит от чар второго круга. Жар даёт заговор, поэтому он вдвое
+    -- слабее и сгорает на первом же касте.
+    effect = { kind = "buff", school = "magic", mods = { damageFire = 1 },
+               onAction = { when = "cast", consume = true } },
+})
+
+AddEffect({
+    id   = "eff_earth_shield",
+    name = "Щит земли",
+    icon = "Interface\\Icons\\Spell_nature_skinofearth",
+    description = "Каждый удар по носителю крошит один камень щита и возвращает немного здоровья. Камней столько, на сколько ходов наложен щит.",
+    -- ЗЕМЛЯ ДЕРЖИТ УДАР — ЗА ДРУГОГО. Заряды — это uses, как у Костяного
+    -- щита: щит считает удары, а не ходы. Семейства «Щит стихии» у него
+    -- нет нарочно: его вешают на союзника, и собственный щит шамана с
+    -- ним уживаться обязан.
+    effect = { kind = "buff", school = "magic", mods = { armor = 15 },
+               onAction = { when = "damaged", payload = { heal = 1 }, consume = true } },
+})
+
+AddEffect({
+    id   = "eff_maelstrom_weapon",
+    name = "Оружие Водоворота",
+    icon = "Interface\\Icons\\Spell_shaman_maelstromweapon",
+    description = "Следующее заклинание природы бьёт сильнее. Расходуется первым магическим применением.",
+    effect = { kind = "buff", school = "magic", mods = { damageNature = 1 },
+               onAction = { when = "cast", magic = true, consume = true } },
 })
 
 AddEffect({
