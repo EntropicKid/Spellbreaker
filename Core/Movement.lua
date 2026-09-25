@@ -538,7 +538,8 @@ end
 -- отличалось от «отступить на двенадцать».
 --
 -- Правило: каждые Config.MoveFatigueStep метров, пройденные ПОСЛЕ
--- упора, стоят Config.MoveFatigueDamage здоровья.
+-- упора, стоят Config.MoveFatiguePct процентов максимума здоровья
+-- (не меньше единицы, см. SB.Movement.FatiguePerStep).
 --
 -- ЧТО ЗДЕСЬ НЕОЧЕВИДНО:
 --
@@ -623,6 +624,16 @@ end
 --- же видно всё правило целиком.
 --- @param meters number  сколько метров прошли сверх предела за этот кадр
 --- @return number  сколько ХП снято этим вызовом
+--- Сколько ХП стоит один шаг усталости: процент от МАКСИМУМА здоровья,
+--- вниз, но не меньше единицы (см. Config.MoveFatiguePct).
+function SB.Movement.FatiguePerStep()
+    local pct = tonumber((SB.Data.Config or {}).MoveFatiguePct) or 10
+    if pct <= 0 then return 0 end
+    local PM  = SB.PlayerModel
+    local max = (PM and PM.GetMaxHealth and PM.GetMaxHealth()) or 0
+    return math.max(1, math.floor(max * pct / 100))
+end
+
 function SB.Movement.AddOverrun(meters)
     meters = tonumber(meters) or 0
     if meters <= 0 or not SB.Movement.IsFatigueOn() then return 0 end
@@ -636,7 +647,7 @@ function SB.Movement.AddOverrun(meters)
 
     local cfg   = SB.Data.Config or {}
     local step  = math.max(0.1, tonumber(cfg.MoveFatigueStep) or 3)
-    local per   = math.max(0, tonumber(cfg.MoveFatigueDamage) or 1)
+    local per   = SB.Movement.FatiguePerStep()
 
     local over = (tonumber(d.moveOver) or 0) + meters
     d.moveOver = over
@@ -1086,8 +1097,10 @@ SB.Data.Tooltips["movement"] = {
             if not SB.Movement.IsFatigueOn() then return "" end
             local cfg = SB.Data.Config or {}
             return string.format(
-                "|cFFFF6666Усталость:|r каждые %d м сверх предела стоят %d ХП.",
-                cfg.MoveFatigueStep or 3, cfg.MoveFatigueDamage or 1)
+                "|cFFFF6666Усталость:|r каждые %d м сверх предела стоят %d%% здоровья " ..
+                "(сейчас %d ХП).",
+                cfg.MoveFatigueStep or 3, cfg.MoveFatiguePct or 10,
+                SB.Movement.FatiguePerStep())
         end,
     },
 }

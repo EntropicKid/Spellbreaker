@@ -634,9 +634,9 @@ function SB.UI.BuildGMPanel()
     end)
     Tip(moveFreeChk, "Не ограничивать передвижение", string.format(
         "Метры видны, но упор ничего не запрещает. Обычно каждые %d м сверх " ..
-        "предела стоят %d ХП.",
+        "предела стоят %d%% здоровья (не меньше 1).",
         (SB.Data.Config and SB.Data.Config.MoveFatigueStep) or 3,
-        (SB.Data.Config and SB.Data.Config.MoveFatigueDamage) or 1))
+        (SB.Data.Config and SB.Data.Config.MoveFatiguePct) or 10))
 
     -- Круги сами — личная настройка Ведущего (см. TO.SetAutoRound).
     autoRoundChk = Check("Новый ход сам")
@@ -1513,6 +1513,7 @@ function SB.UI.UpdateGMPlayers()
             -- иконки привязаны к НИЗУ подстроки и выезжают из-под строки
             -- игрока, а не растягиваются из середины.
             sub:SetHeight(math.max(1, subH * open))
+            SB.Theme.SyncBackdrop(sub)
             if sub.SetClipsChildren then sub:SetClipsChildren(true) end
             sub:SetAlpha(math.min(1, open * 1.5))
             sub:Show()

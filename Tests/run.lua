@@ -2756,17 +2756,23 @@ SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = 1,
 SB.Movement.EndEntryGrace()
 checkTrue("по умолчанию усталость действует", SB.Movement.IsFatigueOn())
 
+-- ШАГ СТОИТ 10% МАКСИМУМА, вниз, но не меньше единицы.
+local MAXHP = SB.PlayerModel.GetMaxHealth()
+local PER   = SB.Movement.FatiguePerStep()
+check("шаг стоит десятую долю максимума", PER, math.max(1, math.floor(MAXHP / 10)))
+_G.SpellbreakerCharDB.health = MAXHP
+local HP0 = SB.PlayerModel.GetHealth()
 _G.SpellbreakerCharDB.moveOver, _G.SpellbreakerCharDB.moveFatiguePaid = 0, 0
 check("до полного шага платить не за что", SB.Movement.AddOverrun(FAT_STEP - 0.5), 0)
-check("шаг закрыт — минус здоровье", SB.Movement.AddOverrun(0.5), 1)
-check("здоровье списано", SB.PlayerModel.GetHealth(), 9)
+check("шаг закрыт — минус здоровье", SB.Movement.AddOverrun(0.5), PER)
+check("здоровье списано", SB.PlayerModel.GetHealth(), HP0 - PER)
 -- Тот же метр не должен списываться повторно: шагомер зовёт это
 -- каждый кадр, и без памяти о выплаченном счёт шёл бы бесконечно.
 check("второй кадр на тех же метрах бесплатен", SB.Movement.AddOverrun(0), 0)
-check("здоровье не убыло", SB.PlayerModel.GetHealth(), 9)
+check("здоровье не убыло", SB.PlayerModel.GetHealth(), HP0 - PER)
 
 -- Длинный рывок оплачивается целиком, а не по одному шагу за кадр.
-check("три шага разом — три ХП", SB.Movement.AddOverrun(FAT_STEP * 3), 3)
+check("три шага разом — три платы", SB.Movement.AddOverrun(FAT_STEP * 3), PER * 3)
 check("перебег накоплен", math.floor(SB.Movement.GetOverrun()), FAT_STEP * 4)
 
 -- Действие обнуляет ход — вместе с ним и долг: платить дважды за одни и
@@ -13619,11 +13625,14 @@ do
     --   пергамент   — карточка заклинания («свиток»); тот же пергамент
     --                 у списка библиотеки (см. SB.Theme.Inset);
     --   ромб        — окна-формы и панель Ведущего.
-    local leather = T.Surface("column").tex
-    check("колонки на коже", leather:find("Tome", 1, true) ~= nil, true)
-    check("переплёт библиотеки — та же кожа", T.Surface("library").tex, leather)
+    -- Колонки и карточки поменялись материалами: колонки — мрамор,
+    -- карточки на них — кожа. Переплёт библиотеки — кожа, как и был.
+    local leather = T.Surface("library").tex
+    check("переплёт библиотеки на коже", leather:find("Tome", 1, true) ~= nil, true)
+    check("колонки на мраморе", T.Surface("column").tex:find("Marble", 1, true) ~= nil, true)
+    check("карточки — та же кожа", T.BD.card.bgFile, leather)
     check("карточка — пергамент", T.Surface("detail").tex, T.Surface("parchment").tex)
-    checkTrue("карточка отличается от кожи колонок", T.Surface("detail").tex ~= leather)
+    checkTrue("карточка отличается от кожи переплёта", T.Surface("detail").tex ~= leather)
     check("панель Ведущего на ромбе", T.Surface("gm").tex, T.Surface("quilt").tex)
 
     -- ── ФАЙЛЫ, КОТОРЫЕ КЛИЕНТ ВООБЩЕ ЗАГРУЗИТ ──────────────
@@ -21112,6 +21121,31 @@ do
     check("сверх лимита вытеснено", #now, max)
     checkTrue("уходят последние подготовленные", now[1] == firstKept and now[max] == lastKept)
     SpellbreakerCharDB.preparedSpells = saved
+end
+
+-- ============================================================
+-- ВОЗМЕЗДИЕ ГАСИТ ДОСПЕХ
+--
+-- Ответный удар ауры приходит в миг удара, а не капает, и броня
+-- ударившего обязана его держать: латник с 20 брони не должен терять
+-- здоровье от ауры воздаяния в 1 урон.
+-- ============================================================
+do
+    local AE, PM = SB.ActiveEffects, SB.PlayerModel
+    SB.Data.Spells["t_ret_plate"] = { id = "t_ret_plate", name = "Проба лат",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff", mods = { armor = 20 } } }
+    AE.Clear()
+    SB.Skills.ResetArmor()
+    AE.Add("t_ret_plate", 5, false)
+    _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
+    local hp0, armor0 = PM.GetHealth(), SB.Skills.GetArmorPoints()
+    checkTrue("возмездие применено", AE.ApplyRetribution("eff_auraoflight"))
+    check("броня держит ответный удар", PM.GetHealth(), hp0)
+    checkTrue("и тратится на него", SB.Skills.GetArmorPoints() < armor0)
+    AE.Clear()
+    SB.Skills.ResetArmor()
+    SB.Data.Spells["t_ret_plate"] = nil
 end
 
 -- ИТОГ
