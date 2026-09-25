@@ -1563,6 +1563,59 @@ function PM.PrepareSpell(spellID)
     return true
 end
 
+-- ============================================================
+-- ЛИМИТ ПОДГОТОВЛЕННЫХ МОЖЕТ УПАСТЬ — И ЛИШНЕЕ ВЫТЕСНЯЕТСЯ
+--
+-- Лимит проверялся только на входе (PM.PrepareSpell). Вкачал Эрудицию,
+-- подготовил до упора, сбросил раскачку — и заклинания сверх нового
+-- лимита оставались на руках, хотя Эрудиция уже в нуле. То же после
+-- снятого тома из левой руки или спавшего эффекта на Эрудицию.
+--
+-- Уходят ПОСЛЕДНИЕ подготовленные: их взяли на добавочные ячейки, и они
+-- же с этими ячейками уходят. Запрет на правку после первого каста
+-- (PM.IsLocked) здесь не действует: это не выбор игрока, а правило
+-- лимита, и держать заклинание сверх него нельзя ни в какой момент.
+-- ============================================================
+--- @return number  сколько вытеснено
+function PM.TrimPrepared()
+    local d = db()
+    local list = d and d.preparedSpells
+    if type(list) ~= "table" then return 0 end
+    local maxPrep = PM.GetMaxPrepared()
+    if #list <= maxPrep then return 0 end
+    local names = {}
+    while #list > maxPrep do
+        local id = table.remove(list)
+        local sp = SB.Data.Spells[id]
+        table.insert(names, 1, (sp and sp.name) or tostring(id))
+    end
+    print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BODY ..
+        "лимит подготовленных — " .. maxPrep .. ", вытеснено: «" ..
+        table.concat(names, "», «") .. "».|r")
+    SB.Events.Fire("PREPARED_SPELLS_CHANGED")
+    return #names
+end
+
+do
+    -- Лимит зависит от Эрудиции, ранга, снаряжения и эффектов — слушаем
+    -- всё, что их двигает. Проверка откладывается на кадр: сброс раскачки
+    -- шлёт пачку событий подряд, и считать лимит посреди неё — значит
+    -- поймать его на полпути.
+    local pending = false
+    local function Schedule()
+        if pending then return end
+        pending = true
+        C_Timer.After(0, function()
+            pending = false
+            if db() then PM.TrimPrepared() end
+        end)
+    end
+    for _, ev in ipairs({ "SKILLS_CHANGED", "ATTRIBUTES_CHANGED",
+                          "PLAYER_MODEL_CHANGED", "ACTIVE_EFFECTS_CHANGED" }) do
+        SB.Events.On(ev, Schedule)
+    end
+end
+
 --- Убирает заклинание из подготовленных.
 --- @param spellID  string
 function PM.UnprepareSpell(spellID)

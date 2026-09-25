@@ -156,7 +156,13 @@ local C = {
     dBg=  {0.38, 0.10, 0.11, 1.00}, dBorder={0.65, 0.20, 0.15, 1.00}, dText={1.00, 0.75, 0.70, 1.00},
     dHBg= {0.38,0.20,0.18,1}, dHBd=   {0.85,0.24,0.20,1}, dPress={0.13,0.03,0.03,1},
     disBg={0.10,0.10,0.11,.7},disBd=  {0.30,0.28,0.26,.5}, disText={0.50,0.48,0.44,1},
-    textMain={0.92,0.90,0.86,1}, textDim={0.62,0.58,0.54,1},
+    -- ПРИГЛУШЁННЫЙ ТЕКСТ СВЕТЛЕЕ, ЧЕМ БЫЛ (0.62/0.58/0.54). На чёрном
+    -- мраморе карточек (~9% яркости) тот серый сливался с камнем, и
+    -- мелкие подписи читались с трудом. Теперь это тёплый светлый
+    -- пергамент: всё ещё заметно тише основного текста, но контраст с
+    -- тёмной подложкой — как у основного на прежнем войлоке.
+    -- textFaint — ещё на ступень тише, для третьего яруса (детали карточки).
+    textMain={0.92,0.90,0.86,1}, textDim={0.80,0.75,0.66,1}, textFaint={0.72,0.68,0.60,1},
     textGold={1.00,0.80,0.42,1}, textDanger={1.00,0.42,0.34,1},
     -- Подкраска ДЕРЕВЯННОЙ полосы заголовка — отдельная от titleBg и
     -- заметно светлее. titleBg (0.15/0.12/0.09) подбирали под ровную
@@ -2464,7 +2470,7 @@ function SB.Theme.AttachCharLimit(eb, maxChars, counterParent)
     if counterParent then
         counter = counterParent:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
         counter:SetPoint("TOPRIGHT", counterParent, "TOPRIGHT", -2, -2)
-        counter:SetTextColor(0.6, 0.57, 0.5, 1)
+        counter:SetTextColor(C.textFaint[1], C.textFaint[2], C.textFaint[3], 1)
     end
     local function onChanged(self)
         local t  = self:GetText()

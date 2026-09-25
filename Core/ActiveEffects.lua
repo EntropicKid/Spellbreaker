@@ -3473,8 +3473,8 @@ function SB.ActiveEffects.BreakOn(trigger)
     -- Сначала собираем список, потом снимаем: Remove правит таблицу, по
     -- которой мы бы шли.
     local doomed
-    -- Что сорвано ИМЕННО КАК КОНЦЕНТРАЦИЯ — умолчанием контроля или
-    -- прерывания, а не явным breakOn автора. Только это спасает
+    -- Что сорвано ИМЕННО КАК КОНЦЕНТРАЦИЯ умолчанием КОНТРОЛЯ, а не
+    -- явным breakOn автора и не прерыванием. Только это спасает
     -- удержание Концентрации (см. ниже).
     local concHit = {}
     for _, eff in ipairs(effects) do
@@ -3529,7 +3529,10 @@ function SB.ActiveEffects.BreakOn(trigger)
             local said
             if type(def) == "table" then said = def.interrupted end
             hit = (said ~= false)
-            if hit then concHit[eff.spellID] = true end
+            -- В concHit НЕ ПОПАДАЕТ: прерывание — способность, заведённая
+            -- ровно для того, чтобы сбить сосредоточение, и удержания
+            -- Концентрации от неё не спасают. Иначе пинок против
+            -- вкачанной Концентрации переставал бы значить хоть что-то.
         end
 
         if not hit and trigger == "healed" then

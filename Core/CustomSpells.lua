@@ -377,7 +377,7 @@ local function AttachCharLimit(eb, maxChars, counterParent)
     if counterParent then
         counter = counterParent:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
         counter:SetPoint("TOPRIGHT", counterParent, "TOPRIGHT", -2, -2)
-        counter:SetTextColor(0.6, 0.57, 0.5, 1)
+        counter:SetTextColor(SB.Theme.C.textFaint[1], SB.Theme.C.textFaint[2], SB.Theme.C.textFaint[3], 1)
     end
     local function onChanged(self)
         local t  = self:GetText()
