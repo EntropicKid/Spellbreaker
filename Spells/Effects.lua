@@ -482,7 +482,11 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_holy_sealofprotection",
     description = "Свет отводит от цели всякое железо. Ни клинок, ни стрела её не находят — но и она не может поднять руку ни на кого.",
     effect = {
-        suppress = { "bleed" }, kind = "buff", school = "magic", family = "Длань паладина", mods = { resistPhysical = 50, attack = -120 } },
+        -- СЕМЕЙСТВО «Божественная защита», а не «Длань паладина»: описание
+        -- связывает её с Щитом и Защитой общим откатом небес, и это
+        -- правило сильнее, чем «одна Длань от каждого паладина».
+        onRemove = { effect = "eff_forbearance", duration = 20 },
+        suppress = { "bleed" }, kind = "buff", school = "magic", family = "Божественная защита", mods = { resistPhysical = 50, attack = -120 } },
 })
 
 AddEffect({
@@ -608,6 +612,11 @@ AddEffect({
         -- «Невосприимчивым ко всему урону и любым заклинаниям» — здесь
         -- список полный, и это не щедрость, а буквальное чтение. Цена
         -- уже заплачена длительностью: щит держится ДВА хода.
+        --
+        -- «После окончания действия щита небесные силы временно
+        -- отказывают в повторном покровительстве» — Воздержанность.
+        family = "Божественная защита",
+        onRemove = { effect = "eff_forbearance", duration = 20 },
         suppress = { "Оглушение", "Замедление", "Страх", "poison", "disease", "bleed", "curse", "Проклятие" }, kind = "buff", mods = { resistAll = 3, armor = 60, attack = -12, defense = 10 } },
 })
 
@@ -814,7 +823,8 @@ AddEffect({
     name = "Оглушён визгом",
     icon = "Interface\\Icons\\Ability_evoker_oppressingroar",
     description = "В ушах звенит так, что не слышно ни собственного голоса, ни чужой команды.",
-    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение", mods = { attack = -18, defense = -18, movePct = -40 } },
+    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение",
+               onRemove = { effect = "eff_stun_immunity", duration = 3 }, mods = { attack = -18, defense = -18, movePct = -40 } },
 })
 
 AddEffect({
@@ -929,6 +939,7 @@ AddEffect({
     -- Семейство «Оглушение» — как у всех прочих: два оглушения на одной
     -- цели не складываются, и площадное не должно быть исключением.
     effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение",
+               onRemove = { effect = "eff_stun_immunity", duration = 3 },
                mods = { attack = -18, defense = -8, movePct = -35 } },
 })
 AddEffect({
@@ -942,6 +953,7 @@ AddEffect({
     -- Числа «Молота правосудия» (-80 к атаке) на площади означали бы,
     -- что круг 3 в одиночку выключает бой.
     effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение",
+               onRemove = { effect = "eff_stun_immunity", duration = 3 },
                mods = { attack = -18, defense = -8, movePct = -35 } },
 })
 
@@ -982,7 +994,8 @@ AddEffect({
     name = "Оглушён громом",
     icon = "Interface\\Icons\\ability_thunderking_rockfalllow",
     description = "Перепонки звенят, мир стал беззвучным и шатким.",
-    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение", mods = { attack = -18, defense = -8, movePct = -35 } },
+    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение",
+               onRemove = { effect = "eff_stun_immunity", duration = 3 }, mods = { attack = -18, defense = -8, movePct = -35 } },
 })
 
 AddEffect({
@@ -1539,7 +1552,8 @@ AddEffect({
     name = "Приговор Храмовника",
     icon = "Interface\\Icons\\Spell_paladin_templarsverdict",
     description = "Свет вынес решение, и оно уже исполняется. Держаться на ногах под этим приговором тяжело.",
-    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение", mods = { attack = -80, defense = -5 } },
+    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение",
+               onRemove = { effect = "eff_stun_immunity", duration = 3 }, mods = { attack = -80, defense = -5 } },
 })
 
 -- ==========================================================
@@ -1552,7 +1566,8 @@ AddEffect({
     damageType = "shadow",
     icon = "Interface\\Icons\\Spell_shadow_unholyfrenzy",
     description = "В голове разорвалось что-то чужое. Мысли не собираются, руки не слушаются.",
-    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение", school = "magic", mods = { attack = -80, movePct = -35 }, tick = { damage = 5 } },
+    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение",
+               onRemove = { effect = "eff_stun_immunity", duration = 3 }, school = "magic", mods = { attack = -80, movePct = -35 }, tick = { damage = 5 } },
 })
 
 AddEffect({
@@ -1577,7 +1592,8 @@ AddEffect({
     name = "Подлый трюк",
     icon = "Interface\\Icons\\Ability_cheapshot",
     description = "Подлый удар придется в самое неожиданное место, открывая вас для расправы.",
-    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение", stats = { ["Ловкость"] = -2, ["Сила"] = -2, }, mods = { defense = -30, movePct = -70 } },
+    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение",
+               onRemove = { effect = "eff_stun_immunity", duration = 3 }, stats = { ["Ловкость"] = -2, ["Сила"] = -2, }, mods = { defense = -30, movePct = -70 } },
 })
 
 AddEffect({
@@ -1619,7 +1635,8 @@ AddEffect({
     name = "Удар по почкам",
     icon = "Interface\\Icons\\Ability_rogue_kidneyshot",
     description = "Оглушительная боль лишает практически всякой возможности на сопротивление.",
-    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение", mods = { attack = -70, defense = -15, movePct = -75 } },
+    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение",
+               onRemove = { effect = "eff_stun_immunity", duration = 3 }, mods = { attack = -70, defense = -15, movePct = -75 } },
 })
 
 AddEffect({
@@ -1741,7 +1758,40 @@ AddEffect({
     -- «Весь получаемый урон уменьшается наполовину» — то есть защита не от
     -- школы, а от всего сразу. Двойка и есть половина обычного удара
     -- в 4 единицы. Два хода.
-    effect = { kind = "buff", school = "magic", mods = { resistAll = 2 } },
+    effect = { kind = "buff", school = "magic", family = "Божественная защита",
+               onRemove = { effect = "eff_forbearance", duration = 20 },
+               mods = { resistAll = 2 } },
+})
+
+AddEffect({
+    -- ВОЗДЕРЖАННОСТЬ — прощальный эффект Божественного щита, Божественной
+    -- защиты и Длани защиты: «в течение 2 минут на цель не могут быть
+    -- наложены эффекты «Божественного щита», «Божественной защиты» или
+    -- «Длани защиты»». Две минуты — двадцать ходов по шесть секунд.
+    --
+    -- suppressBuffs: подавляемое здесь — БАФФЫ, а подавление по умолчанию
+    -- касается только вредного (см. MatchesSuppress).
+    -- suppressClears = false: висящий щит она не срывает — только не
+    -- пускает следующий.
+    id   = "eff_forbearance",
+    name = "Воздержанность",
+    icon = "Interface\\Icons\\Spell_holy_removecurse",
+    description = "Небеса временно отказывают в повторном покровительстве: Божественный щит, Божественная защита и Длань защиты на носителя не ложатся.",
+    effect = { kind = "debuff", suppress = { "Божественная защита" },
+               suppressBuffs = true, suppressClears = false },
+})
+
+AddEffect({
+    -- НЕВОСПРИИМЧИВОСТЬ К ОГЛУШЕНИЮ — прощальный эффект всех оглушений
+    -- (onRemove у каждого эффекта семейства «Оглушение»). Три хода, за
+    -- которые оглушить носителя снова нельзя. Обновление висящего
+    -- оглушения тоже считается его концом: невосприимчивость ложится и
+    -- снимает его — цепочку оглушений не выстроить (см. SB.ActiveEffects.Add).
+    id   = "eff_stun_immunity",
+    name = "Невосприимчивость к оглушению",
+    icon = "Interface\\Icons\\Ability_warrior_unrelentingassault",
+    description = "Тело ещё помнит удар и не даёт себя оглушить снова.",
+    effect = { kind = "buff", suppress = { "Оглушение" } },
 })
 
 AddEffect({
@@ -1749,7 +1799,8 @@ AddEffect({
     name = "Молот правосудия",
     icon = "Interface\\Icons\\Spell_holy_sealofmight",
     description = "Мерцающая преграда отводит слабые удары и сбивает прицел стрелкам.",
-    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение", mods = { attack = -80, movePct = -80 } },
+    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение",
+               onRemove = { effect = "eff_stun_immunity", duration = 3 }, mods = { attack = -80, movePct = -80 } },
 })
 
 AddEffect({
@@ -3780,7 +3831,8 @@ AddEffect({
     name = "Пуля в черепе",
     icon = "Interface\\Icons\\Inv_weapon_rifle_01",
     description = "Прямо в яблочко!",
-    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение", mods = { attack = -40, defense = -40 } },
+    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение",
+               onRemove = { effect = "eff_stun_immunity", duration = 3 }, mods = { attack = -40, defense = -40 } },
 })
 
 AddEffect({
@@ -3998,6 +4050,7 @@ AddEffect({
     -- сторону — «в ответ» врало бы половине случаев.
     description = "Земля ударила: в голове звенит, ноги не слушаются.",
     effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение",
+               onRemove = { effect = "eff_stun_immunity", duration = 3 },
                mods = { attack = -35, defense = -20, movePct = -50 } },
 })
 
@@ -4119,7 +4172,8 @@ AddEffect({
     name = "Дезориентация",
     icon = "Interface\\Icons\\Spell_holy_sealofwrath",
     description = "Удар отозвался небесным судом: мир на мгновение поплыл, и рука не знает, куда бить.",
-    effect = { kind = "debuff", resist = "Дух", family = "Оглушение", school = "magic",
+    effect = { kind = "debuff", resist = "Дух", family = "Оглушение",
+               onRemove = { effect = "eff_stun_immunity", duration = 3 }, school = "magic",
                mods = { attack = -30, defense = -15, movePct = -50 } },
 })
 

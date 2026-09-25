@@ -611,6 +611,10 @@ function SB.ActiveEffects.GetEffectLines(spellID)
     if endTxt then
         table.insert(lines, "|cFFFFD100Когда спадёт:|r " .. endTxt)
     end
+    local endEff = SB.ActiveEffects.EndEffectText(def.onRemove)
+    if endEff then
+        table.insert(lines, "|cFFFFD100Когда спадёт:|r " .. endEff)
+    end
 
     if def.untouchable == true then
         table.insert(lines, "|cFFFFD100Недосягаем:|r вредоносным заклинанием не " ..
@@ -1334,6 +1338,10 @@ local function MakeSlot(i)
                             GameTooltip:AddDoubleLine("  Когда спадёт", part.text, 0.9, 0.9, 0.9,
                                 part.good and 0.4 or 1, part.good and 1 or 0.4, 0.4)
                         end
+                        local endEff = SB.ActiveEffects.EndEffectText(onEnd)
+                        if endEff then
+                            GameTooltip:AddLine("  Когда спадёт: " .. endEff, 0.9, 0.9, 0.9, true)
+                        end
                     end
                 else
                     GameTooltip:AddLine("Без влияния на параметры", 0.6, 0.6, 0.6)
@@ -1712,10 +1720,22 @@ end
 -- ============================================================
 
 --- Совпадает ли эффект с одним из названных в списке подавления.
-local function MatchesSuppress(sp, list)
+--- @param allowBuffs boolean|nil  подавитель объявил suppressBuffs (см. ниже)
+local function MatchesSuppress(sp, list, allowBuffs)
     if type(sp) ~= "table" or type(list) ~= "table" then return false end
     local def = sp.effect
     if type(def) ~= "table" then return false end
+    -- ИСКЛЮЧЕНИЕ — suppressBuffs = true у самого подавителя. Нужно ровно
+    -- одному роду эффектов: «небеса отказывают в повторном покровительстве»
+    -- (Воздержанность после Божественного щита) запрещает именно БАФФ.
+    -- Флаг стоит на подавителе, а не правило меняется для всех: «Плащ
+    -- теней» по-прежнему не трогает собственных чар разбойника.
+    if allowBuffs and def.kind == "buff" then
+        for _, name in ipairs(list) do
+            if def.family == name or def.school == name then return true end
+        end
+        return false
+    end
     -- ПОДАВЛЯЮТСЯ ТОЛЬКО ДЕБАФФЫ. Иначе «Плащ теней» с его списком
     -- { "magic" } снял бы с разбойника и собственные чары: школу magic
     -- носят две сотни эффектов, и добрая половина из них — баффы.
@@ -1727,6 +1747,10 @@ local function MatchesSuppress(sp, list)
     end
     return false
 end
+
+-- Наружу — для существ: их эффекты живут своим списком
+-- (Core/NPCEffects.lua), а правило подавления обязано быть одно.
+SB.ActiveEffects.MatchesSuppress = MatchesSuppress
 
 --- Список подавляемого, объявленный ВИСЯЩИМИ эффектами.
 local function SuppressedNow()
@@ -1747,14 +1771,15 @@ end
 function SB.ActiveEffects.IsSuppressed(containerSpellID)
     local sp = SB.Data.Spells[containerSpellID]
     if not sp then return false end
-    -- Сам подавитель неприкосновенен (см. врезку выше).
-    if type(sp.effect) == "table" and type(sp.effect.suppress) == "table" then
-        return false
-    end
+    -- Сам подавитель неприкосновенен (см. врезку выше) — кроме запрета,
+    -- названного явно (suppressBuffs): Длань защиты сама снимает
+    -- кровотечения, но Воздержанность обязана не пускать и её.
+    local isSup = type(sp.effect) == "table" and type(sp.effect.suppress) == "table"
     for _, eff in ipairs(effects) do
         local by  = SB.Data.Spells[eff.spellID]
         local lst = by and by.effect and by.effect.suppress
-        if MatchesSuppress(sp, lst) then
+        local explicit = by and by.effect and by.effect.suppressBuffs
+        if (not isSup or explicit) and MatchesSuppress(sp, lst, explicit) then
             return true, (by.name or eff.spellID)
         end
     end
@@ -1796,7 +1821,7 @@ local function DropSuppressed(containerSpellID)
         -- Подавителя не трогаем — ни чужого, ни своего.
         local isSup = victim and type(victim.effect) == "table"
                       and type(victim.effect.suppress) == "table"
-        if not isSup and MatchesSuppress(victim, lst) then
+        if not isSup and MatchesSuppress(victim, lst, sp.effect.suppressBuffs) then
             table.insert(names, 1, (victim and victim.name) or effects[i].spellID)
             table.remove(effects, i)
             dropped = dropped + 1
@@ -1851,8 +1876,9 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc, source, level)
     -- ПОДАВЛЕНО — НЕ ЛОЖИТСЯ. Проверяем ДО всего остального: иначе
     -- подавляемое сначала сбросило бы своё семейство (DropFamily), а
     -- потом само не легло — и игрок терял бы висящий эффект ни за что.
-    local blocked, by = SB.ActiveEffects.IsSuppressed(containerSpellID)
-    if blocked then
+    local function Refused()
+        local blocked, by = SB.ActiveEffects.IsSuppressed(containerSpellID)
+        if not blocked then return false end
         local sp = SB.Data.Spells[containerSpellID]
         -- «X не пускает: Y не действует» говорит одно и то же дважды:
         -- если не пускает, то, значит, и не действует. Осталась связка
@@ -1860,8 +1886,9 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc, source, level)
         print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_GOOD ..
             "«" .. ((sp and sp.name) or containerSpellID) ..
             "» не лёг — «" .. (by or "?") .. "».|r")
-        return
+        return true
     end
+    if Refused() then return end
 
     -- ПОД КОНТРОЛЕМ НЕ СОСРЕДОТОЧИТЬСЯ — и это не то же самое, что сбив.
     --
@@ -1894,10 +1921,63 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc, source, level)
         end
     end
 
+    -- НЕ РАЗМЕНИВАТЬ ВИСЯЩЕЕ НА НИЧТО. Если прощальный эффект того, что
+    -- сейчас будет вытеснено или продлено, всё равно не пустит новое и
+    -- при этом НЕ чистит висящее (suppressClears = false — Воздержанность),
+    -- то вытеснение сняло бы Божественный щит, повесило Воздержанность, а
+    -- та не пустила бы Божественную защиту: паладин остался бы ни с чем.
+    -- Отказываем сразу, ничего не трогая. Невосприимчивость к оглушению
+    -- чистит висящее — её продление по-прежнему кончает оглушение.
+    do
+        local newSp = SB.Data.Spells[containerSpellID]
+        local fam   = SB.Data.GetFamily and SB.Data.GetFamily(containerSpellID)
+        for _, eff in ipairs(effects) do
+            if eff.spellID == containerSpellID
+               or (fam and SB.Data.GetFamily(eff.spellID) == fam) then
+                local old = SB.Data.Spells[eff.spellID]
+                local r   = old and old.effect and old.effect.onRemove
+                local E   = type(r) == "table" and type(r.effect) == "string"
+                            and SB.Data.Spells[r.effect]
+                local ed  = E and E.effect
+                if type(ed) == "table" and ed.suppressClears == false
+                   and MatchesSuppress(newSp, ed.suppress, ed.suppressBuffs) then
+                    print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BODY ..
+                        "«" .. ((newSp and newSp.name) or containerSpellID) ..
+                        "» не лёг — ещё действует «" .. ((old and old.name) or eff.spellID) ..
+                        "».|r")
+                    return
+                end
+            end
+        end
+    end
+
     -- ДО всего остального, включая продление уже висящего: семейство
     -- сбрасывается и когда облик обновляют тем же самым обликом —
     -- лишних снятий это не делает (свой id из списка исключён).
     DropFamily(containerSpellID)
+
+    -- ПРОДЛЕНИЕ — ТОЖЕ СНЯТИЕ для прощального эффекта (onRemove.effect).
+    --
+    -- Оглушение на четыре хода, обновлённое на втором, иначе не кончалось
+    -- бы никогда: невосприимчивость приходит «по окончании», а окончания
+    -- у продлеваемого нет. Поэтому прежний экземпляр считается снятым в
+    -- миг продления, и его прощальный эффект срабатывает здесь же.
+    --
+    -- Только ЭФФЕКТ, без выплаты: прощальные ХП и ману «камня здоровья»
+    -- продление не отдаёт — оно не тратит того, что ещё висит.
+    --
+    -- DropFamily выше уже отработал то же самое для соседей по семейству
+    -- (через Remove → ApplyOnRemove). После обоих — вторая проверка
+    -- подавления: прощальный эффект мог только что закрыть дорогу самому
+    -- накладываемому — Воздержанность не пускает второй щит, а
+    -- невосприимчивость — повторное оглушение.
+    for _, eff in ipairs(effects) do
+        if eff.spellID == containerSpellID then
+            SB.ActiveEffects.FireEndEffect(containerSpellID)
+            break
+        end
+    end
+    if Refused() then return end
 
     if isConc then
         for i = #effects, 1, -1 do
@@ -2771,6 +2851,61 @@ end
 function ApplyOnRemove(spellID)
     local sp = SB.Data.Spells[spellID]
     SB.ActiveEffects.ApplyPayload(spellID, sp and sp.effect and sp.effect.onRemove)
+    SB.ActiveEffects.FireEndEffect(spellID)
+end
+
+-- ============================================================
+-- ПРОЩАЛЬНЫЙ ЭФФЕКТ — onRemove = { effect = "id", duration = N }
+--
+-- Тот же блок onRemove, что и у прощальной выплаты, — два новых поля
+-- рядом с damage/heal/mana:
+--
+--     effect = { family = "Оглушение", ...,
+--                onRemove = { effect = "eff_stun_immunity", duration = 3 } }
+--
+-- Снялся эффект — на носителя ложится другой: невосприимчивость после
+-- оглушения, Воздержанность после Божественного щита. Срабатывает на
+-- ВСЕХ путях снятия, что и выплата (истёк, снят вручную, рассеян,
+-- сорван Волей, вытеснен семейством), и сверх того — на ПРОДЛЕНИИ
+-- (см. SB.ActiveEffects.Add): продлённое оглушение считается кончившимся.
+--
+-- Не срабатывает на Долгом Отдыхе — по той же причине, что и выплата.
+--
+-- duration: ходы; −1 — до Долгого Отдыха; не указан — один ход.
+-- ============================================================
+--- Подпись прощального эффекта: ««Невосприимчивость к оглушению» на 3 хода».
+--- @return string|nil
+function SB.ActiveEffects.EndEffectText(onRemove)
+    if type(onRemove) ~= "table" or type(onRemove.effect) ~= "string" then return nil end
+    local E = SB.Data.Spells[onRemove.effect]
+    if not E then return nil end
+    local d = tonumber(onRemove.duration) or 1
+    local dur
+    if d < 0 then
+        dur = "до Долгого отдыха"
+    else
+        d = math.max(1, math.floor(d))
+        local m10, m100 = d % 10, d % 100
+        local word = (m10 == 1 and m100 ~= 11) and "ход"
+            or (m10 >= 2 and m10 <= 4 and (m100 < 12 or m100 > 14)) and "хода" or "ходов"
+        dur = "на " .. d .. " " .. word
+    end
+    return "«" .. (E.name or onRemove.effect) .. "» " .. dur
+end
+
+function SB.ActiveEffects.FireEndEffect(spellID)
+    local sp = SB.Data.Spells[spellID]
+    local r  = sp and sp.effect and sp.effect.onRemove
+    if type(r) ~= "table" or type(r.effect) ~= "string" then return end
+    -- Сам себя по кругу не вешает: снялся — лёг — продлился — снялся…
+    if r.effect == spellID or not SB.Data.Spells[r.effect] then return end
+    local turns = tonumber(r.duration) or 1
+    if turns < 0 then
+        turns = INFINITE
+    else
+        turns = math.max(1, math.floor(turns))
+    end
+    SB.ActiveEffects.Add(r.effect, turns, false)
 end
 
 function SB.ActiveEffects.DecrementOne(spellID)

@@ -145,10 +145,23 @@ local function Snapshot()
     }
 end
 
+-- ЧЕЙ СНИМОК. База аккаунтная, а очередь — сцена КОНКРЕТНОГО персонажа:
+-- вышел посреди боя, зашёл другим — и новый персонаж получал чужую
+-- очередь, в которой его нет, но которая выглядит рабочей. Снимок
+-- подписывается тем, кто его сохранил, и восстанавливается только им.
+-- GUID, а не имя: одноимённые персонажи на разных игровых мирах
+-- аккаунта — не редкость.
+local function SelfKey()
+    local guid = UnitGUID and UnitGUID("player")
+    if type(guid) == "string" and guid ~= "" then return guid end
+    return UnitName("player")
+end
+
 local function Save()
     if not SpellbreakerAccountDB then return end
     local snap = Snapshot()
     snap.savedAt = time()
+    snap.savedBy = SelfKey()
     SpellbreakerAccountDB.turnState = snap
 end
 
@@ -1809,7 +1822,14 @@ SB.Events.On("SB_INIT", function()
     local saved = db and db.turnState
     if type(saved) == "table" then
         local age = time() - (tonumber(saved.savedAt) or 0)
-        if age <= STATE_TTL then
+        -- ЧУЖОЙ СНИМОК — НЕ НАШ (см. SelfKey). Выбрасываем: персонаж,
+        -- который его сохранил, при входе всё равно получит очередь
+        -- первым же пакетом Ведущего. Снимок без подписи — из версии до
+        -- этой правки; ему верим, как верили раньше.
+        local foreign = saved.savedBy ~= nil and saved.savedBy ~= SelfKey()
+        if foreign then
+            db.turnState = nil
+        elseif age <= STATE_TTL then
             TO.ApplyRemoteState(saved)
         else
             db.turnState = nil
