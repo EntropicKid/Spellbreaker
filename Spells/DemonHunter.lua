@@ -7,6 +7,7 @@ local Add = SB.Database.AddSpell -- Короткая ссылка
 
 Add({
     id = "chaos_strike",
+    requirement = "melee",
     name = "Удар хаоса",
     key = "Приемы хаоса",
     icon = "Interface\\Icons\\Ability_demonhunter_chaosstrike",

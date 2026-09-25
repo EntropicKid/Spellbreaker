@@ -473,6 +473,7 @@ Add({
 
 Add({
     id = "victory_rush",
+    requirement = "melee",
     name = "Победный раж",
     key = "Воинский дух",
     icon = "Interface\\Icons\\Ability_warrior_devastate",

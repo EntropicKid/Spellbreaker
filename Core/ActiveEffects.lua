@@ -247,8 +247,11 @@ end
 -- удару добавляется то, от чего доспех не спасает»). Крит прибавку не
 -- удваивает: удваивается удар клинка, а не чары на нём.
 --
--- КОГДА: попавший ФИЗИЧЕСКИЙ удар БЛИЖНЕГО боя — удар оружием, на котором
--- чары и висят. Заклинания и выстрелы их не несут.
+-- КОГДА: попавшая способность, которой НУЖНО ОРУЖИЕ БЛИЖНЕГО БОЯ (её
+-- requirement — «melee» или конкретный вид такого оружия), какой бы
+-- школой она сама ни била: Вердикт храмовника (Свет) и Удар чумы (тьма)
+-- наносятся тем же клинком, на котором чары и висят. Заклинания,
+-- выстрелы и удары когтями или кулаком их не несут.
 --
 -- ГДЕ СЧИТАЕТСЯ — у того, кто знает сопротивление цели:
 --   • удар по игроку — у ЦЕЛИ, по списку эффектов атакующего из его
@@ -259,11 +262,17 @@ end
 -- В чат отдельной строкой не пишется: входит в итог удара.
 -- ============================================================
 
---- Подходит ли удар под чары оружия.
+-- Виды оружия ближнего боя (см. WEAPON_REQUIREMENTS в Core/Database.lua).
+local MELEE_WEAPON_KINDS = {
+    melee = true, twohand = true, dagger = true, sword = true, axe = true,
+    mace = true, polearm = true, staff = true, fist = true, glaive = true,
+}
+
+--- Подходит ли удар под чары оружия: способности нужно оружие ближнего боя.
 function SB.ActiveEffects.IsWeaponStrike(spell)
-    if type(spell) ~= "table" or spell.damageType ~= "physical" then return false end
-    local d = tonumber(spell.distance) or 0
-    return d > 0 and d <= ((SB.Logic and SB.Logic.MELEE_RANGE) or 2.5)
+    if type(spell) ~= "table" then return false end
+    local req = SB.Data.GetEquipRequirement and SB.Data.GetEquipRequirement(spell)
+    return req ~= nil and MELEE_WEAPON_KINDS[req] == true
 end
 
 --- Прибавки чар к этому удару.

@@ -7,6 +7,7 @@ local Add = SB.Database.AddSpell -- Короткая ссылка
 
 Add({
     id = "death_strike",
+    requirement = "melee",
     name = "Удар смерти",
 	requirement = "melee",
     key = "Кровь",
@@ -118,6 +119,7 @@ Add({
 
 Add({
     id = "obliterate",
+    requirement = "melee",
     name = "Уничтожение",
 	requirement = "melee",
     key = "Лёд",
@@ -227,6 +229,7 @@ Add({
 
 Add({
     id = "plague_strike",
+    requirement = "melee",
     name = "Удар чумы",
 	requirement = "melee",
     key = "Нечестивость",
@@ -399,6 +402,7 @@ Add({
 
 Add({
     id = "rune_strike",
+    requirement = "melee",
     name = "Рунический удар",
 	requirement = "melee",
     key = "Кровь",
@@ -516,6 +520,7 @@ Add({
 
 Add({
     id = "soul_reaper",
+    requirement = "melee",
     name = "Жнец души",
     key = "Нечестивость",
     icon = "Interface\\Icons\\Ability_deathknight_soulreaper",
@@ -706,6 +711,7 @@ Add({
 
 Add({
     id = "scourge_strike",
+    requirement = "melee",
     name = "Удар Плети",
 	requirement = "melee",
     key = "Нечестивость",

@@ -28,6 +28,7 @@ Add({
 
 Add({
     id = "raptor_strike",
+    requirement = "melee",
     name = "Удар ящера",
     key = "Ближний бой",
     icon = "Interface\\Icons\\Ability_hunter_raptorstrike",
@@ -49,6 +50,7 @@ Add({
 
 Add({
     id = "wing_clip",
+    requirement = "melee",
     name = "Подрезать крылья",
     key = "Ближний бой",
     icon = "Interface\\Icons\\Ability_rogue_trip",

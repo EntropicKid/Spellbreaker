@@ -744,6 +744,7 @@ Add({
 
 Add({
     id = "crusader_strike",
+    requirement = "melee",
     name = "Удар воина света",
 	requirement = "melee",
     key = "Воздаяние",
@@ -811,6 +812,7 @@ Add({
 
 Add({
     id = "templars_verdict",
+    requirement = "melee",
     name = "Вердикт Храмовника",
 	requirement = "melee",
     key = "Воздаяние",
