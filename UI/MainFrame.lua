@@ -535,7 +535,7 @@ local function BuildMainFrame()
         -- нарочно: заголовок собирается до того, как метаданные точно
         -- доступны, и «Aviana Spellbreaker v0» на старте выглядело бы
         -- поломкой. Расхождение стережёт проверка в прогоне.
-        "Aviana Spellbreaker v3.1.3", FRAME_W, FRAME_H)
+        "Aviana Spellbreaker v3.2", FRAME_W, FRAME_H)
     SB.Theme.AttachPositionMemory(sbFrame, "sbFramePos", -300, 0)
     sbFrame:SetClampedToScreen(true)
  
