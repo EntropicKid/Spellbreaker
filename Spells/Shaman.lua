@@ -1287,6 +1287,7 @@ Add({
 
 Add({
     id = "stormstrike",
+    requirement = "melee",
     name = "Удар Бури",
     key = "Воздух",
     icon = "Interface\\Icons\\Ability_shaman_stormstrike",
@@ -1352,6 +1353,7 @@ Add({
 
 Add({
     id = "lava_seethe",
+    requirement = "melee",
     name = "Вскипание лавы",
     key = "Огонь",
     icon = "Interface\\Icons\\Spell_shaman_lavasurge",

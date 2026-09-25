@@ -747,6 +747,7 @@ Add({
 
 Add({
     id = "crusader_strike",
+    requirement = "melee",
     name = "Удар воина света",
     key = "Воздаяние",
     icon = "Interface\\Icons\\Spell_holy_crusaderstrike",
@@ -812,6 +813,7 @@ Add({
 
 Add({
     id = "templars_verdict",
+    requirement = "melee",
     name = "Вердикт Храмовника",
     key = "Воздаяние",
     icon = "Interface\\Icons\\Spell_paladin_templarsverdict",

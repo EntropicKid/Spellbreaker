@@ -21210,18 +21210,29 @@ do
               def and def.mods.damagePhysical or 0, 0)
     end
 
-    local strike = { id = "t_strike", damageType = "physical", distance = 2.5 }
+    local strike = { id = "t_strike", damageType = "physical", distance = 2.5, requirement = "melee" }
     local bolt   = { id = "t_bolt",   damageType = "fire",     distance = 20 }
     local list = { { spellID = "eff_weapon_enchant_flame_weapon" } }
     check("удар оружием несёт чары", AE.OnHitRaw(strike, list), 2)
     check("заклинание — нет", AE.OnHitRaw(bolt, list), 0)
-    check("и выстрел физикой издалека — нет",
-          AE.OnHitRaw({ damageType = "physical", distance = 20 }, list), 0)
+    check("выстрел из лука — нет",
+          AE.OnHitRaw({ damageType = "physical", distance = 20, requirement = "bow" }, list), 0)
+    check("физика вплотную без оружия (кулаки, когти) — нет",
+          AE.OnHitRaw({ damageType = "physical", distance = 2.5 }, list), 0)
+    check("святой удар оружием тоже несёт чары",
+          AE.OnHitRaw({ damageType = "holy", distance = 2.5, requirement = "melee" }, list), 2)
+    check("двуручное оружие считается ближним боем",
+          AE.IsWeaponStrike({ requirement = "twohand" }), true)
+    for _, id in ipairs({ "templars_verdict", "plague_strike", "crusader_strike", "stormstrike" }) do
+        check("«" .. (SB.Data.Spells[id] and SB.Data.Spells[id].name or id) .. "» — удар оружием",
+              AE.IsWeaponStrike(SB.Data.Spells[id]), true)
+    end
 
     -- У ЦЕЛИ: огонь гасит сопротивление огню, доспех не трогает.
     local PM = SB.PlayerModel
     SB.Data.Spells["t_strike"] = { id = "t_strike", name = "Проба клинка", class = "Воин",
-        level = 0, damageType = "physical", distance = 2.5, canCrit = true }
+        level = 0, damageType = "physical", distance = 2.5, canCrit = true,
+        requirement = "melee" }
     SB.Data.Spells["t_fire_res"] = { id = "t_fire_res", name = "Проба огнеупора",
         class = "Эффект", level = 0, isContainer = true,
         effect = { kind = "buff", mods = { resistFire = 1 } } }

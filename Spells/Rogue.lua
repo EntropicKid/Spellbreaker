@@ -410,6 +410,7 @@ Add({
 
 Add({
     id = "ambush",
+    requirement = "melee",
     name = "Засада",
     key = "Скрытность",
     icon = "Interface\\Icons\\Ability_ambush",
@@ -590,6 +591,7 @@ Add({
 
 Add({
     id = "assassinate",
+    requirement = "melee",
     name = "Устранение",
     key = "Скрытность",
     icon = "Interface\\Icons\\Ability_rogue_deadlybrew",
