@@ -8,6 +8,7 @@ local Add = SB.Database.AddSpell -- Короткая ссылка
 Add({
     id = "death_strike",
     name = "Удар смерти",
+	requirement = "melee",
     key = "Кровь",
     icon = "Interface\\Icons\\Spell_deathknight_butcher2",
     level = 0,
@@ -62,7 +63,6 @@ Add({
     description = "Осознанное причинение себе боли для высвобождения чистой рунической энергии. Помимо очевидного боевого применения, этот ритуал служит мрачным социальным жестом — демонстративное пускание собственной черной, мертвой крови показывает фанатикам или сектантам готовность идти до конца и доказывает отсутствие страха перед смертью.",
     isCantrip = true,
     resistable = false,
-    distance = 0,
     onCast = { damage = 2, resource = 3 },
 })
 
@@ -119,6 +119,7 @@ Add({
 Add({
     id = "obliterate",
     name = "Уничтожение",
+	requirement = "melee",
     key = "Лёд",
     icon = "Interface\\Icons\\Spell_deathknight_classicon",
     level = 2,
@@ -227,6 +228,7 @@ Add({
 Add({
     id = "plague_strike",
     name = "Удар чумы",
+	requirement = "melee",
     key = "Нечестивость",
     icon = "Interface\\Icons\\Spell_deathknight_plaguestrike",
     level = 1,
@@ -398,6 +400,7 @@ Add({
 Add({
     id = "rune_strike",
     name = "Рунический удар",
+	requirement = "melee",
     key = "Кровь",
     icon = "Interface\\Icons\\Spell_deathknight_darkconviction",
     level = 0,
@@ -534,6 +537,7 @@ Add({
 Add({
     id = "dancing_rune_weapon",
     name = "Пляшущее рунное оружие",
+	requirement = "melee",
     key = "Кровь",
     icon = "Interface\\Icons\\Inv_sword_07",
     level = 3,
@@ -703,6 +707,7 @@ Add({
 Add({
     id = "scourge_strike",
     name = "Удар Плети",
+	requirement = "melee",
     key = "Нечестивость",
     icon = "Interface\\Icons\\Spell_deathknight_scourgestrike",
     level = 2,
