@@ -3441,7 +3441,25 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
     -- Флаг ставит окно подтверждения (см. SB.UI.ShowCastConfirm), и
     -- стоит он ЗДЕСЬ, после всех списаний и проверок: заявка — это уже
     -- потраченный ход и потраченный ресурс, ровно как обычный каст.
+    -- ВЕДУЩИЙ БЕЗ АДДОНА — ЗАЯВКЕ НЕКУДА ИДТИ. Отказываем тем же
+    -- порядком, что и «неподходящая цель» ниже: ресурс назад, ход не
+    -- тратится, темп взводится (см. там же).
+    local function RefuseNoGM()
+        if slotLevel > 0 then
+            PM.AdjustPool(PM.CastPool(), slotLevel)
+            SB.Events.Fire("STATUS_CHANGED")
+        end
+        if SB.Cooldowns then SB.Cooldowns.Start(SB.Cooldowns.TURN) end
+        print(SB.Theme.MSG_BAD .. "[Spellbreaker]: У лидера группы не установлен " ..
+            "Spellbreaker — заявку Ведущему некому принять.|r")
+        PM.SetLocked(wasLocked)
+    end
+
     if opts.toGM then
+        if SB.Net and SB.Net.LeaderHasAddon and not SB.Net.LeaderHasAddon() then
+            RefuseNoGM()
+            return
+        end
         local d = spell.distance
         local targetLabel = (not d or d <= 0)
             and "На себя"
@@ -3620,6 +3638,9 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
         print(SB.Theme.MSG_BAD .. "[Spellbreaker]: Неподходящая цель. " ..
             "Если решает Ведущий — нажмите «Заявка Ведущему».|r")
         PM.SetLocked(wasLocked)
+        return
+    elseif SB.Net and SB.Net.LeaderHasAddon and not SB.Net.LeaderHasAddon() then
+        RefuseNoGM()
         return
     else
         -- Метка цели для заявки ГМу

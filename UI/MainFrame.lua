@@ -694,10 +694,10 @@ local function BuildMainFrame()
     end)
     portFrame:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    healthBar = SB.Theme.Bar(header, 155, 13, "health")
+    healthBar = SB.Theme.Bar(header, 140, 13, "health")
     healthBar:SetPoint("TOPLEFT", portFrame, "TOPRIGHT", 8, -20)
  
-    manaBar = SB.Theme.Bar(header, 155, 13, "mana")
+    manaBar = SB.Theme.Bar(header, 140, 13, "mana")
     manaBar:SetPoint("TOPLEFT", healthBar, "BOTTOMLEFT", 0, -8)
     manaBar:EnableMouse(true)
     manaBar:SetScript("OnEnter", function(self)
@@ -1102,7 +1102,29 @@ local function BuildMainFrame()
         if left > 0 then fleeItem:Enable() else fleeItem:Disable() end
     end
 
+    -- ДЕЙСТВОВАТЬ НЕЧЕМ — КНОПКА СТАНОВИТСЯ «ОКОНЧИТЬ ХОД». То же
+    -- условие, что складывает панельку способностей до одной кнопки (см.
+    -- SB.SpellBar.IsEndMode): в своём ходу действие сделано или предел
+    -- пройден. Искать «окончить» в меню в этот миг — лишний клик в том
+    -- единственном месте, где он и нужен.
+    local function EndMode()
+        return SB.SpellBar and SB.SpellBar.IsEndMode and SB.SpellBar.IsEndMode() or false
+    end
+    function SB.UI.RefreshSpecialButton()
+        local on = EndMode()
+        if shortRestBtn._endMode == on then return end
+        shortRestBtn._endMode = on
+        shortRestBtn:SetText(on and "Окончить ход" or "Специальное действие")
+        SB.Theme.SetButtonVariant(shortRestBtn, on and "primary" or "secondary")
+        if on then specialMenu:Hide() end
+    end
+
     shortRestBtn:SetScript("OnClick", function()
+        if EndMode() then
+            if SB.Logic and SB.Logic.SpendTurnManually then SB.Logic.SpendTurnManually() end
+            SB.UI.RefreshSpecialButton()
+            return
+        end
         if specialMenu:IsShown() then
             specialMenu:Hide()
             return
@@ -1578,6 +1600,7 @@ local function BuildMainFrame()
         if SB.SpellBar and SB.SpellBar.RefreshState then
             SB.SpellBar.RefreshState()
         end
+        if SB.UI.RefreshSpecialButton then SB.UI.RefreshSpecialButton() end
     end)
 end
 -- ============================================================

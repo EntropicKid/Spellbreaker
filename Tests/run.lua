@@ -13633,8 +13633,7 @@ do
     check("карточки на дубе", T.BD.card.bgFile:find("Oak", 1, true) ~= nil, true)
     check("карточка — пергамент", T.Surface("detail").tex, T.Surface("parchment").tex)
     checkTrue("карточка отличается от кожи переплёта", T.Surface("detail").tex ~= leather)
-    check("панель Ведущего на мраморе колонок", T.Surface("gm").tex, T.Surface("column").tex)
-    check("и в том же масштабе", T.Surface("gm").tileSize, T.Surface("column").tileSize)
+    check("панель Ведущего на ромбе", T.Surface("gm").tex, T.Surface("quilt").tex)
 
     -- ── ФАЙЛЫ, КОТОРЫЕ КЛИЕНТ ВООБЩЕ ЗАГРУЗИТ ──────────────
     --
@@ -21147,6 +21146,45 @@ do
     AE.Clear()
     SB.Skills.ResetArmor()
     SB.Data.Spells["t_ret_plate"] = nil
+end
+
+-- ============================================================
+-- ЗАЯВКИ ВЕДУЩЕМУ: ЛИДЕР БЕЗ АДДОНА И ЖДУЩИЕ ЗАЯВКИ
+--
+-- Заявка уходит, только если у лидера стоит Spellbreaker (его статус
+-- пришёл). Поданная заявка лежит у игрока до ответа — чтобы пережить
+-- /reload и переехать к новому лидеру.
+-- ============================================================
+do
+    local W = stub.world
+    local savedG, savedL = W.inGroup, W.isLeader
+    W.inGroup = false
+    checkTrue("соло — Ведущий я сам", SB.Net.LeaderHasAddon())
+    W.inGroup, W.isLeader = true, true
+    checkTrue("лидер — я сам", SB.Net.LeaderHasAddon())
+    W.isLeader = false
+    checkTrue("лидер не прислал статуса — аддона у него нет", not SB.Net.LeaderHasAddon())
+
+    -- Исходящие Send* в стенде подменены писцом (см. начало файла),
+    -- поэтому список ждущих заполняем напрямую — проверяется его жизнь.
+    local spellID = "arcane_missles"
+    SpellbreakerCharDB.pendingRequests = {
+        { spellID = spellID, target = "Цель", mod = 5, ts = time() },
+        { spellID = "frost_bolt", target = "Цель", mod = 5, ts = time() - 7200 },
+    }
+    SB.Events.Fire("CAST_REJECTED", spellID)
+    check("ответ снимает заявку", #SpellbreakerCharDB.pendingRequests, 1)
+    W.isLeader = true
+    SB.Net.ResendPendingRequests(false)
+    check("протухшая выброшена", #SpellbreakerCharDB.pendingRequests, 0)
+
+    SpellbreakerCharDB.pendingRequests = { { spellID = spellID, ts = time() } }
+    W.inGroup = false
+    SB.Net.ResendPendingRequests(false)
+    check("вне группы ждать некого", #SpellbreakerCharDB.pendingRequests, 0)
+
+    W.inGroup, W.isLeader = savedG, savedL
+    SpellbreakerCharDB.pendingRequests = nil
 end
 
 -- ИТОГ

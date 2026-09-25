@@ -239,6 +239,19 @@ function SB.Net.GetLeaderName()
     return nil
 end
 
+--- Может ли Ведущий принять заявку: соло или я сам лидер — да; иначе
+--- у лидера должен стоять Spellbreaker. Узнаём по его статусу: статус
+--- рассылают только клиенты с аддоном, и пока от лидера не пришло ни
+--- одного, заявка ушла бы в пустоту — игрок ждал бы ответа, которого не
+--- будет, с уже потраченным ходом.
+function SB.Net.LeaderHasAddon()
+    if not IsInGroup() or UnitIsGroupLeader("player") then return true end
+    local leader = SB.Net.GetLeaderName()
+    if not leader then return false end
+    local st = SB.Data.PlayersStatus
+    return (st and (st[leader] or st[Ambiguate(leader, "none")])) ~= nil
+end
+
 -- ОТКАЗ ПЕРЕПРОВЕРЯЕТСЯ ПО ЖИВОМУ СОСТАВУ, И ВОТ ПОЧЕМУ.
 --
 -- Через эту проверку проходит ВЕСЬ удар существа по игроку: не признали
@@ -1599,13 +1612,48 @@ SB.Net:RegisterComm(COMM_PREFIX, OnCommReceived)
 --- Круг в пакете не едет: Ведущий берёт его из своей библиотеки
 --- (см. врезку «КРУГ НЕ ЕЗДИТ ПО СЕТИ» выше). В подписи он остался —
 --- её зовёт подписка на CAST_REQUEST, а событие объявлено давно.
-function SB.Net.SendCastRequest(spellID, slotLevel, targetLabel, mod)
-    if not IsInGroup() or UnitIsGroupLeader("player") then
-        SB.Events.Fire("GM_REQUEST_RECEIVED", UnitName("player"), spellID,
-            tonumber(SB.Data.Spells[spellID] and SB.Data.Spells[spellID].level) or 0,
-            targetLabel, mod)
-        return
+-- ============================================================
+-- ЖДУЩИЕ ЗАЯВКИ ЖИВУТ У ТОГО, КТО ИХ ПОДАЛ
+--
+-- Заявка — это уже потраченный ход, и потерять её значит потерять ход.
+-- Терялась она двумя путями: /reload у игрока стирал тост (ответ Ведущего
+-- приходил, но показать его было негде), а смена лидера оставляла заявку
+-- у прежнего — новый о ней не знал вовсе.
+--
+-- Источник правды — сам игрок: его ждущие заявки лежат в сохранёнке
+-- персонажа до ответа. После входа тосты поднимаются заново, а заявки
+-- переотправляются текущему лидеру; при смене лидера — тоже. Ведущий
+-- отсекает повторы сам (см. дедупликацию в SB.UI.ShowGMRequest), так
+-- что переотправка безопасна.
+-- ============================================================
+local PENDING_TTL = 3600   -- секунд: ответа за час уже не ждут
+
+local function PendingList()
+    local d = SpellbreakerCharDB
+    if not d then return nil end
+    if type(d.pendingRequests) ~= "table" then d.pendingRequests = {} end
+    return d.pendingRequests
+end
+
+local function RememberPending(spellID, targetLabel, mod)
+    local list = PendingList()
+    if not list then return end
+    for i = #list, 1, -1 do
+        if list[i].spellID == spellID then table.remove(list, i) end
     end
+    list[#list + 1] = { spellID = spellID, target = targetLabel or "",
+                        mod = tonumber(mod), ts = time() }
+end
+
+local function ForgetPending(spellID)
+    local list = PendingList()
+    if not list then return end
+    for i = #list, 1, -1 do
+        if list[i].spellID == spellID then table.remove(list, i) end
+    end
+end
+
+local function SendREQ(spellID, targetLabel, mod)
     SendToGroup({
         action      = "REQ",
         caster      = UnitName("player"),
@@ -1613,7 +1661,94 @@ function SB.Net.SendCastRequest(spellID, slotLevel, targetLabel, mod)
         targetLabel = targetLabel or "",
         mod         = tonumber(mod),
     }, "NORMAL")
+end
+
+function SB.Net.SendCastRequest(spellID, slotLevel, targetLabel, mod)
+    if not IsInGroup() or UnitIsGroupLeader("player") then
+        SB.Events.Fire("GM_REQUEST_RECEIVED", UnitName("player"), spellID,
+            tonumber(SB.Data.Spells[spellID] and SB.Data.Spells[spellID].level) or 0,
+            targetLabel, mod)
+        return
+    end
+    RememberPending(spellID, targetLabel, mod)
+    SendREQ(spellID, targetLabel, mod)
     print("|cFF9933FF[Spellbreaker]|r: Ожидание решения ведущего...")
+end
+
+--- Переотправить ждущие заявки текущему лидеру. Протухшие выбрасываются.
+--- @param restoreToasts boolean  поднять и тосты (после входа в игру)
+function SB.Net.ResendPendingRequests(restoreToasts)
+    local list = PendingList()
+    if not list or #list == 0 then return 0 end
+    if not IsInGroup() then table.wipe(list); return 0 end
+    local now, sent = time(), 0
+    for i = #list, 1, -1 do
+        local r = list[i]
+        if (now - (tonumber(r.ts) or 0)) > PENDING_TTL or not SB.Data.Spells[r.spellID] then
+            table.remove(list, i)
+        end
+    end
+    -- Лидер без аддона ответить не сможет — заявки не шлём, но и не
+    -- выбрасываем: дождутся следующей смены лидера.
+    local canSend = SB.Net.LeaderHasAddon()
+    if not canSend and #list > 0 then
+        print("|cFF9933FF[Spellbreaker]|r: у лидера группы нет Spellbreaker — " ..
+            #list .. " заявк(и) ждут смены лидера.")
+    end
+    for _, r in ipairs(list) do
+        if restoreToasts and SB.UI and SB.UI.ShowCastPending then
+            SB.UI.ShowCastPending(r.spellID)
+        end
+        if UnitIsGroupLeader("player") then
+            -- Лидером стал я сам: заявка ложится в свою же очередь.
+            SB.Events.Fire("GM_REQUEST_RECEIVED", UnitName("player"), r.spellID,
+                tonumber(SB.Data.Spells[r.spellID].level) or 0, r.target, r.mod)
+        elseif canSend then
+            SendREQ(r.spellID, r.target, r.mod)
+        end
+        sent = sent + 1
+    end
+    return sent
+end
+
+-- Ответ пришёл — заявка больше не ждёт.
+SB.Events.On("CAST_RESOLVED", function(spellID) ForgetPending(spellID) end)
+SB.Events.On("CAST_REJECTED", function(spellID) ForgetPending(spellID) end)
+
+do
+    -- ВХОД В ИГРУ И СМЕНА ЛИДЕРА. На входе состав и статусы приходят не
+    -- сразу — ждём несколько секунд, как и прочие рассылки на входе.
+    -- Смена лидера ловится сравнением имени: GROUP_ROSTER_UPDATE приходит
+    -- пачкой, а переотправлять надо один раз на одного нового лидера.
+    local lastLeader, entered = nil, false
+    local f = CreateFrame("Frame")
+    f:RegisterEvent("PLAYER_ENTERING_WORLD")
+    f:RegisterEvent("PARTY_LEADER_CHANGED")
+    f:RegisterEvent("GROUP_ROSTER_UPDATE")
+    f:SetScript("OnEvent", function(_, event)
+        if event == "PLAYER_ENTERING_WORLD" then
+            if entered then return end
+            entered = true
+            C_Timer.After(6, function()
+                lastLeader = SB.Net.GetLeaderName()
+                SB.Net.ResendPendingRequests(true)
+            end)
+            return
+        end
+        if not entered then return end
+        if not IsInGroup() then
+            lastLeader = nil
+            local list = PendingList()
+            if list then table.wipe(list) end
+            return
+        end
+        local leader = SB.Net.GetLeaderName()
+        if leader and lastLeader and leader ~= lastLeader then
+            -- Новый Ведущий: пусть сначала придёт его статус — пара секунд.
+            C_Timer.After(2, function() SB.Net.ResendPendingRequests(false) end)
+        end
+        lastLeader = leader or lastLeader
+    end)
 end
 
 --- Отправить решение ГМа игроку.
@@ -2977,6 +3112,22 @@ leaderFrame:SetScript("OnEvent", function()
                 table.wipe(SpellbreakerAccountDB.requestQueue)
             end
         end
+    end
+
+    -- ОЧЕРЕДЬ ЗАЯВОК ПЕРЕЖИВАЕТ /reload ВЕДУЩЕГО (см. Core/Init.lua), и
+    -- чистится здесь — по живому составу: заявки тех, кого в группе уже
+    -- нет, принять нельзя (ответ некому получить).
+    local q = SpellbreakerAccountDB and SpellbreakerAccountDB.requestQueue
+    if type(q) == "table" and #q > 0 and IsInGroup() then
+        local qChanged = false
+        for i = #q, 1, -1 do
+            local c = q[i].caster
+            if c ~= UnitName("player") and not UnitInParty(c) and not UnitInRaid(c) then
+                table.remove(q, i)
+                qChanged = true
+            end
+        end
+        if qChanged and SB.UI and SB.UI.UpdateGMQueue then SB.UI.UpdateGMQueue() end
     end
 
     -- Удаляем статусы игроков, покинувших группу

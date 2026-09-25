@@ -280,10 +280,10 @@ local SURFACES = {
     -- подкраска сводит её к ~(29,24,25) — яркости и почти оттенку фона
     -- главного окна (~26,25,27), оставляя лёгкое тепло материала.
     library = { tex = MEDIA .. "Tome.tga", tint = { 0.52, 0.62, 0.88, 1 }, tileSize = 512, vignette = true },
-    -- ПАНЕЛЬ ВЕДУЩЕГО — ТОТ ЖЕ МРАМОР, ЧТО У КОЛОНОК главного окна, и в
-    -- том же масштабе: оба окна устроены одинаково — камень, на нём дубовые
-    -- строки. Стёганое полотно осталось окнам-формам (quilt выше).
-    gm      = { tex = MEDIA .. "Marble.tga", tint = { 1, 1, 1, 1 }, tileSize = 384 },
+    -- Панель Ведущего — стёганое полотно, как окна-формы (мрамор здесь
+    -- пробовали и вернули: панель — рабочее место Ведущего, а не ещё
+    -- одна колонка главного окна).
+    gm      = { tex = MEDIA .. "Quilt.tga", tint = { 1, 1, 1, 1 }, tileSize = 256 },
     -- КАРТОЧКА ЗАКЛИНАНИЯ — ТОТ ЖЕ ПЕРЕПЛЁТ, ЧТО И БИБЛИОТЕКА.
     --
     -- Здесь стоял свой камень — чтобы карточка, всплывая поверх
@@ -642,6 +642,19 @@ end
 -- ============================================================
 -- Button
 -- ============================================================
+--- Сменить вид уже созданной кнопки (primary / secondary / danger).
+--- Нужна кнопке, которая меняет смысл на лету: «Специальное действие»
+--- становится «Окончить ход» и обязана выглядеть главным действием.
+function SB.Theme.SetButtonVariant(btn, variant)
+    local v = VARIANTS[variant]
+    if not (btn and v) or btn._v == v then return end
+    btn._v = v
+    btn._soundVariant = (variant == "danger") and "danger" or "click"
+    btn:SetBackdropColor(v.bg[1], v.bg[2], v.bg[3], v.bg[4])
+    btn:SetBackdropBorderColor(v.border[1], v.border[2], v.border[3], v.border[4])
+    if btn._fs then btn._fs:SetTextColor(v.text[1], v.text[2], v.text[3]) end
+end
+
 function SB.Theme.Button(parent, text, w, h, variant)
     local v = VARIANTS[variant] or VARIANTS.secondary
 
@@ -2795,6 +2808,18 @@ function SB.Theme.DockableColumn(hostFrame, dbKey, title, width)
     titleBar:SetHeight(20)
     titleBar:EnableMouse(true)
  
+    -- ПОДКЛАДКА ПОД ЗАГОЛОВОК — на фоне самой колонки, а не на полосе.
+    -- Полоса стоит в 4 px от края, видимая кромка рамки кончается чуть
+    -- раньше, и в пиксельную щель между ними просвечивал мрамор. Дотянуть
+    -- полосу до рамки нельзя: дочерний фрейм рисуется ПОВЕРХ рамки
+    -- родителя и срезал бы её край. Подкладка лежит в слое фона колонки
+    -- (над её плиткой, под рамкой) — щель становится тёмной, как тень
+    -- под деревом, а рамка остаётся целой.
+    local titleUnder = col:CreateTexture(nil, "BACKGROUND", nil, 7)
+    titleUnder:SetPoint("TOPLEFT",     col, "TOPLEFT",  2, -2)
+    titleUnder:SetPoint("BOTTOMRIGHT", titleBar, "BOTTOMRIGHT", 2, -1)
+    titleUnder:SetColorTexture(0.06, 0.05, 0.04, 1)
+
     local titleBg = titleBar:CreateTexture(nil, "ARTWORK")
     titleBg:SetAllPoints()
     if not SB.Theme.WoodStrip(titleBg) then
