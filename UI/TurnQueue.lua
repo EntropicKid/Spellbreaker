@@ -513,10 +513,15 @@ local function EnsureBar()
     local C = SB.Theme.C
     divider = CreateFrame("Frame", nil, bar)
     divider:SetSize(DIVIDER_W, CARD)
-    divider.line = divider:CreateTexture(nil, "ARTWORK")
-    divider.line:SetSize(2, CARD)
+    -- Латунная полоса разделителей библиотеки и настроек (см.
+    -- SB.Theme.Divider), поставленная на ребро: вдоль черты идёт длина
+    -- файла, поперёк — его высота. Файл симметричен, поэтому поворот
+    -- записан просто перестановкой углов, без зеркала.
+    divider.line = SB.Theme.Divider(divider, "ARTWORK")
+    divider.line:ClearAllPoints()
+    divider.line:SetSize(6, CARD)
     divider.line:SetPoint("CENTER")
-    divider.line:SetColorTexture(C.frameBorder[1], C.frameBorder[2], C.frameBorder[3], 0.9)
+    divider.line:SetTexCoord(0, 0, 1, 0, 0, 1, 1, 1)
     divider.x, divider.a, divider.tx, divider.ta = 0, 0, 0, 0
     divider:Hide()
 

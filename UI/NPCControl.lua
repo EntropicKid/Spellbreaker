@@ -443,11 +443,19 @@ local function ShouldShow()
 end
 
 function SB.NPCControl.Refresh()
+    local was = button and button:IsShown() or false
     if not ShouldShow() then
         if button then button:Hide() end
-        return
+    else
+        EnsureButton():Show()
     end
-    EnsureButton():Show()
+    -- Ауры цели сдвигаются под кнопку (см. SB.Overlay.NpcMenuShift), а
+    -- клиент мог расставить их раньше, чем кнопка появилась или спряталась:
+    -- событие смены цели приходит и ему, и нам. Просим расставить заново.
+    local now = button and button:IsShown() or false
+    if now ~= was and _G.TargetFrame_UpdateAuras and _G.TargetFrame then
+        pcall(_G.TargetFrame_UpdateAuras, _G.TargetFrame)
+    end
 end
 
 function SB.NPCControl.IsEnabled()

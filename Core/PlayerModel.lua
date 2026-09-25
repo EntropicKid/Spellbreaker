@@ -1808,6 +1808,8 @@ function PM.FullReset()
     -- Запас срывов Воли — третий запас на сцену рядом с бронёй и
     -- побегом, и возвращает его то же самое (см. SB.Skills.RestoreWill).
     if SB.Skills and SB.Skills.RestoreWill then SB.Skills.RestoreWill() end
+    -- Удержания Концентрации — тот же запас и то же восстановление.
+    if SB.Skills and SB.Skills.RestoreHold then SB.Skills.RestoreHold() end
     SB.Events.Fire("PLAYER_MODEL_CHANGED")
     PM.SetLocked(false)
 end

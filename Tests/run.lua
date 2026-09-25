@@ -21042,6 +21042,46 @@ do
     _G.SpellbreakerNPCDB = savedDB
 end
 
+-- ============================================================
+-- КОНЦЕНТРАЦИЯ — УДЕРЖАНИЯ
+--
+-- Навык больше не прибавляет к защите: он даёт запас удержаний, и одно
+-- удержание спасает концентрацию от срыва контролем или прерыванием.
+-- ============================================================
+do
+    local AE = SB.ActiveEffects
+    SB.Data.Spells["t_hold_gift"] = { id = "t_hold_gift", name = "Проба сосредоточения",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff", stats = { ["Концентрация"] = 1 } } }
+    SB.Data.Spells["t_hold_conc"] = { id = "t_hold_conc", name = "Проба концентрации",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff", mods = { defense = 1 } } }
+    local function has(id)
+        for _, e in ipairs(AE.GetAll()) do if e.spellID == id then return true end end
+        return false
+    end
+
+    AE.Clear()
+    SB.Skills.RestoreHold()
+    local base = SB.Skills.GetHoldLeft()
+    AE.Add("t_hold_gift", 5, false)
+    check("эффект со стат-прибавкой даёт удержание", SB.Skills.GetHoldLeft() - base, 1)
+    AE.Add("t_hold_conc", 5, true)
+    -- Надетые удержания в прогоне обнуляем расходом, чтобы считать ровно одно.
+    if base > 0 then SB.Skills.SpendFromPool("hold", base) end
+    AE.BreakOn("controlled")
+    checkTrue("удержание спасает концентрацию от контроля", has("t_hold_conc"))
+    check("и тратится", SB.Skills.GetHoldLeft(), 0)
+    AE.BreakOn("interrupted")
+    checkTrue("без удержаний прерывание её снимает", not has("t_hold_conc"))
+    check("к защите навык больше не прибавляет",
+          SB.Skills.GetConcentrationDefenseBonus, nil)
+
+    AE.Clear()
+    SB.Skills.RestoreHold()
+    SB.Data.Spells["t_hold_gift"], SB.Data.Spells["t_hold_conc"] = nil, nil
+end
+
 -- ИТОГ
 -- ============================================================
 print("")

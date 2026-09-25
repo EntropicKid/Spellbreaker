@@ -1395,6 +1395,10 @@ end
 SB.Data.Pools = {
     armor = { spentKey = "armorSpent", source = "mods",  key = "armor", skill = "Ношение брони" },
     will  = { spentKey = "willSpent",  source = "stats", key = "Воля",  skill = "Воля" },
+    -- УДЕРЖАНИЯ КОНЦЕНТРАЦИИ: по одному за вложенное очко. Тратится одно,
+    -- когда контроль или прерывание сорвали бы концентрацию, — и она
+    -- остаётся (см. SB.ActiveEffects.BreakOn).
+    hold  = { spentKey = "holdSpent",  source = "stats", key = "Концентрация", skill = "Концентрация" },
 }
 
 -- ============================================================

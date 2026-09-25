@@ -3473,6 +3473,10 @@ function SB.ActiveEffects.BreakOn(trigger)
     -- Сначала собираем список, потом снимаем: Remove правит таблицу, по
     -- которой мы бы шли.
     local doomed
+    -- Что сорвано ИМЕННО КАК КОНЦЕНТРАЦИЯ — умолчанием контроля или
+    -- прерывания, а не явным breakOn автора. Только это спасает
+    -- удержание Концентрации (см. ниже).
+    local concHit = {}
     for _, eff in ipairs(effects) do
         local sp  = SB.Data.Spells[eff.spellID]
         local def = sp and sp.effect and sp.effect.breakOn
@@ -3510,6 +3514,7 @@ function SB.ActiveEffects.BreakOn(trigger)
             local said
             if type(def) == "table" then said = def.controlled end
             hit = (said ~= false)
+            if hit then concHit[eff.spellID] = true end
         end
 
         -- ПРЕРЫВАНИЕ — удар способностью с interrupt (зуботычина, пинок,
@@ -3524,6 +3529,7 @@ function SB.ActiveEffects.BreakOn(trigger)
             local said
             if type(def) == "table" then said = def.interrupted end
             hit = (said ~= false)
+            if hit then concHit[eff.spellID] = true end
         end
 
         if not hit and trigger == "healed" then
@@ -3539,6 +3545,34 @@ function SB.ActiveEffects.BreakOn(trigger)
         end
     end
     if not doomed then return end
+
+    -- ── УДЕРЖАНИЕ КОНЦЕНТРАЦИИ ─────────────────────────────
+    -- Одно удержание спасает ВСЁ, что этот срыв снял бы как
+    -- концентрацию: концентрация у персонажа одна, а держатель потока
+    -- рядом с ней — та же сосредоточенность, и платить за них дважды за
+    -- один удар было бы странно. Явный breakOn автора удержание не
+    -- спасает: там автор решил про свой эффект, а не про концентрацию.
+    if next(concHit) and SB.Skills and SB.Skills.SpendHold and SB.Skills.SpendHold() then
+        local kept, names = {}, {}
+        for _, id in ipairs(doomed) do
+            if concHit[id] then
+                local sp = SB.Data.Spells[id]
+                names[#names + 1] = (sp and sp.name) or id
+            else
+                kept[#kept + 1] = id
+            end
+        end
+        if SB.E.BROADCAST_LOG then
+            SB.Events.Fire(SB.E.BROADCAST_LOG,
+                SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. SB.Theme.MSG_BODY ..
+                (UnitName("player") or "?") .. " удерживает «" ..
+                table.concat(names, "», «") .. "» (Концентрация, осталось " ..
+                SB.Skills.GetHoldLeft() .. ").|r",
+                SB.LogRank and SB.LogRank.RESULT)
+        end
+        doomed = kept
+        if #doomed == 0 then return end
+    end
 
     breaking = true
     for _, spellID in ipairs(doomed) do

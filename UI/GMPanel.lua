@@ -53,6 +53,9 @@ local unitToRowIndex = {}
 -- true  = плашка показана.
 -- По умолчанию (nil) — скрыто, что и требуется.
 local playerSpellsVisible = {}
+-- Доля раскрытия подстроки заклинаний, 0..1, по имени игрока. Пока
+-- анимации нет, её нет и здесь — берётся из playerSpellsVisible.
+local subOpen = {}
 
 -- Фрейм для прослушивания нативных событий портрета.
 local portraitEventFrame
@@ -1425,32 +1428,52 @@ function SB.UI.UpdateGMPlayers()
 
         local capturedName = p.name
         row:EnableMouse(true)
+        -- ЛКМ — ЗАКЛИНАНИЯ, ПКМ — ВЫДАЧА. Раньше было наоборот, но
+        -- заглянуть в подготовленное Ведущий делает много чаще, чем
+        -- выдаёт ресурсы, и частое действие — на основной кнопке.
         row:SetScript("OnClick", function(self, btn)
-            if btn == "LeftButton" then
+            if btn == "RightButton" then
                 if SB.ResourceGrant and SB.ResourceGrant.CanGrant and SB.ResourceGrant.CanGrant() and
                    SB.ResourceGrant.ShowFor then
                     SB.ResourceGrant.ShowFor(capturedName, p)
                 end
-            elseif btn == "RightButton" then
-                if playerSpellsVisible[capturedName] then
-                    playerSpellsVisible[capturedName] = nil   -- скрыть
+            elseif btn == "LeftButton" then
+                local opening = not playerSpellsVisible[capturedName]
+                playerSpellsVisible[capturedName] = opening or nil
+                -- ВЫЕЗЖАЕТ, А НЕ ПОЯВЛЯЕТСЯ: доля раскрытия едет к 1 или
+                -- к 0, и на каждом кадре список раскладывается заново —
+                -- строки ниже едут вместе с подстрокой, а не прыгают.
+                if SB.Animate and SB.Animate.To then
+                    SB.Animate.To("sbGMSub:" .. capturedName, {
+                        from     = subOpen[capturedName] or (opening and 0 or 1),
+                        to       = opening and 1 or 0,
+                        duration = 0.2,
+                        easing   = "outQuad",
+                        apply    = function(v)
+                            subOpen[capturedName] = v
+                            SB.UI.UpdateGMPlayers()
+                        end,
+                        onDone   = function()
+                            subOpen[capturedName] = nil
+                            SB.UI.UpdateGMPlayers()
+                        end,
+                    })
                 else
-                    playerSpellsVisible[capturedName] = true  -- показать
+                    SB.UI.UpdateGMPlayers()
                 end
-                SB.UI.UpdateGMPlayers()
             end
         end)
         row:SetScript("OnEnter", function(self)
             self:SetBackdropColor(C.cardHoverBg[1], C.cardHoverBg[2], C.cardHoverBg[3], C.cardHoverBg[4])
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 			SB.Theme.StyleTooltip(GameTooltip)
-            if SB.ResourceGrant and SB.ResourceGrant.CanGrant and SB.ResourceGrant.CanGrant() then
-                GameTooltip:SetText("ЛКМ — Выдать ресурсы", 1, 0.82, 0, true)
-            end
             local visible = playerSpellsVisible[capturedName] == true
-            GameTooltip:AddLine("ПКМ — " ..
+            GameTooltip:SetText("ЛКМ — " ..
                 (visible and "скрыть заклинания" or "показать заклинания"),
-                0.8, 0.8, 0.8)
+                1, 0.82, 0, true)
+            if SB.ResourceGrant and SB.ResourceGrant.CanGrant and SB.ResourceGrant.CanGrant() then
+                GameTooltip:AddLine("ПКМ — выдать ресурсы", 0.8, 0.8, 0.8)
+            end
             GameTooltip:Show()
         end)
         row:SetScript("OnLeave", function(self)
@@ -1465,9 +1488,11 @@ function SB.UI.UpdateGMPlayers()
         -- ══════ 2. SUB — подготовленные заклинания (если не скрыты) ══════
         local prepared = p.preparedSpells or {}
         local visible   = playerSpellsVisible[p.name] == true
+        -- Доля раскрытия: во время анимации — её кадр, иначе 0 или 1.
+        local open = subOpen[p.name] or (visible and 1 or 0)
 
         local sub = playerSubs[index]
-        if #prepared == 0 or not visible then
+        if #prepared == 0 or open <= 0.001 then
             if sub then sub:Hide() end
         else
             if not sub then
@@ -1484,8 +1509,14 @@ function SB.UI.UpdateGMPlayers()
             sub:ClearAllPoints()
             sub:SetPoint("TOPLEFT",  playersChild, "TOPLEFT",  0, -yOff - gapRowSub)
             sub:SetPoint("TOPRIGHT", playersChild, "TOPRIGHT", 0, -yOff - gapRowSub)
+            -- Высота — по доле раскрытия, лишнее обрезается верхним краем:
+            -- иконки привязаны к НИЗУ подстроки и выезжают из-под строки
+            -- игрока, а не растягиваются из середины.
+            sub:SetHeight(math.max(1, subH * open))
+            if sub.SetClipsChildren then sub:SetClipsChildren(true) end
+            sub:SetAlpha(math.min(1, open * 1.5))
             sub:Show()
-            yOff = yOff + gapRowSub + subH
+            yOff = yOff + (gapRowSub + subH) * open
 
             for _, ic in ipairs(sub.icons) do ic:Hide() end
 
@@ -1531,7 +1562,8 @@ function SB.UI.UpdateGMPlayers()
                 ic._tex:SetTexture(sp and sp.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
 
                 ic:ClearAllPoints()
-                ic:SetPoint("LEFT", sub, "LEFT", iconPadL + (iIdx-1) * iconStride, 0)
+                ic:SetPoint("BOTTOMLEFT", sub, "BOTTOMLEFT", iconPadL + (iIdx-1) * iconStride,
+                            math.floor((subH - iconSize) / 2))
                 ic:Show()
             end
         end
