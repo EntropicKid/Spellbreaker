@@ -13625,12 +13625,12 @@ do
     --   пергамент   — карточка заклинания («свиток»); тот же пергамент
     --                 у списка библиотеки (см. SB.Theme.Inset);
     --   ромб        — окна-формы и панель Ведущего.
-    -- Колонки и карточки поменялись материалами: колонки — мрамор,
-    -- карточки на них — кожа. Переплёт библиотеки — кожа, как и был.
+    -- Колонки — мрамор, карточки на них — морёный дуб (родня деревянным
+    -- заголовкам). Кожа — только у переплёта библиотеки.
     local leather = T.Surface("library").tex
     check("переплёт библиотеки на коже", leather:find("Tome", 1, true) ~= nil, true)
     check("колонки на мраморе", T.Surface("column").tex:find("Marble", 1, true) ~= nil, true)
-    check("карточки — та же кожа", T.BD.card.bgFile, leather)
+    check("карточки на дубе", T.BD.card.bgFile:find("Oak", 1, true) ~= nil, true)
     check("карточка — пергамент", T.Surface("detail").tex, T.Surface("parchment").tex)
     checkTrue("карточка отличается от кожи переплёта", T.Surface("detail").tex ~= leather)
     check("панель Ведущего на ромбе", T.Surface("gm").tex, T.Surface("quilt").tex)

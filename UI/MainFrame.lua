@@ -245,11 +245,17 @@ local function CreateToast()
     local f = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
     f:SetSize(TOAST_WIDTH, TOAST_HEIGHT)
     f:SetFrameStrata("HIGH")
-    f:SetBackdrop(SB.Theme.BD.tooltip)
+    -- ТОСТ — НА ДУБЕ КАРТОЧЕК: рамка подсказки, подложка карточки. Тост —
+    -- та же карточка заклинания, только всплывшая поверх мира.
+    local bd = {}
+    for k, v in pairs(SB.Theme.BD.tooltip) do bd[k] = v end
+    bd.bgFile, bd.tileSize = SB.Theme.BD.card.bgFile, SB.Theme.BD.card.tileSize
+    f:SetBackdrop(bd)
     -- ОДИН ЦВЕТ, А НЕ ДВА (см. историю в ResetToastHighlight): _bgColor
     -- — и то, чем тост красится сейчас, и то, к чему возвращается после
-    -- пульсации. Копией, а не ссылкой на палитру.
-    f._bgColor     = { 0.07, 0.055, 0.045, 0.96 }
+    -- пульсации. Копией, а не ссылкой на палитру. Подкраска — та же, что
+    -- у карточек: цвет дуба в самом файле.
+    f._bgColor     = { CC.cardBg[1], CC.cardBg[2], CC.cardBg[3], 0.97 }
     f._borderColor = { CC.frameBorder[1], CC.frameBorder[2], CC.frameBorder[3], 1 }
     f:SetBackdropColor(f._bgColor[1], f._bgColor[2], f._bgColor[3], f._bgColor[4])
     f:SetBackdropBorderColor(f._borderColor[1], f._borderColor[2], f._borderColor[3], f._borderColor[4])
@@ -353,8 +359,8 @@ local function FlashToast(toast, times)
  
     local baseColor  = toast._bgColor
     local baseBorder = toast._borderColor
-    -- Тост лежит на подложке тултипа — и вспыхивает её же наводкой.
-    local highColor  = CC.tooltipHoverBg
+    -- Тост лежит на дубе карточек — и вспыхивает их же наводкой.
+    local highColor  = CC.cardHoverBg
     local highBorder = CC.cardHoverBorder
  
     local pulseDuration = 0.6  -- Длительность одного "вздоха"
