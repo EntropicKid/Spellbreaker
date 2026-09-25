@@ -9298,12 +9298,8 @@ do
     -- стрелу.
     local SCHOOLED = {
         -- зелья: число прежнее, сузилась только область
-        -- чары оружия: бьёт оружие, значит физический
-        { "eff_weapon_enchant_flame_weapon",     "damagePhysical",  2 },
-        { "eff_weapon_enchant_lightning_brand",  "damagePhysical",  2 },
-        { "eff_weapon_enchant_ice_fringe",       "damagePhysical",  2 },
-        { "eff_lightseal",                       "damagePhysical",  2 },
-        { "eff_priest_bless_weapon",             "damagePhysical",  2 },
+        -- чары оружия ушли отсюда: они больше не прибавка к урону, а
+        -- удар своей школой (onHit, см. проверку ниже)
         -- дебаффы: минус прежний, сузилась область
         { "eff_weakness_abonish_magic",          "damageMagic",    -1 },
         { "eff_curse_of_weakness",               "damagePhysical", -1 },
@@ -21185,6 +21181,74 @@ do
 
     W.inGroup, W.isLeader = savedG, savedL
     SpellbreakerCharDB.pendingRequests = nil
+end
+
+-- ============================================================
+-- ЧАРЫ ОРУЖИЯ — УДАР СВОЕЙ ШКОЛОЙ (effect.onHit)
+--
+-- Не плоская прибавка к урону, а урон своей стихии поверх попавшего
+-- физического удара ближнего боя: гасит его сопротивление цели этой
+-- школе, доспех не держит, крит не удваивает.
+-- ============================================================
+do
+    local AE = SB.ActiveEffects
+    local want = {
+        eff_priest_bless_weapon            = { 2, "holy"   },
+        eff_seal_of_righteousness          = { 1, "holy"   },
+        eff_weapon_enchant_flame_weapon    = { 2, "fire"   },
+        eff_weapon_enchant_ice_fringe      = { 2, "frost"  },
+        eff_weapon_enchant_lightning_brand = { 2, "nature" },
+    }
+    for id, w in pairs(want) do
+        local oh = SB.Data.Spells[id].effect.onHit
+        check("«" .. SB.Data.Spells[id].name .. "»: удар " .. w[2],
+              oh and (oh.damage .. oh.damageType), w[1] .. w[2])
+        local def = AE.GetEffectDef(id)
+        check("«" .. SB.Data.Spells[id].name .. "» не прибавляет к физическому",
+              def and def.mods.damagePhysical or 0, 0)
+    end
+
+    local strike = { id = "t_strike", damageType = "physical", distance = 2.5 }
+    local bolt   = { id = "t_bolt",   damageType = "fire",     distance = 20 }
+    local list = { { spellID = "eff_weapon_enchant_flame_weapon" } }
+    check("удар оружием несёт чары", AE.OnHitRaw(strike, list), 2)
+    check("заклинание — нет", AE.OnHitRaw(bolt, list), 0)
+    check("и выстрел физикой издалека — нет",
+          AE.OnHitRaw({ damageType = "physical", distance = 20 }, list), 0)
+
+    -- У ЦЕЛИ: огонь гасит сопротивление огню, доспех не трогает.
+    local PM = SB.PlayerModel
+    SB.Data.Spells["t_strike"] = { id = "t_strike", name = "Проба клинка", class = "Воин",
+        level = 0, damageType = "physical", distance = 2.5, canCrit = true }
+    SB.Data.Spells["t_fire_res"] = { id = "t_fire_res", name = "Проба огнеупора",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "buff", mods = { resistFire = 1 } } }
+    SB.Data.PlayersStatus["Клинок"] = { activeEffects = list }
+    AE.Clear()
+    local function Hit(crit)
+        _G.SpellbreakerCharDB.health = PM.GetMaxHealth()
+        local hp0 = PM.GetHealth()
+        SB.Logic.HandlePvpAttackReceived("Клинок", "t_strike", 99, 200, 999, crit, 0, 1)
+        return hp0 - PM.GetHealth()
+    end
+    local plain = Hit(false)
+    SB.Data.PlayersStatus["Клинок"] = { activeEffects = {} }
+    local bare = Hit(false)
+    check("чары добавили урон огнём", plain - bare, 2)
+    SB.Data.PlayersStatus["Клинок"] = { activeEffects = list }
+    AE.Add("t_fire_res", 5, false)
+    check("сопротивление огню гасит чары", Hit(false) - bare, 1)
+    AE.Clear()
+    local critBare, critPlain
+    SB.Data.PlayersStatus["Клинок"] = { activeEffects = {} }
+    critBare = Hit(true)
+    SB.Data.PlayersStatus["Клинок"] = { activeEffects = list }
+    critPlain = Hit(true)
+    check("крит чары не удваивает", critPlain - critBare, 2)
+
+    SB.Data.PlayersStatus["Клинок"] = nil
+    SB.Data.Spells["t_strike"], SB.Data.Spells["t_fire_res"] = nil, nil
+    AE.Clear()
 end
 
 -- ИТОГ

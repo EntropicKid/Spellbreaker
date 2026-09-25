@@ -698,6 +698,30 @@ local function BuildMainFrame()
     -- полоски с оправой подходили вплотную к передвижению и атрибутам.
     healthBar = SB.Theme.Bar(header, 140, 11, "health")
     healthBar:SetPoint("TOPLEFT", portFrame, "TOPRIGHT", 8, -22)
+
+    -- ИМЯ ПЕРСОНАЖА — над полосками, цветом класса. Окно одно на
+    -- аккаунт, а персонажей много, и «чьё это окно» до сих пор решал
+    -- один портрет. Ширина — по полоскам: длинное имя обрезается, а не
+    -- наезжает на бейджи справа.
+    local nameFS = header:CreateFontString(nil, "OVERLAY", "SBFontNormal")
+    nameFS:SetPoint("BOTTOMLEFT", healthBar, "TOPLEFT", 1, 5)
+    nameFS:SetWidth(140)
+    nameFS:SetJustifyH("LEFT")
+    nameFS:SetWordWrap(false)
+    local function RefreshName()
+        nameFS:SetText(UnitName("player") or "")
+        local _, token = UnitClass("player")
+        local c = token and RAID_CLASS_COLORS and RAID_CLASS_COLORS[token]
+        if c then
+            nameFS:SetTextColor(c.r, c.g, c.b)
+        else
+            nameFS:SetTextColor(C.titleText[1], C.titleText[2], C.titleText[3])
+        end
+    end
+    RefreshName()
+    local nameWatch = CreateFrame("Frame")
+    nameWatch:RegisterEvent("PLAYER_ENTERING_WORLD")
+    nameWatch:SetScript("OnEvent", RefreshName)
  
     manaBar = SB.Theme.Bar(header, 140, 11, "mana")
     manaBar:SetPoint("TOPLEFT", healthBar, "BOTTOMLEFT", 0, -8)
