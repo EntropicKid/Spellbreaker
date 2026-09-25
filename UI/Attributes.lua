@@ -33,8 +33,11 @@ local attrCheckBox, skillCheckBox
 -- колонку и обрезалась до «Провер...». Инлайн-текстура занимает один
 -- символ и читается однозначно (та же иконка, что у ролла добычи).
 local DICE_ICON = "|TInterface\\Buttons\\UI-GroupLoot-Dice-Up:14|t"
--- Галочка подтверждения — та же текстура, что в панели Ведущего.
-local CHECK_ICON = "|TInterface\\Buttons\\UI-CheckBox-Check:16|t"
+-- Галочка подтверждения — та же текстура, что в панели Ведущего. Рисуется
+-- ТЕКСТУРОЙ поверх кнопки, а не символом в подписи: шестнадцать пикселей
+-- иконки с полями не влезали в надпись кнопки шириной двадцать два, и
+-- шрифт обрезал её до «…».
+local CHECK_TEX = "Interface\\Buttons\\UI-CheckBox-Check"
 
 -- Свёрнутые группы навыков: { [attrKey] = true }.
 --
@@ -119,6 +122,7 @@ local function ApplyLayout()
             row:SetPoint("TOPLEFT",  column, "TOPLEFT",  4, yOff)
             row:SetPoint("TOPRIGHT", column, "TOPRIGHT", -4, yOff)
             row:SetHeight(rowH)
+            SB.Theme.SyncBackdrop(row)
 
             -- Всё, что не влезает в текущую высоту, обрезаем самой
             -- карточкой: иначе строки навыков торчали бы из-под неё,
@@ -398,7 +402,12 @@ end
 -- Галочка подтверждения рядом со счётчиком очков.
 -- ============================================================
 local function BuildConfirmCheck(parent, anchorTo, onClick, tooltipTitle, tooltipText)
-    local btn = SB.Theme.Button(parent, CHECK_ICON, 22, 18, "primary")
+    local btn = SB.Theme.Button(parent, "", 22, 18, "primary")
+    local mark = btn:CreateTexture(nil, "OVERLAY")
+    mark:SetTexture(CHECK_TEX)
+    mark:SetSize(18, 18)
+    mark:SetPoint("CENTER", btn, "CENTER", 0, 0)
+    btn._mark = mark
     -- Прижата к правому краю колонки, а не к тексту: подписи «Очки
     -- атрибутов»/«Очки навыков» разной длины, и галочки при привязке к
     -- ним вставали лесенкой.

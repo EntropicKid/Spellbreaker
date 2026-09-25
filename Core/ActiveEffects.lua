@@ -2397,6 +2397,19 @@ function SB.ActiveEffects.ApplyPayload(spellID, def, source)
         dmg = SB.Skills.ApplyResistance(dmg,
             def.damageType or (sp and sp.damageType))
     end
+    -- ВОЗМЕЗДИЕ — ЭТО УДАР, А НЕ ТИК (source == "strike"). Аура воздаяния,
+    -- огненный щит и прочие ответы бьют в миг удара, а не капают, — и
+    -- доспех их обязан гасить так же, как любой удар: сперва
+    -- сопротивление, потом броня, которая при этом расходуется (см.
+    -- SB.Skills.MitigateDamage). Пока возмездие шло как тик, латник с
+    -- двадцатью единицами брони терял единицу здоровья сквозь доспех за
+    -- каждый свой удар по паладину.
+    if source == "strike" and dmg > 0
+       and SB.Skills and SB.Skills.MitigateDamage then
+        dmg = SB.Skills.MitigateDamage(dmg,
+            def.damageType or (sp and sp.damageType))
+        if dmg <= 0 then SB.Events.Fire(SB.E.STATUS_CHANGED) end
+    end
     --
     -- Здоровье двигаем в любом случае и сразу: на GrantHealth/Heal
     -- завязаны классовые механики (Рыцарь смерти копит руны с потери
@@ -2418,7 +2431,7 @@ function SB.ActiveEffects.ApplyPayload(spellID, def, source)
     -- платит своей кровью, и ни сопротивляться ей, ни срывать ею полиморф
     -- нельзя (см. врезку у PM.GrantHealth).
     if dmg > 0 then
-        PM.GrantHealth(-dmg, (source ~= "tick") and "self" or nil)
+        PM.GrantHealth(-dmg, (source ~= "tick" and source ~= "strike") and "self" or nil)
     end
     if heal > 0 then PM.Heal(heal) end
     local hpMoved = PM.GetHealth() - hpBefore
@@ -2640,9 +2653,9 @@ function SB.ActiveEffects.ApplyRetribution(effectID)
     if not sp then return false end
     for _, act in ipairs(SB.ActiveEffects.ActionsOf(sp) or {}) do
         if act.when == "damaged" and type(act.toAttacker) == "table" then
-            -- Через "tick": урон пришёл извне — сопротивление школе
-            -- эффекта работает, доспех нет (см. врезку в ApplyPayload).
-            SB.ActiveEffects.ApplyPayload(effectID, act.toAttacker, "tick")
+            -- Через "strike": урон пришёл извне и В МИГ УДАРА — гасят и
+            -- сопротивление, и доспех (см. врезку в ApplyPayload).
+            SB.ActiveEffects.ApplyPayload(effectID, act.toAttacker, "strike")
             return true
         end
     end
