@@ -692,12 +692,10 @@ function SB.NPC.TickEffects()
                 table.concat(what, G .. ", |r") .. G .. " (" ..
                 table.concat(names, ", ") .. ").|r", SB.LogRank.TICK)
         end
-        if expired then
-            SB.Events.Fire(SB.E.BROADCAST_LOG,
-                SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. "с " .. name ..
-                " спало: " .. table.concat(expired, ", ") .. ".|r",
-                SB.LogRank.TICK)
-        end
+        -- СТРОКИ «С СУЩЕСТВА СПАЛО» БОЛЬШЕ НЕТ. Она шла в рассылку на
+        -- каждый истёкший эффект каждой особи и в свалке топила чат, а
+        -- сказать ей было нечего: иконка на рамке цели и так исчезает, а
+        -- список у всех сводится пакетом эффектов (см. PublishEffects).
     end)
 
     return touched

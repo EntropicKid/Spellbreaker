@@ -56,6 +56,8 @@ SB.Theme.Assets.Wood    = MEDIA .. "Wood.tga"
 SB.Theme.Assets.Leather = MEDIA .. "Leather.tga"
 -- Чёрный мрамор с золотыми жилами — подложка карточек (см. BD.card).
 SB.Theme.Assets.Marble  = MEDIA .. "Marble.tga"
+-- Морёный дуб — карточки на колонках и тосты (см. BD.card).
+SB.Theme.Assets.Oak     = MEDIA .. "Oak.tga"
 
 -- Полотно и рамка окна. Nil — прежний вид (Background.blp + тултиповая
 -- рамка Blizzard).
@@ -244,10 +246,25 @@ local SURFACES = {
     -- КОЛОНКИ И КАРТОЧКИ ПОМЕНЯЛИСЬ МАТЕРИАЛАМИ: колонки — чёрный мрамор
     -- (Assets\Marble.tga), карточки на них — кожа (см. BD.card). Переплёт
     -- библиотеки остаётся кожаным — у него своя строка ниже.
-    column  = { tex = MEDIA .. "Marble.tga", tint = { 1, 1, 1, 1 }, tileSize = 512 },
+    --
+    -- ФАЙЛ 1024, ПЛИТКА 384. При файле 512 и плитке 512 одна точка файла
+    -- ложилась на полторы-две экранных (масштаб интерфейса больше
+    -- единицы), и камень выглядел мыльным. Теперь на точку интерфейса
+    -- приходится почти три точки файла: рисунок мельче и резче.
+    --
+    -- ПРИГЛУШЁН ДО 0.72 — мрамор на всю колонку рябил: жилы яркие, а
+    -- смотрят сквозь него на карточки. Совет был «SetAlpha 0.5-0.85»;
+    -- сделано подкраской, а не прозрачностью, потому что колонку можно
+    -- открепить в отдельное окно, и прозрачная колонка показала бы
+    -- сквозь себя мир. Под пристёгнутой колонкой фон окна почти чёрный,
+    -- так что на глаз это одно и то же.
+    column  = { tex = MEDIA .. "Marble.tga", tint = { 0.72, 0.72, 0.72, 1 }, tileSize = 384 },
     -- Стёганое полотно — у окон-форм: редактор существа, создание
     -- заклинания и эффекта.
-    quilt   = { tex = MEDIA .. "Quilt.tga", tint = { 1, 1, 1, 1 }, tileSize = 256 },
+    -- Приглушено до 0.85 по той же причине, что мрамор колонок (рябь), и
+    -- тем же способом: окна-формы самостоятельны, прозрачность показала
+    -- бы сквозь них мир. Полотно рябит меньше мрамора — и глушится меньше.
+    quilt   = { tex = MEDIA .. "Quilt.tga", tint = { 0.85, 0.85, 0.85, 1 }, tileSize = 256 },
     -- ПЕРГАМЕНТ (Assets\Parchment.tga) — тёмный старый велен: пятна
     -- старения, потёки, волокна вдоль и поперёк. Тёмный намеренно:
     -- текст аддона светлый. Список библиотеки («листаешь книгу») и
@@ -273,7 +290,10 @@ local SURFACES = {
     -- подкраска сводит её к ~(29,24,25) — яркости и почти оттенку фона
     -- главного окна (~26,25,27), оставляя лёгкое тепло материала.
     library = { tex = MEDIA .. "Tome.tga", tint = { 0.52, 0.62, 0.88, 1 }, tileSize = 512, vignette = true },
-    gm      = { tex = MEDIA .. "Quilt.tga", tint = { 1, 1, 1, 1 }, tileSize = 256 },
+    -- Панель Ведущего — стёганое полотно, как окна-формы (мрамор здесь
+    -- пробовали и вернули: панель — рабочее место Ведущего, а не ещё
+    -- одна колонка главного окна).
+    gm      = { tex = MEDIA .. "Quilt.tga", tint = { 0.85, 0.85, 0.85, 1 }, tileSize = 256 },
     -- КАРТОЧКА ЗАКЛИНАНИЯ — ТОТ ЖЕ ПЕРЕПЛЁТ, ЧТО И БИБЛИОТЕКА.
     --
     -- Здесь стоял свой камень — чтобы карточка, всплывая поверх
@@ -311,10 +331,14 @@ local BD = {
 		-- построению. Спокойнее прежнего Card.blp: камень облачный, а не
 		-- рваный, жилы тонкие и местами гаснут — текст поверх читается.
 		-- Цвет в файле, подкраска C.cardBg почти нейтральная.
-		-- КОЖА (Assets\Tome.tga) — поменялась местами с мрамором колонок:
-		-- кожаные карточки на каменной колонке. Цвет в файле, подкраска
-		-- C.cardBg почти нейтральная.
-		bgFile   = MEDIA .. "Tome.tga",
+		-- МОРЁНЫЙ ДУБ (Assets\Oak.tga, 1024, свой и бесшовный): прямое
+		-- волокно вдоль карточки, редкие дуги, поры. Кожа среди камня,
+		-- мрамора и дерева заголовков читалась чужой — мягкий материал в
+		-- окне из твёрдых. Дуб — родня деревянным заголовкам: окно
+		-- собирается из двух пар — камень и мрамор снаружи, дерево внутри.
+		-- Кожа осталась у одного переплёта библиотеки. Цвет в файле,
+		-- подкраска C.cardBg почти нейтральная.
+		bgFile   = SB.Theme.Assets.Oak,
 		edgeFile = SB.Theme.Tex("CardEdge", "Interface\\Tooltips\\UI-Tooltip-Border"),
 		tile = true,
 		-- ТАЙЛ ВО ВЕСЬ ФАЙЛ: при 256 жилы сжимались вдвое и на карточке
@@ -331,7 +355,7 @@ local BD = {
 		bgFile   = SB.Theme.Surface("column").tex,
 		edgeFile = SB.Theme.Tex("ColumnEdge", "Interface\\Tooltips\\UI-Tooltip-Border"),
 		tile = true,
-		tileSize = 512,
+		tileSize = SB.Theme.Surface("column").tileSize,
 		edgeSize = 12,
 		insets = { left = 3, right = 3, top = 3, bottom = 3 },
 	},
@@ -628,6 +652,19 @@ end
 -- ============================================================
 -- Button
 -- ============================================================
+--- Сменить вид уже созданной кнопки (primary / secondary / danger).
+--- Нужна кнопке, которая меняет смысл на лету: «Специальное действие»
+--- становится «Окончить ход» и обязана выглядеть главным действием.
+function SB.Theme.SetButtonVariant(btn, variant)
+    local v = VARIANTS[variant]
+    if not (btn and v) or btn._v == v then return end
+    btn._v = v
+    btn._soundVariant = (variant == "danger") and "danger" or "click"
+    btn:SetBackdropColor(v.bg[1], v.bg[2], v.bg[3], v.bg[4])
+    btn:SetBackdropBorderColor(v.border[1], v.border[2], v.border[3], v.border[4])
+    if btn._fs then btn._fs:SetTextColor(v.text[1], v.text[2], v.text[3]) end
+end
+
 function SB.Theme.Button(parent, text, w, h, variant)
     local v = VARIANTS[variant] or VARIANTS.secondary
 
@@ -2781,6 +2818,18 @@ function SB.Theme.DockableColumn(hostFrame, dbKey, title, width)
     titleBar:SetHeight(20)
     titleBar:EnableMouse(true)
  
+    -- ПОДКЛАДКА ПОД ЗАГОЛОВОК — на фоне самой колонки, а не на полосе.
+    -- Полоса стоит в 4 px от края, видимая кромка рамки кончается чуть
+    -- раньше, и в пиксельную щель между ними просвечивал мрамор. Дотянуть
+    -- полосу до рамки нельзя: дочерний фрейм рисуется ПОВЕРХ рамки
+    -- родителя и срезал бы её край. Подкладка лежит в слое фона колонки
+    -- (над её плиткой, под рамкой) — щель становится тёмной, как тень
+    -- под деревом, а рамка остаётся целой.
+    local titleUnder = col:CreateTexture(nil, "BACKGROUND", nil, 7)
+    titleUnder:SetPoint("TOPLEFT",     col, "TOPLEFT",  2, -2)
+    titleUnder:SetPoint("BOTTOMRIGHT", titleBar, "BOTTOMRIGHT", 2, -1)
+    titleUnder:SetColorTexture(0.06, 0.05, 0.04, 1)
+
     local titleBg = titleBar:CreateTexture(nil, "ARTWORK")
     titleBg:SetAllPoints()
     if not SB.Theme.WoodStrip(titleBg) then

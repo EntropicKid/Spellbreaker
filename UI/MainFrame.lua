@@ -245,11 +245,17 @@ local function CreateToast()
     local f = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
     f:SetSize(TOAST_WIDTH, TOAST_HEIGHT)
     f:SetFrameStrata("HIGH")
-    f:SetBackdrop(SB.Theme.BD.tooltip)
+    -- ТОСТ — НА ДУБЕ КАРТОЧЕК: рамка подсказки, подложка карточки. Тост —
+    -- та же карточка заклинания, только всплывшая поверх мира.
+    local bd = {}
+    for k, v in pairs(SB.Theme.BD.tooltip) do bd[k] = v end
+    bd.bgFile, bd.tileSize = SB.Theme.BD.card.bgFile, SB.Theme.BD.card.tileSize
+    f:SetBackdrop(bd)
     -- ОДИН ЦВЕТ, А НЕ ДВА (см. историю в ResetToastHighlight): _bgColor
     -- — и то, чем тост красится сейчас, и то, к чему возвращается после
-    -- пульсации. Копией, а не ссылкой на палитру.
-    f._bgColor     = { 0.07, 0.055, 0.045, 0.96 }
+    -- пульсации. Копией, а не ссылкой на палитру. Подкраска — та же, что
+    -- у карточек: цвет дуба в самом файле.
+    f._bgColor     = { CC.cardBg[1], CC.cardBg[2], CC.cardBg[3], 0.97 }
     f._borderColor = { CC.frameBorder[1], CC.frameBorder[2], CC.frameBorder[3], 1 }
     f:SetBackdropColor(f._bgColor[1], f._bgColor[2], f._bgColor[3], f._bgColor[4])
     f:SetBackdropBorderColor(f._borderColor[1], f._borderColor[2], f._borderColor[3], f._borderColor[4])
@@ -353,8 +359,8 @@ local function FlashToast(toast, times)
  
     local baseColor  = toast._bgColor
     local baseBorder = toast._borderColor
-    -- Тост лежит на подложке тултипа — и вспыхивает её же наводкой.
-    local highColor  = CC.tooltipHoverBg
+    -- Тост лежит на дубе карточек — и вспыхивает их же наводкой.
+    local highColor  = CC.cardHoverBg
     local highBorder = CC.cardHoverBorder
  
     local pulseDuration = 0.6  -- Длительность одного "вздоха"
@@ -688,10 +694,12 @@ local function BuildMainFrame()
     end)
     portFrame:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-    healthBar = SB.Theme.Bar(header, 155, 13, "health")
-    healthBar:SetPoint("TOPLEFT", portFrame, "TOPRIGHT", 8, -20)
+    -- ТОНЬШЕ: 11 вместо 13. Длину не трогаем (140), а по толщине
+    -- полоски с оправой подходили вплотную к передвижению и атрибутам.
+    healthBar = SB.Theme.Bar(header, 140, 11, "health")
+    healthBar:SetPoint("TOPLEFT", portFrame, "TOPRIGHT", 8, -22)
  
-    manaBar = SB.Theme.Bar(header, 155, 13, "mana")
+    manaBar = SB.Theme.Bar(header, 140, 11, "mana")
     manaBar:SetPoint("TOPLEFT", healthBar, "BOTTOMLEFT", 0, -8)
     manaBar:EnableMouse(true)
     manaBar:SetScript("OnEnter", function(self)
@@ -1096,7 +1104,29 @@ local function BuildMainFrame()
         if left > 0 then fleeItem:Enable() else fleeItem:Disable() end
     end
 
+    -- ДЕЙСТВОВАТЬ НЕЧЕМ — КНОПКА СТАНОВИТСЯ «ОКОНЧИТЬ ХОД». То же
+    -- условие, что складывает панельку способностей до одной кнопки (см.
+    -- SB.SpellBar.IsEndMode): в своём ходу действие сделано или предел
+    -- пройден. Искать «окончить» в меню в этот миг — лишний клик в том
+    -- единственном месте, где он и нужен.
+    local function EndMode()
+        return SB.SpellBar and SB.SpellBar.IsEndMode and SB.SpellBar.IsEndMode() or false
+    end
+    function SB.UI.RefreshSpecialButton()
+        local on = EndMode()
+        if shortRestBtn._endMode == on then return end
+        shortRestBtn._endMode = on
+        shortRestBtn:SetText(on and "Окончить ход" or "Специальное действие")
+        SB.Theme.SetButtonVariant(shortRestBtn, on and "primary" or "secondary")
+        if on then specialMenu:Hide() end
+    end
+
     shortRestBtn:SetScript("OnClick", function()
+        if EndMode() then
+            if SB.Logic and SB.Logic.SpendTurnManually then SB.Logic.SpendTurnManually() end
+            SB.UI.RefreshSpecialButton()
+            return
+        end
         if specialMenu:IsShown() then
             specialMenu:Hide()
             return
@@ -1572,6 +1602,7 @@ local function BuildMainFrame()
         if SB.SpellBar and SB.SpellBar.RefreshState then
             SB.SpellBar.RefreshState()
         end
+        if SB.UI.RefreshSpecialButton then SB.UI.RefreshSpecialButton() end
     end)
 end
 -- ============================================================

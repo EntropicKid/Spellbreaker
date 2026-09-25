@@ -318,15 +318,20 @@ initFrame:SetScript("OnEvent", function(self, event, loadedAddon)
         SB.Migrations.Run(SpellbreakerCharDB, SpellbreakerAccountDB)
     end
 
-    -- Очередь заявок Ведущего — сессионные данные: заявка имеет смысл
-    -- только пока в сети тот, кто её подал. Пережившая перезаход
-    -- очередь показывала Ведущему заявки от игроков, которых уже нет
-    -- в группе, и «принять» их всё равно было нельзя (адресат не
-    -- получит ответ). Чистим на каждом входе, а не в миграции.
-    if type(SpellbreakerAccountDB.requestQueue) == "table" then
-        table.wipe(SpellbreakerAccountDB.requestQueue)
-    else
+    -- ОЧЕРЕДЬ ЗАЯВОК ВЕДУЩЕГО ПЕРЕЖИВАЕТ /reload. Раньше она чистилась
+    -- на каждом входе: заявки от ушедших из группы принять нельзя. Но
+    -- чистка забирала и живые — Ведущий перезагружался посреди сцены и
+    -- терял заявки, за которые игроки уже заплатили ходом. Теперь здесь
+    -- выбрасывается только протухшее (старше часа), а заявки ушедших
+    -- отсекаются по живому составу, когда он известен (см. обработчик
+    -- состава группы в Core/Network.lua).
+    if type(SpellbreakerAccountDB.requestQueue) ~= "table" then
         SpellbreakerAccountDB.requestQueue = {}
+    else
+        local q, now = SpellbreakerAccountDB.requestQueue, time()
+        for i = #q, 1, -1 do
+            if (now - (tonumber(q[i].ts) or 0)) > 3600 then table.remove(q, i) end
+        end
     end
 
     local charName = UnitName("player")
