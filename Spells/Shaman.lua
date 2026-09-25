@@ -35,7 +35,7 @@ Add({
     description = "Шаман взывает к стихии воды и прикладывает значительные усилия для того чтобы воззвать к целительным свойствам, сокрытым во влаге, заклинание особенно эффективно исцеляет ожоги, синяки и дробящий урон, и хуже всего колото-резаные повреждения; целебный всплеск не может исцелить повреждение внутренних органов, отрастить часть тела, вернуть дееспособность органам зрения, осязания, или исцелить какой-либо перманентный порок тела.",
     isCantrip = true,
     resistable = true,
-	distance = 19,
+	distance = 20,
     isHeal = true,
 	scaling = {
 		hit    = { ["Милосердие"] = 1, ["Религия"] = 0.5 },
@@ -77,7 +77,7 @@ Add({
     resistable = true,
     duration = 600,
     isConcentration = false,
-	distance = 8.5,
+	distance = 10,
     buff = "eff_water_walk",
 	scaling = {
 		hit    = { ["Милосердие"] = 1, ["Религия"] = 0.5 },
@@ -117,7 +117,7 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-	distance = 8.5,
+	distance = 20,
 	scaling = {
 		hit    = { ["Милосердие"] = 1.5, ["Религия"] = 0.5 },
 		crit   = { ["Точность"] = 1.5 },
@@ -137,7 +137,7 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = false,
-	distance = 8.5,
+	distance = 20,
 	debuff = "eff_slowed_ice_shackles",
     duration = 3,
 	scaling = {
@@ -161,8 +161,8 @@ Add({
 	-- Дождь ставится ТОТЕМОМ — то есть в точке, а не вокруг шамана:
 	-- дальность остаётся, и круг ложится вокруг цели. Радиус — те самые
 	-- «девять метров по окружности» из описания.
-	distance = 8.5,
-	aoe = { radius = 9 },
+	distance = 20,
+	aoe = { radius = 6 },
     isHeal = true,
     buff = "eff_healing_rain",
 	scaling = {
@@ -205,7 +205,7 @@ Add({
     resistable = true,
 	duration = 10,
     isConcentration = false,
-	distance = 8.5,
+	distance = 20,
     buff = "eff_water_cradle",
 	scaling = {
 		hit    = { ["Милосердие"] = 1.5, ["Религия"] = 1 },
@@ -226,7 +226,7 @@ Add({
     canCrit = false,
 	duration = 3,
     isConcentration = false,
-	distance = 8.5,
+	distance = 20,
     debuff = "eff_ice_tomb",
 	scaling = {
 		hit    = { ["Милосердие"] = 1.5, ["Религия"] = 1 },
@@ -246,7 +246,7 @@ Add({
     resistable = true,
 	duration = 3,
     isConcentration = false,
-	distance = 19,
+	distance = 20,
     debuff = "eff_great_flood",
 	scaling = {
 		hit    = { ["Милосердие"] = 1.5, ["Религия"] = 1 },
@@ -266,7 +266,7 @@ Add({
     resistable = true,
 	duration = 600,
     isConcentration = true,
-	distance = 19,
+	distance = 20,
     container = "eff_summon_water_elem",
 	scaling = {
 		hit    = { ["Милосердие"] = 1.5, ["Религия"] = 1 },
@@ -286,7 +286,7 @@ Add({
     resistable = true,
 	duration = 600,
     isConcentration = true,
-	distance = 19,
+	distance = 20,
     container = "eff_shaman_water_wall",
 	scaling = {
 		hit    = { ["Милосердие"] = 1.5, ["Религия"] = 1 },
@@ -371,7 +371,7 @@ Add({
     resistable = true,
 	duration = 3,
     isConcentration = false,
-	distance = 8.5,
+	distance = 20,
     debuff = "eff_shaman_hex",
 	scaling = {
 		hit    = { ["Религия"] = 1.5, ["Воля"] = 0.5 },
@@ -410,7 +410,6 @@ Add({
     resistable = true,
 	duration = 3,
     isConcentration = false,
-	distance = 8.5,
 	buff = "eff_bloodlust_bloodlust",
 	aoe = { radius = 12 },
 	scaling = {
@@ -455,7 +454,7 @@ Add({
     resistable = true,
 	duration = 600,
     isConcentration = true,
-	distance = 19,
+	distance = 20,
     container = "eff_summon_fire_elemental",
 	scaling = {
 		hit    = { ["Исток"] = 1.5, ["Религия"] = 1 },
@@ -475,7 +474,7 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-	distance = 8.5,
+	distance = 20,
 	scaling = {
 		hit    = { ["Исток"] = 1.5, ["Религия"] = 1 },
 		crit   = { ["Рвение"] = 1.5 },
@@ -496,7 +495,7 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-	distance = 8.5,
+	distance = 20,
 	scaling = {
 		hit    = { ["Исток"] = 1.5, ["Религия"] = 1 },
 		crit   = { ["Точность"] = 1.5 },
@@ -519,8 +518,8 @@ Add({
     canCrit = true,
 	duration = 3,
     isConcentration = false,
-	distance = 8.5,
-	aoe = { radius = 7.5 },
+	distance = 20,
+	aoe = { radius = 6 },
     container = "eff_cataclysm",
 	scaling = {
 		hit    = { ["Исток"] = 1.5, ["Религия"] = 1 },
@@ -562,7 +561,7 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-	distance = 8.5,
+	distance = 20,
 	scaling = {
 		hit    = { ["Исток"] = 1.5, ["Религия"] = 0.5 },
 		crit   = { ["Точность"] = 1.5 },
@@ -583,7 +582,7 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-	distance = 8.5,
+	distance = 10,
 	scaling = {
 		hit    = { ["Исток"] = 1.5, ["Религия"] = 0.5 },
 		crit   = { ["Рвение"] = 1.5 },
@@ -604,7 +603,7 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-	distance = 8.5,
+	distance = 20,
 	scaling = {
 		hit    = { ["Исток"] = 1.5, ["Религия"] = 0.5 },
 		crit   = { ["Точность"] = 1.5 },
@@ -667,9 +666,12 @@ Add({
     description = "Соединив ладони и растопырив пальцы веером, вы испускаете из них тонкие языки пламени.\n\nПламя поджигает все горючие предметы, которые никто не несёт и не носит.",
     isCantrip = false,
     resistable = true,
-	distance = 5.5,
+    canCrit = true,
+	distance = 20,
 	scaling = {
 		hit    = { ["Исток"] = 1, ["Религия"] = 0.5 },
+		crit   = { ["Точность"] = 1 },
+		damage = { ["Интеллект"] = 0.5, ["Дух"] = 0.5 },
 	},
 })
 
@@ -690,12 +692,8 @@ Add({
     isCantrip = false,
     resistable = true,
 	duration = 600,
-    -- «Пока дух поддерживает концентрацию на союзнике»; «если шаман
-    -- потеряет концентрацию... элементаль возвращается на родной план» —
-    -- описание говорит это дважды, а флаг стоял в false, и дух держался
-    -- сам по себе шестьсот ходов.
     isConcentration = true,
-	distance = 19,
+	distance = 20,
     container = "eff_summon_earth_elemental",
 	scaling = {
 		hit    = { ["Живучесть"] = 1.5, ["Религия"] = 1 },
@@ -799,8 +797,8 @@ Add({
     canCrit = true,
 	duration = 1,
     isConcentration = false,
-	distance = 8.5,
-	aoe = { radius = 7.5 },
+	distance = 10,
+	aoe = { radius = 12 },
     debuff = "eff_clap_of_thunder",
 	scaling = {
 		hit    = { ["Живучесть"] = 1.5, ["Религия"] = 0.5 },
@@ -897,7 +895,7 @@ Add({
     description = "Шаман просит духов земли встать между союзником и бедой. Вокруг того закружатся плоские камни, тяжёлые, как жернова: каждый принимает на себя удар, крошится — и возвращает телу немного силы, которую земля копила веками. Камней ровно столько, на сколько ходов наложен щит. Вне боя им прикрывают носильщиков на горных тропах: камнепад дробит щит, а не спины.",
     isCantrip = false,
     resistable = true,
-    distance = 8.5,
+    distance = 10,
     duration = 5,
     buff = "eff_earth_shield",
     scaling = {
@@ -924,7 +922,7 @@ Add({
     canCrit = true,
 	duration = 10,
     isConcentration = true,
-	distance = 41,
+	distance = 40,
     container = "eff_wind_wall",
 	scaling = {
 		hit    = { ["Акробатика"] = 1.5, ["Религия"] = 1 },
@@ -968,7 +966,7 @@ Add({
     resistable = true,
 	duration = 600,
     isConcentration = true,
-	distance = 19,
+	distance = 20,
     container = "eff_summon_wind_elemental",
 	scaling = {
 		hit    = { ["Акробатика"] = 1.5, ["Религия"] = 1 },
@@ -1034,7 +1032,7 @@ Add({
     resistable = true,
 	duration = 3,
     isConcentration = false,
-	distance = 8.5,
+	distance = 10,
     container = "eff_sweeping_hurricane",
 	scaling = {
 		hit    = { ["Акробатика"] = 1.5, ["Религия"] = 1 },
@@ -1095,6 +1093,7 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 10,
+	aoe = { radius = 30 },
 	scaling = {
 		hit    = { ["Акробатика"] = 1.5, ["Религия"] = 0.5 },
 		crit   = { ["Точность"] = 1.5 },
@@ -1115,7 +1114,7 @@ Add({
     resistable = true,
 	duration = 3,
     isConcentration = false,
-	distance = 8.5,
+	distance = 10,
     debuff = "eff_suffocating_rush",
 	scaling = {
 		hit    = { ["Акробатика"] = 1.5, ["Религия"] = 0.5 },
@@ -1133,24 +1132,9 @@ Add({
     description = "Заклинатель сотворяет магический тотем и помещает его в землю. Тотем видим в течении 1d4 раундов перед тем, как становится невидимым. Как только тотем становится невидимым, он активируется. Если враждебное существо подходит в радиус 3 метров от активного тотема, в течении 1 раунда за уровень заклинателя, он взрывается распыляя дождь из искр. Все существа попавшие в радиус, оглушаются на 1d4 раунда. Оглушенное существо не может действовать никак иначе, кроме как защищаться.",
     isCantrip = false,
     resistable = true,
-	-- «ВСЕ СУЩЕСТВА, ПОПАВШИЕ В РАДИУС, ОГЛУШАЮТСЯ» — заклинание всё
-	-- это время было САМОБАФФОМ на шамана (+12 к атаке, +4 к защите):
-	-- ни радиуса, ни оглушения, ни единого врага. Ловушка не делала
-	-- ровно того, ради чего её ставят.
-	--
-	-- ОТСРОЧКА НЕ ВЫРАЖАЕТСЯ И НЕ ВЫДУМЫВАЕТСЯ. «Тотем видим 1d4
-	-- раунда, потом становится невидимым и активируется» — это две
-	-- фазы с броском между ними, а таймеров у заклинаний в аддоне нет.
-	-- Взрыв считаем сразу: ловушка срабатывает в тот ход, когда её
-	-- поставили, а «сколько она пролежала» отыгрывает сцена.
-	--
-	-- ОДИН ХОД вместо 1d4: бросок длительности аддон не кидает, а
-	-- площадное оглушение — самое сильное, что бывает, и брать по нему
-	-- верх диапазона нельзя.
 	duration = 1,
     isConcentration = false,
-	distance = 8.5,
-	-- Три метра из описания.
+	distance = 10,
 	aoe = { radius = 3 },
     debuff = "eff_stasis_trap",
 	scaling = {
@@ -1169,7 +1153,7 @@ Add({
     description = "Шаман призывает ветра, и испрашивает их гнева и возмездия, после выпуская на свободу и направляя их ярость в форме потока ветра что отбрасывает в стороны малые объекты, существ меньше среднего размера (человеческого) и сбивает их с ног, отталкивает на дистанцию в 3 метра, но не сшибает с ног существ среднего размера; никак не воздействует на больших существ.",
     isCantrip = false,
     resistable = true,
-	distance = 8.5,
+	distance = 10,
 	scaling = {
 		hit    = { ["Акробатика"] = 1, ["Религия"] = 0.5 },
 	},
@@ -1188,7 +1172,7 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-	distance = 31,
+	distance = 30,
 	scaling = {
 		hit    = { ["Акробатика"] = 1, ["Религия"] = 0.5 },
 		crit   = { ["Точность"] = 1 },
@@ -1209,7 +1193,7 @@ Add({
     resistable = true,
 	duration = 2,
     isConcentration = false,
-	distance = 8.5,
+	distance = 10,
     buff = "eff_shaman_featherfall",
 	scaling = {
 		hit    = { ["Акробатика"] = 1, ["Религия"] = 0.5 },
@@ -1249,7 +1233,7 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-	distance = 6,
+	distance = 10,
 	scaling = {
 		hit    = { ["Акробатика"] = 1, ["Религия"] = 0.5 },
 		crit   = { ["Точность"] = 1 },
@@ -1320,7 +1304,6 @@ Add({
     isCantrip = false,
     resistable = false,
     duration = 3,
-    distance = 0,
     container = "eff_shaman_fury",
 	scaling = {
 		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
@@ -1386,9 +1369,8 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-    distance = 0,
     duration = 2,
-    aoe = { radius = 9 },
+    aoe = { radius = 12 },
     debuff = "eff_ring_of_fire",
 	scaling = {
 		hit    = { ["Исток"] = 1, ["Религия"] = 0.5 },
@@ -1409,7 +1391,6 @@ Add({
     isCantrip = false,
     resistable = false,
     duration = 10,
-    distance = 0,
     aoe = { radius = 9 },
     buff = "eff_totem_of_wrath",
 	scaling = {
@@ -1429,8 +1410,7 @@ Add({
     isCantrip = false,
     resistable = false,
     duration = 2,
-    distance = 0,
-    aoe = { radius = 9 },
+    aoe = { radius = 12 },
     buff = "eff_mana_tide_totem",
 	scaling = {
 		hit    = { ["Милосердие"] = 1, ["Религия"] = 0.5 },
@@ -1449,7 +1429,6 @@ Add({
     isCantrip = false,
     resistable = false,
     duration = 10,
-    distance = 0,
     container = "eff_spirit_sight",
 	scaling = {
 		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
@@ -1487,7 +1466,6 @@ Add({
     isCantrip = false,
     resistable = false,
     duration = 3,
-    distance = 0,
     container = "eff_stone_claw",
 	scaling = {
 		hit    = { ["Живучесть"] = 1, ["Религия"] = 0.5 },
