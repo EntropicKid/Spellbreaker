@@ -323,9 +323,6 @@ Add({
     isCantrip = false,
     duration = 300,
     isConcentration = false,
-    -- Печать — на себя: «Паладин исполняется духом правосудия». Сама
-    -- механика — в эффекте (onAction: удар в ближнем бою, 20%, эффект
-    -- цели), одна печать за раз держится семейством «Печать паладина».
     resistable = false,
     distance = 0,
 	container = "eff_weapon_enchant_seal_of_wrath",
@@ -748,6 +745,7 @@ Add({
 Add({
     id = "crusader_strike",
     name = "Удар воина света",
+	requirement = "melee",
     key = "Воздаяние",
     icon = "Interface\\Icons\\Spell_holy_crusaderstrike",
     level = 0,
@@ -791,6 +789,7 @@ Add({
 Add({
     id = "divine_storm",
     name = "Божественная буря",
+	requirement = "melee",
     key = "Воздаяние",
     icon = "Interface\\Icons\\Ability_paladin_divinestorm",
     level = 2,
@@ -813,6 +812,7 @@ Add({
 Add({
     id = "templars_verdict",
     name = "Вердикт Храмовника",
+	requirement = "melee",
     key = "Воздаяние",
     icon = "Interface\\Icons\\Spell_paladin_templarsverdict",
     level = 3,
