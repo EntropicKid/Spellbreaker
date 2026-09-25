@@ -2712,12 +2712,15 @@ AddEffect({
 })
 
 AddEffect({
-    -- Знание зверя (Охотник, заговор). Из гнезда eff_owl_wisdom_*.
     id   = "eff_owl_wisdom_beast_lore",
     name = "Знание жертвы",
     icon = "Interface\\Icons\\Spell_nature_polymorph",
     description = "Мысль идёт ровнее и дальше обычного: связи между вещами видны без усилия.",
-    effect = { kind = "buff", mods = { damage = 1 }, stats = { ["Точность"] = 3 },
+    effect = {
+        kind = "buff",
+        mods = { damage = 1 },
+        stats = { ["Точность"] = 3 },
+    },
 })
 
 AddEffect({
