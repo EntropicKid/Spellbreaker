@@ -711,7 +711,7 @@ function TQ.Refresh()
                 c.glow:SetAlpha(0.9)
             elseif e.done then
                 PaintFrame(c, 0.42, 0.40, 0.37)
-                c.label:SetTextColor(0.62, 0.58, 0.54)
+                c.label:SetTextColor(SB.Theme.C.textDim[1], SB.Theme.C.textDim[2], SB.Theme.C.textDim[3])
                 c.glow:Hide()
             else
                 PaintFrame(c, ClassColor(UnitOf(e.name)))

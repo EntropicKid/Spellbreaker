@@ -21072,14 +21072,46 @@ do
     AE.BreakOn("controlled")
     checkTrue("удержание спасает концентрацию от контроля", has("t_hold_conc"))
     check("и тратится", SB.Skills.GetHoldLeft(), 0)
+    -- Прерывание снимает МИМО удержаний: вернём одно и проверим.
+    SB.Skills.RestoreHold()
+    if base > 0 then SB.Skills.SpendFromPool("hold", base) end
+    check("удержание снова есть", SB.Skills.GetHoldLeft(), 1)
     AE.BreakOn("interrupted")
-    checkTrue("без удержаний прерывание её снимает", not has("t_hold_conc"))
+    checkTrue("прерывание снимает мимо удержаний", not has("t_hold_conc"))
+    check("и удержание не тратит", SB.Skills.GetHoldLeft(), 1)
     check("к защите навык больше не прибавляет",
           SB.Skills.GetConcentrationDefenseBonus, nil)
 
     AE.Clear()
     SB.Skills.RestoreHold()
     SB.Data.Spells["t_hold_gift"], SB.Data.Spells["t_hold_conc"] = nil, nil
+end
+
+-- ============================================================
+-- ЛИМИТ ПОДГОТОВЛЕННЫХ УПАЛ — ЛИШНЕЕ ВЫТЕСНЯЕТСЯ
+--
+-- Вкачал Эрудицию, подготовил до упора, сбросил — заклинания сверх
+-- нового лимита не должны оставаться на руках. Уходят последние.
+-- ============================================================
+do
+    local PM = SB.PlayerModel
+    local saved = SpellbreakerCharDB.preparedSpells
+    local max = PM.GetMaxPrepared()
+    local ids = {}
+    for id, sp in pairs(SB.Data.Spells) do
+        if not sp.isContainer then ids[#ids + 1] = id end
+    end
+    table.sort(ids)
+    local list = {}
+    for k = 1, max + 3 do list[k] = ids[k] end
+    local firstKept, lastKept = list[1], list[max]
+    SpellbreakerCharDB.preparedSpells = list
+    SB.Events.Fire("SKILLS_CHANGED")
+    stub.RunTimers()
+    local now = SpellbreakerCharDB.preparedSpells
+    check("сверх лимита вытеснено", #now, max)
+    checkTrue("уходят последние подготовленные", now[1] == firstKept and now[max] == lastKept)
+    SpellbreakerCharDB.preparedSpells = saved
 end
 
 -- ИТОГ

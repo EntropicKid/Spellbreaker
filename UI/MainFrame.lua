@@ -772,18 +772,27 @@ local function BuildMainFrame()
         -- (уворот — это Акробатика), но отвечает на соседний вопрос — «что
         -- будет, если всё-таки попадут», — и своей плашки в шапке главного
         -- окна у неё нет. Подробности — в подсказке «Ношения брони».
+        --
+        -- ВОЛЯ И УДЕРЖАНИЯ — ТУДА ЖЕ, И ПО ТОЙ ЖЕ ПРИЧИНЕ: запасы на
+        -- сцену, к броску не прибавляются и отвечают на «что будет, если
+        -- всё-таки попадут». Своих плашек в шапке у них нет.
+        --
+        -- ЗАПАС С НУЛЕВЫМ МАКСИМУМОМ НЕ ПИШЕМ: «0/0» не сообщает ничего,
+        -- кроме того, что навык не вкачан, — а место в подсказке занимает.
         if scope == "defense" and SB.Skills and SB.Skills.GetArmorPoints then
-            GameTooltip:AddDoubleLine("Броня",
-                SB.Skills.GetArmorPoints() .. "/" .. SB.Skills.GetArmorMax(),
-                0.9, 0.9, 0.9, 1, 1, 1)
-            -- ВОЛЯ — ТУДА ЖЕ, И ПО ТОЙ ЖЕ ПРИЧИНЕ. Это второй запас на
-            -- сцену, он тоже не прибавляется к броску и тоже отвечает на
-            -- «что будет, если всё-таки попадут»: броня держит удар,
-            -- Воля стряхивает чары. Своей плашки в шапке у неё нет, и
-            -- без этой строки остаток срывов негде увидеть.
-            if SB.Skills.GetWillLeft then
+            if SB.Skills.GetArmorMax() > 0 then
+                GameTooltip:AddDoubleLine("Броня",
+                    SB.Skills.GetArmorPoints() .. "/" .. SB.Skills.GetArmorMax(),
+                    0.9, 0.9, 0.9, 1, 1, 1)
+            end
+            if SB.Skills.GetWillLeft and SB.Skills.GetWillMax() > 0 then
                 GameTooltip:AddDoubleLine("Воля (срывы)",
                     SB.Skills.GetWillLeft() .. "/" .. SB.Skills.GetWillMax(),
+                    0.9, 0.9, 0.9, 1, 1, 1)
+            end
+            if SB.Skills.GetHoldLeft and SB.Skills.GetHoldMax() > 0 then
+                GameTooltip:AddDoubleLine("Концентрация (удержания)",
+                    SB.Skills.GetHoldLeft() .. "/" .. SB.Skills.GetHoldMax(),
                     0.9, 0.9, 0.9, 1, 1, 1)
             end
         end
@@ -1868,7 +1877,7 @@ function SB.UI.UpdateSpellCards()
                 card.extra:SetPoint("TOPLEFT", card.desc, "BOTTOMLEFT", 0, -1)
                 card.extra:SetPoint("RIGHT", card, "RIGHT", -8, 0)
                 card.extra:SetJustifyH("LEFT")
-                card.extra:SetTextColor(0.55, 0.52, 0.44, 1)
+                card.extra:SetTextColor(C.textFaint[1], C.textFaint[2], C.textFaint[3], 1)
  
                 -- Концентрация — сразу за названием, а не у правого края
                 -- карточки: у коротких имён метка улетала от него на

@@ -563,6 +563,21 @@ local function BuildSkillRow(parent, attrKey, skillName, yOff)
             GameTooltip:AddLine("|cFF66CCFFЭффект:|r " .. effect, 0.85, 0.85, 0.85, true)
         end
 
+        -- ЗАПАС НА СЦЕНУ — ОДНОЙ СТРОКОЙ, тем же видом, что «Запас срывов»
+        -- у Воли ниже: удержания Концентрации и попытки побега устроены
+        -- так же, и «сколько осталось» — первый вопрос к ним.
+        local left, max, label
+        if skillName == "Концентрация" and SB.Skills.GetHoldLeft then
+            left, max, label = SB.Skills.GetHoldLeft(), SB.Skills.GetHoldMax(), "Запас удержаний"
+        elseif skillName == "Выживание" and SB.PlayerModel.GetFleeAttempts then
+            left, max = SB.PlayerModel.GetFleeAttempts()
+            label = "Попыток побега"
+        end
+        if label and max and max > 0 then
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddDoubleLine(label, left .. " / " .. max, 1, 0.82, 0, 1, 0.82, 0)
+        end
+
         -- ИТОГ ОТСЮДА УБРАН — он теперь стоит в самой строке навыка,
         -- цветом (см. ValueText выше). Дублировать его здесь значило бы
         -- заставлять читать одно и то же дважды.
