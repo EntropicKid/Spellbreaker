@@ -695,7 +695,20 @@ function SB.NPC.TickEffects()
     if not SB.NPC.IsOwner() then return 0 end
     if not SB.NPC.EachState then return 0 end
 
-    local touched = 0
+    -- ОДИН ПАКЕТ НА ВСЮ СЦЕНУ, А НЕ ПО ДВА НА ОСОБЬ.
+    --
+    -- Раньше каждая особь с эффектами рассылала своё состояние (NPCST) и
+    -- свою строку лога (LOG) отдельными сообщениями. Сорок пехотинцев в
+    -- стойке и под ядом — восемьдесят сообщений на круг, порядка десяти
+    -- килобайт. ChatThrottleLib их не теряет, но отдаёт около 800 байт в
+    -- секунду: очередь растягивалась на 10–15 секунд, и боевые пакеты того
+    -- же приоритета всё это время стояли за ней — ход замирал.
+    --
+    -- Теперь состояния всех тикнувших особей уходят одним пакетом
+    -- (SB.NPC.PublishBatch), а строки — одним блоком, где одинаковые
+    -- исходы свёрнуты: «Горный пехотинец ×12: −1 ХП (Укус змеи)».
+    local touched, keys = 0, {}
+    local groups, order = {}, {}
     SB.NPC.EachState(function(key, st)
         local list = ListOf(st)
         if #list == 0 then return end
@@ -710,12 +723,11 @@ function SB.NPC.TickEffects()
         st.hp  = math.max(0, math.min(st.maxHp,  st.hp  + (hp  or 0)))
         st.res = math.max(0, math.min(st.maxRes, st.res + (res or 0)))
         SB.NPC.RestatEffects(st)
-        SB.NPC.PublishEffects(key, st)
+        SB.Events.Fire(SB.E.NPC_STATE_CHANGED, key)
+        keys[#keys + 1] = key
         touched = touched + 1
 
-        -- СТРОКА В ЛОГ — ОДНА НА ОСОБЬ, а не на эффект: сцена с тремя
-        -- отравленными волками иначе выбрасывала бы девять строк на круг
-        -- и топила в них сам ход.
+        -- СТРОКА — ОДНА НА ИСХОД, а не на особь и не на эффект.
         local G    = SB.Theme.MSG_BODY
         local name = SB.NPC.NameForKey and SB.NPC.NameForKey(key) or "Существо"
         if names and (hp ~= 0 or res ~= 0) then
@@ -728,16 +740,49 @@ function SB.NPC.TickEffects()
             if res ~= 0 then
                 what[#what + 1] = G .. (res > 0 and "+" or "") .. res .. " ресурса|r"
             end
-            SB.Events.Fire(SB.E.BROADCAST_LOG,
-                SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. name .. ": |r" ..
-                table.concat(what, G .. ", |r") .. G .. " (" ..
-                table.concat(names, ", ") .. ").|r", SB.LogRank.TICK)
+            local tail = table.concat(what, G .. ", |r") .. G .. " (" ..
+                table.concat(names, ", ") .. ").|r"
+            local gk = name .. "\0" .. tail
+            local g = groups[gk]
+            if not g then
+                g = { name = name, tail = tail, n = 0 }
+                groups[gk] = g
+                order[#order + 1] = gk
+            end
+            g.n = g.n + 1
         end
         -- СТРОКИ «С СУЩЕСТВА СПАЛО» БОЛЬШЕ НЕТ. Она шла в рассылку на
         -- каждый истёкший эффект каждой особи и в свалке топила чат, а
         -- сказать ей было нечего: иконка на рамке цели и так исчезает, а
-        -- список у всех сводится пакетом эффектов (см. PublishEffects).
+        -- список у всех сводится пакетом эффектов.
     end)
+
+    if #keys > 0 and SB.NPC.PublishBatch then SB.NPC.PublishBatch(keys) end
+
+    if #order > 0 then
+        local G = SB.Theme.MSG_BODY
+        local function Line(g)
+            return G .. g.name .. ((g.n > 1) and (" ×" .. g.n) or "") .. ": |r" .. g.tail
+        end
+        if #order == 1 then
+            SB.Events.Fire(SB.E.BROADCAST_LOG,
+                SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. Line(groups[order[1]]),
+                SB.LogRank.TICK)
+        else
+            local out = { SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G ..
+                          "Эффекты на существах:|r" }
+            for _, gk in ipairs(order) do
+                out[#out + 1] = "   |cFFFFD100•|r " .. Line(groups[gk])
+            end
+            if SB.Net and SB.Net.QueueLogBlock then
+                SB.Net.QueueLogBlock(out, SB.LogRank.TICK)
+            else
+                for _, line in ipairs(out) do
+                    SB.Events.Fire(SB.E.BROADCAST_LOG, line, SB.LogRank.TICK)
+                end
+            end
+        end
+    end
 
     return touched
 end

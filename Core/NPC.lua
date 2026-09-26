@@ -1571,6 +1571,31 @@ function SB.NPC.NameForKey(key)
     return (st and st.name) or "Существо"
 end
 
+--- Разослать состояние МНОГИХ особей одним пакетом — тик существ на
+--- круге (см. SB.NPC.TickEffects). Только у владельца: у остальных тик
+--- не идёт вовсе.
+function SB.NPC.PublishBatch(keys)
+    if not SB.NPC.IsOwner() then return end
+    if not (SB.Net and SB.Net.SendNpcStates) then return end
+    local list = {}
+    for _, key in ipairs(keys or {}) do
+        local st = state[key]
+        if st then
+            list[#list + 1] = { key, st.hp, st.maxHp, st.res, st.maxRes,
+                SB.NPC.PackEffects and SB.NPC.PackEffects(st.effects) or nil,
+                ((st.ward or 0) > 0) and st.ward or nil }
+        end
+    end
+    -- Кусками по сорок: один пакет на сотню тушек растёт в килобайты, и
+    -- его разрезанные части дольше держат канал, чем несколько пакетов.
+    local chunk = {}
+    for _, e in ipairs(list) do
+        chunk[#chunk + 1] = e
+        if #chunk >= 40 then SB.Net.SendNpcStates(chunk); chunk = {} end
+    end
+    if #chunk > 0 then SB.Net.SendNpcStates(chunk) end
+end
+
 --- Список эффектов изменился: сообщить своим и — по общему правилу
 --- «бьют все, сводит владелец» — либо разослать (владелец), либо
 --- сообщить владельцу (все остальные).

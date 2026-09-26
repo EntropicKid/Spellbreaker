@@ -726,6 +726,22 @@ end
 --- своего клиента нет, правду держит ровно один человек (см. врезку о
 --- владельце в Core/NPC.lua), и принимать её от кого попало значило бы
 --- отдать чужим клиентам право переписывать здоровье всех существ сцены.
+--- Состояния многих особей одним пакетом — тик существ на круге (см.
+--- SB.NPC.PublishBatch). Каждая запись — те же поля, что у NPCST, по
+--- порядку: ключ, здоровье, максимум, ресурс, максимум, эффекты, броня.
+--- Больше сотни записей из одного пакета не берём: пакет чужой.
+local function ParseNPCSTB(sender, t)
+    if not IsFromLeaderOrAssist(sender) then return end
+    if not SB.NPC or not SB.NPC.ApplyRemoteState then return end
+    if type(t.list) ~= "table" then return end
+    for i, e in ipairs(t.list) do
+        if i > 100 then break end
+        if type(e) == "table" then
+            SB.NPC.ApplyRemoteState(e[1], e[2], e[3], e[4], e[5], e[6], e[7])
+        end
+    end
+end
+
 local function ParseNPCST(sender, t)
     -- Помощники рейда тоже ведут сцену (см. SB.NPC.IsOwner), поэтому
     -- проверка та же, что у выдачи ресурсов, а не строго «только лидер».
@@ -1465,6 +1481,7 @@ local IMMEDIATE_ACTIONS = {
     -- нему рисуется полоска здоровья цели, и задержка в пару тиков
     -- означает, что игрок ещё секунду видит старые цифры.
     NPCST  = true,
+    NPCSTB = true,
     NPCDLT = true,
     NPCEFF = true,
     NPCREQ = true,
@@ -1536,6 +1553,7 @@ Dispatch = function(sender, t)
     elseif action == "AOEHLR"  then ParseAOEHLR(t)
     elseif action == "DISPEL"  then ParseDISPEL(t)
     elseif action == "NPCST"   then ParseNPCST(sender, t)
+    elseif action == "NPCSTB"  then ParseNPCSTB(sender, t)
     elseif action == "NPCDLT"  then ParseNPCDLT(sender, t)
     elseif action == "NPCEFF"  then ParseNPCEFF(sender, t)
     elseif action == "NPCTMPL" then ParseNPCTMPL(sender, t)
@@ -1862,7 +1880,11 @@ local function FlushLogQueue()
         return a.seq < b.seq
     end)
     for _, item in ipairs(q) do
-        SB.Net.BroadcastLog(item.msg)
+        if item.lines then
+            SB.Net.BroadcastLogLines(item.lines)
+        else
+            SB.Net.BroadcastLog(item.msg)
+        end
     end
 
     local after = afterFlush
@@ -1895,6 +1917,24 @@ function SB.Net.QueueLogLine(msg, rank)
         msg  = msg,
         rank = tonumber(rank) or SB.LogRank.RESULT,
         seq  = logSeq,
+    }
+    if not logQueued then
+        logQueued = true
+        C_Timer.After(0, FlushLogQueue)
+    end
+end
+
+--- Поставить в очередь кадра БЛОК строк — одним пакетом (LOGM), но на
+--- своём месте по рангу. BroadcastLogLines шлёт сразу, мимо очереди, и
+--- блок тиков существ печатался бы раньше строк того же кадра, которые
+--- по рангу идут перед ним.
+function SB.Net.QueueLogBlock(lines, rank)
+    if type(lines) ~= "table" or #lines == 0 then return end
+    logSeq = logSeq + 1
+    logQueue[#logQueue + 1] = {
+        lines = lines,
+        rank  = tonumber(rank) or SB.LogRank.RESULT,
+        seq   = logSeq,
     }
     if not logQueued then
         logQueued = true
@@ -1939,6 +1979,18 @@ function SB.Net.SendNpcState(key, hp, maxHp, res, maxRes, eff, ward)
         -- её нет никогда, и платить полем в каждом пакете незачем.
         wd     = ((tonumber(ward) or 0) > 0) and ward or nil,
     }, "NORMAL")
+end
+
+--- Состояния многих особей ОДНИМ пакетом (тик существ на круге, см.
+--- SB.NPC.PublishBatch). Записи — массивами, без имён полей: имена
+--- повторялись бы в каждой записи, а записей бывает сорок. BULK — чтобы
+--- сорок особей не вставали перед боевыми пакетами: у Ведущего всё уже
+--- применено, а полоски у остальных доедут вслед.
+--- @param list table  { { key, hp, maxHp, res, maxRes, eff, ward }, ... }
+function SB.Net.SendNpcStates(list)
+    if not IsInGroup() then return end
+    if type(list) ~= "table" or #list == 0 then return end
+    SendToGroup({ action = "NPCSTB", list = list }, "BULK")
 end
 
 --- Попросить группу рассказать, что она знает о существах сцены.

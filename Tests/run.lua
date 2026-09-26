@@ -21522,6 +21522,57 @@ do
     stub.world.isLeader, stub.world.inGroup = wasLeader, wasGroup
 end
 
+-- ============================================================
+-- ТИК АРМИИ СУЩЕСТВ — ОДНИМ ПАКЕТОМ И ОДНИМ БЛОКОМ
+--
+-- Сорок особей под ядом раньше давали восемьдесят сообщений на круг
+-- (NPCST и LOG на каждую). Теперь состояния — одним NPCSTB, строки —
+-- одним блоком, одинаковые исходы свёрнуты.
+-- ============================================================
+do
+    local wasLeader, wasGroup = stub.world.isLeader, stub.world.inGroup
+    stub.world.isLeader, stub.world.inGroup = true, false
+    local savedDB = _G.SpellbreakerNPCDB
+    _G.SpellbreakerNPCDB = { npcs = {} }
+    SB.NPC.ResetState()
+    SB.Data.Spells["t_tick_poison"] = { id = "t_tick_poison", name = "Проба яда",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "debuff", tick = { damage = 1 } } }
+    SB.Data.Spells["t_tick_fire"] = { id = "t_tick_fire", name = "Проба огня",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "debuff", tick = { damage = 2 } } }
+
+    -- Тридцать под ядом и десять в огне: два разных исхода.
+    for i = 1, 40 do
+        SB.NPC.ApplyRemoteState("9001:" .. i, 10, 10, 0, 0,
+            (i <= 30) and "t_tick_poison:5" or "t_tick_fire:5")
+    end
+
+    local realStates, realOne, realBlock = SB.Net.SendNpcStates, SB.Net.SendNpcState,
+                                           SB.Net.QueueLogBlock
+    local batches, singles, blocks = {}, 0, {}
+    SB.Net.SendNpcStates = function(list) batches[#batches + 1] = list end
+    SB.Net.SendNpcState  = function() singles = singles + 1 end
+    SB.Net.QueueLogBlock = function(lines) blocks[#blocks + 1] = lines end
+
+    check("тикнули все сорок", SB.NPC.TickEffects(), 40)
+    check("состояния — одним пакетом", #batches, 1)
+    check("в нём все сорок", batches[1] and #batches[1], 40)
+    check("поштучных пакетов нет", singles, 0)
+    check("строки — одним блоком", #blocks, 1)
+    check("два исхода — шапка и две строки", blocks[1] and #blocks[1], 3)
+    checkTrue("одинаковые свёрнуты со счётчиком",
+              blocks[1] and blocks[1][2]:find("×30", 1, true) ~= nil
+              and blocks[1][3]:find("×10", 1, true) ~= nil)
+
+    SB.Net.SendNpcStates, SB.Net.SendNpcState, SB.Net.QueueLogBlock =
+        realStates, realOne, realBlock
+    SB.Data.Spells["t_tick_poison"], SB.Data.Spells["t_tick_fire"] = nil, nil
+    SB.NPC.ResetState()
+    _G.SpellbreakerNPCDB = savedDB
+    stub.world.isLeader, stub.world.inGroup = wasLeader, wasGroup
+end
+
 -- ИТОГ
 -- ============================================================
 print("")
