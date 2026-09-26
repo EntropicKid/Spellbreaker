@@ -793,7 +793,7 @@ function SB.UI.UpdateGMQueue()
                 end
             end)
 
-            -- Цель — в строке заклинания (см. ниже); отдельной строки нет.
+            -- Цель — в строке имени (см. ниже); отдельной строки нет.
             row.targetLabel = row:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
             row.targetLabel:Hide()
 
@@ -833,7 +833,17 @@ function SB.UI.UpdateGMQueue()
             and (spell and SB.Logic.GetCantripLabel(spell.class):lower() or "заговор")
             or ("Круг " .. req.slotLevel)
 
-        row.casterLabel:SetText(SB.UI.ColorNames and SB.UI.ColorNames(req.caster) or req.caster)
+        -- ЦЕЛЬ — ЗА ИМЕНЕМ, А НЕ ЗА ЗАКЛИНАНИЕМ. Во второй строке она
+        -- стояла третьей после имени заклинания и круга, и длинное имя
+        -- существа («Гигантский болотный…») обрезалось на полуслове.
+        -- «Кто → по кому» читается одной строкой, а у строки имени
+        -- места больше: круга и названия в ней нет.
+        local who = SB.UI.ColorNames and SB.UI.ColorNames(req.caster) or req.caster
+        if req.target and req.target ~= "" then
+            local tgt = SB.UI.ColorNames and SB.UI.ColorNames(req.target) or req.target
+            who = who .. "  |cFF6E6250→|r  " .. tgt
+        end
+        row.casterLabel:SetText(who)
         row.icon:SetTexture(spell and spell.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
         local what
         if spell and spell.isCustom then
@@ -842,9 +852,6 @@ function SB.UI.UpdateGMQueue()
             what = "|cFF9933FF" .. spName .. "|r · " .. lvlTxt
         else
             what = spName .. " · " .. lvlTxt
-        end
-        if req.target and req.target ~= "" then
-            what = what .. "  |cFF6E6250→|r " .. req.target
         end
         row.spellLabel:SetText(what)
         row.spellLabelBtn._spell = spell
