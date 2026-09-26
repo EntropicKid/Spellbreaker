@@ -482,6 +482,22 @@ function SB.NpcCast.Confirm()
         if need > 0 and SB.NPC.AdjustResource then
             SB.NPC.AdjustResource(caster, -need)
         end
+        -- ЦЕНА ПРИМЕНЕНИЯ (spell.onCast) — самому существу, за применение,
+        -- а не за успех, как у игрока. Раньше у существа её не было вовсе:
+        -- «Удар щитом» не давал брони, «Кровоотвод» — ресурса.
+        if SB.NPC.ApplyCastPayload then
+            local hp, res, ward = SB.NPC.ApplyCastPayload(caster, spell)
+            local what = {}
+            if hp ~= 0 then what[#what + 1] = (hp > 0 and "+" or "") .. hp .. " ХП" end
+            if res ~= 0 then what[#what + 1] = (res > 0 and "+" or "") .. res .. " ресурса" end
+            if ward ~= 0 then what[#what + 1] = (ward > 0 and "+" or "") .. ward .. " брони" end
+            if #what > 0 then
+                SB.Events.Fire(SB.E.BROADCAST_LOG,
+                    SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. pending.npcName ..
+                    ": " .. table.concat(what, ", ") .. " (|r" .. SB.UI.MakeSpellLink(spell) ..
+                    G .. ").|r", SB.LogRank.ACTION)
+            end
+        end
         -- ПОТОК СУЩЕСТВА. Держатель вешается на само существо: он
         -- показывает Ведущему, сколько ещё тянется поток, и его снимает
         -- прерывание (см. SB.NPC.BreakConcentration). Уже висящий не

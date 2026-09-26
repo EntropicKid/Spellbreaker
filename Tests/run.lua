@@ -21373,6 +21373,53 @@ do
     stub.world.inGroup = savedGroup
 end
 
+-- ============================================================
+-- НАКЛАДНАЯ БРОНЯ СУЩЕСТВА
+--
+-- «Удар щитом» (onCast.armor) и тик «Оборонительной стойки»
+-- (tick.armor) пополняют у существа расходуемый запас; удар тратит его
+-- после постоянного доспеха, десятку за единицу урона. Пополнение
+-- доливает до числа источника, а не складывает.
+-- ============================================================
+do
+    local savedDB     = _G.SpellbreakerNPCDB
+    local savedTarget = stub.world.units["target"]
+    local wasLeader, wasGroup = stub.world.isLeader, stub.world.inGroup
+    stub.world.isLeader, stub.world.inGroup = true, false
+    _G.SpellbreakerNPCDB = { npcs = {} }
+    stub.world.units["target"] = { name = "Пробный страж", level = 5, npc = true,
+        creatureType = "Гуманоид", guid = "Creature-0-970-0-11-4344-00BB03" }
+    SB.NPC.Save({ npcID = 4344, name = "Пробный страж", classification = "humanoid",
+        level = 5, maxHealth = 30 })
+    SB.NPC.ResetState()
+
+    check("без щита запаса нет", SB.NPC.WardOf("target"), 0)
+    local _, _, ward = SB.NPC.ApplyCastPayload("target", SB.Data.Spells["shield_slam"])
+    check("Удар щитом даёт существу 15 брони", ward, 15)
+    SB.NPC.ApplyCastPayload("target", SB.Data.Spells["shield_slam"])
+    check("повторный — доливает, а не складывает", SB.NPC.WardOf("target"), 15)
+
+    local stats = SB.NPC.StatsForUnit("target")
+    local base  = SB.NPC.DamageReduction(stats, "target")
+    local final, _, absorbed = SB.NPC.MitigateDamage(base + 3, stats, "target", "physical")
+    check("запас гасит единицу сверх доспеха", absorbed, base + 1)
+    check("и остаток проходит", final, 2)
+    check("списав десятку", SB.NPC.WardOf("target"), 5)
+    final = SB.NPC.MitigateDamage(base + 1, stats, "target", "physical")
+    check("пятёрки на единицу не хватает", final, 1)
+
+    SB.NPC.AddEffect("target", "eff_defensive_stance", 5)
+    SB.NPC.TickEffects()
+    check("стойка доливает до 15 каждый ход", SB.NPC.WardOf("target"), 15)
+    SB.NPC.TickEffects()
+    check("и не копит сверх", SB.NPC.WardOf("target"), 15)
+
+    SB.NPC.ResetState()
+    stub.world.units["target"] = savedTarget
+    _G.SpellbreakerNPCDB = savedDB
+    stub.world.isLeader, stub.world.inGroup = wasLeader, wasGroup
+end
+
 -- ИТОГ
 -- ============================================================
 print("")

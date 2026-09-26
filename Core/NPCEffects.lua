@@ -562,9 +562,10 @@ end
 --- @param source string|nil "tick" — урон ПРИШЁЛ ИЗВНЕ и гасится
 ---        сопротивлением школе. Правило и довод те же, что у игрока
 ---        (см. врезку в SB.ActiveEffects.ApplyPayload).
---- @return number hpDelta, number resDelta
+--- @return number hpDelta, number resDelta, number armor  броня — сырое
+---         число блока; куда её деть, решает вызывающий (см. TickOne)
 local function ApplyPayload(st, def, sp, source)
-    if type(def) ~= "table" then return 0, 0 end
+    if type(def) ~= "table" then return 0, 0, 0 end
 
     local dmg  = tonumber(def.damage) or 0
     local heal = tonumber(def.heal)   or 0
@@ -610,10 +611,12 @@ local function ApplyPayload(st, def, sp, source)
         res = res + (tonumber(def.resource) or 0)
     end
 
-    -- БРОНЯ ЗДЕСЬ НЕ ПРИМЕНЯЕТСЯ, и это то же решение, что у игрока
-    -- (см. врезку в SB.ActiveEffects.ApplyPayload): тик — это яд, огонь и
-    -- кровотечение, доспех от них не спасает.
-    return heal - dmg, res
+    -- БРОНЯ НЕ ГАСИТ ТИК, и это то же решение, что у игрока (см. врезку
+    -- в SB.ActiveEffects.ApplyPayload): тик — это яд, огонь и
+    -- кровотечение, доспех от них не спасает. Но ЧИНИТЬ броню тик
+    -- может — «Оборонительная стойка» доливает накладную броню каждый
+    -- ход (см. «ЗАПАС БРОНИ СУЩЕСТВА» в Core/NPC.lua).
+    return heal - dmg, res, tonumber(def.armor) or 0
 end
 
 --- Один тик всем эффектам одной особи.
@@ -625,6 +628,12 @@ local function TickOne(st)
     local AE = SB.ActiveEffects
     local hp, res, names = 0, 0, nil
     local expired, ended
+    -- Накладная броня: плюс ДОЛИВАЕТ до самого щедрого источника, минус
+    -- мнёт суммой (см. SB.NPC.GrantWard — то же правило).
+    local wardTop, wardHit = 0, 0
+    local function Ward(a)
+        if a > 0 then wardTop = math.max(wardTop, a) elseif a < 0 then wardHit = wardHit + a end
+    end
 
     for i = #list, 1, -1 do
         local e   = list[i]
@@ -640,16 +649,18 @@ local function TickOne(st)
             if e.uses <= 0 then gone = true end
         end
 
-        local h, r = ApplyPayload(st, sp and sp.effect and sp.effect.tick, sp, "tick")
+        local h, r, a = ApplyPayload(st, sp and sp.effect and sp.effect.tick, sp, "tick")
         hp, res = hp + h, res + r
+        Ward(a)
 
         if gone then
             -- Прощальный расчёт — ПОСЛЕ тика: последний ход эффект ещё
             -- отработал, и только потом спал. Сопротивление к нему НЕ
             -- применяется, как и у игрока: прощальный удар — это цена
             -- самого эффекта, а не чужой удар по школе.
-            local h2, r2 = ApplyPayload(st, sp and sp.effect and sp.effect.onRemove, sp)
+            local h2, r2, a2 = ApplyPayload(st, sp and sp.effect and sp.effect.onRemove, sp)
             hp, res = hp + h2, res + r2
+            Ward(a2)
             table.remove(list, i)
             expired = expired or {}
             expired[#expired + 1] = (sp and sp.name) or e.spellID
@@ -667,6 +678,13 @@ local function TickOne(st)
     -- и вставка в него посреди цикла сбила бы индексы. И нового тика в
     -- этом же ходу они не получают — легли уже после него.
     for _, id in ipairs(ended or {}) do FireEnd(st, id) end
+
+    -- Броню — прямо в состояние: тик идёт только у владельца, и итог
+    -- уезжает группе той же рассылкой, что и эффекты (PublishEffects).
+    if wardTop > 0 or wardHit < 0 then
+        local w = math.max(st.ward or 0, wardTop)
+        st.ward = math.max(0, w + wardHit)
+    end
 
     return hp, res, names, expired
 end

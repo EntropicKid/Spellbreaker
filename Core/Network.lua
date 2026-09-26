@@ -713,7 +713,7 @@ local function ParseNPCST(sender, t)
     -- проверка та же, что у выдачи ресурсов, а не строго «только лидер».
     if not IsFromLeaderOrAssist(sender) then return end
     if not SB.NPC or not SB.NPC.ApplyRemoteState then return end
-    SB.NPC.ApplyRemoteState(t.key, t.hp, t.maxHp, t.res, t.maxRes, t.eff)
+    SB.NPC.ApplyRemoteState(t.key, t.hp, t.maxHp, t.res, t.maxRes, t.eff, t.wd)
 end
 
 --- УЧАСТНИК СООБЩАЕТ, ЧТО НАНЁС СУЩЕСТВУ УРОН (или вылечил его).
@@ -728,7 +728,7 @@ end
 local function ParseNPCDLT(sender, t)
     if sender == UnitName("player") then return end   -- своё уже применено
     if not SB.NPC or not SB.NPC.ApplyRemoteDelta then return end
-    SB.NPC.ApplyRemoteDelta(t.key, t.hp, t.res)
+    SB.NPC.ApplyRemoteDelta(t.key, t.hp, t.res, t.wd)
 end
 
 --- «Я взял это существо в цель, а состояния о нём не знаю» — ответить
@@ -1907,7 +1907,7 @@ end
 ---        (см. SB.NPC.PackEffects). Строкой, а не таблицей: сериализатор
 ---        разворачивает вложенную таблицу в разы длиннее, а состояние
 ---        существа уезжает на каждый удар.
-function SB.Net.SendNpcState(key, hp, maxHp, res, maxRes, eff)
+function SB.Net.SendNpcState(key, hp, maxHp, res, maxRes, eff, ward)
     if not IsInGroup() then return end
     SendToGroup({
         action = "NPCST",
@@ -1917,6 +1917,9 @@ function SB.Net.SendNpcState(key, hp, maxHp, res, maxRes, eff)
         res    = res,
         maxRes = maxRes,
         eff    = eff,
+        -- Накладная броня — только когда она есть: у большинства особей
+        -- её нет никогда, и платить полем в каждом пакете незачем.
+        wd     = ((tonumber(ward) or 0) > 0) and ward or nil,
     }, "NORMAL")
 end
 
@@ -1967,14 +1970,17 @@ end
 --- Едет ДЕЛЬТА, а не итог: своё состояние у нас может отличаться от
 --- владельцева, и присылать ему свою версию правды было бы неверно —
 --- он сведёт нашу правку со своей.
-function SB.Net.SendNpcDelta(key, hpDelta, resDelta)
+function SB.Net.SendNpcDelta(key, hpDelta, resDelta, wardDelta)
     if not IsInGroup() then return end
-    if (tonumber(hpDelta) or 0) == 0 and (tonumber(resDelta) or 0) == 0 then return end
+    wardDelta = tonumber(wardDelta) or 0
+    if (tonumber(hpDelta) or 0) == 0 and (tonumber(resDelta) or 0) == 0
+       and wardDelta == 0 then return end
     SendToGroup({
         action = "NPCDLT",
         key    = key,
         hp     = hpDelta,
         res    = resDelta,
+        wd     = (wardDelta ~= 0) and wardDelta or nil,
     }, "NORMAL")
 end
 
