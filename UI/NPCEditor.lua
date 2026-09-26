@@ -521,7 +521,8 @@ local function EnsureStatRow(i)
     -- Крестик у правого края, поле перед ним: убрать строку — движение
     -- редкое, и стоять ему правильнее с краю, а не между подписью и
     -- числом, куда целится рука.
-    row.del = SB.Theme.Button(row, "×", 20, 20, "danger")
+    row.del = SB.Theme.Button(row, "", 20, 20, "danger")
+    SB.Theme.AddGlyph(row.del, "cross", 12)
     row.del:SetPoint("RIGHT", row, "RIGHT", 0, 0)
     row.del:SetScript("OnClick", function(self)
         local nm = self:GetParent()._stat

@@ -1629,7 +1629,7 @@ AddEffect({
     damageType = "nature",
     icon = "Interface\\Icons\\Ability_rogue_dualweild",
     description = "Небольшая порция жгучего яда, что мучает и приближает кончину цели изнутри.",
-    effect = { kind = "debuff", resist = "Выносливость", school = "poison", stats = { healTaken = -1 }, tick = { damage = 2 } },
+    effect = { kind = "debuff", resist = "Выносливость", school = "poison", mods = { healTaken = -1 }, tick = { damage = 2 } },
 })
 
 AddEffect({

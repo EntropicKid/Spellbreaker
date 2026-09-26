@@ -704,7 +704,24 @@ function SB.Library.ShowDetail(spell)
 
     -- Концентрация — через SB.Logic.IsConcentration: флаг бывает и на
     -- контейнере, и механика читает именно так.
-    f.concBadge:SetShown((not isEff) and SB.Logic.IsConcentration(spell) or false)
+    local isConc = (not isEff) and SB.Logic.IsConcentration(spell) or false
+    f.concBadge:SetShown(isConc)
+    local uses = (not isEff) and spell.channel
+                 and (SB.Data.GetChannelUses and SB.Data.GetChannelUses(spell) or spell.channel)
+    f.chanBadge:ClearAllPoints()
+    if isConc then
+        f.chanBadge:SetPoint("RIGHT", f.concBadge, "LEFT", -4, 0)
+    else
+        f.chanBadge:SetPoint("BOTTOMRIGHT", f.concBadge:GetParent(), "BOTTOMRIGHT", -6, 6)
+    end
+    if uses then
+        -- Бессрочный поток (-1) — без числа: «×-1» читалось бы как сбой.
+        local n = tonumber(uses) or 0
+        f.chanBadge.fs:SetText((n > 0) and ("Поток ×" .. n) or "Поток")
+        f.chanBadge:Show()
+    else
+        f.chanBadge:Hide()
+    end
 
     -- ── Плитки ────────────────────────────────────────────────
     -- Длительность: -1 — бессрочно (до Долгого Отдыха), число — ходы,
@@ -1487,6 +1504,32 @@ function SB.Library.BuildFrame()
     badgeFS:SetTextColor(0.55, 0.88, 1.0)
     badge:Hide()
     detailFrame.concBadge = badge
+
+    -- ПОТОК — такой же плашкой рядом: это тоже свойство всего
+    -- заклинания («после каста держатель, ЛКМ повторяет бесплатно»), и
+    -- раньше карточка о нём молчала вовсе. Сиреневая, а не голубая:
+    -- рядом с концентрацией они не должны сливаться.
+    local chan = CreateFrame("Frame", nil, hero, "BackdropTemplate")
+    chan:SetSize(88, 16)
+    chan:SetBackdrop(SB.Theme.BD.input)
+    chan:SetBackdropColor(0.20, 0.08, 0.28, 0.9)
+    chan:SetBackdropBorderColor(0.75, 0.45, 1.0, 0.8)
+    chan.fs = chan:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
+    chan.fs:SetPoint("CENTER", chan, "CENTER", 0, 0)
+    chan.fs:SetTextColor(0.85, 0.70, 1.0)
+    chan:Hide()
+    chan:EnableMouse(true)
+    chan:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        SB.Theme.StyleTooltip(GameTooltip)
+        GameTooltip:SetText("Потоковое заклинание", 0.85, 0.70, 1.0)
+        GameTooltip:AddLine("После применения на вас повисает «Поток». ЛКМ по нему " ..
+            "повторяет заклинание без затрат ресурса — каждый повтор тратит ход " ..
+            "и бросается заново. Число — сколько повторов.", 0.85, 0.85, 0.85, true)
+        GameTooltip:Show()
+    end)
+    chan:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    detailFrame.chanBadge = chan
 
     -- ── Плитки ────────────────────────────────────────────────
     -- До трёх штук, ширина делится поровну между показанными.

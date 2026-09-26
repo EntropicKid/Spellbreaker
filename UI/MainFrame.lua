@@ -773,9 +773,11 @@ local function BuildMainFrame()
     -- приём, что уже используется для иконок заклинаний в библиотеке.
     -- Оба файла заведомо есть на клиенте: на них ссылаются заклинания
     -- в Spells/ (Превосходство и Разоружение у Воина).
-    local ICON_ATTACK  = "Interface\\Icons\\Ability_MeleeDamage"  -- удар
-    local ICON_DEFENSE = "Interface\\Icons\\Ability_Defend"       -- щит
-    local ICON_TRIM    = { 0.08, 0.92, 0.08, 0.92 }
+    -- Теперь — свои значки в манере галочки (см. SB.Theme.GLYPH): у
+    -- них нет штатной рамки, и обрезать нечего.
+    local ICON_ATTACK  = SB.Theme.GLYPH.attack    -- меч
+    local ICON_DEFENSE = SB.Theme.GLYPH.defense   -- щит
+    local ICON_TRIM    = { 0, 1, 0, 1 }
     --
     -- ВАЖНО: иконка — ОТДЕЛЬНЫЙ Texture, а не инлайн |T..|t внутри
     -- SetText. Инлайн-вариант на этом клиенте ломал высоту строки —
@@ -924,10 +926,9 @@ local function BuildMainFrame()
     moveBadge.icon = moveBadge:CreateTexture(nil, "ARTWORK")
     moveBadge.icon:SetSize(14, 14)
     moveBadge.icon:SetPoint("LEFT", moveBadge, "LEFT", 7, 0)
-    -- Ровно та же строка, что у «Спринта» в Spells/Rogue.lua: путь
-    -- проверен данными аддона, а не выбран наугад (см. врезку об иконках
-    -- бейджей выше — промах по атласу здесь уже случался).
-    moveBadge.icon:SetTexture("Interface\\Icons\\Ability_rogue_sprint")
+    -- Сапог — свой значок в манере галочки, как меч и щит соседних
+    -- бейджей (см. SB.Theme.GLYPH).
+    moveBadge.icon:SetTexture(SB.Theme.GLYPH.move)
     moveBadge.icon:SetTexCoord(ICON_TRIM[1], ICON_TRIM[2], ICON_TRIM[3], ICON_TRIM[4])
 
     moveBadge.text = moveBadge:CreateFontString(nil, "OVERLAY", "SBFontNormal")
