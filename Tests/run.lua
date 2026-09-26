@@ -4871,10 +4871,10 @@ do
     local realSend = SB.Net.SendPvpAttack
     local calls = {}
     SB.Net.SendPvpAttack = function(target, spellID, roll, mod, total,
-                                    isCrit, dmgBonus, baseDmg, slot, persuade, npcName)
+                                    isCrit, dmgBonus, baseDmg, slot, persuade, npcName, aoe)
         calls[#calls + 1] = { target = target, spellID = spellID, roll = roll,
             mod = mod, total = total, isCrit = isCrit, baseDmg = baseDmg,
-            slot = slot, npcName = npcName }
+            slot = slot, npcName = npcName, aoe = aoe }
     end
 
     SB.Data.Spells["t_claw"] = { id = "t_claw", name = "Когти твари",
@@ -4916,6 +4916,44 @@ do
     -- Не подменой отправителя: отправителя берут у транспорта именно
     -- затем, чтобы им нельзя было прикрыться (см. ParsePVPATK).
     check("бьёт существо, а не Ведущий", calls[1].npcName, "Медведь-ледолап")
+    -- Залп по нескольким — площадью: задетые отвечают итогом в сводку
+    -- Ведущего, а не абзацем в чат каждый.
+    check("залп по троим уходит площадью", calls[1].aoe, true)
+
+    -- ── ЗАДЕТЫЙ ОТВЕЧАЕТ ВЕДУЩЕМУ, А НЕ ТУШКЕ ──────────────
+    do
+        local realRes, sentTo, sentAoe = SB.Net.SendPvpResult, nil, nil
+        SB.Net.SendPvpResult = function(to, _, _, _, _, _, _, _, a)
+            sentTo, sentAoe = to, a
+        end
+        SB.Logic.HandlePvpAttackReceived("Медведь-ледолап", "t_claw", 50, 0, 50,
+            false, 0, 1, nil, true, nil, true, "Ведущая")
+        check("итог уходит Ведущему", sentTo, "Ведущая")
+        checkTrue("с пометкой «существо»", sentAoe and sentAoe.npc == true)
+        SB.Net.SendPvpResult = realRes
+    end
+
+    -- ── У ВЕДУЩЕГО — ТОЛЬКО В СВОДКУ ───────────────────────
+    -- Не как свой удар: иначе сработали бы его вампиризм и классовые
+    -- механики.
+    do
+        local realAdd, realRes = SB.Logic.AoeReportAdd, SB.Logic.HandlePvpResultReceived
+        local realDes = SB.Net.Deserialize
+        local added, asOwn = nil, false
+        SB.Logic.AoeReportAdd = function(e) added = e end
+        SB.Logic.HandlePvpResultReceived = function() asOwn = true end
+        SB.Net.Deserialize = function(_, m) return true, m end
+        SB.Net.__commHandler(SB.Net.__commPrefix, {
+            action = "PVPRES", attacker = UnitName("player"), target = "Борис",
+            defRoll = 30, defMod = 5, defTotal = 35, dmg = 2,
+            isAoe = true, npc = true, landed = true,
+        }, "WHISPER", "Борис")
+        for _ = 1, 5 do stub.RunTimers() end
+        check("итог залпа существа — в сводку", added and added.name, "Борис")
+        checkTrue("и не как свой удар", not asOwn)
+        SB.Logic.AoeReportAdd, SB.Logic.HandlePvpResultReceived = realAdd, realRes
+        SB.Net.Deserialize = realDes
+    end
 
     -- ── ОДИН БРОСОК НА ВСЕХ ────────────────────────────────
     -- По броску на цель означало бы, что вероятность зацепить хоть кого-то

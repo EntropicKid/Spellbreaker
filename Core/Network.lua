@@ -543,9 +543,14 @@ local function ParsePVPATK(sender, t)
     -- Последним доводом — «бьёт существо»: сверка чисел к нему не
     -- применяется, потому что цифры существа назначил тот самый лидер,
     -- от которого пакет и принят (см. SB.Logic.VerifyIncomingDamage).
+    --
+    -- ЗАЛП СУЩЕСТВА (t.aoe) — площадью: ответ коротким итогом, и не
+    -- существу (у тушки нет клиента), а Ведущему, который её ведёт.
+    local fromNpc = (t.npc ~= nil and t.npc ~= "")
     SB.Logic.HandlePvpAttackReceived(shown, t.spellID, t.roll, t.mod, t.total,
-        t.isCrit == true, t.dmgBonus or 0, t.baseDmg, nil, nil, t.persuade,
-        (t.npc ~= nil and t.npc ~= ""))
+        t.isCrit == true, t.dmgBonus or 0, t.baseDmg, nil,
+        (fromNpc and t.aoe == true) or nil, t.persuade, fromNpc,
+        fromNpc and sender or nil)
 end
 
 -- ShortText отсюда убран вместе со своей работой: названия эффектов из
@@ -559,6 +564,19 @@ local function ParsePVPRES(t)
         SB.Events.Fire("LOG_MESSAGE_RECEIVED", SanitizeIncomingLog(t.log))
     end
     if t.attacker ~= UnitName("player") then return end
+
+    -- ИТОГ ПО ЗАЛПУ СУЩЕСТВА — только в сводку. Это не наш удар: ни
+    -- вампиризма, ни классовых механик, ни отписи Ведущему он не даёт.
+    if t.isAoe and t.npc then
+        if SB.Logic and SB.Logic.AoeReportAdd then
+            SB.Logic.AoeReportAdd({
+                kind = "atk", name = t.target, roll = t.defRoll, mod = t.defMod,
+                total = t.defTotal, landed = t.landed == true, dmg = t.dmg,
+                debuff = t.debuff == true, resisted = t.resisted == true,
+            })
+        end
+        return
+    end
     if not SB.Logic or not SB.Logic.HandlePvpResultReceived then return end
 
     local aoe
@@ -2033,7 +2051,7 @@ end
 ---
 --- ОТ ЛИЦА СУЩЕСТВА — НЕ СЧИТАЕТСЯ: Ведущий одалживает волку руки, а не
 --- свой навык (то же правило, что в SendBuff).
-function SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, slot, persuade, npcName)
+function SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, slot, persuade, npcName, aoe)
     local sp = SB.Data.Spells[spellID]
     if not npcName and sp and sp.debuff and SB.Logic and SB.Logic.EncouragementFor then
         -- С ИМЕНЕМ ЦЕЛИ: бить можно и помеченного своим (двойное
@@ -2059,6 +2077,9 @@ function SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, dmg
         baseDmg  = baseDmg,
     }
     if (tonumber(persuade) or 0) > 0 then t.persuade = persuade end
+    -- Залп существа по нескольким целям: ответ — коротким итогом в сводку
+    -- Ведущего, а не абзацем в чат от каждого задетого (см. ParsePVPATK).
+    if aoe then t.aoe = true end
     SendToPlayer(t, targetName, "NORMAL")
 end
 
@@ -2255,6 +2276,7 @@ function SB.Net.SendPvpResult(attackerName, targetName, defRoll, defMod, defTota
         t.resisted = aoe.resisted and true or false
         t.retrib   = aoe.retrib
         t.isAoe    = true
+        t.npc      = aoe.npc and true or nil
     end
     SendToPlayer(t, attackerName, "NORMAL")
 end

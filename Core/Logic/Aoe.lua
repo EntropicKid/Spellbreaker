@@ -271,6 +271,11 @@ local function OpenAoeReport(header, kind)
     return report
 end
 
+--- Наружу — для залпа СУЩЕСТВА (см. SB.NpcCast.Confirm): отчёт тот же,
+--- и печатать его иначе значило бы завести второй формат одной и той же
+--- сводки. Возвращает сам отчёт — в него кладут признак крита.
+SB.Logic.OpenAoeReport = OpenAoeReport
+
 --- Ответ задетого. До закрытия окна копится в блок; опоздавший
 --- печатается отдельной строкой, а не пропадает.
 function SB.Logic.AoeReportAdd(entry)

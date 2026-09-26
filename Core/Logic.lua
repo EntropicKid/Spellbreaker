@@ -4419,7 +4419,7 @@ end
 ---        чисел к нему не применяется (см. SB.Logic.VerifyIncomingDamage).
 function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod, atkTotal, atkCrit,
                                           atkDmgBonus, atkBaseDmg, atkSlot, isAoe, atkPersuade,
-                                          fromNpc)
+                                          fromNpc, replyTo)
     local PM    = SB.PlayerModel
     local spell = SB.Data.Spells[spellID]
 
@@ -4758,12 +4758,26 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
         -- Шлём именно ДАННЫЕ, а не готовую строку: чужие строки не
         -- сгруппировать, а заодно из пакета уходит вся разметка с цветами
         -- и ссылками — это примерно втрое короче.
-        SB.Net.SendPvpResult(attackerName, UnitName("player"), defRoll, defMod, defTotal,
-            dmg, newHealth, maxHealth, {
-                landed   = landed,
-                debuff   = debuffLanded,
-                retrib   = retrib,
+        --
+        -- ЗАЛП СУЩЕСТВА отвечает Ведущему (replyTo), а не тушке: у неё
+        -- нет клиента. Ведущий, накрывший залпом себя, кладёт итог в
+        -- сводку сам — пакет самому себе AceComm не доставляет.
+        local to = (fromNpc and replyTo) or attackerName
+        if fromNpc and to == UnitName("player") then
+            SB.Logic.AoeReportAdd({
+                kind = "atk", name = UnitName("player"), roll = defRoll,
+                mod = defMod, total = defTotal, landed = landed, dmg = dmg,
+                debuff = debuffLanded,
             })
+        else
+            SB.Net.SendPvpResult(to, UnitName("player"), defRoll, defMod, defTotal,
+                dmg, newHealth, maxHealth, {
+                    landed   = landed,
+                    debuff   = debuffLanded,
+                    retrib   = (not fromNpc) and retrib or nil,
+                    npc      = fromNpc,
+                })
+        end
     else
         -- ОТВЕТ АТАКУЮЩЕМУ — ПОСЛЕ СТРОКИ БОЯ, следующим кадром. Строка
         -- уходит очередью кадра (см. SB.Net.QueueLogLine), и отправь мы
