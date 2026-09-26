@@ -10423,6 +10423,61 @@ do
 end
 
 -- ============================================================
+-- ПРИШЕДШИЙ ПОСРЕДИ КРУГА СЧИТАЕТСЯ ПОХОДИВШИМ
+--
+-- Очередь посреди круга не пересобирается: новичок получает отметку
+-- «походил», а в очередь встаёт на «Новом ходе» — в конец.
+-- ============================================================
+do
+    stub.world.isLeader = true
+    stub.world.inGroup  = true
+    stub.world.inRaid   = true
+    local me = stub.world.playerName
+    local TO = SB.TurnOrder
+
+    stub.world.units["raid1"] = { name = me, level = 25, class = "Маг",
+        classToken = "MAGE", race = "Human" }
+    stub.world.units["raid2"] = { name = "Второй", level = 25, class = "Жрец",
+        classToken = "PRIEST", race = "Human" }
+    stub.world.raidRoster = {
+        { name = me,       subgroup = 1 },
+        { name = "Второй", subgroup = 2 },
+    }
+
+    TO.Stop()
+    TO.SetMode("player")
+    TO.Start()
+    local slots = TO.GetSlots()
+    local before = #slots
+    local firstSlot = table.concat(slots[1], ",")
+
+    stub.world.units["raid3"] = { name = "Третий", level = 25, class = "Воин",
+        classToken = "WARRIOR", race = "Human" }
+    stub.world.raidRoster[3] = { name = "Третий", subgroup = 1 }
+    stub.FireEvent("GROUP_ROSTER_UPDATE")
+
+    slots = TO.GetSlots()
+    check("очередь не пересобрана", #slots, before)
+    check("и её начало не сдвинулось", table.concat(slots[1], ","), firstSlot)
+    check("пришедшего в очереди этого круга нет", TO.GetInitiative("Третий"), nil)
+    checkTrue("он считается походившим", TO.HasActed("Третий"))
+    checkTrue("и действовать не может", not TO.CanAct("Третий"))
+    check("в полосе — за чертой", TO.GetLateJoiners()[1], "Третий")
+
+    TO.NewRound()
+    checkTrue("на новом ходе он в очереди", TO.GetInitiative("Третий") ~= nil)
+    check("в конце", TO.GetInitiative("Третий"), #TO.GetSlots())
+    checkTrue("и отметка снята", not TO.HasActed("Третий"))
+    check("опоздавших больше нет", #TO.GetLateJoiners(), 0)
+
+    TO.Stop()
+    stub.world.raidRoster = nil
+    stub.world.units["raid1"], stub.world.units["raid2"], stub.world.units["raid3"] = nil, nil, nil
+    stub.world.inRaid  = false
+    stub.world.inGroup = false
+end
+
+-- ============================================================
 -- НОВЫЙ КРУГ САМ
 -- ============================================================
 do

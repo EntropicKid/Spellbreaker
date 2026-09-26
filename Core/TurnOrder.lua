@@ -428,6 +428,24 @@ function TO.HasActed(name)
     return state.acted[name] == true
 end
 
+--- Пришедшие посреди круга: отметка «походил» есть, места в очереди
+--- ещё нет — оно появится на «Новом ходе». Для показа за чертой полосы
+--- очереди (UI/TurnQueue.lua), по имени, чтобы порядок не прыгал.
+--- @return table  { "Имя", ... }
+function TO.GetLateJoiners()
+    if not state.active then return {} end
+    local listed = {}
+    for _, slot in ipairs(state.slots) do
+        for _, n in ipairs(slot) do listed[n] = true end
+    end
+    local out = {}
+    for name, v in pairs(state.acted) do
+        if v == true and not listed[name] then out[#out + 1] = name end
+    end
+    table.sort(out)
+    return out
+end
+
 -- ============================================================
 -- БОНУСНОЕ ДЕЙСТВИЕ: ОДНО ЗА ХОД
 --
@@ -1937,11 +1955,20 @@ rosterWatch:SetScript("OnEvent", function()
         end
     end
 
-    -- ПРИШЕДШИЙ ПОСРЕДИ СЦЕНЫ. Раньше он вставал в очередь только со
-    -- следующего круга, а полное состояние получал только на границе
-    -- круга — до тех пор полоса у него показывала одного себя. Теперь
-    -- Ведущий ставит его в очередь сразу (в «по игроку» — в конец) и
-    -- рассылает состояние: сейчас и ещё раз через три секунды, когда
+    -- ПРИШЕДШИЙ ПОСРЕДИ КРУГА СЧИТАЕТСЯ ПОХОДИВШИМ.
+    --
+    -- Раньше Ведущий вставлял его в очередь сразу: в конец, к своей
+    -- рейдовой группе или в общий слот — и очередь посреди круга
+    -- пересобиралась, пытаясь решить, куда его деть и дошёл ли до него
+    -- ход. Со стороны это выглядело как «очередь ведёт себя нестабильно».
+    --
+    -- Теперь текущую очередь новичок НЕ ТРОГАЕТ вовсе: он получает
+    -- отметку «походил» на этот круг и встаёт в очередь на «Новом ходе»
+    -- — туда его дописывает NewRound (см. AddNewcomers), и отметки там
+    -- же сбрасываются. Это ещё и баланс: вошедший посреди боя не
+    -- действует раньше тех, кто в нём с начала.
+    --
+    -- Состояние рассылаем сейчас и ещё раз через три секунды — когда
     -- клиент пришедшего уже в группе и слышит её канал.
     local known = {}
     for _, slot in ipairs(state.slots) do
@@ -1949,10 +1976,12 @@ rosterWatch:SetScript("OnEvent", function()
     end
     local newcomers = false
     for name in pairs(present) do
-        if not known[name] then newcomers = true end
+        if not known[name] and not state.acted[name] then
+            state.acted[name] = true
+            newcomers = true
+        end
     end
     if newcomers and (state.round or 0) > 0 then
-        AddNewcomers()
         changed = true
         C_Timer.After(3, function()
             if state.active and AssertGM() then Broadcast() end

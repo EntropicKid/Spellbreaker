@@ -575,6 +575,16 @@ local function BuildEntries(slots, index)
         if a.rank ~= b.rank then return a.rank < b.rank end
         return a.ord < b.ord
     end)
+    -- ПРИШЕДШИЕ ПОСРЕДИ КРУГА — за чертой, последними: в этом круге они
+    -- считаются походившими, а в очередь встанут на «Новом ходе» —
+    -- ровно в конец, где их и показываем (см. TO.GetLateJoiners).
+    if TO.GetLateJoiners then
+        for _, name in ipairs(TO.GetLateJoiners()) do
+            if not (TO.IsAbsent and TO.IsAbsent(name)) then
+                done[#done + 1] = { name = name, slot = n + 1 }
+            end
+        end
+    end
     return pending, done
 end
 
