@@ -606,14 +606,64 @@ function SB.NpcCast.Confirm()
         if report then report.crit = isCrit and true or false end
     end
 
+    -- ОДНА ЦЕЛЬ — ОДНА СТРОКА, тем же видом, что у игрока. Раньше шапка
+    -- «применяет … (бросок 51+48 = 99). Целей: 1.» шла отдельно от
+    -- исхода, и одиночный удар занимал две строки там, где у игрока одна.
+    -- Теперь бросок и исход — в одной строке, а по игроку её и вовсе
+    -- пишет сам задетый (см. HandlePvpAttackReceived): у существа то же.
+    local link     = SB.UI.MakeSpellLink(spell)
+    local actor    = pending.npcName
+    local critMark = isCrit and (SB.Theme.MSG_BAD .. " (крит)|r") or ""
+    local function SingleLine(e)
+        local head = SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. actor
+        if e.kind == "atk" then
+            local rollTxt
+            if isCrit and not guaranteed then
+                rollTxt = SB.UI.RollText(roll) .. G .. ". |r" .. SB.Theme.MSG_BAD .. "КРИТ!|r "
+            elseif e.skipDef then
+                rollTxt = SB.UI.RollLine(roll, mod, total, G) ..
+                          G .. ", цель не сопротивляется. |r"
+            else
+                rollTxt = SB.UI.RollLine(roll, mod, total, G) .. G .. " vs |r" ..
+                          SB.UI.RollLine(e.roll, e.mod, e.total, G) .. G .. ". |r"
+            end
+            local out
+            if not e.landed then
+                out = SB.Theme.MSG_GOOD .. "Атака отражена!|r"
+            elseif (e.dmg or 0) <= 0 then
+                out = SB.Theme.MSG_GOOD .. "Удар выдержан целиком!|r" .. (e.guard or "")
+            else
+                out = SB.Theme.MSG_BAD .. "Урон: |r" .. SB.UI.AmountText("dmg", e.dmg) ..
+                      SB.Theme.MSG_BAD .. " ХП|r" .. (e.guard or "")
+            end
+            return head .. " — |r" .. link .. critMark .. G .. " по " .. e.name ..
+                   ": |r" .. rollTxt .. out
+        end
+        -- Эффект и лечение — строкой «применяет … на …», как у игрока
+        -- (см. Announce в ProcessRollAndCast).
+        local rollTxt = guaranteed and (G .. ". |r")
+            or (G .. ": |r" .. SB.UI.RollLine(roll, mod, total, G) ..
+                ((e.threshold ~= nil) and (G .. " против " .. e.threshold) or "") .. G .. ". |r")
+        local out
+        if e.kind == "heal" then
+            out = e.ok and (SB.Theme.MSG_GOOD .. "Исцеление: +" .. (e.healed or 0) .. " ХП.|r")
+                        or (SB.Theme.MSG_BAD .. "Провал.|r")
+        else
+            out = e.ok and (SB.Theme.MSG_GOOD .. "Успех.|r")
+                        or (SB.Theme.MSG_BAD .. "Провал.|r")
+        end
+        return head .. " применяет |r" .. link .. critMark .. G .. " на " .. e.name ..
+               "|r" .. rollTxt .. out
+    end
+
     --- В сводку залпа, если он залп и исход того же рода, что и сводка;
-    --- иначе — прежней отдельной строкой. Род может разойтись у двойного
-    --- заклинания: по врагам оно бьёт, а само существо лечит.
-    local function Report(entry, line, rank)
+    --- иначе — одной строкой. Род может разойтись у двойного заклинания:
+    --- по врагам оно бьёт, а само существо лечит.
+    local function Report(entry)
         if aoe and entry.kind == reportKind and SB.Logic.AoeReportAdd then
             SB.Logic.AoeReportAdd(entry)
         else
-            SB.Events.Fire(SB.E.BROADCAST_LOG, line, rank or SB.LogRank.ACTION)
+            SB.Events.Fire(SB.E.BROADCAST_LOG, SingleLine(entry), SB.LogRank.ACTION)
         end
     end
 
@@ -650,16 +700,9 @@ function SB.NpcCast.Confirm()
             -- внутри замыкания: к приходу ответа подготовка уже закрыта
             -- и pending равно nil. Первый прогон на этом и упал.
             local targetName = name
-            local actorName  = pending.npcName
             local function Say(finalThreshold, finalOk)
                 Report({ kind = "eff", name = targetName,
-                         threshold = finalThreshold, ok = finalOk },
-                    SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. actorName ..
-                    " на " .. targetName .. ": итог " .. total .. " против " ..
-                    finalThreshold .. ". |r" ..
-                    (finalOk and (SB.Theme.MSG_GOOD .. "Эффект наложен.|r")
-                              or (SB.Theme.MSG_BAD  .. "Устоял.|r")),
-                    SB.LogRank.RESULT)
+                         threshold = finalThreshold, ok = finalOk })
             end
 
             if name == me then
@@ -721,12 +764,9 @@ function SB.NpcCast.Confirm()
                                       pending.npcName)
             end
             -- Итог по игроку у лечения знает сам Ведущий: порог и объём
-            -- он посчитал здесь же. Одиночному строка не нужна — её
-            -- не было и раньше: исход видно по полоске цели.
-            if aoe and SB.Logic.AoeReportAdd then
-                SB.Logic.AoeReportAdd({ kind = "heal", name = name, ok = ok,
-                                        healed = amount, threshold = threshold })
-            end
+            -- он посчитал здесь же — значит и строку пишет он.
+            Report({ kind = "heal", name = name, ok = ok,
+                     healed = amount, threshold = threshold })
         end
     end
 
@@ -810,17 +850,13 @@ function SB.NpcCast.Confirm()
                 end
                 local guard = {}
                 if resisted  > 0 then guard[#guard + 1] = "резист " .. resisted end
-                if reduction > 0 then guard[#guard + 1] = "шкура "  .. reduction end
-                Report({ kind = "atk", name = nm, mod = defMod, total = defTot,
+                if reduction > 0 then guard[#guard + 1] = "доспех " .. reduction end
+                Report({ kind = "atk", name = nm, roll = defRoll, mod = defMod,
+                         total = defTot, skipDef = skipDef,
                          landed = landed, dmg = dmg,
-                         debuff = landed and spell.debuff ~= nil },
-                    SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. nm .. ": |r" ..
-                    (landed
-                        and (SB.Theme.MSG_BAD .. "Урон " .. dmg .. "|r" .. G ..
-                             -- Без «(7/20)»: здоровье существа на его рамке.
-                             ((#guard > 0) and (" — " .. table.concat(guard, ", ")) or "") .. ".|r")
-                        or (SB.Theme.MSG_GOOD .. "Уклонилось.|r")),
-                    SB.LogRank.ACTION)
+                         debuff = landed and spell.debuff ~= nil,
+                         guard = (#guard > 0)
+                             and (G .. " — " .. table.concat(guard, ", ") .. "|r") or nil })
 
             elseif tkind == "heal" then
                 -- ЛЕЧЕНИЕ СУЩЕСТВА — от помощи не сопротивляются, порога
@@ -832,11 +868,7 @@ function SB.NpcCast.Confirm()
                 if isCrit then amount = amount * 2 end
                 SB.NPC.AdjustHealth(unit, amount)
                 landedOn = landedOn + 1
-                Report({ kind = "heal", name = nm, ok = true, healed = amount },
-                    SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. nm .. ": |r" ..
-                    SB.Theme.MSG_GOOD .. "Исцеление " .. amount .. "|r" .. G ..
-                    ".|r",
-                    SB.LogRank.ACTION)
+                Report({ kind = "heal", name = nm, ok = true, healed = amount })
 
             elseif tkind == "effect" then
                 -- ЭФФЕКТ. Бафф ложится без броска — сопротивляются
@@ -857,24 +889,10 @@ function SB.NpcCast.Confirm()
                     if ok then landedOn = landedOn + 1 end
                     if ok and isDebuff then SB.Logic.ApplyInterruptToNpc(unit, spell, nm) end
                 end
-                Report({ kind = "eff", name = nm, ok = ok, threshold = threshold },
-                    SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. nm .. ": |r" ..
-                    (ok and (SB.Theme.MSG_GOOD .. "Эффект наложен.|r")
-                         or (SB.Theme.MSG_BAD  .. "Эффект отведён.|r")),
-                    SB.LogRank.ACTION)
+                Report({ kind = "eff", name = nm, ok = ok,
+                         threshold = (isDebuff and not guaranteed) and threshold or nil })
             end
         end
-    end
-
-    -- ЗАГОЛОВОК — у одиночной цели. У залпа шапку печатает сводка, вместе
-    -- с исходами (см. OpenAoeReport выше).
-    if not aoe then
-        SB.Events.Fire(SB.E.BROADCAST_LOG,
-            SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. pending.npcName ..
-            " применяет |r" .. SB.UI.MakeSpellLink(spell) .. G ..
-            string.format(" (бросок %d%+d = %d)%s. Целей: %d.|r",
-                roll, mod, total, isCrit and ", КРИТ" or "", count),
-            SB.LogRank.ACTION)
     end
 
     pending = nil

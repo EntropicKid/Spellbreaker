@@ -5147,7 +5147,16 @@ do
         SB.Logic.HandleBuffResultReceived("Алиссия", "t_npc_res", 91, false)
         checkTrue("строка вышла ровно на ответе", #said == before + 1)
         checkTrue("и в ней порог игрока", said[#said]:find("91", 1, true) ~= nil)
-        checkTrue("и его исход", said[#said]:find("Устоял", 1, true) ~= nil)
+        checkTrue("и его исход", said[#said]:find("Провал", 1, true) ~= nil)
+        -- Одна цель — одна строка, как у игрока: шапки «Целей: 1» нет,
+        -- заклинание названо в самой строке исхода.
+        local header = false
+        for _, m in ipairs(said) do
+            if type(m) == "string" and m:find("Целей", 1, true) then header = true end
+        end
+        checkTrue("одиночный каст существа — без отдельной шапки", not header)
+        checkTrue("и заклинание в строке исхода",
+                  said[#said]:find("Удушающий рык", 1, true) ~= nil)
 
         -- ── А СЕБЕ ВЕДУЩИЙ СЧИТАЕТ ПОРОГ ЧЕСТНО ────────────
         -- Его собственный персонаж — единственная цель, чьи
