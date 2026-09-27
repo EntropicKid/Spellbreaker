@@ -174,7 +174,7 @@ overlayHint:SetText("Отключается сам в бою и на 5 секу�
 -- относится. Отсюда и разные умолчания (см. врезку «ДВЕ ПОДМЕНЫ АУР» в
 -- UI/Overlay.lua).
 local auraOptChk = MakeCheckRow(content, overlayHint, -10,
-    "Заменить отображение собственных баффов/дебаффов",
+    "Показывать эффекты аддона после своих баффов/дебаффов",
     "ownAuras",
     function(val)
         if SB.Overlay then
