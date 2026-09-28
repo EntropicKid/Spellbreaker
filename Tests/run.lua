@@ -10478,6 +10478,136 @@ do
 end
 
 -- ============================================================
+-- ВЫХОД ИЗ ИГРЫ И ВОЗВРАЩЕНИЕ В ПОШАГОВОМ РЕЖИМЕ
+--
+-- Вышел из игры — выбыл из очереди (ход идёт дальше, если ждали его).
+-- Вернулся — считается походившим и ходит со следующего круга.
+-- Номер хода при выпадении слота до идущего не сбивается.
+-- ============================================================
+do
+    stub.world.isLeader = true
+    stub.world.inGroup  = true
+    stub.world.inRaid   = true
+    local me = stub.world.playerName
+    local TO = SB.TurnOrder
+    local names = { me, "Анна", "Борис", "Вера" }
+    for i, n in ipairs(names) do
+        stub.world.units["raid" .. i] = { name = n, level = 25, class = "Маг",
+            classToken = "MAGE", race = "Human" }
+    end
+    stub.world.raidRoster = {}
+    for i, n in ipairs(names) do stub.world.raidRoster[i] = { name = n, subgroup = i } end
+    local function unitOf(n)
+        for i, x in ipairs(names) do if x == n then return stub.world.units["raid" .. i] end end
+    end
+    local said = {}
+    local unsub = SB.Events.On(SB.E.BROADCAST_LOG, function(m) said[#said + 1] = m end)
+    local function lastSaid() return said[#said] or "" end
+    local function Current()
+        local slots, idx = TO.GetSlots()
+        return slots[idx] and slots[idx][1]
+    end
+    local function SlotIndexOf(n) return TO.GetInitiative(n) end
+
+    TO.Stop()
+    TO.SetMode("player")
+    TO.Start()
+    -- Порядок инициативы случайный — ставим себя в конец, чтобы проверки
+    -- ниже не зависели от броска (GetSlots отдаёт саму таблицу очереди).
+    do
+        local q = TO.GetSlots()
+        for i = #q, 1, -1 do
+            if q[i][1] == me then table.insert(q, table.remove(q, i)) break end
+        end
+    end
+    -- Ведём круг до второго слота: первый походил.
+    TO.MarkActed(Current())
+    local cur = Current()
+    local _, idxBefore = TO.GetSlots()
+
+    -- ── ВЫШЕЛ ТОТ, КТО УЖЕ ПОХОДИЛ (слот ДО идущего) ─────
+    local slots = TO.GetSlots()
+    local early = slots[1][1]
+    checkTrue("порядок для проверки задан", early ~= me and cur ~= me)
+    if early ~= me then
+        unitOf(early).offline = true
+        stub.FireEvent("UNIT_CONNECTION")
+        check("выпадение слота до идущего не сбивает ход", Current(), cur)
+        check("вышедший из игры выбыл из очереди", SlotIndexOf(early), nil)
+        checkTrue("и об этом сказано", lastSaid():find("Выбывает из очереди", 1, true) ~= nil)
+        checkTrue("в полосе опоздавших его нет, пока он не в игре",
+                  #TO.GetLateJoiners() == 0)
+
+        -- ── ВЕРНУЛСЯ ───────────────────────────────────────
+        unitOf(early).offline = nil
+        stub.FireEvent("UNIT_CONNECTION")
+        checkTrue("вернувшийся считается походившим", TO.HasActed(early))
+        checkTrue("и действовать не может", not TO.CanAct(early))
+        check("в очередь этого круга не встал", SlotIndexOf(early), nil)
+        check("виден за чертой", TO.GetLateJoiners()[1], early)
+        checkTrue("и объявлено, когда он ходит",
+                  lastSaid():find("Ходит со следующего круга", 1, true) ~= nil)
+        check("ход при этом не тронут", Current(), cur)
+    end
+
+    -- ── ВЫШЕЛ ТОТ, ЧЕЙ СЕЙЧАС ХОД ──────────────────────────
+    if cur ~= me then
+        unitOf(cur).offline = true
+        stub.FireEvent("UNIT_CONNECTION")
+        checkTrue("ушёл идущий — ход перешёл дальше", Current() ~= cur)
+        checkTrue("и объявлено, кто ходит (или что круг пройден)",
+                  lastSaid():find("Ходит:", 1, true) ~= nil
+                  or lastSaid():find("Круг пройден", 1, true) ~= nil)
+        unitOf(cur).offline = nil
+        stub.FireEvent("UNIT_CONNECTION")
+        checkTrue("вернулся — походивший", TO.HasActed(cur))
+    end
+
+    -- ── НОВЫЙ КРУГ: ВЕРНУВШИЕСЯ СНОВА В ОЧЕРЕДИ ────────────
+    TO.NewRound()
+    for _, n in ipairs(names) do
+        checkTrue("на новом круге в очереди: " .. n, SlotIndexOf(n) ~= nil)
+    end
+    check("опоздавших больше нет", #TO.GetLateJoiners(), 0)
+
+    -- ── «ВСЕ СРАЗУ»: ушёл последний, кого ждали ───────────
+    TO.Stop()
+    TO.SetMode("all")
+    TO.Start()
+    for _, n in ipairs(names) do
+        if n ~= "Вера" then TO.MarkActed(n) end
+    end
+    checkTrue("круг ждёт Веру", not TO.IsRoundOver())
+    unitOf("Вера").offline = true
+    stub.FireEvent("UNIT_CONNECTION")
+    checkTrue("ушла последняя — круг закрыт", TO.IsRoundOver())
+    unitOf("Вера").offline = nil
+    stub.FireEvent("UNIT_CONNECTION")
+
+    -- ── СВОЙ КЛИЕНТ: ВОШЁЛ В ИГРУ — ПОХОДИЛ У СЕБЯ СРАЗУ ──
+    TO.Stop()
+    TO.SetMode("player")
+    TO.Start()
+    TO.NewRound()                 -- свежий круг: своя отметка снята
+    stub.world.isLeader = false   -- дальше мы — сокомандник, не Ведущий
+    local wasActed = TO.HasActed(me)
+    checkTrue("в начале круга ещё не ходил", not wasActed)
+    stub.FireEvent("PLAYER_ENTERING_WORLD", false, true)   -- /reload
+    check("/reload ход не забирает", TO.HasActed(me), wasActed)
+    stub.FireEvent("PLAYER_ENTERING_WORLD", true, false)   -- вход в игру
+    checkTrue("вход в игру — походил у себя сразу", TO.HasActed(me))
+
+    stub.world.isLeader = true
+    TO.Stop()
+    TO.SetMode("player")
+    if unsub then unsub() end
+    stub.world.raidRoster = nil
+    for i = 1, #names do stub.world.units["raid" .. i] = nil end
+    stub.world.inRaid  = false
+    stub.world.inGroup = false
+end
+
+-- ============================================================
 -- НОВЫЙ КРУГ САМ
 -- ============================================================
 do
@@ -15120,11 +15250,23 @@ do
 
     -- ── И ЭТО РАБОТАЕТ НА ЖИВЫХ ДАННЫХ ──────────────────────
     ResetEffects()
+    -- ВЫБОР — ДЕТЕРМИНИРОВАННЫЙ, по отсортированным id. Обход pairs
+    -- случаен, и изредка попадалось «Безрассудство»: его эффект сам даёт
+    -- +5 «Концентрации», то есть пять удержаний, и контроль его честно не
+    -- сбивает. Такие (с удержаниями от себя же) здесь не годятся.
+    local ids = {}
+    for id in pairs(SB.Data.Spells) do ids[#ids + 1] = id end
+    table.sort(ids)
     local bare
-    for id, sp in pairs(SB.Data.Spells) do
-        if ShippedSpells[id] and sp.isConcentration
-           and not (type(sp.effect) == "table" and sp.effect.breakOn) then
+    for _, id in ipairs(ids) do
+        local sp  = SB.Data.Spells[id]
+        local def = sp.effect
+        local holds = type(def) == "table" and type(def.stats) == "table"
+                      and (def.stats["Концентрация"] or 0) > 0
+        if ShippedSpells[id] and sp.isConcentration and not holds
+           and not (type(def) == "table" and def.breakOn) then
             bare = id
+            break
         end
     end
     if bare then

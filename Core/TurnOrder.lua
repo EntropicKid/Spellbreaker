@@ -438,9 +438,31 @@ function TO.GetLateJoiners()
     for _, slot in ipairs(state.slots) do
         for _, n in ipairs(slot) do listed[n] = true end
     end
+    -- ТОЛЬКО ТЕ, КТО В ИГРЕ И В ГРУППЕ. Отметка «походил» у ушедшего
+    -- остаётся до конца круга (вернётся — останется походившим), и без
+    -- этой проверки вышедший из игры висел бы в полосе за чертой, как
+    -- будто он здесь и ждёт следующего круга.
+    --
+    -- Состав берём прямым обходом юнитов, тем же, что у Participants, а
+    -- не из кэша группы: кэш перестраивается по событию состава, а выход
+    -- из игры приходит другим событием (UNIT_CONNECTION).
+    local me = UnitName("player")
+    local online = { [me or ""] = true }
+    if IsInGroup() then
+        local prefix = IsInRaid() and "raid" or "party"
+        for i = 1, (IsInRaid() and 40 or 4) do
+            local unit = prefix .. i
+            if UnitExists(unit) and UnitIsConnected(unit) then
+                local n = UnitName(unit)
+                if n then online[n] = true end
+            end
+        end
+    end
     local out = {}
     for name, v in pairs(state.acted) do
-        if v == true and not listed[name] then out[#out + 1] = name end
+        if v == true and not listed[name] and online[name] then
+            out[#out + 1] = name
+        end
     end
     table.sort(out)
     return out
@@ -1897,22 +1919,58 @@ end)
 -- ждать некому.
 --
 -- «Ушедший» — это и вышедший из группы, и вышедший из ИГРЫ: второй в
--- составе остаётся, но ходить не может (см. Participants). Клиент шлёт
--- на разрыв связи то же событие ростера, что и на выход из группы, —
--- отдельной подписки не нужно.
+-- составе остаётся, но ходить не может (см. Participants). Выход из игры
+-- и возвращение клиент сообщает событием UNIT_CONNECTION — слушаем его
+-- вместе с событием состава: полагаться на то, что заодно придёт и
+-- GROUP_ROSTER_UPDATE, нельзя.
+--
+-- ПРАВИЛО ОДНО ДЛЯ ВЫХОДА ИЗ ГРУППЫ И ИЗ ИГРЫ:
+--   ушёл     — выбывает из очереди, ход переходит дальше, если ждали его;
+--   вернулся — считается походившим в этом круге и встаёт в очередь на
+--              «Новом ходе» (см. врезку «ПРИШЕДШИЙ ПОСРЕДИ КРУГА» ниже).
+--
+-- /reload сюда не относится: связь с сервером он не рвёт, событий
+-- состава не шлёт, и очередь его не замечает.
+local lateAnnounced = {}   -- кому уже объявили «ходит со следующего круга»
+
+-- ВЕРНУВШИЙСЯ В ИГРУ — ПОХОДИВШИЙ И У СЕБЯ, СРАЗУ. Клиент при входе
+-- восстанавливает свой снимок очереди (см. SB_INIT выше), и если в нём
+-- стоял его ход, первые секунды — пока не пришёл пакет Ведущего — он мог
+-- бы действовать: для очереди его уже нет, а для него самого ход открыт.
+-- Ведущий пометит его походившим тем же правилом (см. rosterWatch ниже);
+-- здесь это просто случается раньше, на своей стороне.
+--
+-- ТОЛЬКО ВХОД В ИГРУ, НЕ /reload: перезагрузка интерфейса связь с
+-- сервером не рвёт, и для очереди игрок никуда не уходил.
+local loginWatch = CreateFrame("Frame")
+loginWatch:RegisterEvent("PLAYER_ENTERING_WORLD")
+loginWatch:SetScript("OnEvent", function(_, _, isInitialLogin)
+    if not isInitialLogin then return end
+    if not state.active or AssertGM() then return end
+    local me = UnitName("player")
+    if me and not state.acted[me] then
+        state.acted[me] = true
+        Changed()
+    end
+end)
+
 local rosterWatch = CreateFrame("Frame")
 rosterWatch:RegisterEvent("GROUP_ROSTER_UPDATE")
+rosterWatch:RegisterEvent("UNIT_CONNECTION")
 rosterWatch:SetScript("OnEvent", function()
     if not state.active or not AssertGM() then return end
+    -- Кто ходил ДО изменения состава: по нему видно, сдвинулся ли ход.
+    local whoBefore = (state.index >= 1) and CurrentText() or nil
 
     local present = {}
     for _, name in ipairs(Participants()) do present[name] = true end
 
-    local changed = false
+    local changed, gone = false, {}
     for i, slot in ipairs(state.slots) do
         local keep = {}
         for _, n in ipairs(slot) do
-            if present[n] then keep[#keep + 1] = n else changed = true end
+            if present[n] then keep[#keep + 1] = n
+            else changed = true; gone[#gone + 1] = n end
         end
         state.slots[i] = keep
     end
@@ -1969,19 +2027,31 @@ rosterWatch:SetScript("OnEvent", function()
     -- действует раньше тех, кто в нём с начала.
     --
     -- Состояние рассылаем сейчас и ещё раз через три секунды — когда
-    -- клиент пришедшего уже в группе и слышит её канал.
+    -- клиент пришедшего уже в группе и слышит её канал. Считаем и того,
+    -- у кого отметка уже была (походил, вышел и вернулся в том же
+    -- круге): ему свежий пакет нужен ровно так же.
+    --
+    -- Это же правило — для ВЕРНУВШЕГОСЯ В ИГРУ: выход из игры вычеркнул
+    -- его из очереди (см. выше), и при возвращении он для очереди такой
+    -- же пришедший посреди круга.
     local known = {}
     for _, slot in ipairs(state.slots) do
         for _, n in ipairs(slot) do known[n] = true end
     end
-    local newcomers = false
+    local back = {}
     for name in pairs(present) do
-        if not known[name] and not state.acted[name] then
-            state.acted[name] = true
-            newcomers = true
+        if not known[name] then
+            if not state.acted[name] then state.acted[name] = true end
+            if not lateAnnounced[name] then
+                lateAnnounced[name] = true
+                back[#back + 1] = name
+            end
         end
     end
-    if newcomers and (state.round or 0) > 0 then
+    -- Ушедший может вернуться снова — тогда о нём объявим заново.
+    for _, n in ipairs(gone) do lateAnnounced[n] = nil end
+
+    if #back > 0 and (state.round or 0) > 0 then
         changed = true
         C_Timer.After(3, function()
             if state.active and AssertGM() then Broadcast() end
@@ -1990,22 +2060,84 @@ rosterWatch:SetScript("OnEvent", function()
 
     if not changed then return end
 
-    -- Слот мог опустеть целиком — тогда он больше никого не ждёт.
+    -- СЛОТ МОГ ОПУСТЕТЬ ЦЕЛИКОМ — тогда он больше никого не ждёт.
+    --
+    -- НОМЕР ИДУЩЕГО СЛОТА ПЕРЕСЧИТЫВАЕМ по новой нумерации. Раньше он
+    -- оставался прежним: опустевший слот ДО идущего выпадал, остальные
+    -- съезжали на место выше, и номер начинал указывать на следующий —
+    -- очередь молча перескакивала через целый слот.
+    local oldIndex = state.index
+    local newIndex = 0
     local packed, packedGroups = {}, {}
     for i, slot in ipairs(state.slots) do
         if #slot > 0 then
             packed[#packed + 1] = slot
             packedGroups[#packed] = slotGroup[i]
+            if i == oldIndex then newIndex = #packed end
+        elseif i == oldIndex then
+            -- Опустел ИДУЩИЙ слот: ход переходит к следующему, который
+            -- встанет ровно на это место.
+            newIndex = #packed + 1
         end
     end
     state.slots = packed
     slotGroup   = packedGroups
-    if state.index > #state.slots then state.index = 0 end
-    if state.index == 0 and #state.slots > 0 and state.round > 0 then
-        -- Ушёл тот, чей был ход, и очередь упёрлась в конец — не
-        -- закрываем круг молча, пусть Ведущий решает.
+    if oldIndex < 1 or newIndex > #state.slots then
         state.index = 0
+    else
+        state.index = newIndex
+    end
+
+    -- ЖДАЛИ УШЕДШЕГО — ХОД ПЕРЕХОДИТ ДАЛЬШЕ. Идущий слот закрыт, когда
+    -- отходили все, кто в нём остался; остались одни походившие (или
+    -- слот опустел) — дальше круг ждал бы человека, которого в игре нет.
+    -- В режиме «все сразу» тот же вопрос про единственный слот.
+    local function SlotDone(slot)
+        if not slot then return false end
+        for _, n in ipairs(slot) do
+            if not state.acted[n] then return false end
+        end
+        return true
+    end
+    local roundClosed = false
+    if state.mode == "all" then
+        if oldIndex >= 1 and #gone > 0 and SlotDone(state.slots[1]) then
+            state.index = 0
+            roundClosed = true
+        end
+    else
+        while state.index >= 1 and SlotDone(state.slots[state.index]) do
+            state.index = state.index + 1
+            if state.index > #state.slots then state.index = 0 end
+        end
     end
     Broadcast()
     Changed()
+
+    -- ОДНОЙ СТРОКОЙ: кто выбыл, кто вернулся и что с ходом.
+    local parts = {}
+    if #gone > 0 then
+        table.sort(gone)
+        parts[#parts + 1] = "Выбывает из очереди: " .. table.concat(gone, ", ") .. "."
+    end
+    if #back > 0 and (state.round or 0) > 0 then
+        table.sort(back)
+        parts[#parts + 1] = "Ходит со следующего круга: " .. table.concat(back, ", ") .. "."
+    end
+    if roundClosed then
+        parts[#parts + 1] = "Все походили."
+    elseif state.mode ~= "all" and oldIndex >= 1 and #gone > 0 then
+        if state.index < 1 then
+            parts[#parts + 1] = "Круг пройден."
+        else
+            -- Ход мог достаться павшему — пролистываем его молча; кто
+            -- ходит в итоге, скажет эта же строка.
+            SkipDownedSlots(false)
+            local who = CurrentText()
+            if who ~= whoBefore then
+                parts[#parts + 1] = who and ("Ходит: " .. who .. ".") or "Круг пройден."
+            end
+        end
+    end
+    if #parts > 0 then Announce(table.concat(parts, " ")) end
 end)

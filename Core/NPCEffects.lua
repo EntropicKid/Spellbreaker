@@ -760,6 +760,13 @@ function SB.NPC.TickEffects()
     if #keys > 0 and SB.NPC.PublishBatch then SB.NPC.PublishBatch(keys) end
 
     if #order > 0 then
+        -- Сперва самые многочисленные, дальше по имени: обход особей идёт
+        -- по хэш-таблице, и без сортировки строки блока меняли бы порядок
+        -- от круга к кругу.
+        table.sort(order, function(a, b)
+            if groups[a].n ~= groups[b].n then return groups[a].n > groups[b].n end
+            return a < b
+        end)
         local G = SB.Theme.MSG_BODY
         local function Line(g)
             return G .. g.name .. ((g.n > 1) and (" ×" .. g.n) or "") .. ": |r" .. g.tail
