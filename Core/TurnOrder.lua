@@ -91,6 +91,10 @@ end
 -- ============================================================
 local STATE_TTL = 3 * 3600   -- секунд
 
+-- Сколько полных состояний пришло от лидера по сети. По нему вход в
+-- группу узнаёт, ответил ли лидер раньше сброса (см. joinWatch).
+local leaderStamp = 0
+
 local state = {
     active  = false,
     mode    = DEFAULT_MODE,
@@ -1035,8 +1039,11 @@ end
 --- Применить состояние: пришедшее от Ведущего по сети или своё
 --- сохранённое после /reload. По смыслу ничего не проверяет — проверка
 --- одна и она в Core/Network.lua: пакет принят только от лидера группы.
-function TO.ApplyRemoteState(t)
+--- @param fromLeader boolean|nil  пакет от лидера по сети (а не своя
+---        сохранёнка или сброс) — см. leaderStamp у joinWatch.
+function TO.ApplyRemoteState(t, fromLeader)
     if type(t) ~= "table" then return end
+    if fromLeader then leaderStamp = leaderStamp + 1 end
 
     -- Переключение режима обнуляет пройденный путь В ОБЕ СТОРОНЫ. Путь
     -- копится только внутри пошагового режима (см. ShouldCount в
@@ -1954,6 +1961,13 @@ loginWatch:SetScript("OnEvent", function(_, _, isInitialLogin)
     end
 end)
 
+-- СБРАСЫВАЕТСЯ ТОЛЬКО СВОЯ, ПРИНЕСЁННАЯ ОЧЕРЕДЬ — и только если пакет
+-- лидера ещё не пришёл. Лидер в пошаговом отвечает пришедшему быстрее
+-- секунды; раньше сброс по таймеру затирал уже полученную очередь, и
+-- режим прыгал «пошаговый → свободный → пошаговый». Теперь: пришёл
+-- свободным — сбрасывать нечего; пакет лидера пришёл после входа —
+-- ему и верим.
+--
 -- ВОШЕДШИЙ В ГРУППУ ЗАБЫВАЕТ СВОЮ ОЧЕРЕДЬ. Сцена — у лидера группы, а
 -- у пришедшего могла остаться своя: вёл пошаговый бой один или в другой
 -- группе. Раньше она так и оставалась — лидер в свободном ходе очередь не
@@ -1967,7 +1981,10 @@ end)
 local joinWatch = CreateFrame("Frame")
 joinWatch:RegisterEvent("GROUP_JOINED")
 joinWatch:SetScript("OnEvent", function()
+    if not state.active then return end
+    local stamp = leaderStamp
     C_Timer.After(1, function()
+        if leaderStamp ~= stamp then return end
         if not state.active or not IsInGroup() or AssertGM() then return end
         TO.ApplyRemoteState({
             active = false, mode = state.mode,

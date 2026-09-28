@@ -896,7 +896,7 @@ end
 local function ParseTURN(sender, t)
     if not IsFromLeader(sender) then return end
     if SB.TurnOrder and SB.TurnOrder.ApplyRemoteState then
-        SB.TurnOrder.ApplyRemoteState(t.turn)
+        SB.TurnOrder.ApplyRemoteState(t.turn, true)
     end
 end
 

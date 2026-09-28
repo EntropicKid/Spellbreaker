@@ -21792,6 +21792,26 @@ do
     stub.RunTimers()
     checkTrue("вступил в группу — свой пошаговый сброшен", not TO.IsActive())
 
+    -- Свободный вступает в пошаговую группу: пакет лидера приходит раньше
+    -- таймера сброса — и таймер его больше не затирает.
+    stub.world.inGroup, stub.world.isLeader = false, true
+    TO.Stop()
+    stub.world.inGroup, stub.world.isLeader = true, false
+    stub.FireEvent("GROUP_JOINED")
+    TO.ApplyRemoteState({ active = true, mode = "player", round = 1, index = 1,
+        slots = { { "Лидер" } }, acted = {} }, true)
+    stub.RunTimers()
+    checkTrue("свободный в пошаговой группе — пошаговый остался", TO.IsActive())
+
+    -- Пошаговый вступает в пошаговую группу — ответ лидера тоже не затирается.
+    stub.FireEvent("GROUP_JOINED")
+    TO.ApplyRemoteState({ active = true, mode = "player", round = 2, index = 1,
+        slots = { { "Лидер" } }, acted = {} }, true)
+    stub.RunTimers()
+    checkTrue("пошаговый в пошаговой группе — очередь лидера цела",
+        TO.IsActive())
+    TO.ApplyRemoteState({ active = false }, true)
+
     -- Лидер в свободном ходе сообщает его пришедшему.
     stub.world.isLeader = true
     local realSend, sentTurn = SB.Net.SendTurnState, nil
