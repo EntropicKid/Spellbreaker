@@ -2258,7 +2258,6 @@ end
 function SB.Logic.SendOutcomeEmote(spellID)
     local text = SB.SpellOutcomes and SB.SpellOutcomes.Get(spellID)
     if not text or text == "" then return end
-    if SpellbreakerAccountDB and SpellbreakerAccountDB.sendEmotes == false then return end
     SendChatMessage(ApplyTemplates(text), "EMOTE")
 end
 
@@ -3084,7 +3083,7 @@ function SB.Logic.CanCastNow(spell, onSelf, bonus)
     local PM = SB.PlayerModel
 
     -- ПАВШИЙ НЕ ДЕЙСТВУЕТ. Ноль здоровья — это не «мало ХП», а выход из
-    -- сцены до лечения или Отдыха (см. PM.IsDowned и CheckPvpDeath).
+    -- сцены до лечения или Отдыха (см. PM.IsDowned и OnHealthForDeath).
     if PM.IsDowned() then
         SB.UI.PrintMsg("downedCantAct")
         return false, "downed"
@@ -3987,9 +3986,7 @@ function SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, totalScaling, turnS
     -- ничего не отправляем.
     if outcomeText and outcomeText ~= "" then
         local rpMsg = ApplyTemplates(outcomeText)
-        if not SpellbreakerAccountDB or SpellbreakerAccountDB.sendEmotes ~= false then
-            SendChatMessage(rpMsg, "EMOTE")
-        end
+        SendChatMessage(rpMsg, "EMOTE")
     end
 
     -- Хук для будущих уникальных механик заклинаний, работающих через
@@ -4091,9 +4088,7 @@ function SB.Logic.ExecuteForcedOutcome(spellID, outcomeIndex, slotLevel)
     SB.Events.Fire("BROADCAST_LOG", sysMsg, SB.LogRank.ACTION)
     if outcomeText and outcomeText ~= "" then
         local rpMsg = ApplyTemplates(outcomeText)
-        if not SpellbreakerAccountDB or SpellbreakerAccountDB.sendEmotes ~= false then
-            SendChatMessage(rpMsg, "EMOTE")
-        end
+        SendChatMessage(rpMsg, "EMOTE")
     end
 
     -- Ход в очереди закрывает сам SpendTurn выше (см. Core/TurnOrder.lua).
@@ -4400,40 +4395,50 @@ function SB.Logic.PlayOutcomeSound(succeeded)
 end
 
 -- ============================================================
--- ПАДЕНИЕ В 0 ХП ОТ ПвП-УДАРА
+-- ПАДЕНИЕ В 0 ХП — АУРА «ПАВШИЙ», ВСЕГДА И ОТ ЛЮБОЙ ПРИЧИНЫ
 --
--- Персонаж, которого добили, сам отправляет серверному эмулятору
--- команду ауры «павший» (Config.DeathCaura). Отправляет именно он: та же
--- логика, что и у .caura при касте — команда действует на того, от чьего
--- имени написана.
+-- Персонаж, чьё здоровье упало до нуля, сам отправляет серверному
+-- эмулятору команду ауры «павший» (Config.DeathCaura). Отправляет
+-- именно он: команда действует на того, от чьего имени написана.
 --
--- Флаг нужен, чтобы каждый следующий удар по уже лежащему не слал
--- команду заново: .caura toggle ПЕРЕКЛЮЧАЕТ ауру, и второй удар просто
--- снял бы её обратно. Снимается, как только здоровье снова выше нуля
--- (лечение, отдых) — тогда следующая смерть отработает как первая.
+-- ПРИЧИНА НЕ ВАЖНА. Раньше команда уходила только из резолва чужого
+-- удара, и павший от тика яда, от удара существа по особому пути или от
+-- здоровья, выставленного Ведущим, аурой не отмечался. Теперь она
+-- висит на HEALTH_CHANGED — туда сходятся все пути изменения здоровья
+-- (PM.SetHealth, PM.GrantHealth, PM.Heal).
+--
+-- ГАЛОЧКА «ИГНОРИРОВАТЬ .caura» ЕЁ НЕ ОТКЛЮЧАЕТ. Галочка — про ауры
+-- заклинаний (визуальные эффекты по желанию Ведущего), а «павший» — это
+-- знак состояния персонажа, по которому сцена видит, кто лежит.
+--
+-- Флаг — чтобы следующий удар по уже лежащему не слал команду заново:
+-- .caura toggle ПЕРЕКЛЮЧАЕТ ауру, и второй раз просто снял бы её. Флаг
+-- снимается, как только здоровье снова выше нуля (лечение, отдых) — тогда
+-- следующее падение отработает как первое.
 -- ============================================================
-local pvpDeathSent = false
+local deathCauraSent = false
 
---- @param before number  здоровье ДО удара
-local function CheckPvpDeath(before)
-    local hp = SB.PlayerModel.GetHealth()
-    if hp > 0 then
-        pvpDeathSent = false
+local function OnHealthForDeath(newHP, oldHP)
+    newHP = tonumber(newHP) or (SB.PlayerModel and SB.PlayerModel.GetHealth()) or 1
+    if newHP > 0 then
+        deathCauraSent = false
         return
     end
-    -- Именно ПАДЕНИЕ в ноль: тот, кто уже лежал до удара, ауру не
-    -- переключает.
-    if before <= 0 or pvpDeathSent then return end
-
+    -- Именно ПАДЕНИЕ в ноль: кто уже лежал, ауру не переключает.
+    if (tonumber(oldHP) or 1) <= 0 or deathCauraSent then return end
     local caura = SB.Data.Config.DeathCaura
     if not caura then return end
-    -- Тот же выключатель, что и у .caura заклинаний: чекбокс
-    -- «Игнорировать .caura» обещает, что аддон вообще не пишет .caura.
-    if SpellbreakerAccountDB and SpellbreakerAccountDB.ignoreCaura then return end
-
-    pvpDeathSent = true
+    deathCauraSent = true
     SB.Logic.ServerCommand(".caura toggle " .. caura)
 end
+SB.Events.On(SB.E.HEALTH_CHANGED, OnHealthForDeath)
+-- Долгий Отдых и подгонка под новый максимум пишут здоровье напрямую, без
+-- HEALTH_CHANGED, — флаг снимаем и по обновлению модели.
+SB.Events.On(SB.E.PLAYER_MODEL_CHANGED, function()
+    if deathCauraSent and SB.PlayerModel and SB.PlayerModel.GetHealth() > 0 then
+        deathCauraSent = false
+    end
+end)
 
 --- Защищающаяся сторона: получает бросок атакующего, считает свой,
 --- сравнивает и, если проиграл, теряет базовый урон атакующего
@@ -4576,7 +4581,6 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
     -- зависит от его класса и от того, сколько маны он влил, а этого
     -- нам локально не видно. Фолбэк на Config.BaseDamage — для пакетов
     -- со старых клиентов, которые поле baseDmg ещё не шлют.
-    local healthBefore = PM.GetHealth()
     local dmg, rawDmg, reduction, resisted = 0, 0, 0, 0
     if landed then
         local base = tonumber(atkBaseDmg) or SB.Data.Config.BaseDamage or 1
@@ -4683,9 +4687,7 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
     local newHealth = PM.GetHealth()
     local maxHealth = PM.GetMaxHealth()
 
-    -- Добили — переключаем ауру «павший» на себе (см. CheckPvpDeath).
-    -- До рассылки результата: команда эмулятору не должна ждать сети.
-    CheckPvpDeath(healthBefore)
+    -- Аура «павший» — сама, по HEALTH_CHANGED (см. OnHealthForDeath).
 
     -- ВОЗМЕЗДИЕ ЧИСЛАМИ уезжает вместе с итогом (см. TakeRetributions).
     -- Существу отвечать некому: у него нет клиента, который принял бы урон.
@@ -5001,9 +5003,7 @@ function SB.Logic.HandlePvpResultBody(targetName, defRoll, defMod, defTotal, dmg
     if not outcomeText or outcomeText == "" then return end
 
     local rpMsg = ApplyTemplates(outcomeText)
-    if not SpellbreakerAccountDB or SpellbreakerAccountDB.sendEmotes ~= false then
-        SendChatMessage(rpMsg, "EMOTE")
-    end
+    SendChatMessage(rpMsg, "EMOTE")
 end
 
 -- ============================================================
@@ -5343,9 +5343,7 @@ function SB.Logic.ResolveHeal(spellID, slotLevel)
     local emoteText = success and SB.SpellOutcomes.Get(spellID) or nil
     if emoteText and emoteText ~= "" then
         local rpMsg = ApplyTemplates(emoteText)
-        if not SpellbreakerAccountDB or SpellbreakerAccountDB.sendEmotes ~= false then
-            SendChatMessage(rpMsg, "EMOTE")
-        end
+        SendChatMessage(rpMsg, "EMOTE")
     end
 
     if spell.onResolve then
@@ -5809,9 +5807,7 @@ function SB.Logic.ResolveEffectCast(spellID, slotLevel)
         local outcomeText = finalSuccess and SB.SpellOutcomes.Get(spellID) or nil
         if outcomeText and outcomeText ~= "" then
             local rpMsg = ApplyTemplates(outcomeText)
-            if not SpellbreakerAccountDB or SpellbreakerAccountDB.sendEmotes ~= false then
-                SendChatMessage(rpMsg, "EMOTE")
-            end
+            SendChatMessage(rpMsg, "EMOTE")
         end
 
         SB.Events.Fire(SB.E.CAST_RESOLVED, spellID, finalSuccess,

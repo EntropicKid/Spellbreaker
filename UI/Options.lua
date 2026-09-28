@@ -94,22 +94,18 @@ end
 
 -- Игнорировать .caura
 local cauraOptChk = MakeCheckRow(content, addHeader, -10,
-    "Игнорировать .caura",
+    "Игнорировать .caura заклинаний",
     "ignoreCaura",
     function(val)
         if SBIgnoreCauraChk then SBIgnoreCauraChk:SetChecked(val) end
     end)
 
--- Отправлять отписи
-local emoteOptChk = MakeCheckRow(content, cauraOptChk, -8,
-    "Отправлять отписи",
-    "sendEmotes",
-    function(val)
-        if SBSendEmoteChk then SBSendEmoteChk:SetChecked(val) end
-    end)
+-- «Отправлять отписи» УБРАНА: игрок и так решает сам, на каких
+-- заклинаниях отпись есть — заполняя её в карточке заклинания. Пустая
+-- отпись не уходит, заполненная уходит всегда.
 
 -- Скрывать сообщения в чате игры
-local hideOptChk = MakeCheckRow(content, emoteOptChk, -8,
+local hideOptChk = MakeCheckRow(content, cauraOptChk, -8,
     "Скрывать сообщения в чате игры",
     "hideSystemMessages",
     function(val)
@@ -295,7 +291,6 @@ local function SyncOptionsFromDB()
 
     if not db then return end
     cauraOptChk:SetChecked(db.ignoreCaura or false)
-    emoteOptChk:SetChecked(db.sendEmotes ~= false)
     hideOptChk:SetChecked(db.hideSystemMessages or false)
     combatLogOptChk:SetChecked(db.combatLogMessages == true and not db.hideSystemMessages)
     -- Как и SB.Animate.IsEnabled: отсутствующее значение = включено.
