@@ -7,6 +7,31 @@
 local addonName, SB = ...
 SB.Logic = SB.Logic or {}
 
+-- ============================================================
+-- КОМАНДА СЕРВЕРУ (.caura) — ШЁПОТОМ СЕБЕ, А НЕ /СКАЗАТЬ
+--
+-- С 8.2.5 клиент пропускает /сказать и /крик вне подземелий только в
+-- ответ на действие игрока (клик, клавиша). Аура «павший» переключается
+-- из обработчика сетевого пакета — удар пришёл, персонаж упал, — и
+-- такой вызов клиент блокирует: ADDON_ACTION_BLOCKED, аура не
+-- включается. Та же судьба у исхода, выставленного Ведущим (он тоже
+-- приходит пакетом).
+--
+-- Шёпот этим правилом не ограничен, а сервер принимает команды и из
+-- него — тем же путём давно ходят команды управления существами
+-- (SB.NPCCommands.Send). Строка видна только самому игроку.
+-- ============================================================
+function SB.Logic.ServerCommand(cmd)
+    if type(cmd) ~= "string" or cmd == "" then return false end
+    if SB.NPCCommands and SB.NPCCommands.Send then
+        return SB.NPCCommands.Send(cmd)
+    end
+    local me = UnitName("player")
+    if not me then return false end
+    SendChatMessage(cmd, "WHISPER", nil, me)
+    return true
+end
+
 -- Цель, зафиксированная в момент нажатия «Каст».
 -- Хранится до момента формирования эмоута (включая форсированный).
 local pendingTargetName     = ""
@@ -3276,7 +3301,7 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
     -- Аура (команда серверному эмулятору). Игнорируется, если ГМ включил
     -- чекбокс «Игнорировать .caura» в библиотеке.
     if spell.caura and not (SpellbreakerAccountDB and SpellbreakerAccountDB.ignoreCaura) then
-        SendChatMessage(".caura toggle " .. spell.caura, "SAY")
+        SB.Logic.ServerCommand(".caura toggle " .. spell.caura)
     end
 
     -- Списание ресурсов (только если не заговор)
@@ -3994,7 +4019,7 @@ function SB.Logic.ExecuteForcedOutcome(spellID, outcomeIndex, slotLevel)
 
     SB.PlayerModel.SetLocked(true)
     if spell.caura and not (SpellbreakerAccountDB and SpellbreakerAccountDB.ignoreCaura)
-       then SendChatMessage(".caura toggle " .. spell.caura, "SAY") end
+       then SB.Logic.ServerCommand(".caura toggle " .. spell.caura) end
 
     -- Единственная отпись игрока используется на исходах 1 (успех) и
     -- 3 (крит. успех) — на провале (2) отписи нет вообще.
@@ -4407,7 +4432,7 @@ local function CheckPvpDeath(before)
     if SpellbreakerAccountDB and SpellbreakerAccountDB.ignoreCaura then return end
 
     pvpDeathSent = true
-    SendChatMessage(".caura toggle " .. caura, "SAY")
+    SB.Logic.ServerCommand(".caura toggle " .. caura)
 end
 
 --- Защищающаяся сторона: получает бросок атакующего, считает свой,

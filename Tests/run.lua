@@ -21715,6 +21715,39 @@ do
     stub.world.isLeader, stub.world.inGroup = wasLeader, wasGroup
 end
 
+-- ============================================================
+-- АУРА «ПАВШИЙ» — КОМАНДОЙ ШЁПОТОМ СЕБЕ, А НЕ /СКАЗАТЬ
+--
+-- Падение от удара обрабатывается в обработчике сетевого пакета, без
+-- действия игрока, — и /сказать оттуда клиент блокирует
+-- (ADDON_ACTION_BLOCKED). Шёпот себе не ограничен.
+-- ============================================================
+do
+    local PM = SB.PlayerModel
+    local realSend = _G.SendChatMessage
+    local sent = {}
+    _G.SendChatMessage = function(msg, chan, lang, target)
+        sent[#sent + 1] = { msg = msg, chan = chan, target = target }
+    end
+    local savedIgnore = SpellbreakerAccountDB and SpellbreakerAccountDB.ignoreCaura
+    if SpellbreakerAccountDB then SpellbreakerAccountDB.ignoreCaura = nil end
+    local hp = PM.GetHealth()
+
+    PM.SetHealth(1)
+    SB.Logic.HandlePvpAttackReceived("Враг", "t_strike", 100, 200, 300, true, 50, 50, nil)
+    local caura
+    for _, m in ipairs(sent) do
+        if type(m.msg) == "string" and m.msg:find(".caura toggle", 1, true) then caura = m end
+    end
+    checkTrue("упал от удара — команда ауры ушла", caura ~= nil)
+    check("шёпотом", caura and caura.chan, "WHISPER")
+    check("себе", caura and caura.target, UnitName("player"))
+
+    _G.SendChatMessage = realSend
+    if SpellbreakerAccountDB then SpellbreakerAccountDB.ignoreCaura = savedIgnore end
+    PM.SetHealth(hp)
+end
+
 -- ИТОГ
 -- ============================================================
 print("")
