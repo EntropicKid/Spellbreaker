@@ -1954,11 +1954,60 @@ loginWatch:SetScript("OnEvent", function(_, _, isInitialLogin)
     end
 end)
 
+-- ВОШЕДШИЙ В ГРУППУ ЗАБЫВАЕТ СВОЮ ОЧЕРЕДЬ. Сцена — у лидера группы, а
+-- у пришедшего могла остаться своя: вёл пошаговый бой один или в другой
+-- группе. Раньше она так и оставалась — лидер в свободном ходе очередь не
+-- рассылает (см. «свободный ход» в rosterWatch), и пришедший играл по
+-- пошаговым правилам в свободной сцене. Теперь при входе в группу чужой
+-- сцены клиент переходит в свободный ход; если у лидера идёт пошаговый,
+-- его пакет придёт следом и включит очередь заново.
+--
+-- С задержкой: в момент GROUP_JOINED клиент ещё может не знать, кто
+-- лидер, — и собравший группу сам сбросил бы собственную сцену.
+local joinWatch = CreateFrame("Frame")
+joinWatch:RegisterEvent("GROUP_JOINED")
+joinWatch:SetScript("OnEvent", function()
+    C_Timer.After(1, function()
+        if not state.active or not IsInGroup() or AssertGM() then return end
+        TO.ApplyRemoteState({
+            active = false, mode = state.mode,
+            moveFree = state.moveFree, session = state.session,
+        })
+    end)
+end)
+
+-- Кого лидер уже видел в составе, пока шёл свободный ход (см. ниже).
+local seenFree = nil
+local freeBroadcastDue = false
+
 local rosterWatch = CreateFrame("Frame")
 rosterWatch:RegisterEvent("GROUP_ROSTER_UPDATE")
 rosterWatch:RegisterEvent("UNIT_CONNECTION")
 rosterWatch:SetScript("OnEvent", function()
-    if not state.active or not AssertGM() then return end
+    if not AssertGM() then return end
+
+    -- СВОБОДНЫЙ ХОД ТОЖЕ СООБЩАЕТСЯ ПРИШЕДШИМ. Вошедший в группу или
+    -- в игру мог принести пошаговую очередь из своего снимка — лидер
+    -- говорит ему «сцена свободная» тем же пакетом очереди. Только
+    -- новым в составе и одним пакетом на пачку событий.
+    if not state.active then
+        local fresh = false
+        local now = {}
+        for _, name in ipairs(Participants()) do
+            now[name] = true
+            if not seenFree or not seenFree[name] then fresh = true end
+        end
+        seenFree = now
+        if fresh and IsInGroup() and not freeBroadcastDue then
+            freeBroadcastDue = true
+            C_Timer.After(3, function()
+                freeBroadcastDue = false
+                if not state.active and AssertGM() then Broadcast() end
+            end)
+        end
+        return
+    end
+    seenFree = nil
     -- Кто ходил ДО изменения состава: по нему видно, сдвинулся ли ход.
     local whoBefore = (state.index >= 1) and CurrentText() or nil
 

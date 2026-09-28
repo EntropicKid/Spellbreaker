@@ -21748,6 +21748,71 @@ do
     PM.SetHealth(hp)
 end
 
+-- ============================================================
+-- ГАЛОЧКИ АУРЫ «ПАВШИЙ»: своя отключает, общая — нет
+-- ============================================================
+do
+    local PM = SB.PlayerModel
+    local realSend = _G.SendChatMessage
+    local sent = 0
+    _G.SendChatMessage = function(msg)
+        if type(msg) == "string" and msg:find(".caura toggle", 1, true) then sent = sent + 1 end
+    end
+    local db = SpellbreakerAccountDB
+    local savedIgnore, savedDeath = db.ignoreCaura, db.ignoreDeathCaura
+    local hp = PM.GetHealth()
+
+    db.ignoreCaura, db.ignoreDeathCaura = true, false
+    PM.SetHealth(5); PM.SetHealth(0)
+    check("галочка аур заклинаний павшего не глушит", sent, 1)
+
+    db.ignoreCaura, db.ignoreDeathCaura = false, true
+    PM.SetHealth(5); PM.SetHealth(0)
+    check("«Игнорировать анимацию смерти» — не шлём", sent, 1)
+
+    _G.SendChatMessage = realSend
+    db.ignoreCaura, db.ignoreDeathCaura = savedIgnore, savedDeath
+    PM.SetHealth(hp)
+end
+
+-- ============================================================
+-- ВОШЕДШИЙ В ГРУППУ ПЕРЕНИМАЕТ РЕЖИМ ХОДА ЛИДЕРА
+-- ============================================================
+do
+    local TO = SB.TurnOrder
+    local wasLeader, wasGroup = stub.world.isLeader, stub.world.inGroup
+    stub.world.isLeader, stub.world.inGroup = true, false
+    TO.Stop()
+    TO.Start()
+    checkTrue("один — свой пошаговый режим", TO.IsActive())
+
+    -- Вступил в чужую группу, у лидера свободный ход.
+    stub.world.inGroup, stub.world.isLeader = true, false
+    stub.FireEvent("GROUP_JOINED")
+    stub.RunTimers()
+    checkTrue("вступил в группу — свой пошаговый сброшен", not TO.IsActive())
+
+    -- Лидер в свободном ходе сообщает его пришедшему.
+    stub.world.isLeader = true
+    local realSend, sentTurn = SB.Net.SendTurnState, nil
+    SB.Net.SendTurnState = function(turn) sentTurn = turn end
+    stub.world.units["party1"] = { name = "Новичок", level = 25, class = "Маг",
+        classToken = "MAGE", race = "Human" }
+    stub.FireEvent("GROUP_ROSTER_UPDATE")
+    stub.RunTimers()
+    checkTrue("лидер в свободном ходе разослал состояние",
+        sentTurn ~= nil and sentTurn.active ~= true)
+    sentTurn = nil
+    stub.FireEvent("GROUP_ROSTER_UPDATE")
+    stub.RunTimers()
+    checkTrue("без новых в составе — не шлёт", sentTurn == nil)
+
+    SB.Net.SendTurnState = realSend
+    stub.world.units["party1"] = nil
+    stub.world.isLeader, stub.world.inGroup = wasLeader, wasGroup
+    TO.Stop()
+end
+
 -- ИТОГ
 -- ============================================================
 print("")

@@ -4428,6 +4428,9 @@ local function OnHealthForDeath(newHP, oldHP)
     if (tonumber(oldHP) or 1) <= 0 or deathCauraSent then return end
     local caura = SB.Data.Config.DeathCaura
     if not caura then return end
+    -- Отключается только своей галочкой «Игнорировать анимацию смерти»,
+    -- не общей галочкой аур заклинаний.
+    if SpellbreakerAccountDB and SpellbreakerAccountDB.ignoreDeathCaura then return end
     deathCauraSent = true
     SB.Logic.ServerCommand(".caura toggle " .. caura)
 end
