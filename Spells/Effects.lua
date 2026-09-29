@@ -429,7 +429,7 @@ AddEffect({
     -- широкой полосой крита.
     effect = { kind = "buff", family = "Стойка",
                mods = { damageFrost = 1, defense = -8 },
-               onAction = { when = "hit", melee = true, chance = 30,
+               onAction = { when = "hit", melee = true,
                             effect = "eff_dk_killing_machine", turns = 2 } },
 })
 
@@ -451,7 +451,7 @@ AddEffect({
     name = "Машина смерти",
     icon = "Interface\\Icons\\Inv_sword_122",
     description = "Следующий приём рыцаря гораздо вероятнее станет критическим. Расходуется им.",
-    effect = { kind = "buff", mods = { crit = 8 },
+    effect = { kind = "buff", suppress = { "bleed" }, mods = { crit = 8 },
                onAction = { when = "cast", consume = true } },
 })
 
@@ -1892,7 +1892,7 @@ AddEffect({
     name = "Тёмное повеление",
     icon = "Interface\\Icons\\Spell_nature_shamanrage",
     description = "Решимость сменилась сомнением. Рука делает то, что велено, но без веры в исход.",
-    effect = { kind = "debuff", resist = "Характер", mods = { attack = -8 } },
+    effect = { kind = "debuff", taunt = true, resist = "Характер" },
 })
 
 AddEffect({
@@ -1936,9 +1936,9 @@ AddEffect({
 AddEffect({
     -- Удар чумы (Рыцарь смерти, Нечестивость). Из гнезда eff_bleeding_*.
     id   = "eff_bleeding_plague_strike",
-    name = "Зловонная чума",
+    name = "Смертоносная чума",
     damageType = "shadow",
-    icon = "Interface\\Icons\\Spell_deathknight_plaguestrike",
+    icon = "Interface\\Icons\\Ability_creature_disease_02",
     description = "Гниющая плоть беззащитна перед тьмой. Удар Плети разрывает гнойники — чума выплёскивается лишним тиком и спадает на ход раньше.",
     -- УЯЗВИМОСТЬ К ТЬМЕ: вся Нечестивость — Лик смерти, Жнец души,
     -- Взрыв трупа, Апокалипсис — бьёт тьмой. Разрыв гнойников тем же
@@ -1969,7 +1969,7 @@ AddEffect({
     -- Костяной щит (Рыцарь смерти, круг 1). Из гнезда eff_shield_*.
     id   = "eff_shield_bone_shield",
     name = "Костяной щит",
-    icon = "Interface\\Icons\\Spell_holy_powerwordshield",
+    icon = "Interface\\Icons\\Ability_deathknight_boneshield",
     description = "Мерцающая преграда отводит слабые удары и сбивает прицел стрелкам.",
     effect = {
         kind   = "buff",
@@ -1996,9 +1996,9 @@ AddEffect({
 AddEffect({
     -- Ледяная лихорадка (Рыцарь смерти, Лёд). Из гнезда eff_weakness_*.
     id   = "eff_weakness_frost_fever",
-    name = "Ледяная лихорадка",
+    name = "Озноб",
     damageType = "frost",
-    icon = "Interface\\Icons\\Spell_shadow_curseofmannoroth",
+    icon = "Interface\\Icons\\Spell_deathknight_frostfever",
     description = "Холод в крови: цель вязнет, бьёт слабее и беззащитна перед льдом. Уничтожение раскалывает лихорадку — она выплёскивается лишним тиком и спадает на ход раньше.",
     -- «Неспособной ни к точному удару, ни к тяжёлому усилию»: холод
     -- бьёт по телу, а не по чарам.
