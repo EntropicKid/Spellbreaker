@@ -266,7 +266,7 @@ end
 function SB.NPCSpeech.Refresh()
     if not frame or not frame:IsShown() then return end
     if UnitExists("target") and not UnitIsPlayer("target") then
-        frame.whoFS:SetText("|cFF9A9080Говорит|r  |cFFFFD100" .. (UnitName("target") or "?") .. "|r")
+        frame.whoFS:SetText("|cFF9A9080Говорит|r  |cFFCCA35C" .. (UnitName("target") or "?") .. "|r")
     else
         frame.whoFS:SetText(SB.Theme.MSG_BAD .. "В цели нет существа|r")
     end

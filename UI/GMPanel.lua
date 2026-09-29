@@ -295,7 +295,7 @@ function SB.UI.RefreshGMSettings()
 
     local who = TO.GetCurrentNames()
     if #who > 0 then
-        turnStatus:SetText(roundTxt .. ". Ходит: |cFFFFD100" ..
+        turnStatus:SetText(roundTxt .. ". Ходит: |cFFCCA35C" ..
             table.concat(who, ", ") .. "|r" ..
             (timed and (" (до " .. TO.GetTurnTimeLimit() .. " с)") or "") .. wearTxt)
     else
@@ -1261,7 +1261,7 @@ function SB.UI.UpdateGMPlayers()
             if SB.TurnOrder.HasActed(p.name) then
                 nameText = "|cFF808080" .. nameText .. "|r"
             elseif SB.TurnOrder.IsCurrent(p.name) or SB.TurnOrder.GetMode() == "all" then
-                nameText = "|cFFFFD100" .. nameText .. "|r"
+                nameText = "|cFFCCA35C" .. nameText .. "|r"
             end
         end
         row.nameLabel:SetText(nameText)
@@ -1387,7 +1387,7 @@ function SB.UI.UpdateGMPlayers()
                         GameTooltip:SetText("|cFFFF4444" .. tostring(self._spID) .. "|r", 1, 0.5, 0.5, true)
                         GameTooltip:AddLine("Заклинание не синхронизировано", 0.7, 0.7, 0.7)
                     end
-                    GameTooltip:AddLine("Применений: |cFFFFD100" .. (self._uses or 0) .. "|r", 1, 1, 1)
+                    GameTooltip:AddLine("Применений: |cFFCCA35C" .. (self._uses or 0) .. "|r", 1, 1, 1)
                     if self._isConc then
                         GameTooltip:AddLine("|cFF22BFFFКонцентрация|r", 1, 1, 1)
                     end

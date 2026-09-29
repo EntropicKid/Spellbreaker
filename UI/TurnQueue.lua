@@ -508,7 +508,7 @@ local function EnsureBar()
     -- не находили глазами.
     header = bar:CreateFontString(nil, "OVERLAY", "SBFontLarge")
     header:SetPoint("TOP", bar, "TOP", 0, HEADER_Y)
-    header:SetTextColor(1, 0.8, 0.42)
+    header:SetTextColor(0.80, 0.64, 0.36)
 
     local C = SB.Theme.C
     divider = CreateFrame("Frame", nil, bar)
@@ -716,7 +716,7 @@ function TQ.Refresh()
             -- отыгравших.
             if isCur then
                 PaintFrame(c, 1, 0.78, 0.36)
-                c.label:SetTextColor(1, 0.8, 0.42)
+                c.label:SetTextColor(0.80, 0.64, 0.36)
                 c.glow:Show()
                 c.glow:SetAlpha(0.9)
             elseif e.done then

@@ -569,7 +569,7 @@ function SB.NPCEditor.RefreshStats()
             -- иначе не видно, где кончается один куст и начинается другой.
             row.label:SetText(item.name)
             if item.isAttr then
-                row.label:SetTextColor(1, 0.82, 0)
+                row.label:SetTextColor(0.80, 0.64, 0.36)
             else
                 row.label:SetTextColor(SB.Theme.C.textDim[1], SB.Theme.C.textDim[2],
                                        SB.Theme.C.textDim[3])

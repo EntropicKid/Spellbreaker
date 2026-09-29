@@ -458,7 +458,7 @@ local function MakeSliderRow(parent, name, anchor, anchorY, label, lo, hi, gette
     if high then high:SetText(tostring(hi))  end
 
     local function Sync(v)
-        if text then text:SetText(label .. ": |cFFFFD100" .. v .. "|r") end
+        if text then text:SetText(label .. ": |cFFCCA35C" .. v .. "|r") end
     end
     s:SetScript("OnValueChanged", function(_, v)
         v = math.floor(v + 0.5)

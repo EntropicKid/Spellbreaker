@@ -253,7 +253,7 @@ local function RefreshAttributesColumn()
     -- правилом «ниже подтверждённого не опускаемся» — оно живёт в самом
     -- Refund и работает всегда, а не до первого каста.
 
-    pointsLabel:SetText("Очки атрибутов: |cFFFFD100" .. unspentAttr .. "|r")
+    pointsLabel:SetText("Очки атрибутов: |cFFCCA35C" .. unspentAttr .. "|r")
     skillPointsLabel:SetText("Очки навыков: |cFF66CCFF" .. unspentSkill .. "|r")
 
     -- Галочка «горит» только когда есть что подтверждать.
@@ -282,7 +282,7 @@ local function RefreshAttributesColumn()
         -- собственное действие за чужим.
         if shown ~= committed then
             row.valueLabel:SetText(string.format(
-                "|cFFFFD100%d|r  |cFF888888(%s%d, не подтв.)|r", shown, sign, mod))
+                "|cFFCCA35C%d|r  |cFF888888(%s%d, не подтв.)|r", shown, sign, mod))
         else
             local eff = SB.Attributes.GetEffective(def.key)
             row.valueLabel:SetText(
@@ -340,7 +340,7 @@ local function RefreshAttributesColumn()
                     skillRow.valueFS:SetText(
                         ValueText(sShown, sEff, string.format("(%s%d)", sSign, sMod)))
                 elseif sShown ~= sCommitted then
-                    skillRow.valueFS:SetText(string.format("|cFFFFD100%d|r / %d", sShown, cap))
+                    skillRow.valueFS:SetText(string.format("|cFFCCA35C%d|r / %d", sShown, cap))
                 else
                     skillRow.valueFS:SetText(string.format("%d / %d", sShown, cap))
                 end
@@ -611,7 +611,7 @@ local function BuildSkillRow(parent, attrKey, skillName, yOff)
             end
             if delta ~= 0 then
                 GameTooltip:AddLine(" ")
-                GameTooltip:AddLine("|cFFFFD100Что на него влияет:|r", 1, 0.82, 0)
+                GameTooltip:AddLine("|cFFCCA35CЧто на него влияет:|r", 1, 0.82, 0)
                 for _, p in ipairs(parts) do
                     GameTooltip:AddLine("  " .. p.label .. " " ..
                         (p.value > 0 and "+" or "") .. p.value,

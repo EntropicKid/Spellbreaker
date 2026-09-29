@@ -577,7 +577,7 @@ local function BuildBar()
             and "Позиция заперта. Замок и размеры — в настройках аддона."
             or  "Перетащите за фон, чтобы переставить.",
             0.85, 0.85, 0.85, true)
-        GameTooltip:AddLine("Скрыть — |cFFFFD100/sb bar|r.", 0.5, 0.5, 0.5, true)
+        GameTooltip:AddLine("Скрыть — |cFFCCA35C/sb bar|r.", 0.5, 0.5, 0.5, true)
         GameTooltip:Show()
     end)
     bar:SetScript("OnLeave", function() GameTooltip:Hide() end)

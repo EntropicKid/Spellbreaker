@@ -223,7 +223,7 @@ end
 -- анимацией сдвига в стеке (AnimateToastY).
 -- ============================================================
 local TOAST_STATE = {
-    pending  = { 1.00, 0.80, 0.42 },
+    pending  = { 0.80, 0.64, 0.36 },
     success  = { 0.35, 0.90, 0.40 },
     fail     = { 1.00, 0.35, 0.30 },
     rejected = { 0.55, 0.52, 0.48 },
@@ -773,11 +773,11 @@ local function BuildMainFrame()
     -- приём, что уже используется для иконок заклинаний в библиотеке.
     -- Оба файла заведомо есть на клиенте: на них ссылаются заклинания
     -- в Spells/ (Превосходство и Разоружение у Воина).
-    -- Теперь — свои значки в манере галочки (см. SB.Theme.GLYPH): у
-    -- них нет штатной рамки, и обрезать нечего.
-    local ICON_ATTACK  = SB.Theme.GLYPH.attack    -- меч
-    local ICON_DEFENSE = SB.Theme.GLYPH.defense   -- щит
-    local ICON_TRIM    = { 0, 1, 0, 1 }
+    -- Свои рисованные значки здесь пробовали — вернулись к штатным: в
+    -- ряду с иконками заклинаний они смотрелись чужими.
+    local ICON_ATTACK  = "Interface\\Icons\\Ability_MeleeDamage"  -- удар
+    local ICON_DEFENSE = "Interface\\Icons\\Ability_Defend"       -- щит
+    local ICON_TRIM    = { 0.08, 0.92, 0.08, 0.92 }
     --
     -- ВАЖНО: иконка — ОТДЕЛЬНЫЙ Texture, а не инлайн |T..|t внутри
     -- SetText. Инлайн-вариант на этом клиенте ломал высоту строки —
@@ -839,11 +839,11 @@ local function BuildMainFrame()
             GameTooltip:AddLine("Мастерство школы, скейлинг заклинания и " ..
                 "«Внушение» добавляются в момент каста.",
                 0.6, 0.6, 0.6, true)
-            GameTooltip:AddLine("|cFFFFD100ЛКМ|r — бросить атаку со всеми модификаторами. " ..
+            GameTooltip:AddLine("|cFFCCA35CЛКМ|r — бросить атаку со всеми модификаторами. " ..
                 "Ход и ресурс не тратятся.", 0.6, 0.6, 0.6, true)
         else
             GameTooltip:AddLine(" ")
-            GameTooltip:AddLine("|cFFFFD100ЛКМ|r — бросить защиту со всеми модификаторами.",
+            GameTooltip:AddLine("|cFFCCA35CЛКМ|r — бросить защиту со всеми модификаторами.",
                 0.6, 0.6, 0.6, true)
         end
         GameTooltip:Show()
@@ -926,9 +926,9 @@ local function BuildMainFrame()
     moveBadge.icon = moveBadge:CreateTexture(nil, "ARTWORK")
     moveBadge.icon:SetSize(14, 14)
     moveBadge.icon:SetPoint("LEFT", moveBadge, "LEFT", 7, 0)
-    -- Сапог — свой значок в манере галочки, как меч и щит соседних
-    -- бейджей (см. SB.Theme.GLYPH).
-    moveBadge.icon:SetTexture(SB.Theme.GLYPH.move)
+    -- Ровно та же строка, что у «Спринта» в Spells/Rogue.lua: путь
+    -- проверен данными аддона, а не выбран наугад.
+    moveBadge.icon:SetTexture("Interface\\Icons\\Ability_rogue_sprint")
     moveBadge.icon:SetTexCoord(ICON_TRIM[1], ICON_TRIM[2], ICON_TRIM[3], ICON_TRIM[4])
 
     moveBadge.text = moveBadge:CreateFontString(nil, "OVERLAY", "SBFontNormal")
@@ -986,7 +986,7 @@ local function BuildMainFrame()
         GameTooltip:AddLine(" ")
         -- Про ресурс и тик здесь больше ни слова: ресурса за ход не дают
         -- давно, а эффекты тикают в НАЧАЛЕ хода, а не по этой кнопке.
-        GameTooltip:AddLine("|cFFFFD100ЛКМ|r — окончить ход: очередь уходит дальше. " ..
+        GameTooltip:AddLine("|cFFCCA35CЛКМ|r — окончить ход: очередь уходит дальше. " ..
             "Действие хода кнопка не требует — можно окончить и без него.",
             0.6, 0.6, 0.6, true)
         GameTooltip:Show()
@@ -1733,7 +1733,7 @@ function SB.UI.UpdateAll()
     -- "Подготовлено: N/M" в общей шапке — туда уже не влезает).
 	local maxPrep = PM.GetMaxPrepared()
 	local curPrep = #PM.GetPreparedSpells()
-	local col     = (curPrep >= maxPrep) and "|cFFFF4444" or "|cFFFFD100"
+	local col     = (curPrep >= maxPrep) and "|cFFFF4444" or "|cFFCCA35C"
 
 	if abilColumn and abilColumn.titleFS then
 		abilColumn.titleFS:SetText("Способности " .. col .. "(" .. curPrep .. "/" .. maxPrep .. ")|r")

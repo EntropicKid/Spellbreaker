@@ -254,12 +254,12 @@ function SB.Library.UpdateNpcList(classificationName)
                 if e.isTemplate then
                     GameTooltip:AddLine("Эталон вида: достаётся существу, " ..
                         "которого не настраивали вручную.", 0.6, 0.6, 0.6, true)
-                    GameTooltip:AddLine("|cFFFFD100Клик|r — создать существо с этих цифр.",
+                    GameTooltip:AddLine("|cFFCCA35CКлик|r — создать существо с этих цифр.",
                         0.6, 0.6, 0.6, true)
                 else
-                    GameTooltip:AddLine("NPC ID: |cFFFFD100" .. tostring(e.npcID) .. "|r",
+                    GameTooltip:AddLine("NPC ID: |cFFCCA35C" .. tostring(e.npcID) .. "|r",
                         1, 1, 1)
-                    GameTooltip:AddLine("|cFFFFD100Клик|r — открыть на правку.",
+                    GameTooltip:AddLine("|cFFCCA35CКлик|r — открыть на правку.",
                         0.6, 0.6, 0.6, true)
                 end
                 GameTooltip:Show()
@@ -388,7 +388,7 @@ function SB.Library.UpdateList()
             -- перечисления в строку, а не таблицу карточек.
             local htxt = (lvl == 0) and SB.Logic.GetCantripLabel(selectedClass, true)
                          or (lvl .. " Порядок")
-            hdr:SetText("|cFFFFD100" .. htxt .. "|r")
+            hdr:SetText("|cFFCCA35C" .. htxt .. "|r")
             yOff = yOff + (hdrIdx == 1 and 4 or 12)
             hdr:ClearAllPoints()
             hdr:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 8, -yOff)
@@ -785,7 +785,7 @@ function SB.Library.ShowDetail(spell)
         lines = {}
         local family = SB.Data.GetFamily and SB.Data.GetFamily(spell.id)
         if family then
-            lines[#lines + 1] = "|cFFFFD100Вытесняет:|r другие «" .. tostring(family) .. "»"
+            lines[#lines + 1] = "|cFFCCA35CВытесняет:|r другие «" .. tostring(family) .. "»"
         end
         for _, l in ipairs(SB.ActiveEffects.GetEffectLines(spell.id) or {}) do
             lines[#lines + 1] = l
@@ -799,7 +799,7 @@ function SB.Library.ShowDetail(spell)
         end
         -- Срыв концентрации — свойство попадания, а не броска.
         if SB.Logic.Interrupts and SB.Logic.Interrupts(spell) then
-            lines[#lines + 1] = "|cFFFFD100При попадании:|r срыв концентрации"
+            lines[#lines + 1] = "|cFFCCA35CПри попадании:|r срыв концентрации"
         end
     end
 

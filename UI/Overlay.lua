@@ -673,7 +673,7 @@ local function PaintLevel(e)
         -- Цвет ванильного уровня означает «насколько он тебе опасен», и
         -- к уровню сцены это отношения не имеет. Красим ровным золотом,
         -- тем же, что и остальные подписи аддона.
-        fs:SetTextColor(1, 0.82, 0)
+        fs:SetTextColor(0.80, 0.64, 0.36)
     else
         e.levelTaken = false
         if e.levelColor then
@@ -995,7 +995,7 @@ local function AuraTooltip(self)
             and SB.ActiveEffects.SecondsLeft(self._uses, self._seq, self._phase)
         local txt = left and SB.UI.SecondsAsTimeShort(left)
             or SB.UI.TurnsAsTimeShort(self._uses)
-        GameTooltip:AddLine("Осталось: |cFFFFD100" .. txt .. "|r", 1, 1, 1)
+        GameTooltip:AddLine("Осталось: |cFFCCA35C" .. txt .. "|r", 1, 1, 1)
     else
         GameTooltip:AddLine("Бессрочно — до Долгого Отдыха", 1, 0.82, 0)
     end

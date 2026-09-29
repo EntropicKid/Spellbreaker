@@ -335,7 +335,7 @@ local function RefreshPanel()
     local sp = SB.Data.Spells[spellID]
     panel.icon:SetTexture((sp and sp.icon) or "Interface\\Icons\\INV_Misc_QuestionMark")
     panel.who:SetText(npcName .. " применяет")
-    panel.what:SetText("|cFFFFD100" .. ((sp and sp.name) or spellID or "?") .. "|r")
+    panel.what:SetText("|cFFCCA35C" .. ((sp and sp.name) or spellID or "?") .. "|r")
 
     -- САМОКАСТ — ОТДЕЛЬНЫЙ ВИД ОКНА: ни счётчика целей, ни галочки «на
     -- всех». Стойка ложится на само существо, и вопрос «кого задеть» у
@@ -381,7 +381,7 @@ local function RefreshPanel()
     if n == 0 then
         panel.count:SetText("|cFFFF6666Никто не отмечен|r — рамки или кнопки ниже")
     else
-        panel.count:SetText(string.format("Задето: |cFFFFD100%d|r", n))
+        panel.count:SetText(string.format("Задето: |cFFCCA35C%d|r", n))
     end
     panel.list:SetText(who)
     PlaceTargetRow()
