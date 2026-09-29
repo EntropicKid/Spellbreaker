@@ -24,7 +24,7 @@ Add({
 	scaling = {
 		hit    = { ["Живучесть"] = 1 },
 		crit   = { ["Атлетика"] = 1 },
-		damage = { ["Выносливость"] = 0.65 },
+		damage = { ["Сила"] = 0.65 },
 	},
 })
 
@@ -112,7 +112,7 @@ Add({
 	scaling = {
 		hit    = { ["Мощь"] = 1 },
 		crit   = { ["Точность"] = 1 },
-		damage = { ["Ловкость"] = 1 },
+		damage = { ["Ловкость"] = 0.85 },
 	},
 })
 
@@ -136,7 +136,7 @@ Add({
 	scaling = {
 		hit    = { ["Мощь"] = 1 },
 		crit   = { ["Точность"] = 1 },
-		damage = { ["Ловкость"] = 1.3 },
+		damage = { ["Ловкость"] = 1.5 },
 	},
 })
 
@@ -455,24 +455,6 @@ Add({
 })
 
 Add({
-    id = "frost_fever",
-    name = "Ледяная лихорадка",
-    key = "Лёд",
-    icon = "Interface\\Icons\\Spell_frost_frostarmor02",
-    level = 1,
-    class = "Рыцарь смерти",
-    description = "Холод входит в кровь и остаётся в ней. Цель бьёт дрожь, руки перестают слушаться, дыхание сбивается на короткое. Лихорадка не убивает сама, но делает жертву неспособной ни к точному удару, ни к тяжёлому усилию.",
-    isCantrip = false,
-    resistable = true,
-    distance = 19,
-    duration = 4,
-    debuff = "eff_weakness_frost_fever",
-    scaling = {
-    	hit    = { ["Мощь"] = 1, ["Запугивание"] = 0.5 },
-    },
-})
-
-Add({
     id = "bone_shield",
     name = "Костяной щит",
     key = "Кровь",
@@ -495,7 +477,7 @@ Add({
     name = "Вихрь ветров",
     key = "Лёд",
     icon = "Interface\\Icons\\Spell_frost_arcticwinds",
-    level = 2,
+    level = 1,
     class = "Рыцарь смерти",
     damageType = "frost",
     description = "Рыцарь бьёт клинком по воздуху, и от места удара расходится волна режущего холода. Она сбивает с ног и оставляет иней на доспехах. По воде и мокрой земле волна проходит вдвое дальше.",
@@ -504,13 +486,12 @@ Add({
     canCrit = true,
     distance = 13,
     duration = 3,
-    -- РАЗНОСЧИК ЛИХОРАДКИ на всю площадь (см. Ледяное касание).
     debuff = "eff_weakness_frost_fever",
     aoe = { radius = 9 },
     scaling = {
     	hit    = { ["Мощь"] = 1 },
     	crit   = { ["Точность"] = 0.5 },
-    	damage = { ["Ловкость"] = 1.3 },
+    	damage = { ["Ловкость"] = 1 },
     },
 })
 
@@ -568,13 +549,12 @@ Add({
     canCrit = true,
     isConcentration = true,
     distance = 7,
-    duration = 3,
     aoe = { radius = 6 },
-    container = "eff_remorseless_winter",
+    channel = 2,
     scaling = {
     	hit    = { ["Мощь"] = 1, ["Ношение брони"] = 0.5 },
     	crit   = { ["Точность"] = 1.5 },
-    	damage = { ["Ловкость"] = 1.45 },
+    	damage = { ["Ловкость"] = 1.3 },
     },
 })
 
