@@ -1151,14 +1151,10 @@ AddEffect({
     name = "Облик кошки",
     icon = "Interface\\Icons\\Ability_druid_catform",
     description = "Мягкая лапа, ночное зрение, шаг без звука. Ни оружия, ни заклинаний в этой форме не удержать.",
-    -- Клык — СКРЫТНОСТЬ И ВНЕЗАПНОСТЬ: «преимущество на скрытность,
-    -- погони, обоняние», «нельзя застать врасплох».
-    -- ДВИГАТЕЛЬ КОШКИ: попавшее «Полоснуть» будит «Кровавые когти», и
-    -- следующий приём — Глубокая рана, Разорвать, Свирепый укус — злее.
-    effect = { kind = "buff", family = "Облик", mods = { crit = 3 },
-               stats = { ["Скрытность"] = 2 },
+    effect = { kind = "buff", family = "Облик", mods = { movePct = 15 },
+               stats = { ["Скрытность"] = 4 },
                onAction = { when = "hit", spell = "druid_shred",
-                            effect = "eff_druid_bloodtalons", turns = 2 } },
+                            effect = "eff_druid_bloodtalons", turns = 3 } },
 })
 
 AddEffect({
@@ -1195,7 +1191,7 @@ AddEffect({
     -- ДВИГАТЕЛЬ ВОССТАНОВЛЕНИЯ — ИЗОБИЛИЕ: Омоложение в облике древня
     -- с шансом ничего не стоит (мана возвращается сразу). Древень
     -- расставляет исцеление по всей группе, а не заливает одного.
-    effect = { kind = "buff", family = "Облик", mods = { heal = 1, movePct = -40 },
+    effect = { kind = "buff", family = "Облик", mods = { heal = 1, damage = -1 },
                onAction = { when = "cast", spell = "rejuvenation", chance = 50,
                             payload = { mana = 1 } } },
 })
@@ -1237,7 +1233,7 @@ AddEffect({
     name = "Легкий шаг",
     icon = "Interface\\Icons\\Ability_rogue_sprint_blue",
     description = "Ни грязь, ни снег, ни песок не держат — и следов за собой не остаётся.",
-    effect = { kind = "buff", school = "magic", stats = { ["Скрытность"] = 1 } },
+    effect = { kind = "buff", suppress = { "Замедление" }, stats = { ["Скрытность"] = 1 } },
 })
 
 AddEffect({
@@ -1245,7 +1241,7 @@ AddEffect({
     name = "Разговор с животными",
     icon = "Interface\\Icons\\Ability_hunter_beastsoothe",
     description = "Звери отвечают на вопросы так, как понимают их сами.",
-    effect = { kind = "buff", stats = { ["Выживание"] = 1, ["Воодушевление"] = 1 } },
+    effect = { kind = "buff", stats = { ["Выживание"] = 3, ["Интуиция"] = 3 } },
 })
 
 AddEffect({
@@ -1261,7 +1257,7 @@ AddEffect({
         -- ДРУИДА КЛИНКОМ». Клинком — поэтому melee: сад шипов на коже
         -- не достаёт до лучника за двадцать метров.
         onAction = { when = "damaged", melee = true,
-                     toAttacker = "eff_thorn_prick" },
+                     toAttacker = { damage = 1, damageType = "physical" },
     },
 })
 
@@ -1290,14 +1286,6 @@ AddEffect({
 })
 
 AddEffect({
-    id   = "eff_druid_starfall",
-    name = "Звездопад",
-    icon = "Interface\\Icons\\ability_druid_starfall",
-    description = "Небо роняет вниз холодный свет, и он падает туда, куда смотрит друид.",
-    effect = { kind = "buff", school = "magic", mods = { attack = 18, damage = 1 } },
-})
-
-AddEffect({
     id   = "eff_beast_calm",
     name = "Умиротворён",
     icon = "Interface\\Icons\\Ability_seal",
@@ -1318,7 +1306,7 @@ AddEffect({
     name = "Ураган",
     icon = "Interface\\Icons\\ability_druid_galewinds",
     description = "Ветер и гнев природы стоят стеной вокруг друида и рвут всё, что внутри.",
-    effect = { kind = "buff", school = "magic", mods = { attack = 25, damage = 1, defense = -9, movePct = -25 } },
+    effect = { kind = "debuff", family = "Замедление", mods = { movePct = -40 } },
 })
 
 AddEffect({
@@ -1326,7 +1314,7 @@ AddEffect({
     name = "Смерч",
     icon = "Interface\\Icons\\Creatureportrait_cyclone_nodebris",
     description = "Смерч идёт по указанной друидом линии и уносит всё, что не вросло в землю.",
-    effect = { kind = "buff", school = "magic", mods = { attack = 25, damage = 1 } },
+    effect = { kind = "debuff", untouchable = true, mods = { attack = -100, damage = -20, movePct = -200 } },
 })
 
 AddEffect({
@@ -1342,7 +1330,7 @@ AddEffect({
     name = "Жизнецвет",
     icon = "Interface\\Icons\\Inv_misc_herb_felblossom",
     description = "Природа смотрит на одного и не отводит взгляда: раны закрываются, пока цветёт.",
-    effect = { kind = "buff", school = "magic", mods = { heal = 1, maxHealth = 1 }, tick = { heal = 1 } },
+    effect = { kind = "buff", school = "magic", mods = { heal = 1 }, tick = { healTaken = 1 } },
 })
 
 -- ==========================================================
@@ -2342,13 +2330,12 @@ AddEffect({
 AddEffect({
     -- Рой насекомых (Друид, круг 0). Отщеплён от «eff_blinded».
     id   = "eff_blinded_insect_swarm",
-    name = "Рой насекомыъ",
-    icon = "Interface\\Icons\\Spell_shadow_mindsteal",
+    name = "Рой насекомых",
+    icon = "Interface\\Icons\\Spell_nature_insectswarm",
     description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
     effect = {
         kind  = "debuff", resist = "Выносливость",
-        mods = { attack = -15, defense = -15 },
-        stats = { ["Точность"] = -4 },
+        mods = { attack = -5, defense = -5 },
     },
 })
 
@@ -2356,35 +2343,35 @@ AddEffect({
     -- Знак дикой природы (Друид, круг 1). Отщеплён от «eff_devotion».
     id   = "eff_devotion_wildlife_sign",
     name = "Знак дикой природы",
-    icon = "Interface\\Icons\\Spell_holy_devotionaura",
+    icon = "Interface\\Icons\\Spell_nature_regeneration",
     description = "Свет держит над носителем незримую руку: стрелы уходят в стороны, а тело держится дольше положенного.",
-    effect = { kind = "buff", school = "magic", mods = { defense = 12, maxHealth = 1 } },
+    effect = { kind = "buff", school = "magic", mods = { armor = 10, defense = 10, attack = 10 } },
 })
 
 AddEffect({
     -- Гнев деревьев (Друид, круг 1). Из гнезда eff_slowed_*.
     id   = "eff_slowed_tree_wrath",
     name = "Гнев деревьев",
-    icon = "Interface\\Icons\\Spell_nature_slow",
+    icon = "Interface\\Icons\\Spell_nature_stranglevines",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { family = "Замедление", kind = "debuff", resist = "Сила", school = "magic", mods = { defense = -12, attack = -4, movePct = -50 } },
+    effect = { family = "Замедление", kind = "debuff", resist = "Сила", school = "magic", mods = { movePct = -200 } },
 })
 
 AddEffect({
     -- Волшебный огонь (Друид, круг 1). Из гнезда eff_vulnerable_*.
     id   = "eff_vulnerable_faerie_fire",
     name = "Волшебный огонь",
-    icon = "Interface\\Icons\\Spell_shadow_curseofachimonde",
+    icon = "Interface\\Icons\\Spell_nature_faeriefire",
     description = "Защита разобрана изнутри: то, что раньше скользило по доспеху, теперь доходит до тела.",
-    effect = { kind = "debuff", school = "magic", mods = { armor = -20 } },
+    effect = { kind = "debuff", school = "magic", mods = { armor = -40 } },
 })
 
 AddEffect({
     -- Дубинка (Друид, круг 1). Из гнезда eff_weapon_enchant_*.
     id   = "eff_weapon_enchant_druid_club",
     name = "Дубинка",
-    icon = "Interface\\Icons\\Spell_fire_flametounge",
+    icon = "Interface\\Icons\\Inv_misc_branch_01",
     description = "Орудие обёрнуто стихией: к каждому удару добавляется то, от чего доспех не спасает.",
     effect = { family = "Чары оружия", kind = "buff", school = "magic", onHit = { damage = 1, damageType = "nature" } },
 })
@@ -2393,58 +2380,33 @@ AddEffect({
     -- Могучие клыки (Друид, круг 1). Из гнезда eff_weapon_enchant_*.
     id   = "eff_weapon_enchant_mighty_fangs",
     name = "Могучие клыки",
-    icon = "Interface\\Icons\\Spell_fire_flametounge",
+    icon = "Interface\\Icons\\Ability_evoker_echoingstrike",
     description = "Орудие обёрнуто стихией: к каждому удару добавляется то, от чего доспех не спасает.",
-    -- СИЛА ЗВЕРЯ — КЛЫК, А НЕ ПРОСТО ПРИБАВКА: удар ближнего боя с
-    -- шансом оставляет кровящий укол (тот же, что у Шипов).
-    effect = { family = "Чары оружия", kind = "buff", school = "magic", onHit = { damage = 1, damageType = "nature" },
-               onAction = { when = "hit", melee = true, chance = 25,
-                            toTarget = "eff_thorn_prick" } },
+    effect = { family = "Чары оружия", kind = "buff", school = "magic", mods = { damagePhysical = 1 } },
 })
 
 AddEffect({
     -- Озарение (Друид, круг 2). Из гнезда eff_mercy_blessing_*.
     id   = "eff_mercy_blessing_nature_patronage",
     name = "Озарение",
-    icon = "Interface\\Icons\\Spell_holy_prayerofhealing",
+    icon = "Interface\\Icons\\Ability_druid_nourish",
     description = "Раны затягиваются охотнее, чем должны: чужая забота ложится на них ровнее.",
     effect = {
         kind  = "buff",
         school = "magic",
-        mods = { heal = 1 },
-        stats = { ["Милосердие"] = 1 },
+        mods = { healTaken = 1 },
         tick = { heal = 2 },
     },
-})
-
-AddEffect({
-    -- Дар дикой природы (Друид, круг 3). Отщеплён от «eff_fortitude».
-    id   = "eff_fortitude_nature_blessing",
-    name = "Дар дикой природы",
-    icon = "Interface\\Icons\\Spell_holy_wordfortitude",
-    description = "Тело помнит, что умеет терпеть больше, чем кажется.",
-    effect = { kind = "buff", school = "magic", mods = { maxHealth = 2 } },
 })
 
 AddEffect({
     -- Дубовая кожа (Друид, круг 3). Из гнезда eff_stone_skin_*.
     id   = "eff_stone_skin_druid_stoneskin",
     name = "Дубовая кожа",
-    icon = "Interface\\Icons\\Spell_nature_stoneskintotem",
+    icon = "Interface\\Icons\\spell_nature_stoneclawtotem",
     description = "Плоть покрыта камнем. Держит удар заметно лучше живой, но двигаться в такой шкуре тяжело.",
-    -- «Устойчив к урону холодом и ядом... но если друид будет подожжен, то
-    -- дубовая кора УМНОЖИТ В ДВА РАЗА получаемый урон от пламени».
-    -- Минус здесь не выдуман — он записан у автора заклинания.
     effect = {
-        -- «МОЖНО ВОЗЗВАТЬ ДАЖЕ БУДУЧИ ОГЛУШЕННЫМ, ЗАМОРОЖЕННЫМ, В
-        -- СОСТОЯНИИ ПАРАЛИЧА, ИЛИ ИСПУГА» — то же место, что у Ярости
-        -- шамана, и читается так же.
-        --
-        -- Но НЕ СНИМАЕТ: сказано «воззвать можно», а не «оковы спадут».
-        -- Кора нарастает поверх того, что уже держит друида.
-        suppress = { "Оглушение", "Замедление", "Страх" },
-        suppressClears = false,
-        kind = "buff", school = "magic", mods = { resistFire = -2, resistFrost = 1, resistNature = 1, armor = 20, attack = -18, defense = -9 } },
+        kind = "debuff", school = "magic", mods = { resistFire = -2, resistFrost = 1, resistNature = 1, armor = 40 } },
 })
 
 AddEffect({
@@ -2562,7 +2524,7 @@ AddEffect({
     -- касте, так что два Гнева подряд теряют прибавку, а Гнев и Пламя по
     -- очереди — нет. Срок два хода по той же причине, что у всех
     -- проков от "hit": повод приходит после резолва.
-    effect = { kind = "buff", family = "Облик", mods = { armor = 10 },
+    effect = { kind = "buff", family = "Облик", mods = { resistPhysical = 1 },
                onAction = {
                    { when = "hit", spell = "druid_wrath",
                      effect = "eff_lunar_eclipse", turns = 2 },
@@ -4066,21 +4028,6 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_shaman_lavasurge",
     description = "Клеймо на оружии вскипело: пламя идёт гуще обычного.",
     effect = { kind = "buff", school = "magic", mods = { damageFire = 2 } },
-})
-
--- ── ОТВЕТЫ ТЕХ, КОГО УДАРИЛИ ────────────────────────────
---
--- Возмездие живёт один ход: срока у контейнера нет, а значит вешается
--- на ход (см. SB.Logic.GetEffectDuration). Ровно то, что нужно —
--- шип уколол, холод обжёг, искры погасли.
-
-AddEffect({
-    id   = "eff_thorn_prick",
-    name = "Укол шипов",
-    icon = "Interface\\Icons\\Spell_nature_thorns",
-    description = "Колючка вошла глубоко и обломилась. Кровь идёт не переставая.",
-    effect = { kind = "debuff", resist = "Выносливость", school = "bleed", tick = { damage = 1 } },
-    damageType = "physical",
 })
 
 AddEffect({
