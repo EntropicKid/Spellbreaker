@@ -124,7 +124,6 @@ Add({
 	distance = 20,
 	aoe = { radius = 6 },
 	channel = 2,
-    duration = 2,
     debuff = "eff_rain_of_fire",
 	scaling = {
 		hit    = { ["Живучесть"] = 1.5, ["Запугивание"] = 1 },
@@ -562,9 +561,7 @@ Add({
 	canCrit = true,
 	distance = 20,
     creates = "item_soul_shard",
-    duration = 2,
     channel = 2,
-    isConcentration = true,
 	scaling = {
 		hit    = { ["Концентрация"] = 1, ["Внушение"] = 0.5 },
 		crit   = { ["Исток"] = 1 },
@@ -586,9 +583,7 @@ Add({
 	canCrit = true,
 	distance = 20,
     leech = 1,
-    duration = 2,
     channel = 2,
-    isConcentration = true,
 	scaling = {
 		hit    = { ["Внушение"] = 1.5 },
 		damage = { ["Интеллект"] = 1 },
