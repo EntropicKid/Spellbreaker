@@ -1261,7 +1261,7 @@ AddEffect({
         -- ДРУИДА КЛИНКОМ». Клинком — поэтому melee: сад шипов на коже
         -- не достаёт до лучника за двадцать метров.
         onAction = { when = "damaged", melee = true,
-                     toAttacker = { damage = 1, damageType = "physical" },
+                     toAttacker = { damage = 1, damageType = "physical" } },
     },
 })
 
