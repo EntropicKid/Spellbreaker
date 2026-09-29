@@ -133,14 +133,38 @@ local function SpellsSubmenu()
              hasArrow = true, menuList = items }
 end
 
+--- Сбросить всех существ сцены — с подтверждением (см. SB.NPC.ResetScene).
+local function ConfirmResetScene()
+    StaticPopupDialogs["SPELLBREAKER_NPC_RESET"] = {
+        text = "Сбросить всех существ сцены? Здоровье и ресурс станут полными, все эффекты снимутся — у всей группы.",
+        button1 = "Сбросить",
+        button2 = "Отмена",
+        OnAccept = function()
+            if SB.NPC and SB.NPC.ResetScene and SB.NPC.ResetScene() then
+                SB.Events.Fire("BROADCAST_LOG", SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " ..
+                    SB.Theme.MSG_BODY .. UnitName("player") ..
+                    " сбрасывает существ сцены: здоровье полное, эффекты сняты.|r",
+                    SB.LogRank.ACTION)
+            end
+        end,
+        timeout = 0, whileDead = true, hideOnEscape = true,
+    }
+    StaticPopup_Show("SPELLBREAKER_NPC_RESET")
+end
+
 local function BuildMenu()
     local menu = {
         { text = "Управление существом", isTitle = true, notCheckable = true },
+    }
 
-        -- ── ВХОДЫ В САМ SPELLBREAKER — ПЕРВЫМИ ────────────
-        -- Это то, ради чего аддон и сведён в один: показатели существа и
-        -- речь от его лица стоят выше служебных команд сервера, потому
-        -- что в сцене к ним обращаются чаще.
+    -- ── ВХОДЫ В САМ SPELLBREAKER — ТОЛЬКО ВЛАДЕЛЬЦУ СЦЕНЫ ─────
+    -- Показатели, запись вида, навыки и сброс существ — дело того, кто
+    -- ведёт сцену: лидера или помощника рейда, а вне группы — самого
+    -- игрока (см. SB.NPC.IsOwner). Остальным меню оставляет команды
+    -- сервера: у рядового участника состояние существ всё равно
+    -- сводит владелец, и его правки ушли бы в пустоту.
+    if SB.NPC and SB.NPC.IsOwner and SB.NPC.IsOwner() then
+        for _, item in ipairs({
         {
             text = "Показатели и эффекты",
             notCheckable = true,
@@ -180,7 +204,15 @@ local function BuildMenu()
         -- ============================================
         SpellsSubmenu(),
 
+        -- Сцена кончилась, а на тушках что-то висит и тикает — всем
+        -- существам полное здоровье и ни одного эффекта, у всей группы.
+        { text = "Сбросить существ", notCheckable = true, func = ConfirmResetScene },
+
         { text = "", isTitle = true, notCheckable = true },
+        }) do menu[#menu + 1] = item end
+    end
+
+    for _, item in ipairs({
 
         -- ── ПОВЕДЕНИЕ ─────────────────────────────────────
         { text = "Поведение", notCheckable = true, hasArrow = true, menuList = {
@@ -339,7 +371,7 @@ local function BuildMenu()
             { text = "|cFFFF4444Да, удалить|r", notCheckable = true,
               func = function() NC.SendToTarget(".npc delete") end },
         } },
-    }
+    }) do menu[#menu + 1] = item end
     return menu
 end
 

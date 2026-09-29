@@ -756,8 +756,7 @@ function SB.NPC.TickEffects()
             local gk = name .. "\0" .. tail
             local g = groups[gk]
             if not g then
-                g = { name = name, tail = tail, n = 0,
-                      id = SB.NPC.SpawnIDOfKey and SB.NPC.SpawnIDOfKey(key) }
+                g = { name = name, tail = tail, n = 0 }
                 groups[gk] = g
                 order[#order + 1] = gk
             end
@@ -781,11 +780,7 @@ function SB.NPC.TickEffects()
         end)
         local G = SB.Theme.MSG_BODY
         local function Line(g)
-            -- Номер особи — только у одиночки: у «×12» их двенадцать, и
-            -- строка ушла бы за край. Одиночку же и надо уметь найти.
-            local suffix = (g.n > 1) and (" ×" .. g.n)
-                or (g.id and (" (" .. g.id .. ")")) or ""
-            return G .. g.name .. suffix .. ": |r" .. g.tail
+            return G .. g.name .. ((g.n > 1) and (" ×" .. g.n) or "") .. ": |r" .. g.tail
         end
         if #order == 1 then
             SB.Events.Fire(SB.E.BROADCAST_LOG,

@@ -21836,7 +21836,7 @@ do
 end
 
 -- ============================================================
--- СУЩЕСТВА: павший не тикает, номер особи в логе, сброс сцены
+-- СУЩЕСТВА: павший не тикает, сброс сцены
 -- ============================================================
 do
     local wasLeader, wasGroup = stub.world.isLeader, stub.world.inGroup
@@ -21852,7 +21852,7 @@ do
     SB.NPC.ApplyRemoteState("9002:777", 3, 10, 0, 0, "eff_immolation:-1")
     SB.NPC.TickEffects()
     local last = lines[#lines] or ""
-    checkTrue("в строке тика — номер особи", last:find("(777)", 1, true) ~= nil)
+    checkTrue("номера особи в строке тика нет", last:find("(777)", 1, true) == nil)
 
     SB.NPC.ApplyRemoteState("9002:777", 0, 10, 0, 0, "eff_immolation:-1")
     local before = #lines
@@ -21902,6 +21902,33 @@ do
     setRes(keep)
     SB.Skills.GetLeadershipRegenPeriod = realPeriod
     stub.world.isLeader, stub.world.inGroup = wasLeader, wasGroup
+end
+
+-- ============================================================
+-- СВОЁ ЗАКЛИНАНИЕ ПОКАЗЫВАЕТСЯ ГРУППЕ ТОЛЬКО ПОДГОТОВЛЕННЫМ
+-- ============================================================
+do
+    local shown = 0
+    SB.Events.On("LOG_MESSAGE_RECEIVED", function(msg)
+        if type(msg) == "string" and msg:find("показывает заклинание", 1, true) then shown = shown + 1 end
+    end)
+    local realPrep = SB.PlayerModel.IsPrepared
+    local cd = SB.Cooldowns and SB.Cooldowns.Check
+    if SB.Cooldowns then SB.Cooldowns.Check = function() return true end end
+    local wasGroup = stub.world.inGroup
+    stub.world.inGroup = false
+    local sp = { id = "t_custom_link", name = "Проба своего", isCustom = true }
+
+    SB.PlayerModel.IsPrepared = function() return false end
+    SB.UI.ShareSpellLink(sp)
+    check("неподготовленное своё не показывается", shown, 0)
+    SB.PlayerModel.IsPrepared = function() return true end
+    SB.UI.ShareSpellLink(sp)
+    check("подготовленное — показывается", shown, 1)
+
+    SB.PlayerModel.IsPrepared = realPrep
+    if SB.Cooldowns then SB.Cooldowns.Check = cd end
+    stub.world.inGroup = wasGroup
 end
 
 -- ИТОГ

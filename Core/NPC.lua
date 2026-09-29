@@ -1578,14 +1578,6 @@ function SB.NPC.NameForKey(key)
     return (rec and rec.name) or "Существо"
 end
 
---- Номер особи из ключа — вторая половина «npcID:spawnUID», та же, что в
---- конце GUID существа. По нему Ведущий отличает одноимённых и находит
---- тушку, про которую пишет лог.
-function SB.NPC.SpawnIDOfKey(key)
-    if type(key) ~= "string" then return nil end
-    return key:match("^%d+:(.+)$")
-end
-
 -- ============================================================
 -- СБРОС СУЩЕСТВ СЦЕНЫ
 --

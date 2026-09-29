@@ -651,39 +651,6 @@ function SB.UI.BuildGMPanel()
         "сознания, круги останавливаются.")
     y = y - 10
 
-    -- ── Существа ─────────────────────────────────────────────
-    -- Сцена кончилась, а на тушке что-то висит и тикает — одна кнопка
-    -- возвращает всех существ к шаблону (см. SB.NPC.ResetScene). Тот же
-    -- сброс делает и Долгий Отдых.
-    local npcHdr = SB.Theme.SectionHeader(settingsPanel, "Существа", 0)
-    npcHdr:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 0, y)
-    y = y - 18
-
-    local npcResetBtn = SB.Theme.Button(settingsPanel, "Сбросить существ", 150, 24, "danger")
-    npcResetBtn:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 0, y)
-    npcResetBtn:SetScript("OnClick", function()
-        if not SB.UI.IsGameMaster() then RefreshGMAccess() return end
-        StaticPopupDialogs["SPELLBREAKER_NPC_RESET"] = {
-            text = "Сбросить всех существ сцены? Здоровье и ресурс станут полными, все эффекты снимутся — у всей группы.",
-            button1 = "Сбросить",
-            button2 = "Отмена",
-            OnAccept = function()
-                if SB.NPC and SB.NPC.ResetScene and SB.NPC.ResetScene() then
-                    SB.Events.Fire("BROADCAST_LOG", SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " ..
-                        SB.Theme.MSG_BODY .. UnitName("player") ..
-                        " сбрасывает существ сцены: здоровье полное, эффекты сняты.|r",
-                        SB.LogRank.ACTION)
-                end
-            end,
-            timeout = 0, whileDead = true, hideOnEscape = true,
-        }
-        StaticPopup_Show("SPELLBREAKER_NPC_RESET")
-    end)
-    Tip(npcResetBtn, "Сбросить существ",
-        "Всем существам сцены — полное здоровье и ресурс, все эффекты сняты. " ..
-        "Сбрасывается у всей группы. То же делает Долгий Отдых.")
-    y = y - 24 - 10
-
     -- ── Версия ───────────────────────────────────────────────
     -- Отвечает на вопрос «почему у него не работает», который иначе
     -- решается получасом догадок (см. SB.Net.GetVersionReport).

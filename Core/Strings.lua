@@ -291,6 +291,20 @@ end
 --- видно, что нажатие вообще сработало.
 function SB.UI.ShareSpellLink(spell)
     if not spell or not spell.id then return end
+    -- СВОЁ ЗАКЛИНАНИЕ ПОКАЗЫВАЕТСЯ ТОЛЬКО ПОДГОТОВЛЕННЫМ. Остальным
+    -- кастомное приходит вместе со статусом — а там только подготовленные;
+    -- ссылка на неподготовленное вела бы в пустоту у всех, кроме автора,
+    -- и выставляла бы напоказ заготовки, которых в игре ещё нет.
+    if spell.isCustom then
+        local prepared = (SB.PlayerModel and SB.PlayerModel.IsPrepared
+                          and SB.PlayerModel.IsPrepared(spell.id))
+            or (SB.Items and SB.Items.IsPrepared and SB.Items.IsPrepared(spell.id))
+        if not prepared then
+            print(SB.Theme.MSG_BAD .. "[Spellbreaker]: Своё заклинание можно показать " ..
+                  "группе, только когда оно подготовлено.|r")
+            return
+        end
+    end
     -- Показ заклинания — такая же рассылка в общий канал, как бросок, и
     -- жмётся он мышью ещё легче. Общий с бросками счётчик темпа
     -- (см. Core/Cooldowns.lua).
