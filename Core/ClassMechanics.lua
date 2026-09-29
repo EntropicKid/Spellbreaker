@@ -313,6 +313,10 @@ local leadTicks = 0
 
 SB.Events.On(SB.E.TURN_TICK, function()
     if not (SB.Skills and SB.Skills.GetLeadershipRegenPeriod) then return end
+    -- ТОЛЬКО В ПОШАГОВОМ РЕЖИМЕ. В свободном ходе такт идёт сам раз в шесть
+    -- секунд, и ручеёк наливал пул просто за то, что прошло время: пять
+    -- минут разговора — полная мана. Ход здесь — единица боя, а не часов.
+    if not (SB.TurnOrder and SB.TurnOrder.IsActive()) then return end
     local every = SB.Skills.GetLeadershipRegenPeriod()
     if not every then return end
 

@@ -4871,10 +4871,10 @@ do
     local realSend = SB.Net.SendPvpAttack
     local calls = {}
     SB.Net.SendPvpAttack = function(target, spellID, roll, mod, total,
-                                    isCrit, dmgBonus, baseDmg, slot, persuade, npcName)
+                                    isCrit, dmgBonus, baseDmg, slot, persuade, npcName, aoe)
         calls[#calls + 1] = { target = target, spellID = spellID, roll = roll,
             mod = mod, total = total, isCrit = isCrit, baseDmg = baseDmg,
-            slot = slot, npcName = npcName }
+            slot = slot, npcName = npcName, aoe = aoe }
     end
 
     SB.Data.Spells["t_claw"] = { id = "t_claw", name = "Когти твари",
@@ -4916,6 +4916,44 @@ do
     -- Не подменой отправителя: отправителя берут у транспорта именно
     -- затем, чтобы им нельзя было прикрыться (см. ParsePVPATK).
     check("бьёт существо, а не Ведущий", calls[1].npcName, "Медведь-ледолап")
+    -- Залп по нескольким — площадью: задетые отвечают итогом в сводку
+    -- Ведущего, а не абзацем в чат каждый.
+    check("залп по троим уходит площадью", calls[1].aoe, true)
+
+    -- ── ЗАДЕТЫЙ ОТВЕЧАЕТ ВЕДУЩЕМУ, А НЕ ТУШКЕ ──────────────
+    do
+        local realRes, sentTo, sentAoe = SB.Net.SendPvpResult, nil, nil
+        SB.Net.SendPvpResult = function(to, _, _, _, _, _, _, _, a)
+            sentTo, sentAoe = to, a
+        end
+        SB.Logic.HandlePvpAttackReceived("Медведь-ледолап", "t_claw", 50, 0, 50,
+            false, 0, 1, nil, true, nil, true, "Ведущая")
+        check("итог уходит Ведущему", sentTo, "Ведущая")
+        checkTrue("с пометкой «существо»", sentAoe and sentAoe.npc == true)
+        SB.Net.SendPvpResult = realRes
+    end
+
+    -- ── У ВЕДУЩЕГО — ТОЛЬКО В СВОДКУ ───────────────────────
+    -- Не как свой удар: иначе сработали бы его вампиризм и классовые
+    -- механики.
+    do
+        local realAdd, realRes = SB.Logic.AoeReportAdd, SB.Logic.HandlePvpResultReceived
+        local realDes = SB.Net.Deserialize
+        local added, asOwn = nil, false
+        SB.Logic.AoeReportAdd = function(e) added = e end
+        SB.Logic.HandlePvpResultReceived = function() asOwn = true end
+        SB.Net.Deserialize = function(_, m) return true, m end
+        SB.Net.__commHandler(SB.Net.__commPrefix, {
+            action = "PVPRES", attacker = UnitName("player"), target = "Борис",
+            defRoll = 30, defMod = 5, defTotal = 35, dmg = 2,
+            isAoe = true, npc = true, landed = true,
+        }, "WHISPER", "Борис")
+        for _ = 1, 5 do stub.RunTimers() end
+        check("итог залпа существа — в сводку", added and added.name, "Борис")
+        checkTrue("и не как свой удар", not asOwn)
+        SB.Logic.AoeReportAdd, SB.Logic.HandlePvpResultReceived = realAdd, realRes
+        SB.Net.Deserialize = realDes
+    end
 
     -- ── ОДИН БРОСОК НА ВСЕХ ────────────────────────────────
     -- По броску на цель означало бы, что вероятность зацепить хоть кого-то
@@ -5109,7 +5147,16 @@ do
         SB.Logic.HandleBuffResultReceived("Алиссия", "t_npc_res", 91, false)
         checkTrue("строка вышла ровно на ответе", #said == before + 1)
         checkTrue("и в ней порог игрока", said[#said]:find("91", 1, true) ~= nil)
-        checkTrue("и его исход", said[#said]:find("Устоял", 1, true) ~= nil)
+        checkTrue("и его исход", said[#said]:find("Провал", 1, true) ~= nil)
+        -- Одна цель — одна строка, как у игрока: шапки «Целей: 1» нет,
+        -- заклинание названо в самой строке исхода.
+        local header = false
+        for _, m in ipairs(said) do
+            if type(m) == "string" and m:find("Целей", 1, true) then header = true end
+        end
+        checkTrue("одиночный каст существа — без отдельной шапки", not header)
+        checkTrue("и заклинание в строке исхода",
+                  said[#said]:find("Удушающий рык", 1, true) ~= nil)
 
         -- ── А СЕБЕ ВЕДУЩИЙ СЧИТАЕТ ПОРОГ ЧЕСТНО ────────────
         -- Его собственный персонаж — единственная цель, чьи
@@ -10376,6 +10423,191 @@ do
 end
 
 -- ============================================================
+-- ПРИШЕДШИЙ ПОСРЕДИ КРУГА СЧИТАЕТСЯ ПОХОДИВШИМ
+--
+-- Очередь посреди круга не пересобирается: новичок получает отметку
+-- «походил», а в очередь встаёт на «Новом ходе» — в конец.
+-- ============================================================
+do
+    stub.world.isLeader = true
+    stub.world.inGroup  = true
+    stub.world.inRaid   = true
+    local me = stub.world.playerName
+    local TO = SB.TurnOrder
+
+    stub.world.units["raid1"] = { name = me, level = 25, class = "Маг",
+        classToken = "MAGE", race = "Human" }
+    stub.world.units["raid2"] = { name = "Второй", level = 25, class = "Жрец",
+        classToken = "PRIEST", race = "Human" }
+    stub.world.raidRoster = {
+        { name = me,       subgroup = 1 },
+        { name = "Второй", subgroup = 2 },
+    }
+
+    TO.Stop()
+    TO.SetMode("player")
+    TO.Start()
+    local slots = TO.GetSlots()
+    local before = #slots
+    local firstSlot = table.concat(slots[1], ",")
+
+    stub.world.units["raid3"] = { name = "Третий", level = 25, class = "Воин",
+        classToken = "WARRIOR", race = "Human" }
+    stub.world.raidRoster[3] = { name = "Третий", subgroup = 1 }
+    stub.FireEvent("GROUP_ROSTER_UPDATE")
+
+    slots = TO.GetSlots()
+    check("очередь не пересобрана", #slots, before)
+    check("и её начало не сдвинулось", table.concat(slots[1], ","), firstSlot)
+    check("пришедшего в очереди этого круга нет", TO.GetInitiative("Третий"), nil)
+    checkTrue("он считается походившим", TO.HasActed("Третий"))
+    checkTrue("и действовать не может", not TO.CanAct("Третий"))
+    check("в полосе — за чертой", TO.GetLateJoiners()[1], "Третий")
+
+    TO.NewRound()
+    checkTrue("на новом ходе он в очереди", TO.GetInitiative("Третий") ~= nil)
+    check("в конце", TO.GetInitiative("Третий"), #TO.GetSlots())
+    checkTrue("и отметка снята", not TO.HasActed("Третий"))
+    check("опоздавших больше нет", #TO.GetLateJoiners(), 0)
+
+    TO.Stop()
+    stub.world.raidRoster = nil
+    stub.world.units["raid1"], stub.world.units["raid2"], stub.world.units["raid3"] = nil, nil, nil
+    stub.world.inRaid  = false
+    stub.world.inGroup = false
+end
+
+-- ============================================================
+-- ВЫХОД ИЗ ИГРЫ И ВОЗВРАЩЕНИЕ В ПОШАГОВОМ РЕЖИМЕ
+--
+-- Вышел из игры — выбыл из очереди (ход идёт дальше, если ждали его).
+-- Вернулся — считается походившим и ходит со следующего круга.
+-- Номер хода при выпадении слота до идущего не сбивается.
+-- ============================================================
+do
+    stub.world.isLeader = true
+    stub.world.inGroup  = true
+    stub.world.inRaid   = true
+    local me = stub.world.playerName
+    local TO = SB.TurnOrder
+    local names = { me, "Анна", "Борис", "Вера" }
+    for i, n in ipairs(names) do
+        stub.world.units["raid" .. i] = { name = n, level = 25, class = "Маг",
+            classToken = "MAGE", race = "Human" }
+    end
+    stub.world.raidRoster = {}
+    for i, n in ipairs(names) do stub.world.raidRoster[i] = { name = n, subgroup = i } end
+    local function unitOf(n)
+        for i, x in ipairs(names) do if x == n then return stub.world.units["raid" .. i] end end
+    end
+    local said = {}
+    local unsub = SB.Events.On(SB.E.BROADCAST_LOG, function(m) said[#said + 1] = m end)
+    local function lastSaid() return said[#said] or "" end
+    local function Current()
+        local slots, idx = TO.GetSlots()
+        return slots[idx] and slots[idx][1]
+    end
+    local function SlotIndexOf(n) return TO.GetInitiative(n) end
+
+    TO.Stop()
+    TO.SetMode("player")
+    TO.Start()
+    -- Порядок инициативы случайный — ставим себя в конец, чтобы проверки
+    -- ниже не зависели от броска (GetSlots отдаёт саму таблицу очереди).
+    do
+        local q = TO.GetSlots()
+        for i = #q, 1, -1 do
+            if q[i][1] == me then table.insert(q, table.remove(q, i)) break end
+        end
+    end
+    -- Ведём круг до второго слота: первый походил.
+    TO.MarkActed(Current())
+    local cur = Current()
+    local _, idxBefore = TO.GetSlots()
+
+    -- ── ВЫШЕЛ ТОТ, КТО УЖЕ ПОХОДИЛ (слот ДО идущего) ─────
+    local slots = TO.GetSlots()
+    local early = slots[1][1]
+    checkTrue("порядок для проверки задан", early ~= me and cur ~= me)
+    if early ~= me then
+        unitOf(early).offline = true
+        stub.FireEvent("UNIT_CONNECTION")
+        check("выпадение слота до идущего не сбивает ход", Current(), cur)
+        check("вышедший из игры выбыл из очереди", SlotIndexOf(early), nil)
+        checkTrue("и об этом сказано", lastSaid():find("Выбывает из очереди", 1, true) ~= nil)
+        checkTrue("в полосе опоздавших его нет, пока он не в игре",
+                  #TO.GetLateJoiners() == 0)
+
+        -- ── ВЕРНУЛСЯ ───────────────────────────────────────
+        unitOf(early).offline = nil
+        stub.FireEvent("UNIT_CONNECTION")
+        checkTrue("вернувшийся считается походившим", TO.HasActed(early))
+        checkTrue("и действовать не может", not TO.CanAct(early))
+        check("в очередь этого круга не встал", SlotIndexOf(early), nil)
+        check("виден за чертой", TO.GetLateJoiners()[1], early)
+        checkTrue("и объявлено, когда он ходит",
+                  lastSaid():find("Ходит со следующего круга", 1, true) ~= nil)
+        check("ход при этом не тронут", Current(), cur)
+    end
+
+    -- ── ВЫШЕЛ ТОТ, ЧЕЙ СЕЙЧАС ХОД ──────────────────────────
+    if cur ~= me then
+        unitOf(cur).offline = true
+        stub.FireEvent("UNIT_CONNECTION")
+        checkTrue("ушёл идущий — ход перешёл дальше", Current() ~= cur)
+        checkTrue("и объявлено, кто ходит (или что круг пройден)",
+                  lastSaid():find("Ходит:", 1, true) ~= nil
+                  or lastSaid():find("Круг пройден", 1, true) ~= nil)
+        unitOf(cur).offline = nil
+        stub.FireEvent("UNIT_CONNECTION")
+        checkTrue("вернулся — походивший", TO.HasActed(cur))
+    end
+
+    -- ── НОВЫЙ КРУГ: ВЕРНУВШИЕСЯ СНОВА В ОЧЕРЕДИ ────────────
+    TO.NewRound()
+    for _, n in ipairs(names) do
+        checkTrue("на новом круге в очереди: " .. n, SlotIndexOf(n) ~= nil)
+    end
+    check("опоздавших больше нет", #TO.GetLateJoiners(), 0)
+
+    -- ── «ВСЕ СРАЗУ»: ушёл последний, кого ждали ───────────
+    TO.Stop()
+    TO.SetMode("all")
+    TO.Start()
+    for _, n in ipairs(names) do
+        if n ~= "Вера" then TO.MarkActed(n) end
+    end
+    checkTrue("круг ждёт Веру", not TO.IsRoundOver())
+    unitOf("Вера").offline = true
+    stub.FireEvent("UNIT_CONNECTION")
+    checkTrue("ушла последняя — круг закрыт", TO.IsRoundOver())
+    unitOf("Вера").offline = nil
+    stub.FireEvent("UNIT_CONNECTION")
+
+    -- ── СВОЙ КЛИЕНТ: ВОШЁЛ В ИГРУ — ПОХОДИЛ У СЕБЯ СРАЗУ ──
+    TO.Stop()
+    TO.SetMode("player")
+    TO.Start()
+    TO.NewRound()                 -- свежий круг: своя отметка снята
+    stub.world.isLeader = false   -- дальше мы — сокомандник, не Ведущий
+    local wasActed = TO.HasActed(me)
+    checkTrue("в начале круга ещё не ходил", not wasActed)
+    stub.FireEvent("PLAYER_ENTERING_WORLD", false, true)   -- /reload
+    check("/reload ход не забирает", TO.HasActed(me), wasActed)
+    stub.FireEvent("PLAYER_ENTERING_WORLD", true, false)   -- вход в игру
+    checkTrue("вход в игру — походил у себя сразу", TO.HasActed(me))
+
+    stub.world.isLeader = true
+    TO.Stop()
+    TO.SetMode("player")
+    if unsub then unsub() end
+    stub.world.raidRoster = nil
+    for i = 1, #names do stub.world.units["raid" .. i] = nil end
+    stub.world.inRaid  = false
+    stub.world.inGroup = false
+end
+
+-- ============================================================
 -- НОВЫЙ КРУГ САМ
 -- ============================================================
 do
@@ -15018,11 +15250,23 @@ do
 
     -- ── И ЭТО РАБОТАЕТ НА ЖИВЫХ ДАННЫХ ──────────────────────
     ResetEffects()
+    -- ВЫБОР — ДЕТЕРМИНИРОВАННЫЙ, по отсортированным id. Обход pairs
+    -- случаен, и изредка попадалось «Безрассудство»: его эффект сам даёт
+    -- +5 «Концентрации», то есть пять удержаний, и контроль его честно не
+    -- сбивает. Такие (с удержаниями от себя же) здесь не годятся.
+    local ids = {}
+    for id in pairs(SB.Data.Spells) do ids[#ids + 1] = id end
+    table.sort(ids)
     local bare
-    for id, sp in pairs(SB.Data.Spells) do
-        if ShippedSpells[id] and sp.isConcentration
-           and not (type(sp.effect) == "table" and sp.effect.breakOn) then
+    for _, id in ipairs(ids) do
+        local sp  = SB.Data.Spells[id]
+        local def = sp.effect
+        local holds = type(def) == "table" and type(def.stats) == "table"
+                      and (def.stats["Концентрация"] or 0) > 0
+        if ShippedSpells[id] and sp.isConcentration and not holds
+           and not (type(def) == "table" and def.breakOn) then
             bare = id
+            break
         end
     end
     if bare then
@@ -21078,13 +21322,15 @@ do
     AE.BreakOn("controlled")
     checkTrue("удержание спасает концентрацию от контроля", has("t_hold_conc"))
     check("и тратится", SB.Skills.GetHoldLeft(), 0)
-    -- Прерывание снимает МИМО удержаний: вернём одно и проверим.
+    -- Прерывание РАСХОДУЕТ удержание, а без удержаний — срывает.
     SB.Skills.RestoreHold()
     if base > 0 then SB.Skills.SpendFromPool("hold", base) end
     check("удержание снова есть", SB.Skills.GetHoldLeft(), 1)
     AE.BreakOn("interrupted")
-    checkTrue("прерывание снимает мимо удержаний", not has("t_hold_conc"))
-    check("и удержание не тратит", SB.Skills.GetHoldLeft(), 1)
+    checkTrue("прерывание съедает удержание, концентрация цела", has("t_hold_conc"))
+    check("удержаний не осталось", SB.Skills.GetHoldLeft(), 0)
+    AE.BreakOn("interrupted")
+    checkTrue("без удержаний прерывание срывает", not has("t_hold_conc"))
     check("к защите навык больше не прибавляет",
           SB.Skills.GetConcentrationDefenseBonus, nil)
 
@@ -21261,6 +21507,492 @@ do
     SB.Data.PlayersStatus["Клинок"] = nil
     SB.Data.Spells["t_strike"], SB.Data.Spells["t_fire_res"] = nil, nil
     AE.Clear()
+end
+
+-- ============================================================
+-- ПОДАВЛЕННОЕ ОГЛУШЕНИЕ ТОЖЕ ДАЁТ НЕВОСПРИИМЧИВОСТЬ
+--
+-- «Скачок» подавляет оглушение. Снятое им оглушение — спавшее, и
+-- невосприимчивость после него обязана лечь; отбитое на входе — тоже.
+-- Но прощальный эффект не продлевается повторным отказом: иначе
+-- Воздержанность, не пустившая щит, продлевала бы сама себя.
+-- ============================================================
+do
+    local AE = SB.ActiveEffects
+    local STUN = "eff_hummer_of_justice"
+    local function has(id)
+        for _, e in ipairs(AE.GetAll()) do if e.spellID == id then return e end end
+    end
+
+    AE.Clear()
+    AE.Add(STUN, 3, false)
+    AE.Add("eff_blink", 2, false)
+    checkTrue("Скачок снимает оглушение", has(STUN) == nil)
+    checkTrue("и снятое оставляет невосприимчивость", has("eff_stun_immunity") ~= nil)
+
+    AE.Clear()
+    AE.Add("eff_blink", 2, false)
+    AE.Add(STUN, 3, false)
+    checkTrue("под Скачком оглушение не ложится", has(STUN) == nil)
+    checkTrue("но невосприимчивость — ложится", has("eff_stun_immunity") ~= nil)
+
+    AE.Clear()
+    AE.Add("eff_stun_immunity", 3, false)
+    local before = has("eff_stun_immunity").uses
+    AE.Add(STUN, 3, false)
+    check("отбитое невосприимчивостью её не продлевает",
+          has("eff_stun_immunity").uses, before)
+
+    AE.Clear()
+    AE.Add("eff_forbearance", 5, false)
+    AE.Add("eff_divineshield", 2, false)
+    check("Воздержанность, не пустившая щит, сама себя не продлевает",
+          has("eff_forbearance").uses, 5)
+    AE.Clear()
+
+    -- СУЩЕСТВА — то же правило.
+    local savedDB     = _G.SpellbreakerNPCDB
+    local savedTarget = stub.world.units["target"]
+    _G.SpellbreakerNPCDB = { npcs = {} }
+    stub.world.units["target"] = { name = "Пробный кабан", level = 5, npc = true,
+        creatureType = "Животное", guid = "Creature-0-970-0-11-4343-00BB02" }
+    SB.NPC.Save({ npcID = 4343, name = "Пробный кабан", classification = "beast",
+        level = 5, maxHealth = 20 })
+    SB.NPC.AddEffect("target", STUN, 3)
+    SB.NPC.AddEffect("target", "eff_blink", 2)
+    checkTrue("существо: Скачок снимает оглушение и даёт невосприимчивость",
+              not SB.NPC.HasEffect("target", STUN)
+              and SB.NPC.HasEffect("target", "eff_stun_immunity"))
+    SB.NPC.ClearEffects("target")
+    SB.NPC.AddEffect("target", "eff_blink", 2)
+    SB.NPC.AddEffect("target", STUN, 3)
+    checkTrue("существо: отбитое Скачком — тоже",
+              not SB.NPC.HasEffect("target", STUN)
+              and SB.NPC.HasEffect("target", "eff_stun_immunity"))
+    SB.NPC.ClearEffects("target")
+    stub.world.units["target"] = savedTarget
+    _G.SpellbreakerNPCDB = savedDB
+end
+
+-- ============================================================
+-- ЦЕЛЬ ВНЕ ГРУППЫ ПРИСЫЛАЕТ ИЗМЕНЕНИЯ САМА
+--
+-- Навёлся — подписался: пока подписка жива, изменение чисел уходит
+-- наблюдателю без повторного наведения. Сокомандникам — нет (им идёт
+-- обычная рассылка), истёкшим — нет.
+-- ============================================================
+do
+    local realSerialize, realSend = SB.Net.Serialize, SB.Net.SendCommMessage
+    local savedGroup = stub.world.inGroup
+    SB.Net.Serialize = function(_, t) return t end
+    local sent = {}
+    SB.Net.SendCommMessage = function(_, _, msg, _, target)
+        sent[#sent + 1] = { msg = msg, to = target }
+    end
+    local function to(name)
+        for _, p in ipairs(sent) do if p.to == name then return p.msg end end
+    end
+    stub.world.inGroup = false
+
+    SB.Net.ReplyPeerStatusTo("Чужак", true)
+    checkTrue("наведение отвечается сразу", to("Чужак") ~= nil)
+
+    sent = {}
+    SB.Net.PushPeerWatchers()
+    checkTrue("без изменений не шлём", to("Чужак") == nil)
+
+    local PM = SB.PlayerModel
+    local hp = PM.GetHealth and PM.GetHealth() or SpellbreakerCharDB.health
+    PM.SetHealth(math.max(1, (hp or 5) - 1))
+    SB.Net.PushPeerWatchers()
+    local m = to("Чужак")
+    checkTrue("изменение уходит наблюдателю само", m ~= nil)
+    check("срочно — мимо общей очереди", m and m.urgent, true)
+
+    sent = {}
+    stub.world.time = stub.world.time + 60
+    PM.SetHealth(hp or 5)
+    SB.Net.PushPeerWatchers()
+    checkTrue("подписка истекает", to("Чужак") == nil)
+
+    SB.Net.Serialize, SB.Net.SendCommMessage = realSerialize, realSend
+    stub.world.inGroup = savedGroup
+end
+
+-- ============================================================
+-- НАКЛАДНАЯ БРОНЯ СУЩЕСТВА
+--
+-- «Удар щитом» (onCast.armor) и тик «Оборонительной стойки»
+-- (tick.armor) пополняют у существа расходуемый запас; удар тратит его
+-- после постоянного доспеха, десятку за единицу урона. Пополнение
+-- доливает до числа источника, а не складывает.
+-- ============================================================
+do
+    local savedDB     = _G.SpellbreakerNPCDB
+    local savedTarget = stub.world.units["target"]
+    local wasLeader, wasGroup = stub.world.isLeader, stub.world.inGroup
+    stub.world.isLeader, stub.world.inGroup = true, false
+    _G.SpellbreakerNPCDB = { npcs = {} }
+    stub.world.units["target"] = { name = "Пробный страж", level = 5, npc = true,
+        creatureType = "Гуманоид", guid = "Creature-0-970-0-11-4344-00BB03" }
+    SB.NPC.Save({ npcID = 4344, name = "Пробный страж", classification = "humanoid",
+        level = 5, maxHealth = 30 })
+    SB.NPC.ResetState()
+
+    check("без щита запаса нет", SB.NPC.WardOf("target"), 0)
+    local _, _, ward = SB.NPC.ApplyCastPayload("target", SB.Data.Spells["shield_slam"])
+    check("Удар щитом даёт существу 15 брони", ward, 15)
+    SB.NPC.ApplyCastPayload("target", SB.Data.Spells["shield_slam"])
+    check("повторный — доливает, а не складывает", SB.NPC.WardOf("target"), 15)
+
+    local stats = SB.NPC.StatsForUnit("target")
+    local base  = SB.NPC.DamageReduction(stats, "target")
+    local final, _, absorbed = SB.NPC.MitigateDamage(base + 3, stats, "target", "physical")
+    check("запас гасит единицу сверх доспеха", absorbed, base + 1)
+    check("и остаток проходит", final, 2)
+    check("списав десятку", SB.NPC.WardOf("target"), 5)
+    final = SB.NPC.MitigateDamage(base + 1, stats, "target", "physical")
+    check("пятёрки на единицу не хватает", final, 1)
+
+    SB.NPC.AddEffect("target", "eff_defensive_stance", 5)
+    SB.NPC.TickEffects()
+    check("стойка доливает до 15 каждый ход", SB.NPC.WardOf("target"), 15)
+    SB.NPC.TickEffects()
+    check("и не копит сверх", SB.NPC.WardOf("target"), 15)
+
+    SB.NPC.ResetState()
+    stub.world.units["target"] = savedTarget
+    _G.SpellbreakerNPCDB = savedDB
+    stub.world.isLeader, stub.world.inGroup = wasLeader, wasGroup
+end
+
+-- ============================================================
+-- ТИК АРМИИ СУЩЕСТВ — ОДНИМ ПАКЕТОМ И ОДНИМ БЛОКОМ
+--
+-- Сорок особей под ядом раньше давали восемьдесят сообщений на круг
+-- (NPCST и LOG на каждую). Теперь состояния — одним NPCSTB, строки —
+-- одним блоком, одинаковые исходы свёрнуты.
+-- ============================================================
+do
+    local wasLeader, wasGroup = stub.world.isLeader, stub.world.inGroup
+    stub.world.isLeader, stub.world.inGroup = true, false
+    local savedDB = _G.SpellbreakerNPCDB
+    _G.SpellbreakerNPCDB = { npcs = {} }
+    SB.NPC.ResetState()
+    SB.Data.Spells["t_tick_poison"] = { id = "t_tick_poison", name = "Проба яда",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "debuff", tick = { damage = 1 } } }
+    SB.Data.Spells["t_tick_fire"] = { id = "t_tick_fire", name = "Проба огня",
+        class = "Эффект", level = 0, isContainer = true,
+        effect = { kind = "debuff", tick = { damage = 2 } } }
+
+    -- Тридцать под ядом и десять в огне: два разных исхода.
+    for i = 1, 40 do
+        SB.NPC.ApplyRemoteState("9001:" .. i, 10, 10, 0, 0,
+            (i <= 30) and "t_tick_poison:5" or "t_tick_fire:5")
+    end
+
+    local realStates, realOne, realBlock = SB.Net.SendNpcStates, SB.Net.SendNpcState,
+                                           SB.Net.QueueLogBlock
+    local batches, singles, blocks = {}, 0, {}
+    SB.Net.SendNpcStates = function(list) batches[#batches + 1] = list end
+    SB.Net.SendNpcState  = function() singles = singles + 1 end
+    SB.Net.QueueLogBlock = function(lines) blocks[#blocks + 1] = lines end
+
+    check("тикнули все сорок", SB.NPC.TickEffects(), 40)
+    check("состояния — одним пакетом", #batches, 1)
+    check("в нём все сорок", batches[1] and #batches[1], 40)
+    check("поштучных пакетов нет", singles, 0)
+    check("строки — одним блоком", #blocks, 1)
+    check("два исхода — шапка и две строки", blocks[1] and #blocks[1], 3)
+    checkTrue("одинаковые свёрнуты со счётчиком",
+              blocks[1] and blocks[1][2]:find("×30", 1, true) ~= nil
+              and blocks[1][3]:find("×10", 1, true) ~= nil)
+
+    SB.Net.SendNpcStates, SB.Net.SendNpcState, SB.Net.QueueLogBlock =
+        realStates, realOne, realBlock
+    SB.Data.Spells["t_tick_poison"], SB.Data.Spells["t_tick_fire"] = nil, nil
+    SB.NPC.ResetState()
+    _G.SpellbreakerNPCDB = savedDB
+    stub.world.isLeader, stub.world.inGroup = wasLeader, wasGroup
+end
+
+-- ============================================================
+-- АУРА «ПАВШИЙ» — КОМАНДОЙ ШЁПОТОМ СЕБЕ, А НЕ /СКАЗАТЬ
+--
+-- Падение от удара обрабатывается в обработчике сетевого пакета, без
+-- действия игрока, — и /сказать оттуда клиент блокирует
+-- (ADDON_ACTION_BLOCKED). Шёпот себе не ограничен.
+-- ============================================================
+do
+    local PM = SB.PlayerModel
+    local realSend = _G.SendChatMessage
+    local sent = {}
+    _G.SendChatMessage = function(msg, chan, lang, target)
+        sent[#sent + 1] = { msg = msg, chan = chan, target = target }
+    end
+    local savedIgnore = SpellbreakerAccountDB and SpellbreakerAccountDB.ignoreCaura
+    if SpellbreakerAccountDB then SpellbreakerAccountDB.ignoreCaura = nil end
+    local hp = PM.GetHealth()
+
+    PM.SetHealth(1)
+    SB.Logic.HandlePvpAttackReceived("Враг", "t_strike", 100, 200, 300, true, 50, 50, nil)
+    local caura
+    for _, m in ipairs(sent) do
+        if type(m.msg) == "string" and m.msg:find(".caura toggle", 1, true) then caura = m end
+    end
+    checkTrue("упал от удара — команда ауры ушла", caura ~= nil)
+    check("шёпотом", caura and caura.chan, "WHISPER")
+    check("себе", caura and caura.target, UnitName("player"))
+
+    _G.SendChatMessage = realSend
+    if SpellbreakerAccountDB then SpellbreakerAccountDB.ignoreCaura = savedIgnore end
+    PM.SetHealth(hp)
+end
+
+-- ============================================================
+-- ГАЛОЧКИ АУРЫ «ПАВШИЙ»: своя отключает, общая — нет
+-- ============================================================
+do
+    local PM = SB.PlayerModel
+    local realSend = _G.SendChatMessage
+    local sent = 0
+    _G.SendChatMessage = function(msg)
+        if type(msg) == "string" and msg:find(".caura toggle", 1, true) then sent = sent + 1 end
+    end
+    local db = SpellbreakerAccountDB
+    local savedIgnore, savedDeath = db.ignoreCaura, db.ignoreDeathCaura
+    local hp = PM.GetHealth()
+
+    db.ignoreCaura, db.ignoreDeathCaura = true, false
+    PM.SetHealth(5); PM.SetHealth(0)
+    check("галочка аур заклинаний павшего не глушит", sent, 1)
+
+    db.ignoreCaura, db.ignoreDeathCaura = false, true
+    PM.SetHealth(5); PM.SetHealth(0)
+    check("«Игнорировать анимацию смерти» — не шлём", sent, 1)
+
+    _G.SendChatMessage = realSend
+    db.ignoreCaura, db.ignoreDeathCaura = savedIgnore, savedDeath
+    PM.SetHealth(hp)
+end
+
+-- ============================================================
+-- ВОШЕДШИЙ В ГРУППУ ПЕРЕНИМАЕТ РЕЖИМ ХОДА ЛИДЕРА
+-- ============================================================
+do
+    local TO = SB.TurnOrder
+    local wasLeader, wasGroup = stub.world.isLeader, stub.world.inGroup
+    stub.world.isLeader, stub.world.inGroup = true, false
+    TO.Stop()
+    TO.Start()
+    checkTrue("один — свой пошаговый режим", TO.IsActive())
+
+    -- Вступил в чужую группу, у лидера свободный ход.
+    stub.world.inGroup, stub.world.isLeader = true, false
+    stub.FireEvent("GROUP_JOINED")
+    stub.RunTimers()
+    checkTrue("вступил в группу — свой пошаговый сброшен", not TO.IsActive())
+
+    -- Свободный вступает в пошаговую группу: пакет лидера приходит раньше
+    -- таймера сброса — и таймер его больше не затирает.
+    stub.world.inGroup, stub.world.isLeader = false, true
+    TO.Stop()
+    stub.world.inGroup, stub.world.isLeader = true, false
+    stub.FireEvent("GROUP_JOINED")
+    TO.ApplyRemoteState({ active = true, mode = "player", round = 1, index = 1,
+        slots = { { "Лидер" } }, acted = {} }, true)
+    stub.RunTimers()
+    checkTrue("свободный в пошаговой группе — пошаговый остался", TO.IsActive())
+
+    -- Пошаговый вступает в пошаговую группу — ответ лидера тоже не затирается.
+    stub.FireEvent("GROUP_JOINED")
+    TO.ApplyRemoteState({ active = true, mode = "player", round = 2, index = 1,
+        slots = { { "Лидер" } }, acted = {} }, true)
+    stub.RunTimers()
+    checkTrue("пошаговый в пошаговой группе — очередь лидера цела",
+        TO.IsActive())
+    TO.ApplyRemoteState({ active = false }, true)
+
+    -- Лидер в свободном ходе сообщает его пришедшему.
+    stub.world.isLeader = true
+    local realSend, sentTurn = SB.Net.SendTurnState, nil
+    SB.Net.SendTurnState = function(turn) sentTurn = turn end
+    stub.world.units["party1"] = { name = "Новичок", level = 25, class = "Маг",
+        classToken = "MAGE", race = "Human" }
+    stub.FireEvent("GROUP_ROSTER_UPDATE")
+    stub.RunTimers()
+    checkTrue("лидер в свободном ходе разослал состояние",
+        sentTurn ~= nil and sentTurn.active ~= true)
+    sentTurn = nil
+    stub.FireEvent("GROUP_ROSTER_UPDATE")
+    stub.RunTimers()
+    checkTrue("без новых в составе — не шлёт", sentTurn == nil)
+
+    SB.Net.SendTurnState = realSend
+    stub.world.units["party1"] = nil
+    stub.world.isLeader, stub.world.inGroup = wasLeader, wasGroup
+    TO.Stop()
+end
+
+-- ============================================================
+-- СУЩЕСТВА: павший не тикает, сброс сцены
+-- ============================================================
+do
+    local wasLeader, wasGroup = stub.world.isLeader, stub.world.inGroup
+    stub.world.isLeader, stub.world.inGroup = true, false
+    local savedDB = _G.SpellbreakerNPCDB
+    _G.SpellbreakerNPCDB = { npcs = {} }
+    SB.NPC.ResetState()
+
+    local lines = {}
+    local listen = true
+    SB.Events.On(SB.E.BROADCAST_LOG, function(msg) if listen then lines[#lines + 1] = msg end end)
+
+    SB.NPC.ApplyRemoteState("9002:777", 3, 10, 0, 0, "eff_immolation:-1")
+    SB.NPC.TickEffects()
+    local last = lines[#lines] or ""
+    checkTrue("номера особи в строке тика нет", last:find("(777)", 1, true) == nil)
+
+    SB.NPC.ApplyRemoteState("9002:777", 0, 10, 0, 0, "eff_immolation:-1")
+    local before = #lines
+    SB.NPC.TickEffects()
+    check("павшее существо не тикает", #lines, before)
+    local st
+    SB.NPC.EachState(function(k, s) if k == "9002:777" then st = s end end)
+    check("и эффекты с него сняты", st and #st.effects, 0)
+
+    -- Сброс сцены: у себя забыто, группе ушёл пакет.
+    local realSend, sent = SB.Net.SendNpcReset, 0
+    SB.Net.SendNpcReset = function() sent = sent + 1 end
+    stub.world.inGroup = true
+    checkTrue("ведущий сбрасывает существ", SB.NPC.ResetScene())
+    check("у себя никого не помнит", SB.NPC.StateCount(), 0)
+    check("группе — один пакет", sent, 1)
+    stub.world.isLeader = false
+    checkTrue("не владелец сбросить не может", not SB.NPC.ResetScene())
+    SB.Net.SendNpcReset = realSend
+
+    listen = false
+    SB.NPC.ResetState()
+    _G.SpellbreakerNPCDB = savedDB
+    stub.world.isLeader, stub.world.inGroup = wasLeader, wasGroup
+end
+
+-- ============================================================
+-- «ЛИДЕРСТВО» НАЛИВАЕТ ТОЛЬКО В ПОШАГОВОМ РЕЖИМЕ
+-- ============================================================
+do
+    local realPeriod = SB.Skills.GetLeadershipRegenPeriod
+    SB.Skills.GetLeadershipRegenPeriod = function() return 1 end
+    local PM = SB.PlayerModel
+    local wasLeader, wasGroup = stub.world.isLeader, stub.world.inGroup
+    stub.world.isLeader, stub.world.inGroup = true, false
+    SB.TurnOrder.Stop()
+    local function setRes(v) if PM.IsCaster() then PM.SetZeal(v) else PM.SetClassResource(v) end end
+    local keep = PM.GetCastResource()
+    setRes(0)
+    SB.Events.Fire(SB.E.TURN_TICK)
+    check("свободный ход — ручейка нет", PM.GetCastResource(), 0)
+    SB.TurnOrder.Start()
+    setRes(0)
+    SB.Events.Fire(SB.E.TURN_TICK)
+    check("пошаговый — +1", PM.GetCastResource(), 1)
+    SB.TurnOrder.Stop()
+    setRes(keep)
+    SB.Skills.GetLeadershipRegenPeriod = realPeriod
+    stub.world.isLeader, stub.world.inGroup = wasLeader, wasGroup
+end
+
+-- ============================================================
+-- СВОЁ ЗАКЛИНАНИЕ ПОКАЗЫВАЕТСЯ ГРУППЕ ТОЛЬКО ПОДГОТОВЛЕННЫМ
+-- ============================================================
+do
+    local shown = 0
+    SB.Events.On("LOG_MESSAGE_RECEIVED", function(msg)
+        if type(msg) == "string" and msg:find("показывает заклинание", 1, true) then shown = shown + 1 end
+    end)
+    local realPrep = SB.PlayerModel.IsPrepared
+    local cd = SB.Cooldowns and SB.Cooldowns.Check
+    if SB.Cooldowns then SB.Cooldowns.Check = function() return true end end
+    local wasGroup = stub.world.inGroup
+    stub.world.inGroup = false
+    local sp = { id = "t_custom_link", name = "Проба своего", isCustom = true }
+
+    SB.PlayerModel.IsPrepared = function() return false end
+    SB.UI.ShareSpellLink(sp)
+    check("неподготовленное своё не показывается", shown, 0)
+    SB.PlayerModel.IsPrepared = function() return true end
+    SB.UI.ShareSpellLink(sp)
+    check("подготовленное — показывается", shown, 1)
+
+    SB.PlayerModel.IsPrepared = realPrep
+    if SB.Cooldowns then SB.Cooldowns.Check = cd end
+    stub.world.inGroup = wasGroup
+end
+
+-- ============================================================
+-- ВИЗУАЛЬНАЯ АУРА ЭФФЕКТА: .caura toggle при появлении и при спадании
+-- ============================================================
+do
+    local AE = SB.ActiveEffects
+    SB.Data.Spells["t_caura_a"] = { id = "t_caura_a", name = "Проба ауры А",
+        class = "Эффект", level = 0, isContainer = true, caura = 7,
+        effect = { kind = "buff" } }
+    SB.Data.Spells["t_caura_b"] = { id = "t_caura_b", name = "Проба ауры Б",
+        class = "Эффект", level = 0, isContainer = true, caura = 7,
+        effect = { kind = "buff" } }
+    local realCmd, cmds = SB.Logic.ServerCommand, {}
+    SB.Logic.ServerCommand = function(c) cmds[#cmds + 1] = c; return true end
+    local savedIgnore = SpellbreakerAccountDB.ignoreCaura
+    SpellbreakerAccountDB.ignoreCaura = false
+    AE.Clear()
+    SpellbreakerCharDB.effectCauras = {}
+    cmds = {}
+
+    AE.Add("t_caura_a", 3, false)
+    check("появился — одна команда", #cmds, 1)
+    check("и это toggle", cmds[1], ".caura toggle 7")
+    AE.Add("t_caura_b", 3, false)
+    check("второй эффект с той же аурой — без команды", #cmds, 1)
+    AE.Remove("t_caura_a")
+    check("спал один из двух — аура ещё горит", #cmds, 1)
+    AE.Remove("t_caura_b")
+    check("спал последний — второй toggle", #cmds, 2)
+    check("тот же toggle", cmds[2], ".caura toggle 7")
+
+    -- Как после /reload: эффект восстановлен, аура уже включена — тишина.
+    AE.Add("t_caura_a", 3, false)
+    local n = #cmds
+    AE.SyncCauras()
+    check("повторная сверка ничего не шлёт", #cmds, n)
+    SpellbreakerAccountDB.ignoreCaura = true
+    AE.SyncCauras()
+    check("галочка «Игнорировать .caura» гасит ауру", #cmds, n + 1)
+
+    AE.Clear()
+    SpellbreakerCharDB.effectCauras = {}
+    SpellbreakerAccountDB.ignoreCaura = savedIgnore
+    SB.Logic.ServerCommand = realCmd
+    SB.Data.Spells["t_caura_a"], SB.Data.Spells["t_caura_b"] = nil, nil
+end
+
+-- ============================================================
+-- СКЕЙЛИНГ: без множителя от круга, дробь усекается вниз
+-- ============================================================
+do
+    local base = SB.Data.STAT_BASE or 0
+    local function stat(v) return function() return base + v end end
+    local sp1 = { id = "t_sc1", level = 1, scaling = { damage = { ["Интеллект"] = 1 } } }
+    local sp3 = { id = "t_sc3", level = 3, scaling = { damage = { ["Интеллект"] = 1 } } }
+    -- 5 очков × 0.5 = 2.5 → 2, и на третьем круге столько же.
+    check("урон 2.5 усекается до 2", (SB.Logic.GetSpellScaling(sp1, "damage", nil, stat(5))), 2)
+    check("круг заклинания урон не множит", (SB.Logic.GetSpellScaling(sp3, "damage", nil, stat(5))), 2)
+    -- 3 очка × 0.5 = 1.5 → 1: вложить ещё очко «до округления» нельзя.
+    check("1.5 — это 1, а не 2", (SB.Logic.GetSpellScaling(sp1, "damage", nil, stat(3))), 1)
+    local hit = { id = "t_sc4", level = 1, scaling = { hit = { ["Интеллект"] = 1.5 } } }
+    -- 1 очко × 3 × 1.5 = 4.5 → 4.
+    check("попадание 4.5 усекается до 4", (SB.Logic.GetSpellScaling(hit, "hit", nil, stat(1))), 4)
 end
 
 -- ИТОГ

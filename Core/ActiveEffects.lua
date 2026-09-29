@@ -1855,7 +1855,14 @@ function SB.ActiveEffects.ConcentrationBlockedBy()
 end
 
 --- Снять всё, что подавляет только что наложенный подавитель.
---- @return number, string  сколько снято и ЧТО именно (списком имён)
+---
+--- СНЯТОЕ ПОДАВЛЕНИЕМ — СПАЛО, и прощальный эффект (onRemove.effect) у
+--- него срабатывает так же, как у спавшего по сроку: оглушение, которое
+--- сбросил «Скачок», оставляет невосприимчивость к оглушению. Иначе
+--- подавитель становился бы лазейкой мимо неё — сбил оглушение, и цель
+--- снова можно оглушать немедленно.
+--- @return number, string, table  сколько снято, ЧТО именно (списком
+---         имён) и id снятого — для прощальных эффектов
 local function DropSuppressed(containerSpellID)
     local sp  = SB.Data.Spells[containerSpellID]
     local lst = sp and sp.effect and sp.effect.suppress
@@ -1864,7 +1871,7 @@ local function DropSuppressed(containerSpellID)
     -- ИМЕНА, А НЕ СЧЁТ. «Свобода действий снимает: 1» не сообщает
     -- ничего: игрок и так видел, что на нём висело, а вот ЧТО именно
     -- слетело — единственное, ради чего строка написана.
-    local dropped, names = 0, {}
+    local dropped, names, ids = 0, {}, {}
     for i = #effects, 1, -1 do
         local victim = SB.Data.Spells[effects[i].spellID]
         -- Подавителя не трогаем — ни чужого, ни своего.
@@ -1872,11 +1879,12 @@ local function DropSuppressed(containerSpellID)
                       and type(victim.effect.suppress) == "table"
         if not isSup and MatchesSuppress(victim, lst, sp.effect.suppressBuffs) then
             table.insert(names, 1, (victim and victim.name) or effects[i].spellID)
+            table.insert(ids, 1, effects[i].spellID)
             table.remove(effects, i)
             dropped = dropped + 1
         end
     end
-    return dropped, table.concat(names, ", ")
+    return dropped, table.concat(names, ", "), ids
 end
 
 -- ============================================================
@@ -1935,6 +1943,20 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc, source, level)
         print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_GOOD ..
             "«" .. ((sp and sp.name) or containerSpellID) ..
             "» не лёг — «" .. (by or "?") .. "».|r")
+        -- НЕ ЛЁГ — НО ПРИШЁЛ. Оглушение, отбитое «Скачком», всё равно
+        -- оставляет невосприимчивость: иначе подавитель давал бы окно, в
+        -- которое цель оглушают сразу после его конца. Прощальный эффект
+        -- кладётся, только если его ещё НЕТ: Воздержанность, не пустившая
+        -- Божественный щит, иначе продлевала бы сама себя, а висящая
+        -- невосприимчивость — каждую новую попытку оглушить.
+        local r = sp and sp.effect and sp.effect.onRemove
+        if type(r) == "table" and type(r.effect) == "string" then
+            local present = false
+            for _, e in ipairs(effects) do
+                if e.spellID == r.effect then present = true; break end
+            end
+            if not present then SB.ActiveEffects.FireEndEffect(containerSpellID) end
+        end
         return true
     end
     if Refused() then return end
@@ -2110,17 +2132,20 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc, source, level)
     -- действий» снимает оглушение тем, что она уже висит, — и порядок
     -- этих двух строк ровно об этом.
     local sup = SB.Data.Spells[containerSpellID].effect
-    local cleared, what
+    local cleared, what, droppedIDs
     if sup and sup.suppressClears == false then
         cleared = 0
     else
-        cleared, what = DropSuppressed(containerSpellID)
+        cleared, what, droppedIDs = DropSuppressed(containerSpellID)
     end
     if cleared > 0 then
         local sp = SB.Data.Spells[containerSpellID]
         print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_GOOD ..
             "«" .. ((sp and sp.name) or containerSpellID) .. "» снимает: " ..
             what .. ".|r")
+        for _, id in ipairs(droppedIDs or {}) do
+            SB.ActiveEffects.FireEndEffect(id)
+        end
     end
 
     Redraw(); FireChanged()
@@ -3582,15 +3607,19 @@ function SB.ActiveEffects.BreakOn(trigger)
         -- breakOn = { interrupted = false }.
         -- Держатель потока — концентрация по определению, даже если
         -- запись пришла без isConc (старое сохранение).
-        if not hit and trigger == "interrupted"
-           and (eff.isConc or (sp and sp.isChannelHolder)) then
+        local concLike = eff.isConc or (sp and sp.isChannelHolder)
+        if not hit and trigger == "interrupted" and concLike then
             local said
             if type(def) == "table" then said = def.interrupted end
             hit = (said ~= false)
-            -- В concHit НЕ ПОПАДАЕТ: прерывание — способность, заведённая
-            -- ровно для того, чтобы сбить сосредоточение, и удержания
-            -- Концентрации от неё не спасают. Иначе пинок против
-            -- вкачанной Концентрации переставал бы значить хоть что-то.
+        end
+        -- ПРЕРЫВАНИЕ РАСХОДУЕТ УДЕРЖАНИЕ, А НЕ ПРОБИВАЕТ ЕГО. Раньше пинок
+        -- сносил концентрацию сквозь любой запас «Концентрации»; теперь
+        -- попадание снимает одно удержание, если оно есть, и только без
+        -- удержаний срывает концентрацию или поток. Вкачанная Концентрация
+        -- значит «сбить меня стоит нескольких зуботычин», а не «не сбить».
+        if hit and trigger == "interrupted" and concLike then
+            concHit[eff.spellID] = true
         end
 
         if not hit and trigger == "healed" then
@@ -3608,6 +3637,7 @@ function SB.ActiveEffects.BreakOn(trigger)
     if not doomed then return end
 
     -- ── УДЕРЖАНИЕ КОНЦЕНТРАЦИИ ─────────────────────────────
+    -- От контроля и от прерывания одинаково (см. выше).
     -- Одно удержание спасает ВСЁ, что этот срыв снял бы как
     -- концентрацию: концентрация у персонажа одна, а держатель потока
     -- рядом с ней — та же сосредоточенность, и платить за них дважды за
@@ -3846,3 +3876,61 @@ SB.Events.On("SB_INIT", function()
     end)
 	
 end)
+
+-- ============================================================
+-- ВИЗУАЛЬНЫЕ АУРЫ ЭФФЕКТОВ (.caura)
+--
+-- У эффекта может стоять caura = N (см. AddEffect в Spells/Effects.lua).
+-- Пока такой эффект висит на персонаже, на нём видна серверная аура N:
+-- появился эффект — «.caura toggle N», спал — ещё раз «.caura toggle N».
+--
+-- ИМЕННО toggle. «.caura N» вешает ауру на того, кто в цели, а взять себя
+-- в цель аддон не вправе (TargetUnit защищён). toggle же всегда
+-- действует на пишущего, кто бы ни стоял в цели.
+--
+-- ПЕРЕКЛЮЧАТЕЛЬ ТРЕБУЕТ ПАМЯТИ. Одна лишняя команда — и аура висит без
+-- эффекта или пропадает при эффекте. Поэтому шлём не «на каждое
+-- наложение», а по РАЗНИЦЕ: какие ауры должны гореть (по висящим
+-- эффектам) против тех, что мы уже включили. Включённые хранятся в
+-- сохранёнке персонажа: после /reload эффекты восстанавливаются из неё
+-- же, и разница выходит нулевой — лишнего переключения не будет.
+--
+-- Два эффекта с одной аурой — одна аура: она гаснет, когда спадёт
+-- последний. Галочка «Игнорировать .caura заклинаний» гасит и эти ауры.
+-- ============================================================
+local function EffectCaura(spellID)
+    local sp = SB.Data.Spells[spellID]
+    if not (sp and sp.isContainer) then return nil end
+    local n = tonumber(sp.caura)
+    if n and n > 0 then return math.floor(n) end
+    return nil
+end
+SB.ActiveEffects.EffectCaura = EffectCaura
+
+function SB.ActiveEffects.SyncCauras()
+    if not SpellbreakerCharDB then return end
+    local on = SpellbreakerCharDB.effectCauras
+    if type(on) ~= "table" then on = {} end
+
+    local want = {}
+    if not (SpellbreakerAccountDB and SpellbreakerAccountDB.ignoreCaura) then
+        for _, eff in ipairs(effects) do
+            local n = EffectCaura(eff.spellID)
+            if n then want[n] = true end
+        end
+    end
+
+    local flip = {}
+    for n in pairs(want) do if not on[n] then flip[#flip + 1] = n end end
+    for n in pairs(on)   do if not want[n] then flip[#flip + 1] = n end end
+    table.sort(flip)
+    for _, n in ipairs(flip) do
+        if SB.Logic and SB.Logic.ServerCommand then
+            SB.Logic.ServerCommand(".caura toggle " .. n)
+        end
+        on[n] = (not on[n]) or nil
+    end
+    SpellbreakerCharDB.effectCauras = on
+end
+
+SB.Events.On("ACTIVE_EFFECTS_CHANGED", function() SB.ActiveEffects.SyncCauras() end)

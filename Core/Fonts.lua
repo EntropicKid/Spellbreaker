@@ -81,6 +81,17 @@ SB.Fonts.Map = MAP
 -- неудачной подмены уже нельзя.
 local created = {}
 
+-- ЗОЛОТЫЕ НАЧЕРТАНИЯ — В ЛАТУНЬ АДДОНА. Игровые GameFontNormal* жёлтые
+-- (1/0.82/0), и копия наследовала этот цвет: все подписи аддона были
+-- жёлтым золотом рядом с латунными рамками и ползунком. Перекрашиваем
+-- в C.textGold (см. Core/Theme.lua) — тот же тон, что у ползунка.
+local GOLD_FACES = { SBFontNormal = true, SBFontNormalSmall = true, SBFontLarge = true }
+local function ThemeGold()
+    local c = SB.Theme and SB.Theme.C and SB.Theme.C.textGold
+    if c then return c[1], c[2], c[3] end
+    return 0.80, 0.64, 0.36
+end
+
 local function BuildObjects()
     if type(CreateFont) ~= "function" then return false end
     for _, pair in ipairs(MAP) do
@@ -89,6 +100,9 @@ local function BuildObjects()
             local ok, obj = pcall(CreateFont, pair.own)
             if ok and obj then
                 pcall(obj.CopyFontObject, obj, src)
+                if GOLD_FACES[pair.own] and obj.SetTextColor then
+                    pcall(obj.SetTextColor, obj, ThemeGold())
+                end
                 local _, size, flags = src:GetFont()
                 created[pair.own] = { obj = obj, size = size or 12, flags = flags or "" }
             end
@@ -149,6 +163,10 @@ function SB.Fonts.SetFace(path)
                 -- вернуть и начертание, и всё, что мы могли задеть.
                 local src = _G[pair.game]
                 if src then pcall(rec.obj.CopyFontObject, rec.obj, src) end
+                -- Копия вернула и игровой жёлтый — латунь обратно.
+                if GOLD_FACES[pair.own] and rec.obj.SetTextColor then
+                    pcall(rec.obj.SetTextColor, rec.obj, ThemeGold())
+                end
             else
                 applied = true
             end

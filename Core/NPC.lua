@@ -238,9 +238,8 @@ end
 -- У КАЖДОГО РЕСУРСА ЕСТЬ ПУЛ, и это не украшение подписи. Аддон знает
 -- ровно два пула (см. PM.CastPool): "mana" у заклинателей и "resource" у
 -- остальных, — и от пула зависят настоящие правила, а не название на
--- полоске. Главное из них: вложенная МАНА усиливает скейлинг урона
--- (см. SB.Logic.GetDamageScaleMultiplier), а вложенный классовый ресурс
--- работает иначе. Поэтому у существа хранится не только имя ресурса, но
+-- полоске: чем платят за круг и как ресурс восполняется. Поэтому у
+-- существа хранится не только имя ресурса, но
 -- и пул — чтобы его заклинания считались по тем же правилам, что у
 -- игрока с таким же ресурсом, без единой развилки «а это НПС».
 -- ============================================================
@@ -867,16 +866,24 @@ end
 --- своей копии определений значило бы разойтись с ним ровно там, где у
 --- кого-то другая версия аддона.
 --- @param packed string|nil  упакованный список эффектов
-function SB.NPC.ApplyRemoteState(key, hp, maxHp, res, maxRes, packed)
+function SB.NPC.ApplyRemoteState(key, hp, maxHp, res, maxRes, packed, ward)
     if type(key) ~= "string" or key == "" then return end
     local prev = state[key]
+    -- ВИД И ИМЯ — И У ОСОБИ, ЗНАКОМОЙ ТОЛЬКО ПО СЕТИ. Раньше запись по
+    -- чужому пакету оставалась без npcID и без имени: в логе тика она
+    -- была безликим «Существом», а пересчёт по виду её не находил.
+    local npcID = (prev and prev.npcID) or SB.NPC.NpcIDFromKey(key)
+    local rec   = npcID and SB.NPC.Get(npcID)
     state[key] = {
-        npcID  = prev and prev.npcID,
-        name   = prev and prev.name,
+        npcID  = npcID,
+        name   = (prev and prev.name) or (rec and rec.name),
         hp     = math.max(0, tonumber(hp)     or 0),
         maxHp  = math.max(1, tonumber(maxHp)  or 1),
         res    = math.max(0, tonumber(res)    or 0),
         maxRes = math.max(0, tonumber(maxRes) or 0),
+        -- Накладная броня (см. «ЗАПАС БРОНИ СУЩЕСТВА»). Поля нет — нуль:
+        -- старый клиент её не шлёт, и выдумывать её нельзя.
+        ward   = math.max(0, tonumber(ward)   or 0),
         effects = SB.NPC.UnpackEffects and SB.NPC.UnpackEffects(packed) or {},
     }
     -- База нужна и здесь: если следом на эту особь навесят ещё один
@@ -894,7 +901,7 @@ local function Broadcast(key, st)
     if not st or not key then return end
     if not (SB.Net and SB.Net.SendNpcState) then return end
     SB.Net.SendNpcState(key, st.hp, st.maxHp, st.res, st.maxRes,
-        SB.NPC.PackEffects and SB.NPC.PackEffects(st.effects) or nil)
+        SB.NPC.PackEffects and SB.NPC.PackEffects(st.effects) or nil, st.ward)
 end
 
 -- ============================================================
@@ -927,15 +934,17 @@ end
 
 --- Общий ход для здоровья и ресурса: применить у себя, а дальше — либо
 --- разослать (владелец), либо сообщить владельцу (все остальные).
-local function ApplyDelta(unit, hpDelta, resDelta)
+local function ApplyDelta(unit, hpDelta, resDelta, wardDelta)
     local st = SB.NPC.GetState(unit)
     if not st then return nil end
     local key = SB.NPC.SpawnKey(unit)
 
-    hpDelta  = tonumber(hpDelta)  or 0
-    resDelta = tonumber(resDelta) or 0
+    hpDelta   = tonumber(hpDelta)   or 0
+    resDelta  = tonumber(resDelta)  or 0
+    wardDelta = tonumber(wardDelta) or 0
     st.hp  = math.max(0, math.min(st.maxHp,  st.hp  + hpDelta))
     st.res = math.max(0, math.min(st.maxRes, st.res + resDelta))
+    st.ward = math.max(0, (st.ward or 0) + wardDelta)
 
     SB.Events.Fire(SB.E.NPC_STATE_CHANGED, key)
 
@@ -945,7 +954,7 @@ local function ApplyDelta(unit, hpDelta, resDelta)
         -- Своя правка уже применена (см. выше) — владельцу уходит только
         -- сама дельта, чтобы он свёл её со своим состоянием и разослал
         -- итог. До его ответа мы живём со своей оценкой.
-        SB.Net.SendNpcDelta(key, hpDelta, resDelta)
+        SB.Net.SendNpcDelta(key, hpDelta, resDelta, wardDelta)
     end
     return st
 end
@@ -964,10 +973,71 @@ function SB.NPC.AdjustResource(unit, delta)
     return st and st.res
 end
 
+-- ============================================================
+-- ЗАПАС БРОНИ СУЩЕСТВА («накладная броня»)
+--
+-- Доспех существа — постоянное гашение (SB.NPC.DamageReduction): вещей
+-- у него нет, чинить нечего, тратить тоже. Из-за этого всё, что у
+-- игрока ПОПОЛНЯЕТ запас брони, на существе пропадало: «Удар щитом»
+-- (onCast.armor), тик «Оборонительной стойки» (tick.armor) — волк со
+-- щитом держал удар ровно так же, как без него.
+--
+-- Теперь у особи есть второй запас — расходуемый, как у игрока: удар
+-- тратит его ПОСЛЕ постоянного доспеха, десять единиц брони за единицу
+-- урона (см. SB.NPC.MitigateDamage).
+--
+-- ПОПОЛНЕНИЕ ДОЛИВАЕТ, А НЕ СКЛАДЫВАЕТ. У игрока потолок — полный
+-- запас надетого; у существа надетого нет, и потолком служит само
+-- число источника: «Удар щитом» доливает до 15, стойка каждый ход —
+-- до 15. Иначе стойка за десять ходов копила бы 150 брони из воздуха.
+-- Минус (эффект, который «мнёт» доспех) вычитается как есть.
+-- ============================================================
+
+--- Сколько накладной брони сейчас у особи.
+function SB.NPC.WardOf(unit)
+    local st = SB.NPC.GetState(unit)
+    return (st and st.ward) or 0
+end
+
+--- Долить (плюс) или смять (минус) накладную броню.
+--- @return number  на сколько сдвинулся запас на деле
+function SB.NPC.GrantWard(unit, amount)
+    amount = math.floor(tonumber(amount) or 0)
+    if amount == 0 then return 0 end
+    local st = SB.NPC.GetState(unit)
+    if not st then return 0 end
+    local cur   = st.ward or 0
+    local delta = (amount > 0) and math.max(0, amount - cur) or math.max(-cur, amount)
+    if delta == 0 then return 0 end
+    ApplyDelta(unit, 0, 0, delta)
+    return delta
+end
+
+--- Цена применения (spell.onCast) — самому существу-заклинателю, тем же
+--- правилом, что у игрока: за применение, а не за успех. Здоровье,
+--- ресурс и броня; лечение слушает healTaken особи не здесь, а как у
+--- игрока — onCast это цена, а не чужая помощь.
+--- @return number hp, number res, number ward  что сдвинулось
+function SB.NPC.ApplyCastPayload(unit, spell)
+    local oc = spell and spell.onCast
+    if type(oc) ~= "table" then return 0, 0, 0 end
+    local st = SB.NPC.GetState(unit)
+    if not st then return 0, 0, 0 end
+
+    local hp  = (tonumber(oc.heal) or 0) - (tonumber(oc.damage) or 0)
+    local pool = SB.NPC.EffectPoolOf and SB.NPC.EffectPoolOf(st)
+    local res = (tonumber(oc.castResource) or 0)
+              + ((pool == "mana") and (tonumber(oc.mana) or 0) or (tonumber(oc.resource) or 0))
+    local hpBefore, resBefore = st.hp, st.res
+    if hp ~= 0 or res ~= 0 then ApplyDelta(unit, hp, res) end
+    local ward = SB.NPC.GrantWard(unit, oc.armor)
+    return st.hp - hpBefore, st.res - resBefore, ward
+end
+
 --- Применить дельту, ПРИСЛАННУЮ участником группы. Только у владельца:
 --- у остальных она уже применена локально своим же ApplyDelta, и второй
 --- раз считать её нельзя.
-function SB.NPC.ApplyRemoteDelta(key, hpDelta, resDelta)
+function SB.NPC.ApplyRemoteDelta(key, hpDelta, resDelta, wardDelta)
     if not SB.NPC.IsOwner() then return end
     -- ДЕЛЬТА ПО НЕИЗВЕСТНОЙ ТУШКЕ БОЛЬШЕ НЕ ТЕРЯЕТСЯ.
     --
@@ -986,6 +1056,7 @@ function SB.NPC.ApplyRemoteDelta(key, hpDelta, resDelta)
 
     st.hp  = math.max(0, math.min(st.maxHp,  st.hp  + (tonumber(hpDelta)  or 0)))
     st.res = math.max(0, math.min(st.maxRes, st.res + (tonumber(resDelta) or 0)))
+    st.ward = math.max(0, (st.ward or 0) + (tonumber(wardDelta) or 0))
     SB.Events.Fire(SB.E.NPC_STATE_CHANGED, key)
     Broadcast(key, st)
 end
@@ -1441,9 +1512,17 @@ function SB.NPC.Resistance(unit, damageType)
 end
 
 --- Полное гашение удара по существу: сначала сопротивление, потом
---- доспех. Порядок тот же и по той же причине, что у игрока
---- (см. SB.Skills.MitigateDamage) — с одной разницей: доспех существа
---- не расходуется, тратить там нечего.
+--- доспех, потом накладная броня. Порядок тот же и по той же причине,
+--- что у игрока (см. SB.Skills.MitigateDamage). Постоянный доспех
+--- существа не расходуется; накладная броня — расходуется, десятка за
+--- единицу урона (см. «ЗАПАС БРОНИ СУЩЕСТВА»).
+---
+--- НАКЛАДНАЯ — ПОСЛЕ ПОСТОЯННОГО. Постоянный доспех ничего не стоит, и
+--- тратить запас на удар, который он и так держит, значило бы сжигать
+--- щит впустую.
+---
+--- ЗАПАС СПИСЫВАЕТСЯ ЗДЕСЬ ЖЕ: зовут эту функцию только настоящие удары
+--- (по существу и существом по существу), не подсказки.
 --- @return number final, number resisted, number absorbed
 function SB.NPC.MitigateDamage(dmg, stats, unit, damageType)
     dmg = math.floor(tonumber(dmg) or 0)
@@ -1452,7 +1531,18 @@ function SB.NPC.MitigateDamage(dmg, stats, unit, damageType)
     local resisted = math.min(SB.NPC.Resistance(unit, damageType), dmg)
     local left     = dmg - resisted
     local absorbed = math.min(left, SB.NPC.DamageReduction(stats, unit))
-    return math.max(0, left - absorbed), resisted, absorbed
+    left = left - absorbed
+
+    if left > 0 and unit then
+        local perDR = SB.Data.ArmorPerDR or 10
+        local fromWard = math.min(left, math.floor(SB.NPC.WardOf(unit) / perDR))
+        if fromWard > 0 then
+            ApplyDelta(unit, 0, 0, -fromWard * perDR)
+            absorbed = absorbed + fromWard
+            left     = left - fromWard
+        end
+    end
+    return math.max(0, left), resisted, absorbed
 end
 
 -- ============================================================
@@ -1482,7 +1572,56 @@ end
 --- UnitName у тушки, которой нет в цели, не у кого.
 function SB.NPC.NameForKey(key)
     local st = key and state[key]
-    return (st and st.name) or "Существо"
+    if st and st.name then return st.name end
+    local rec = SB.NPC.Get(SB.NPC.NpcIDFromKey(key))
+    return (rec and rec.name) or "Существо"
+end
+
+-- ============================================================
+-- СБРОС СУЩЕСТВ СЦЕНЫ
+--
+-- Одна кнопка у Ведущего (и Долгий Отдых): у всех особей полное
+-- здоровье и ни одного эффекта. Нужна там, где сцена кончилась, а
+-- тушка осталась с висящим эффектом, — например, босса убрали, а на
+-- нём продолжал тикать «Жертвенный огонь».
+--
+-- ЗАБЫВАЮТ ВСЕ, А НЕ ТОЛЬКО ВЛАДЕЛЕЦ. Сбрось он одного себя — копии
+-- у остальных остались бы старыми, и при ближайшей пересборке сцены
+-- (смена состава, передача лидерства) они вернулись бы к нему
+-- предложением NPCOFR вместе со всеми эффектами. Поэтому одним пакетом
+-- забывают все, и особи заводятся заново по шаблону при первом
+-- обращении — ровно как нетронутые.
+-- ============================================================
+function SB.NPC.ResetScene()
+    if not SB.NPC.IsOwner() then return false end
+    SB.NPC.ResetState()
+    if IsInGroup() and SB.Net and SB.Net.SendNpcReset then SB.Net.SendNpcReset() end
+    return true
+end
+
+--- Разослать состояние МНОГИХ особей одним пакетом — тик существ на
+--- круге (см. SB.NPC.TickEffects). Только у владельца: у остальных тик
+--- не идёт вовсе.
+function SB.NPC.PublishBatch(keys)
+    if not SB.NPC.IsOwner() then return end
+    if not (SB.Net and SB.Net.SendNpcStates) then return end
+    local list = {}
+    for _, key in ipairs(keys or {}) do
+        local st = state[key]
+        if st then
+            list[#list + 1] = { key, st.hp, st.maxHp, st.res, st.maxRes,
+                SB.NPC.PackEffects and SB.NPC.PackEffects(st.effects) or nil,
+                ((st.ward or 0) > 0) and st.ward or nil }
+        end
+    end
+    -- Кусками по сорок: один пакет на сотню тушек растёт в килобайты, и
+    -- его разрезанные части дольше держат канал, чем несколько пакетов.
+    local chunk = {}
+    for _, e in ipairs(list) do
+        chunk[#chunk + 1] = e
+        if #chunk >= 40 then SB.Net.SendNpcStates(chunk); chunk = {} end
+    end
+    if #chunk > 0 then SB.Net.SendNpcStates(chunk) end
 end
 
 --- Список эффектов изменился: сообщить своим и — по общему правилу

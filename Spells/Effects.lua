@@ -151,6 +151,10 @@ local Add = SB.Database.AddSpell -- Короткая ссылка
 -- значение на случай, если у заклинания его нет.
 -- ============================================================
 
+-- ВИЗУАЛЬНАЯ АУРА — необязательное caura = N. Пока эффект висит на
+-- персонаже, на нём видна серверная аура N: появление и спадание шлют
+-- «.caura toggle N» от его имени (см. SB.ActiveEffects.SyncCauras).
+-- Пример: AddEffect({ id = "eff_x", name = "…", caura = 1, effect = {…} }).
 local function AddEffect(t)
     -- Общее для всех контейнеров, чтобы не повторять в каждом:
     -- класс «Эффект» не показывается в библиотеке, порядок 0,
@@ -1617,7 +1621,7 @@ AddEffect({
     damageType = "nature",
     icon = "Interface\\Icons\\Ability_rogue_dualweild",
     description = "Небольшая порция жгучего яда, что мучает и приближает кончину цели изнутри.",
-    effect = { kind = "debuff", resist = "Выносливость", school = "poison", stats = { healTaken = -1 }, tick = { damage = 2 } },
+    effect = { kind = "debuff", resist = "Выносливость", school = "poison", mods = { healTaken = -1 }, tick = { damage = 2 } },
 })
 
 AddEffect({

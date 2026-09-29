@@ -543,9 +543,14 @@ local function ParsePVPATK(sender, t)
     -- Последним доводом — «бьёт существо»: сверка чисел к нему не
     -- применяется, потому что цифры существа назначил тот самый лидер,
     -- от которого пакет и принят (см. SB.Logic.VerifyIncomingDamage).
+    --
+    -- ЗАЛП СУЩЕСТВА (t.aoe) — площадью: ответ коротким итогом, и не
+    -- существу (у тушки нет клиента), а Ведущему, который её ведёт.
+    local fromNpc = (t.npc ~= nil and t.npc ~= "")
     SB.Logic.HandlePvpAttackReceived(shown, t.spellID, t.roll, t.mod, t.total,
-        t.isCrit == true, t.dmgBonus or 0, t.baseDmg, nil, nil, t.persuade,
-        (t.npc ~= nil and t.npc ~= ""))
+        t.isCrit == true, t.dmgBonus or 0, t.baseDmg, nil,
+        (fromNpc and t.aoe == true) or nil, t.persuade, fromNpc,
+        fromNpc and sender or nil)
 end
 
 -- ShortText отсюда убран вместе со своей работой: названия эффектов из
@@ -559,6 +564,19 @@ local function ParsePVPRES(t)
         SB.Events.Fire("LOG_MESSAGE_RECEIVED", SanitizeIncomingLog(t.log))
     end
     if t.attacker ~= UnitName("player") then return end
+
+    -- ИТОГ ПО ЗАЛПУ СУЩЕСТВА — только в сводку. Это не наш удар: ни
+    -- вампиризма, ни классовых механик, ни отписи Ведущему он не даёт.
+    if t.isAoe and t.npc then
+        if SB.Logic and SB.Logic.AoeReportAdd then
+            SB.Logic.AoeReportAdd({
+                kind = "atk", name = t.target, roll = t.defRoll, mod = t.defMod,
+                total = t.defTotal, landed = t.landed == true, dmg = t.dmg,
+                debuff = t.debuff == true, resisted = t.resisted == true,
+            })
+        end
+        return
+    end
     if not SB.Logic or not SB.Logic.HandlePvpResultReceived then return end
 
     local aoe
@@ -708,12 +726,28 @@ end
 --- своего клиента нет, правду держит ровно один человек (см. врезку о
 --- владельце в Core/NPC.lua), и принимать её от кого попало значило бы
 --- отдать чужим клиентам право переписывать здоровье всех существ сцены.
+--- Состояния многих особей одним пакетом — тик существ на круге (см.
+--- SB.NPC.PublishBatch). Каждая запись — те же поля, что у NPCST, по
+--- порядку: ключ, здоровье, максимум, ресурс, максимум, эффекты, броня.
+--- Больше сотни записей из одного пакета не берём: пакет чужой.
+local function ParseNPCSTB(sender, t)
+    if not IsFromLeaderOrAssist(sender) then return end
+    if not SB.NPC or not SB.NPC.ApplyRemoteState then return end
+    if type(t.list) ~= "table" then return end
+    for i, e in ipairs(t.list) do
+        if i > 100 then break end
+        if type(e) == "table" then
+            SB.NPC.ApplyRemoteState(e[1], e[2], e[3], e[4], e[5], e[6], e[7])
+        end
+    end
+end
+
 local function ParseNPCST(sender, t)
     -- Помощники рейда тоже ведут сцену (см. SB.NPC.IsOwner), поэтому
     -- проверка та же, что у выдачи ресурсов, а не строго «только лидер».
     if not IsFromLeaderOrAssist(sender) then return end
     if not SB.NPC or not SB.NPC.ApplyRemoteState then return end
-    SB.NPC.ApplyRemoteState(t.key, t.hp, t.maxHp, t.res, t.maxRes, t.eff)
+    SB.NPC.ApplyRemoteState(t.key, t.hp, t.maxHp, t.res, t.maxRes, t.eff, t.wd)
 end
 
 --- УЧАСТНИК СООБЩАЕТ, ЧТО НАНЁС СУЩЕСТВУ УРОН (или вылечил его).
@@ -728,7 +762,7 @@ end
 local function ParseNPCDLT(sender, t)
     if sender == UnitName("player") then return end   -- своё уже применено
     if not SB.NPC or not SB.NPC.ApplyRemoteDelta then return end
-    SB.NPC.ApplyRemoteDelta(t.key, t.hp, t.res)
+    SB.NPC.ApplyRemoteDelta(t.key, t.hp, t.res, t.wd)
 end
 
 --- «Я взял это существо в цель, а состояния о нём не знаю» — ответить
@@ -756,6 +790,13 @@ end
 --- Своё не применяем повторно: у отправителя правка уже легла (см.
 --- SB.NPC.SaveTemplate), а ApplyTemplateFromNet намеренно не рассылает
 --- дальше — иначе двое Ведущих гоняли бы пакет по кругу.
+--- Владелец сцены сбросил существ (см. SB.NPC.ResetScene).
+local function ParseNPCRST(sender, t)
+    if sender == UnitName("player") then return end
+    if not IsFromLeaderOrAssist(sender) then return end
+    if SB.NPC and SB.NPC.ResetState then SB.NPC.ResetState() end
+end
+
 local function ParseNPCTMPL(sender, t)
     if sender == UnitName("player") then return end
     if not IsFromLeader(sender) then return end
@@ -862,7 +903,7 @@ end
 local function ParseTURN(sender, t)
     if not IsFromLeader(sender) then return end
     if SB.TurnOrder and SB.TurnOrder.ApplyRemoteState then
-        SB.TurnOrder.ApplyRemoteState(t.turn)
+        SB.TurnOrder.ApplyRemoteState(t.turn, true)
     end
 end
 
@@ -1447,6 +1488,7 @@ local IMMEDIATE_ACTIONS = {
     -- нему рисуется полоска здоровья цели, и задержка в пару тиков
     -- означает, что игрок ещё секунду видит старые цифры.
     NPCST  = true,
+    NPCSTB = true,
     NPCDLT = true,
     NPCEFF = true,
     NPCREQ = true,
@@ -1518,9 +1560,11 @@ Dispatch = function(sender, t)
     elseif action == "AOEHLR"  then ParseAOEHLR(t)
     elseif action == "DISPEL"  then ParseDISPEL(t)
     elseif action == "NPCST"   then ParseNPCST(sender, t)
+    elseif action == "NPCSTB"  then ParseNPCSTB(sender, t)
     elseif action == "NPCDLT"  then ParseNPCDLT(sender, t)
     elseif action == "NPCEFF"  then ParseNPCEFF(sender, t)
     elseif action == "NPCTMPL" then ParseNPCTMPL(sender, t)
+    elseif action == "NPCRST"  then ParseNPCRST(sender, t)
     elseif action == "NPCREQ"  then ParseNPCREQ(sender, t)
     elseif action == "NPCOFR"  then ParseNPCOFR(sender, t)
     elseif action == "NPCRSY"  then ParseNPCRSY(sender, t)
@@ -1844,7 +1888,11 @@ local function FlushLogQueue()
         return a.seq < b.seq
     end)
     for _, item in ipairs(q) do
-        SB.Net.BroadcastLog(item.msg)
+        if item.lines then
+            SB.Net.BroadcastLogLines(item.lines)
+        else
+            SB.Net.BroadcastLog(item.msg)
+        end
     end
 
     local after = afterFlush
@@ -1884,6 +1932,24 @@ function SB.Net.QueueLogLine(msg, rank)
     end
 end
 
+--- Поставить в очередь кадра БЛОК строк — одним пакетом (LOGM), но на
+--- своём месте по рангу. BroadcastLogLines шлёт сразу, мимо очереди, и
+--- блок тиков существ печатался бы раньше строк того же кадра, которые
+--- по рангу идут перед ним.
+function SB.Net.QueueLogBlock(lines, rank)
+    if type(lines) ~= "table" or #lines == 0 then return end
+    logSeq = logSeq + 1
+    logQueue[#logQueue + 1] = {
+        lines = lines,
+        rank  = tonumber(rank) or SB.LogRank.RESULT,
+        seq   = logSeq,
+    }
+    if not logQueued then
+        logQueued = true
+        C_Timer.After(0, FlushLogQueue)
+    end
+end
+
 --- @param priority string|nil  по умолчанию NORMAL
 function SB.Net.BroadcastLog(msg, priority)
     SB.Events.Fire("LOG_MESSAGE_RECEIVED", msg)
@@ -1907,7 +1973,7 @@ end
 ---        (см. SB.NPC.PackEffects). Строкой, а не таблицей: сериализатор
 ---        разворачивает вложенную таблицу в разы длиннее, а состояние
 ---        существа уезжает на каждый удар.
-function SB.Net.SendNpcState(key, hp, maxHp, res, maxRes, eff)
+function SB.Net.SendNpcState(key, hp, maxHp, res, maxRes, eff, ward)
     if not IsInGroup() then return end
     SendToGroup({
         action = "NPCST",
@@ -1917,13 +1983,36 @@ function SB.Net.SendNpcState(key, hp, maxHp, res, maxRes, eff)
         res    = res,
         maxRes = maxRes,
         eff    = eff,
+        -- Накладная броня — только когда она есть: у большинства особей
+        -- её нет никогда, и платить полем в каждом пакете незачем.
+        wd     = ((tonumber(ward) or 0) > 0) and ward or nil,
     }, "NORMAL")
+end
+
+--- Состояния многих особей ОДНИМ пакетом (тик существ на круге, см.
+--- SB.NPC.PublishBatch). Записи — массивами, без имён полей: имена
+--- повторялись бы в каждой записи, а записей бывает сорок. BULK — чтобы
+--- сорок особей не вставали перед боевыми пакетами: у Ведущего всё уже
+--- применено, а полоски у остальных доедут вслед.
+--- @param list table  { { key, hp, maxHp, res, maxRes, eff, ward }, ... }
+function SB.Net.SendNpcStates(list)
+    if not IsInGroup() then return end
+    if type(list) ~= "table" or #list == 0 then return end
+    SendToGroup({ action = "NPCSTB", list = list }, "BULK")
 end
 
 --- Попросить группу рассказать, что она знает о существах сцены.
 --- Шлёт только владелец (проверку делает вызывающий, см.
 --- SB.NPC.RequestResync); ответом идут NPCOFR от каждого, кто что-то
 --- помнит.
+--- Сброс существ сцены — всем (см. SB.NPC.ResetScene). NORMAL, а не
+--- BULK: пакет крошечный, и за ним не должны успеть проехать старые
+--- состояния из очереди.
+function SB.Net.SendNpcReset()
+    if not IsInGroup() then return end
+    SendToGroup({ action = "NPCRST" }, "NORMAL")
+end
+
 function SB.Net.RequestNpcResync()
     if not IsInGroup() then return end
     SendToGroup({ action = "NPCRSY" }, "BULK")
@@ -1967,14 +2056,17 @@ end
 --- Едет ДЕЛЬТА, а не итог: своё состояние у нас может отличаться от
 --- владельцева, и присылать ему свою версию правды было бы неверно —
 --- он сведёт нашу правку со своей.
-function SB.Net.SendNpcDelta(key, hpDelta, resDelta)
+function SB.Net.SendNpcDelta(key, hpDelta, resDelta, wardDelta)
     if not IsInGroup() then return end
-    if (tonumber(hpDelta) or 0) == 0 and (tonumber(resDelta) or 0) == 0 then return end
+    wardDelta = tonumber(wardDelta) or 0
+    if (tonumber(hpDelta) or 0) == 0 and (tonumber(resDelta) or 0) == 0
+       and wardDelta == 0 then return end
     SendToGroup({
         action = "NPCDLT",
         key    = key,
         hp     = hpDelta,
         res    = resDelta,
+        wd     = (wardDelta ~= 0) and wardDelta or nil,
     }, "NORMAL")
 end
 
@@ -2027,7 +2119,7 @@ end
 ---
 --- ОТ ЛИЦА СУЩЕСТВА — НЕ СЧИТАЕТСЯ: Ведущий одалживает волку руки, а не
 --- свой навык (то же правило, что в SendBuff).
-function SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, slot, persuade, npcName)
+function SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, slot, persuade, npcName, aoe)
     local sp = SB.Data.Spells[spellID]
     if not npcName and sp and sp.debuff and SB.Logic and SB.Logic.EncouragementFor then
         -- С ИМЕНЕМ ЦЕЛИ: бить можно и помеченного своим (двойное
@@ -2053,6 +2145,9 @@ function SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, dmg
         baseDmg  = baseDmg,
     }
     if (tonumber(persuade) or 0) > 0 then t.persuade = persuade end
+    -- Залп существа по нескольким целям: ответ — коротким итогом в сводку
+    -- Ведущего, а не абзацем в чат от каждого задетого (см. ParsePVPATK).
+    if aoe then t.aoe = true end
     SendToPlayer(t, targetName, "NORMAL")
 end
 
@@ -2249,6 +2344,7 @@ function SB.Net.SendPvpResult(attackerName, targetName, defRoll, defMod, defTota
         t.resisted = aoe.resisted and true or false
         t.retrib   = aoe.retrib
         t.isAoe    = true
+        t.npc      = aoe.npc and true or nil
     end
     SendToPlayer(t, attackerName, "NORMAL")
 end
@@ -2611,6 +2707,25 @@ local PEER_URGENT_REPLY_CD = 1.5
 local peerUrgentSent  = {}   -- [name] = GetTime()
 local peerUrgentReply = {}   -- [name] = GetTime()
 
+-- ── НАБЛЮДАТЕЛИ: КТО ДЕРЖИТ НАС В ЦЕЛИ ──────────────────────
+--
+-- Жалоба: «держу в цели игрока не из группы, его ударили — а на рамке
+-- прежние числа, пока не возьмёшь в цель заново». Так и было: вне
+-- группы статус едет только ОТВЕТОМ на вопрос, а вопрос задаётся при
+-- наведении. Сокомандникам изменения приходят рассылкой, постороннему
+-- — никогда.
+--
+-- Теперь срочный вопрос (наведение) заодно ПОДПИСЫВАЕТ спросившего: пока
+-- подписка жива, каждое изменение наших чисел уходит ему само, тем же
+-- коротким пакетом. Держать цель — не событие, и узнать, что нас из неё
+-- выпустили, нам не из чего, поэтому подписка живёт PEER_WATCH_TTL
+-- секунд, а наблюдатель продлевает её, пока держит цель (см.
+-- SB.Overlay, опрос удерживаемой цели). Старый клиент подписок не знает,
+-- но получает то же продление опросом — не мгновенно, но не «никогда».
+local PEER_WATCH_TTL = 45
+local peerWatchers   = {}   -- [name] = GetTime(), до которого подписан
+local lastPeerPushSig
+
 -- ============================================================
 -- ФОНОВОЕ ЗНАКОМСТВО: СПРАШИВАЕМ ТЕХ, КОГО СЛЫШИМ
 --
@@ -2697,6 +2812,12 @@ function SB.Net.NotePeerSeen(name)
     end
 end
 
+--- Отпечаток короткого пакета — те же поля, что в нём едут.
+local function PeerSignature(p)
+    return table.concat({ p.class or "", p.mastery or "", p.zeal or 0,
+        p.maxZeal or 0, p.health or 0, p.maxHealth or 0, p.stealth or 0 }, "|")
+end
+
 local function BuildPeerStatusPayload()
     local snap = SB.PlayerModel.GetStatusSnapshot()
     return {
@@ -2725,12 +2846,18 @@ function SB.Net.ReplyPeerStatusTo(requester, urgent)
     if not SpellbreakerCharDB then return end   -- модель ещё не поднялась
     local now  = GetTime()
     if urgent then
+        -- Подписка — ДО кулдауна: продление не должно теряться оттого,
+        -- что ответ на прошлый вопрос ушёл секунду назад.
+        peerWatchers[requester] = now + PEER_WATCH_TTL
         -- Свой кулдаун: недавний фоновый ответ срочному не помеха.
         local last = peerUrgentReply[requester]
         if last and (now - last) < PEER_URGENT_REPLY_CD then return end
         peerUrgentReply[requester] = now
         peerLastReply[requester]   = now
         local payload = BuildPeerStatusPayload()
+        -- Наблюдатели получают каждое изменение, значит все они видят
+        -- ровно эти числа — рассылать их снова незачем.
+        lastPeerPushSig = PeerSignature(payload)
         payload.urgent = true
         SendToPlayer(payload, requester, "ALERT")
         return
@@ -2739,6 +2866,29 @@ function SB.Net.ReplyPeerStatusTo(requester, urgent)
     if last and (now - last) < PEER_REPLY_CD then return end
     peerLastReply[requester] = now
     SendToPlayer(BuildPeerStatusPayload(), requester, "BULK")
+end
+
+--- Разослать наши изменившиеся числа тем, кто держит нас в цели вне
+--- группы (см. «НАБЛЮДАТЕЛИ» выше). Сокомандникам не шлём: им уходит
+--- обычная рассылка статуса.
+function SB.Net.PushPeerWatchers()
+    if not next(peerWatchers) then return end
+    if not SpellbreakerCharDB then return end
+    local payload = BuildPeerStatusPayload()
+    local sig = PeerSignature(payload)
+    if sig == lastPeerPushSig then return end
+    lastPeerPushSig = sig
+    payload.urgent = true
+
+    local now, grouped = GetTime(), IsInGroup()
+    for name, untilT in pairs(peerWatchers) do
+        if untilT < now then
+            peerWatchers[name] = nil
+        elseif not (grouped and InGroupByName(name)) then
+            peerUrgentReply[name] = now
+            SendToPlayer(payload, name, "ALERT")
+        end
+    end
 end
 
 --- Спросить статус конкретного игрока по имени. Имя — ровно то, что
@@ -2780,6 +2930,9 @@ local function ScheduleStatusBroadcast()
     statusDebounceTimer = SB.Net:ScheduleTimer(function()
         statusDebounceTimer = nil
         SB.Net.BroadcastStatus()
+        -- И тем, кто держит нас в цели вне группы: BroadcastStatus без
+        -- группы молчит, а им изменения нужны так же.
+        SB.Net.PushPeerWatchers()
     end, 0.3)
 end
 

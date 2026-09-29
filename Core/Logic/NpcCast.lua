@@ -482,6 +482,22 @@ function SB.NpcCast.Confirm()
         if need > 0 and SB.NPC.AdjustResource then
             SB.NPC.AdjustResource(caster, -need)
         end
+        -- ЦЕНА ПРИМЕНЕНИЯ (spell.onCast) — самому существу, за применение,
+        -- а не за успех, как у игрока. Раньше у существа её не было вовсе:
+        -- «Удар щитом» не давал брони, «Кровоотвод» — ресурса.
+        if SB.NPC.ApplyCastPayload then
+            local hp, res, ward = SB.NPC.ApplyCastPayload(caster, spell)
+            local what = {}
+            if hp ~= 0 then what[#what + 1] = (hp > 0 and "+" or "") .. hp .. " ХП" end
+            if res ~= 0 then what[#what + 1] = (res > 0 and "+" or "") .. res .. " ресурса" end
+            if ward ~= 0 then what[#what + 1] = (ward > 0 and "+" or "") .. ward .. " брони" end
+            if #what > 0 then
+                SB.Events.Fire(SB.E.BROADCAST_LOG,
+                    SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. pending.npcName ..
+                    ": " .. table.concat(what, ", ") .. " (|r" .. SB.UI.MakeSpellLink(spell) ..
+                    G .. ").|r", SB.LogRank.ACTION)
+            end
+        end
         -- ПОТОК СУЩЕСТВА. Держатель вешается на само существо: он
         -- показывает Ведущему, сколько ещё тянется поток, и его снимает
         -- прерывание (см. SB.NPC.BreakConcentration). Уже висящий не
@@ -560,6 +576,97 @@ function SB.NpcCast.Confirm()
     local guaranteed = SB.Logic.IsGuaranteed(spell)
     local landedOn   = 0
 
+    -- ЗАЛП ПО НЕСКОЛЬКИМ ЦЕЛЯМ — ТЕМ ЖЕ ОТЧЁТОМ, ЧТО У ИГРОКА (см.
+    -- OpenAoeReport в Core/Logic/Aoe.lua). Раньше существо писало строку
+    -- на каждую цель, а каждый задетый игрок — ещё и свой абзац в чат:
+    -- «Горный пехотинец на Даркбоар: итог 24 против 99. Устоял.» трижды
+    -- подряд. Теперь шапка одна, исходы сгруппированы («Не закрепилось
+    -- (3): …»), а задетые отвечают Ведущему коротким итогом, а не в чат —
+    -- это ещё и меньше пакетов в группу.
+    --
+    -- Одна цель — прежним видом: сводка из одной строки ничего не
+    -- сжимает, а полный абзац удара читается лучше.
+    local count = #names + #npcs
+    local aoe   = count > 1
+    local reportKind = (kind == "attack" and "atk") or (kind == "heal" and "heal") or "eff"
+    if aoe and SB.Logic.OpenAoeReport then
+        local head = SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. pending.npcName ..
+            " применяет |r" .. SB.UI.MakeSpellLink(spell) ..
+            G .. " (целей: " .. count .. "). |r"
+        if reportKind == "atk" then
+            head = head .. G .. "Атака: |r" .. (isCrit
+                and (SB.UI.RollText(roll) .. G .. ". |r" .. SB.Theme.MSG_BAD .. "КРИТ!|r")
+                or  (SB.UI.RollText(roll) .. G .. " + |r" .. SB.UI.ModText(mod) ..
+                     G .. " = " .. total .. ". Защита:|r"))
+        else
+            head = head .. G .. string.format("Бросок: %d%+d = %d%s.|r",
+                roll, mod, total, isCrit and ", КРИТ" or "")
+        end
+        local report = SB.Logic.OpenAoeReport(head, reportKind)
+        if report then report.crit = isCrit and true or false end
+    end
+
+    -- ОДНА ЦЕЛЬ — ОДНА СТРОКА, тем же видом, что у игрока. Раньше шапка
+    -- «применяет … (бросок 51+48 = 99). Целей: 1.» шла отдельно от
+    -- исхода, и одиночный удар занимал две строки там, где у игрока одна.
+    -- Теперь бросок и исход — в одной строке, а по игроку её и вовсе
+    -- пишет сам задетый (см. HandlePvpAttackReceived): у существа то же.
+    local link     = SB.UI.MakeSpellLink(spell)
+    local actor    = pending.npcName
+    local critMark = isCrit and (SB.Theme.MSG_BAD .. " (крит)|r") or ""
+    local function SingleLine(e)
+        local head = SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. actor
+        if e.kind == "atk" then
+            local rollTxt
+            if isCrit and not guaranteed then
+                rollTxt = SB.UI.RollText(roll) .. G .. ". |r" .. SB.Theme.MSG_BAD .. "КРИТ!|r "
+            elseif e.skipDef then
+                rollTxt = SB.UI.RollLine(roll, mod, total, G) ..
+                          G .. ", цель не сопротивляется. |r"
+            else
+                rollTxt = SB.UI.RollLine(roll, mod, total, G) .. G .. " vs |r" ..
+                          SB.UI.RollLine(e.roll, e.mod, e.total, G) .. G .. ". |r"
+            end
+            local out
+            if not e.landed then
+                out = SB.Theme.MSG_GOOD .. "Атака отражена!|r"
+            elseif (e.dmg or 0) <= 0 then
+                out = SB.Theme.MSG_GOOD .. "Удар выдержан целиком!|r" .. (e.guard or "")
+            else
+                out = SB.Theme.MSG_BAD .. "Урон: |r" .. SB.UI.AmountText("dmg", e.dmg) ..
+                      SB.Theme.MSG_BAD .. " ХП|r" .. (e.guard or "")
+            end
+            return head .. " — |r" .. link .. critMark .. G .. " по " .. e.name ..
+                   ": |r" .. rollTxt .. out
+        end
+        -- Эффект и лечение — строкой «применяет … на …», как у игрока
+        -- (см. Announce в ProcessRollAndCast).
+        local rollTxt = guaranteed and (G .. ". |r")
+            or (G .. ": |r" .. SB.UI.RollLine(roll, mod, total, G) ..
+                ((e.threshold ~= nil) and (G .. " против " .. e.threshold) or "") .. G .. ". |r")
+        local out
+        if e.kind == "heal" then
+            out = e.ok and (SB.Theme.MSG_GOOD .. "Исцеление: +" .. (e.healed or 0) .. " ХП.|r")
+                        or (SB.Theme.MSG_BAD .. "Провал.|r")
+        else
+            out = e.ok and (SB.Theme.MSG_GOOD .. "Успех.|r")
+                        or (SB.Theme.MSG_BAD .. "Провал.|r")
+        end
+        return head .. " применяет |r" .. link .. critMark .. G .. " на " .. e.name ..
+               "|r" .. rollTxt .. out
+    end
+
+    --- В сводку залпа, если он залп и исход того же рода, что и сводка;
+    --- иначе — одной строкой. Род может разойтись у двойного заклинания:
+    --- по врагам оно бьёт, а само существо лечит.
+    local function Report(entry)
+        if aoe and entry.kind == reportKind and SB.Logic.AoeReportAdd then
+            SB.Logic.AoeReportAdd(entry)
+        else
+            SB.Events.Fire(SB.E.BROADCAST_LOG, SingleLine(entry), SB.LogRank.ACTION)
+        end
+    end
+
     for _, name in ipairs(names) do
         if kind == "attack" then
             -- УДАР. Целиком чужой путь: получатель бросает защиту сам,
@@ -570,10 +677,10 @@ function SB.NpcCast.Confirm()
                 -- пострадал.
                 SB.Logic.HandlePvpAttackReceived(pending.npcName, pending.spellID,
                     roll, mod, total, isCrit, dmgBonus, baseDmg, spell.level or 0,
-                    nil, nil, true)
+                    aoe or nil, nil, true, me)
             elseif SB.Net and SB.Net.SendPvpAttack then
                 SB.Net.SendPvpAttack(name, pending.spellID, roll, mod, total,
-                    isCrit, dmgBonus, baseDmg, spell.level or 0, nil, pending.npcName)
+                    isCrit, dmgBonus, baseDmg, spell.level or 0, nil, pending.npcName, aoe)
             end
             landedOn = landedOn + 1
 
@@ -593,15 +700,9 @@ function SB.NpcCast.Confirm()
             -- внутри замыкания: к приходу ответа подготовка уже закрыта
             -- и pending равно nil. Первый прогон на этом и упал.
             local targetName = name
-            local actorName  = pending.npcName
             local function Say(finalThreshold, finalOk)
-                SB.Events.Fire(SB.E.BROADCAST_LOG,
-                    SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. actorName ..
-                    " на " .. targetName .. ": итог " .. total .. " против " ..
-                    finalThreshold .. ". |r" ..
-                    (finalOk and (SB.Theme.MSG_GOOD .. "Эффект наложен.|r")
-                              or (SB.Theme.MSG_BAD  .. "Устоял.|r")),
-                    SB.LogRank.RESULT)
+                Report({ kind = "eff", name = targetName,
+                         threshold = finalThreshold, ok = finalOk })
             end
 
             if name == me then
@@ -662,6 +763,10 @@ function SB.NpcCast.Confirm()
                 SB.Net.SendHealResult(name, pending.spellID, false, 0, 0,
                                       pending.npcName)
             end
+            -- Итог по игроку у лечения знает сам Ведущий: порог и объём
+            -- он посчитал здесь же — значит и строку пишет он.
+            Report({ kind = "heal", name = name, ok = ok,
+                     healed = amount, threshold = threshold })
         end
     end
 
@@ -743,18 +848,15 @@ function SB.NpcCast.Confirm()
                                                              spell.level, 0)
                     SB.NPC.AddEffect(unit, spell.debuff, turns, pending.npcName)
                 end
-                local after = SB.NPC.GetState(unit)
                 local guard = {}
                 if resisted  > 0 then guard[#guard + 1] = "резист " .. resisted end
-                if reduction > 0 then guard[#guard + 1] = "шкура "  .. reduction end
-                SB.Events.Fire(SB.E.BROADCAST_LOG,
-                    SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. nm .. ": |r" ..
-                    (landed
-                        and (SB.Theme.MSG_BAD .. "Урон " .. dmg .. "|r" .. G ..
-                             -- Без «(7/20)»: здоровье существа на его рамке.
-                             ((#guard > 0) and (" — " .. table.concat(guard, ", ")) or "") .. ".|r")
-                        or (SB.Theme.MSG_GOOD .. "Уклонилось.|r")),
-                    SB.LogRank.ACTION)
+                if reduction > 0 then guard[#guard + 1] = "доспех " .. reduction end
+                Report({ kind = "atk", name = nm, roll = defRoll, mod = defMod,
+                         total = defTot, skipDef = skipDef,
+                         landed = landed, dmg = dmg,
+                         debuff = landed and spell.debuff ~= nil,
+                         guard = (#guard > 0)
+                             and (G .. " — " .. table.concat(guard, ", ") .. "|r") or nil })
 
             elseif tkind == "heal" then
                 -- ЛЕЧЕНИЕ СУЩЕСТВА — от помощи не сопротивляются, порога
@@ -766,12 +868,7 @@ function SB.NpcCast.Confirm()
                 if isCrit then amount = amount * 2 end
                 SB.NPC.AdjustHealth(unit, amount)
                 landedOn = landedOn + 1
-                local after = SB.NPC.GetState(unit)
-                SB.Events.Fire(SB.E.BROADCAST_LOG,
-                    SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. nm .. ": |r" ..
-                    SB.Theme.MSG_GOOD .. "Исцеление " .. amount .. "|r" .. G ..
-                    ".|r",
-                    SB.LogRank.ACTION)
+                Report({ kind = "heal", name = nm, ok = true, healed = amount })
 
             elseif tkind == "effect" then
                 -- ЭФФЕКТ. Бафф ложится без броска — сопротивляются
@@ -792,26 +889,12 @@ function SB.NpcCast.Confirm()
                     if ok then landedOn = landedOn + 1 end
                     if ok and isDebuff then SB.Logic.ApplyInterruptToNpc(unit, spell, nm) end
                 end
-                SB.Events.Fire(SB.E.BROADCAST_LOG,
-                    SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. nm .. ": |r" ..
-                    (ok and (SB.Theme.MSG_GOOD .. "Эффект наложен.|r")
-                         or (SB.Theme.MSG_BAD  .. "Эффект отведён.|r")),
-                    SB.LogRank.ACTION)
+                Report({ kind = "eff", name = nm, ok = ok,
+                         threshold = (isDebuff and not guaranteed) and threshold or nil })
             end
         end
     end
 
-    -- ЗАГОЛОВОК ЗАЛПА — один на всё. Ответы задетых придут каждый своей
-    -- строкой; объявление сверху нужно ровно одно — сказать, что вообще
-    -- произошло и по кому.
-    SB.Events.Fire(SB.E.BROADCAST_LOG,
-        SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. pending.npcName ..
-        " применяет |r" .. SB.UI.MakeSpellLink(spell) .. G ..
-        string.format(" (бросок %d%+d = %d)%s. Целей: %d.|r",
-            roll, mod, total, isCrit and ", КРИТ" or "", #names + #npcs),
-        SB.LogRank.ACTION)
-
-    local count = #names + #npcs
     pending = nil
     SB.Events.Fire(SB.E.NPC_CAST_CHANGED)
     return true, count

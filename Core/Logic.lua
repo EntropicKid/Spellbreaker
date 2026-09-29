@@ -7,6 +7,31 @@
 local addonName, SB = ...
 SB.Logic = SB.Logic or {}
 
+-- ============================================================
+-- КОМАНДА СЕРВЕРУ (.caura) — ШЁПОТОМ СЕБЕ, А НЕ /СКАЗАТЬ
+--
+-- С 8.2.5 клиент пропускает /сказать и /крик вне подземелий только в
+-- ответ на действие игрока (клик, клавиша). Аура «павший» переключается
+-- из обработчика сетевого пакета — удар пришёл, персонаж упал, — и
+-- такой вызов клиент блокирует: ADDON_ACTION_BLOCKED, аура не
+-- включается. Та же судьба у исхода, выставленного Ведущим (он тоже
+-- приходит пакетом).
+--
+-- Шёпот этим правилом не ограничен, а сервер принимает команды и из
+-- него — тем же путём давно ходят команды управления существами
+-- (SB.NPCCommands.Send). Строка видна только самому игроку.
+-- ============================================================
+function SB.Logic.ServerCommand(cmd)
+    if type(cmd) ~= "string" or cmd == "" then return false end
+    if SB.NPCCommands and SB.NPCCommands.Send then
+        return SB.NPCCommands.Send(cmd)
+    end
+    local me = UnitName("player")
+    if not me then return false end
+    SendChatMessage(cmd, "WHISPER", nil, me)
+    return true
+end
+
 -- Цель, зафиксированная в момент нажатия «Каст».
 -- Хранится до момента формирования эмоута (включая форсированный).
 local pendingTargetName     = ""
@@ -395,34 +420,12 @@ local function TruncTowardZero(x)
     return math.ceil(x)
 end
 
---- Во сколько раз вложенный ресурс усиливает канал damage у
---- КАСТЕРСКОГО заклинания. У некастерского вложенный ресурс уходит
---- в точность, а не в силу (см. GetCastPower), и множитель к нему не
---- применяется — проверку делает сам GetSpellScaling.
----
---- Раньше вложенная мана добавляла к урону ПЛОСКУЮ единицу за штуку
---- (Config.DamagePerMana), одинаково всем. Из-за этого мана была
---- сильнее характеристик: три единицы давали +3, а полностью вложенный
---- Интеллект — только +2, и вкладываться в характеристику было
---- невыгодно. Теперь мана не добавляет урон сама, а УСИЛИВАЕТ то, что
---- игрок уже развил: +50% к скейлингу канала за каждую вложенную
---- единицу (Config.DamageScalePerMana).
----
---- СЧИТАЕТСЯ ОТ КРУГА ЗАКЛИНАНИЯ. Раньше — от вложенного ресурса, и
---- тогда важно было брать полный объём, а не избыток над кругом: иначе
---- заклинание 3-го круга, применённое 3-м кругом, не получало НИЧЕГО, а
---- заговор, поднятый до 3-го, бил сильнее его же. Вливания больше нет
---- (см. врезку ниже), и круг у заклинания ровно один — свой.
----
---- Множитель применяется ДО усечения дроби: иначе скейлинг сначала
---- обнулялся бы у характеристик 2 и 4 (по 0.5 за очко), и умножать
---- было бы уже нечего.
---- @return number
-function SB.Logic.GetDamageScaleMultiplier(spellLevel)
-    local slot = math.max(0, math.floor(tonumber(spellLevel) or 0))
-    if slot == 0 then return 1 end
-    return 1 + slot * (SB.Data.Config.DamageScalePerMana or 0)
-end
+-- ЗДЕСЬ БЫЛ МНОЖИТЕЛЬ СКЕЙЛИНГА ОТ КРУГА (GetDamageScaleMultiplier):
+-- +15% к вкладу характеристик в урон за каждый круг заклинания. Рудимент
+-- вливания ресурса: пока в заклинание можно было доплатить маной, он
+-- делал доплату осмысленной. Вливания нет — и множитель только прятал
+-- от игрока, сколько на самом деле даёт очко характеристики. Теперь
+-- вклад — ровно «очки × шаг × коэффициент», без поправки на круг.
 
 -- ============================================================
 -- ЗДЕСЬ БЫЛО ВЛИВАНИЕ РЕСУРСА СВЕРХ КРУГА
@@ -469,10 +472,8 @@ end
 
 --- @param spell   table   Заклинание
 --- @param channel string  "hit" | "crit" | "damage"
---- @param slotLevel number|nil  сколько ресурса вложено в каст. Влияет
----        ТОЛЬКО на канал damage (см. GetDamageScaleMultiplier); для
----        hit/crit игнорируется — вложенный ресурс работает там своим
----        источником реестра "resource" и только у некастеров.
+--- @param slotLevel number|nil  не читается: остался в подписи ради
+---        старых вызовов (вливания ресурса больше нет).
 --- @return number total, table parts  parts = { {key,label,value}, ... }
 --- @param statFn function|nil  чем мерить характеристику. По умолчанию —
 ---        характеристики ИГРОКА. Существо считает свой скейлинг тем же
@@ -521,10 +522,6 @@ function SB.Logic.GetSpellScaling(spell, channel, slotLevel, statFn)
     -- остался в подписи ради двух десятков вызовов, но больше не
     -- читается: вливания нет, и «в какой круг применили» — это всегда
     -- собственный круг заклинания (см. врезку о вливании выше).
-    local mult = 1
-    if channel == "damage" then
-        mult = SB.Logic.GetDamageScaleMultiplier(spell.level)
-    end
 
     -- ── ДРОБИ СКЛАДЫВАЮТСЯ, А НЕ ТЕРЯЮТСЯ ПО ОДНОЙ ──────────
     --
@@ -553,7 +550,7 @@ function SB.Logic.GetSpellScaling(spell, channel, slotLevel, statFn)
             -- прошла бы мимо скейлинга заклинаний целиком.
             local base   = SB.Data.STAT_BASE or 0
             local points = ((statFn or SB.Attributes.GetEffective)(statKey) or base) - base
-            local raw = points * perPoint * coeff * mult
+            local raw = points * perPoint * coeff
             if raw ~= 0 then
                 exact[#exact + 1] = { key = statKey, label = statKey, raw = raw }
                 total = total + raw
@@ -644,7 +641,7 @@ end
 --
 -- Правило теперь ОДНО НА ВСЕХ, без развилки по классу заклинания:
 -- вложенный ресурс усиливает СКЕЙЛИНГ канала damage, и считается это в
--- GetSpellScaling через GetDamageScaleMultiplier. Эта функция возвращает
+-- GetSpellScaling (без множителя: см. врезку на его месте). Эта функция возвращает
 -- только базу — множитель применяется к скейлингу, иначе одна и та же
 -- прибавка вошла бы в расчёт дважды.
 --
@@ -667,7 +664,7 @@ end
 -- от избытка приёмы высокого порядка не получали бы от вливания ничего.
 --
 -- Цифры — в SB.Data.Config (BaseDamage / DamagePerMana /
--- DamageScalePerMana / HitPerResource), там же объяснение, почему
+-- HitPerResource), там же объяснение, почему
 -- именно так.
 --
 -- @param spell     table   Заклинание (нужен spell.level)
@@ -2233,7 +2230,6 @@ end
 function SB.Logic.SendOutcomeEmote(spellID)
     local text = SB.SpellOutcomes and SB.SpellOutcomes.Get(spellID)
     if not text or text == "" then return end
-    if SpellbreakerAccountDB and SpellbreakerAccountDB.sendEmotes == false then return end
     SendChatMessage(ApplyTemplates(text), "EMOTE")
 end
 
@@ -3002,8 +2998,11 @@ function SB.Logic.Rest()
     if SB.Cooldowns and not SB.Cooldowns.Check(SB.Cooldowns.GM) then return end
     if SB.Cooldowns then SB.Cooldowns.Start(SB.Cooldowns.GM) end
     SB.Logic.LocalRest()
+    -- Конец сцены — и для существ: здоровье полное, эффекты сняты
+    -- (см. SB.NPC.ResetScene).
+    if SB.NPC and SB.NPC.ResetScene then SB.NPC.ResetScene() end
     local sysMsg = "|cFF9933FF[Spellbreaker]:|r " .. UnitName("player") ..
-                   " объявляет Долгий Отдых. Ресурсы и здоровье восстановлены у всех!"
+                   " объявляет Долгий Отдых. Ресурсы и здоровье восстановлены у всех, существа сцены сброшены!"
     SB.Events.Fire("BROADCAST_LOG", sysMsg, SB.LogRank.ACTION)
     SB.Events.Fire("BROADCAST_REST", "LONG")
 end
@@ -3059,7 +3058,7 @@ function SB.Logic.CanCastNow(spell, onSelf, bonus)
     local PM = SB.PlayerModel
 
     -- ПАВШИЙ НЕ ДЕЙСТВУЕТ. Ноль здоровья — это не «мало ХП», а выход из
-    -- сцены до лечения или Отдыха (см. PM.IsDowned и CheckPvpDeath).
+    -- сцены до лечения или Отдыха (см. PM.IsDowned и OnHealthForDeath).
     if PM.IsDowned() then
         SB.UI.PrintMsg("downedCantAct")
         return false, "downed"
@@ -3276,7 +3275,7 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
     -- Аура (команда серверному эмулятору). Игнорируется, если ГМ включил
     -- чекбокс «Игнорировать .caura» в библиотеке.
     if spell.caura and not (SpellbreakerAccountDB and SpellbreakerAccountDB.ignoreCaura) then
-        SendChatMessage(".caura toggle " .. spell.caura, "SAY")
+        SB.Logic.ServerCommand(".caura toggle " .. spell.caura)
     end
 
     -- Списание ресурсов (только если не заговор)
@@ -3962,9 +3961,7 @@ function SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, totalScaling, turnS
     -- ничего не отправляем.
     if outcomeText and outcomeText ~= "" then
         local rpMsg = ApplyTemplates(outcomeText)
-        if not SpellbreakerAccountDB or SpellbreakerAccountDB.sendEmotes ~= false then
-            SendChatMessage(rpMsg, "EMOTE")
-        end
+        SendChatMessage(rpMsg, "EMOTE")
     end
 
     -- Хук для будущих уникальных механик заклинаний, работающих через
@@ -3994,7 +3991,7 @@ function SB.Logic.ExecuteForcedOutcome(spellID, outcomeIndex, slotLevel)
 
     SB.PlayerModel.SetLocked(true)
     if spell.caura and not (SpellbreakerAccountDB and SpellbreakerAccountDB.ignoreCaura)
-       then SendChatMessage(".caura toggle " .. spell.caura, "SAY") end
+       then SB.Logic.ServerCommand(".caura toggle " .. spell.caura) end
 
     -- Единственная отпись игрока используется на исходах 1 (успех) и
     -- 3 (крит. успех) — на провале (2) отписи нет вообще.
@@ -4066,9 +4063,7 @@ function SB.Logic.ExecuteForcedOutcome(spellID, outcomeIndex, slotLevel)
     SB.Events.Fire("BROADCAST_LOG", sysMsg, SB.LogRank.ACTION)
     if outcomeText and outcomeText ~= "" then
         local rpMsg = ApplyTemplates(outcomeText)
-        if not SpellbreakerAccountDB or SpellbreakerAccountDB.sendEmotes ~= false then
-            SendChatMessage(rpMsg, "EMOTE")
-        end
+        SendChatMessage(rpMsg, "EMOTE")
     end
 
     -- Ход в очереди закрывает сам SpendTurn выше (см. Core/TurnOrder.lua).
@@ -4375,40 +4370,53 @@ function SB.Logic.PlayOutcomeSound(succeeded)
 end
 
 -- ============================================================
--- ПАДЕНИЕ В 0 ХП ОТ ПвП-УДАРА
+-- ПАДЕНИЕ В 0 ХП — АУРА «ПАВШИЙ», ВСЕГДА И ОТ ЛЮБОЙ ПРИЧИНЫ
 --
--- Персонаж, которого добили, сам отправляет серверному эмулятору
--- команду ауры «павший» (Config.DeathCaura). Отправляет именно он: та же
--- логика, что и у .caura при касте — команда действует на того, от чьего
--- имени написана.
+-- Персонаж, чьё здоровье упало до нуля, сам отправляет серверному
+-- эмулятору команду ауры «павший» (Config.DeathCaura). Отправляет
+-- именно он: команда действует на того, от чьего имени написана.
 --
--- Флаг нужен, чтобы каждый следующий удар по уже лежащему не слал
--- команду заново: .caura toggle ПЕРЕКЛЮЧАЕТ ауру, и второй удар просто
--- снял бы её обратно. Снимается, как только здоровье снова выше нуля
--- (лечение, отдых) — тогда следующая смерть отработает как первая.
+-- ПРИЧИНА НЕ ВАЖНА. Раньше команда уходила только из резолва чужого
+-- удара, и павший от тика яда, от удара существа по особому пути или от
+-- здоровья, выставленного Ведущим, аурой не отмечался. Теперь она
+-- висит на HEALTH_CHANGED — туда сходятся все пути изменения здоровья
+-- (PM.SetHealth, PM.GrantHealth, PM.Heal).
+--
+-- ГАЛОЧКА «ИГНОРИРОВАТЬ .caura» ЕЁ НЕ ОТКЛЮЧАЕТ. Галочка — про ауры
+-- заклинаний (визуальные эффекты по желанию Ведущего), а «павший» — это
+-- знак состояния персонажа, по которому сцена видит, кто лежит.
+--
+-- Флаг — чтобы следующий удар по уже лежащему не слал команду заново:
+-- .caura toggle ПЕРЕКЛЮЧАЕТ ауру, и второй раз просто снял бы её. Флаг
+-- снимается, как только здоровье снова выше нуля (лечение, отдых) — тогда
+-- следующее падение отработает как первое.
 -- ============================================================
-local pvpDeathSent = false
+local deathCauraSent = false
 
---- @param before number  здоровье ДО удара
-local function CheckPvpDeath(before)
-    local hp = SB.PlayerModel.GetHealth()
-    if hp > 0 then
-        pvpDeathSent = false
+local function OnHealthForDeath(newHP, oldHP)
+    newHP = tonumber(newHP) or (SB.PlayerModel and SB.PlayerModel.GetHealth()) or 1
+    if newHP > 0 then
+        deathCauraSent = false
         return
     end
-    -- Именно ПАДЕНИЕ в ноль: тот, кто уже лежал до удара, ауру не
-    -- переключает.
-    if before <= 0 or pvpDeathSent then return end
-
+    -- Именно ПАДЕНИЕ в ноль: кто уже лежал, ауру не переключает.
+    if (tonumber(oldHP) or 1) <= 0 or deathCauraSent then return end
     local caura = SB.Data.Config.DeathCaura
     if not caura then return end
-    -- Тот же выключатель, что и у .caura заклинаний: чекбокс
-    -- «Игнорировать .caura» обещает, что аддон вообще не пишет .caura.
-    if SpellbreakerAccountDB and SpellbreakerAccountDB.ignoreCaura then return end
-
-    pvpDeathSent = true
-    SendChatMessage(".caura toggle " .. caura, "SAY")
+    -- Отключается только своей галочкой «Игнорировать анимацию смерти»,
+    -- не общей галочкой аур заклинаний.
+    if SpellbreakerAccountDB and SpellbreakerAccountDB.ignoreDeathCaura then return end
+    deathCauraSent = true
+    SB.Logic.ServerCommand(".caura toggle " .. caura)
 end
+SB.Events.On(SB.E.HEALTH_CHANGED, OnHealthForDeath)
+-- Долгий Отдых и подгонка под новый максимум пишут здоровье напрямую, без
+-- HEALTH_CHANGED, — флаг снимаем и по обновлению модели.
+SB.Events.On(SB.E.PLAYER_MODEL_CHANGED, function()
+    if deathCauraSent and SB.PlayerModel and SB.PlayerModel.GetHealth() > 0 then
+        deathCauraSent = false
+    end
+end)
 
 --- Защищающаяся сторона: получает бросок атакующего, считает свой,
 --- сравнивает и, если проиграл, теряет базовый урон атакующего
@@ -4419,7 +4427,7 @@ end
 ---        чисел к нему не применяется (см. SB.Logic.VerifyIncomingDamage).
 function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod, atkTotal, atkCrit,
                                           atkDmgBonus, atkBaseDmg, atkSlot, isAoe, atkPersuade,
-                                          fromNpc)
+                                          fromNpc, replyTo)
     local PM    = SB.PlayerModel
     local spell = SB.Data.Spells[spellID]
 
@@ -4551,7 +4559,6 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
     -- зависит от его класса и от того, сколько маны он влил, а этого
     -- нам локально не видно. Фолбэк на Config.BaseDamage — для пакетов
     -- со старых клиентов, которые поле baseDmg ещё не шлют.
-    local healthBefore = PM.GetHealth()
     local dmg, rawDmg, reduction, resisted = 0, 0, 0, 0
     if landed then
         local base = tonumber(atkBaseDmg) or SB.Data.Config.BaseDamage or 1
@@ -4658,9 +4665,7 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
     local newHealth = PM.GetHealth()
     local maxHealth = PM.GetMaxHealth()
 
-    -- Добили — переключаем ауру «павший» на себе (см. CheckPvpDeath).
-    -- До рассылки результата: команда эмулятору не должна ждать сети.
-    CheckPvpDeath(healthBefore)
+    -- Аура «павший» — сама, по HEALTH_CHANGED (см. OnHealthForDeath).
 
     -- ВОЗМЕЗДИЕ ЧИСЛАМИ уезжает вместе с итогом (см. TakeRetributions).
     -- Существу отвечать некому: у него нет клиента, который принял бы урон.
@@ -4758,12 +4763,26 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
         -- Шлём именно ДАННЫЕ, а не готовую строку: чужие строки не
         -- сгруппировать, а заодно из пакета уходит вся разметка с цветами
         -- и ссылками — это примерно втрое короче.
-        SB.Net.SendPvpResult(attackerName, UnitName("player"), defRoll, defMod, defTotal,
-            dmg, newHealth, maxHealth, {
-                landed   = landed,
-                debuff   = debuffLanded,
-                retrib   = retrib,
+        --
+        -- ЗАЛП СУЩЕСТВА отвечает Ведущему (replyTo), а не тушке: у неё
+        -- нет клиента. Ведущий, накрывший залпом себя, кладёт итог в
+        -- сводку сам — пакет самому себе AceComm не доставляет.
+        local to = (fromNpc and replyTo) or attackerName
+        if fromNpc and to == UnitName("player") then
+            SB.Logic.AoeReportAdd({
+                kind = "atk", name = UnitName("player"), roll = defRoll,
+                mod = defMod, total = defTotal, landed = landed, dmg = dmg,
+                debuff = debuffLanded,
             })
+        else
+            SB.Net.SendPvpResult(to, UnitName("player"), defRoll, defMod, defTotal,
+                dmg, newHealth, maxHealth, {
+                    landed   = landed,
+                    debuff   = debuffLanded,
+                    retrib   = (not fromNpc) and retrib or nil,
+                    npc      = fromNpc,
+                })
+        end
     else
         -- ОТВЕТ АТАКУЮЩЕМУ — ПОСЛЕ СТРОКИ БОЯ, следующим кадром. Строка
         -- уходит очередью кадра (см. SB.Net.QueueLogLine), и отправь мы
@@ -4962,9 +4981,7 @@ function SB.Logic.HandlePvpResultBody(targetName, defRoll, defMod, defTotal, dmg
     if not outcomeText or outcomeText == "" then return end
 
     local rpMsg = ApplyTemplates(outcomeText)
-    if not SpellbreakerAccountDB or SpellbreakerAccountDB.sendEmotes ~= false then
-        SendChatMessage(rpMsg, "EMOTE")
-    end
+    SendChatMessage(rpMsg, "EMOTE")
 end
 
 -- ============================================================
@@ -5304,9 +5321,7 @@ function SB.Logic.ResolveHeal(spellID, slotLevel)
     local emoteText = success and SB.SpellOutcomes.Get(spellID) or nil
     if emoteText and emoteText ~= "" then
         local rpMsg = ApplyTemplates(emoteText)
-        if not SpellbreakerAccountDB or SpellbreakerAccountDB.sendEmotes ~= false then
-            SendChatMessage(rpMsg, "EMOTE")
-        end
+        SendChatMessage(rpMsg, "EMOTE")
     end
 
     if spell.onResolve then
@@ -5770,9 +5785,7 @@ function SB.Logic.ResolveEffectCast(spellID, slotLevel)
         local outcomeText = finalSuccess and SB.SpellOutcomes.Get(spellID) or nil
         if outcomeText and outcomeText ~= "" then
             local rpMsg = ApplyTemplates(outcomeText)
-            if not SpellbreakerAccountDB or SpellbreakerAccountDB.sendEmotes ~= false then
-                SendChatMessage(rpMsg, "EMOTE")
-            end
+            SendChatMessage(rpMsg, "EMOTE")
         end
 
         SB.Events.Fire(SB.E.CAST_RESOLVED, spellID, finalSuccess,

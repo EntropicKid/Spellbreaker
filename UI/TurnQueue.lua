@@ -508,7 +508,7 @@ local function EnsureBar()
     -- не находили глазами.
     header = bar:CreateFontString(nil, "OVERLAY", "SBFontLarge")
     header:SetPoint("TOP", bar, "TOP", 0, HEADER_Y)
-    header:SetTextColor(1, 0.8, 0.42)
+    header:SetTextColor(0.80, 0.64, 0.36)
 
     local C = SB.Theme.C
     divider = CreateFrame("Frame", nil, bar)
@@ -575,6 +575,16 @@ local function BuildEntries(slots, index)
         if a.rank ~= b.rank then return a.rank < b.rank end
         return a.ord < b.ord
     end)
+    -- ПРИШЕДШИЕ ПОСРЕДИ КРУГА — за чертой, последними: в этом круге они
+    -- считаются походившими, а в очередь встанут на «Новом ходе» —
+    -- ровно в конец, где их и показываем (см. TO.GetLateJoiners).
+    if TO.GetLateJoiners then
+        for _, name in ipairs(TO.GetLateJoiners()) do
+            if not (TO.IsAbsent and TO.IsAbsent(name)) then
+                done[#done + 1] = { name = name, slot = n + 1 }
+            end
+        end
+    end
     return pending, done
 end
 
@@ -706,7 +716,7 @@ function TQ.Refresh()
             -- отыгравших.
             if isCur then
                 PaintFrame(c, 1, 0.78, 0.36)
-                c.label:SetTextColor(1, 0.8, 0.42)
+                c.label:SetTextColor(0.80, 0.64, 0.36)
                 c.glow:Show()
                 c.glow:SetAlpha(0.9)
             elseif e.done then

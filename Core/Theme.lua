@@ -161,7 +161,11 @@ local C = {
     -- тёмной подложкой — как у основного на прежнем войлоке.
     -- textFaint — ещё на ступень тише, для третьего яруса (детали карточки).
     textMain={0.92,0.90,0.86,1}, textDim={0.80,0.75,0.66,1}, textFaint={0.72,0.68,0.60,1},
-    textGold={1.00,0.80,0.42,1}, textDanger={1.00,0.42,0.34,1},
+    -- ЗОЛОТО ИНТЕРФЕЙСА — ЛАТУНЬ ПОЛЗУНКА ПРОКРУТКИ (cardBorder, тон 38°),
+    -- на ступень светлее, чтобы мелкий текст читался на тёмном. Прежнее
+    -- 1.00/0.80/0.42 было жёлтым и спорило с латунью рамок. Тот же тон
+    -- строкой — SB.Theme.GOLD_CODE, и в той же латуни значки «+» и «×».
+    textGold={0.80,0.64,0.36,1}, textDanger={1.00,0.42,0.34,1},
     -- Подкраска ДЕРЕВЯННОЙ полосы заголовка — отдельная от titleBg и
     -- заметно светлее. titleBg (0.15/0.12/0.09) подбирали под ровную
     -- заливку, где число и есть итоговый цвет; поверх текстуры оно
@@ -173,6 +177,7 @@ local C = {
 SB.Theme.C = C
 C.surface       = C.cardBg
 C.accent        = C.textGold
+SB.Theme.GOLD_CODE = "|cFFCCA35C"   -- C.textGold строкой, для |c…|r в тексте
 C.textSecondary = C.textDim
 
 SB.Theme.Font = SB.Theme.Font or {}
@@ -912,44 +917,56 @@ end
 -- строке навыка рябили больше, чем сообщали.
 -- @param sign  "+" | "-"
 -- ============================================================
+-- ============================================================
+-- ЗНАЧКИ КНОПОК — свои текстуры в манере галочки Blizzard
+-- (UI-CheckBox-Check): заливка с градиентом, тёмная обводка, блик
+-- сверху. «+» и «×» — латунь ползунка прокрутки, «−» — кровавый красный
+-- полоски здоровья: цвет у него смысловой («убрать»). Перекладины у
+-- всех трёх одной толщины (32×32, штрих 15% кадра). Цвет живёт В ФАЙЛЕ; погашенную
+-- кнопку показывает обесцвечивание, а не подкраска — подкраска
+-- перемножилась бы с золотом и увела его в грязь.
+-- ============================================================
+SB.Theme.GLYPH = {
+    plus    = MEDIA .. "Plus.tga",
+    minus   = MEDIA .. "Minus.tga",
+    -- Крестик — 32×32 и тоньше плюса: он ложится в 12–14 пикселей, и
+    -- обводка крупного файла при таком уменьшении заливала его целиком.
+    cross   = MEDIA .. "Cross.tga",
+}
+
+--- Положить значок на кнопку: по центру, с отзывом на нажатие и
+--- обесцвечиванием на погашенной кнопке.
+function SB.Theme.AddGlyph(btn, key, size)
+    local tex = btn:CreateTexture(nil, "OVERLAY")
+    tex:SetTexture(SB.Theme.GLYPH[key] or key)
+    tex:SetSize(size, size)
+    tex:SetPoint("CENTER", btn, "CENTER", 0, 0)
+    local function Paint()
+        local on = btn:IsEnabled()
+        tex:SetDesaturated(not on)
+        tex:SetAlpha(on and 1 or 0.55)
+    end
+    btn:HookScript("OnMouseDown", function(self)
+        if self:IsEnabled() then tex:SetPoint("CENTER", self, "CENTER", 0, -1) end
+    end)
+    btn:HookScript("OnMouseUp", function(self)
+        tex:SetPoint("CENTER", self, "CENTER", 0, 0)
+    end)
+    local en, dis = btn.Enable, btn.Disable
+    function btn:Enable()  en(self);  Paint() end
+    function btn:Disable() dis(self); Paint() end
+    Paint()
+    btn._glyph = tex
+    return tex
+end
+
 function SB.Theme.Stepper(parent, sign, size)
     size = size or 18
     local btn = SB.Theme.Button(parent, "", size, size, "secondary")
-    local col = (sign == "+") and C.accent or C.textDanger
-    local len = math.max(6, math.floor(size * 0.45 + 0.5))
-    local thick = (size >= 22) and 2 or 2
-
-    local bars = {}
-    local h = btn:CreateTexture(nil, "OVERLAY")
-    h:SetColorTexture(1, 1, 1, 1)
-    h:SetSize(len, thick)
-    h:SetPoint("CENTER", btn, "CENTER", 0, 0)
-    bars[1] = h
-    if sign == "+" then
-        local v = btn:CreateTexture(nil, "OVERLAY")
-        v:SetColorTexture(1, 1, 1, 1)
-        v:SetSize(thick, len)
-        v:SetPoint("CENTER", btn, "CENTER", 0, 0)
-        bars[2] = v
-    end
-    local function Paint(on)
-        local c = on and col or C.disText
-        for _, b in ipairs(bars) do b:SetVertexColor(c[1], c[2], c[3], on and 1 or 0.7) end
-    end
-    Paint(true)
-
-    -- Нажатие сдвигает знак на пиксель вниз, как подпись обычной кнопки.
-    btn:HookScript("OnMouseDown", function(self)
-        if self:IsEnabled() then
-            for _, b in ipairs(bars) do b:SetPoint("CENTER", self, "CENTER", 0, -1) end
-        end
-    end)
-    btn:HookScript("OnMouseUp", function(self)
-        for _, b in ipairs(bars) do b:SetPoint("CENTER", self, "CENTER", 0, 0) end
-    end)
-    local en, dis = btn.Enable, btn.Disable
-    function btn:Enable()  en(self);  Paint(true)  end
-    function btn:Disable() dis(self); Paint(false) end
+    -- Значок на три четверти кнопки: у галочки те же поля, и на
+    -- шестнадцати пикселях меньше уже не читается.
+    SB.Theme.AddGlyph(btn, (sign == "+") and "plus" or "minus",
+                      math.floor(size * 0.75 + 0.5))
     return btn
 end
 
@@ -1233,7 +1250,8 @@ function SB.Theme.Frame(name, parent, title, w, h, surface)
     tfs:SetShadowOffset(1, -1)
     f.title = tfs
 
-	local cb = SB.Theme.Button(f, "X", 22, 22, "danger")
+	local cb = SB.Theme.Button(f, "", 22, 22, "danger")
+	SB.Theme.AddGlyph(cb, "cross", 14)
 	cb:SetPoint("TOPRIGHT", f, "TOPRIGHT", -5, -5)
     cb:SetScript("OnClick", function() f:Hide() end)
     f.CloseButton = cb
@@ -1354,7 +1372,8 @@ function SB.Theme.AttachScrollbar(sf, child, parent, top, bottom)
     local WHITE  = "Interface\\Buttons\\WHITE8x8"
     local BRASS  = C.cardBorder
     local BRIGHT = C.cardHoverBorder
-    local GOLD   = C.textGold
+    -- Хват — светлее латуни, но в её тоне (не прежнее жёлтое золото).
+    local GOLD   = { 0.90, 0.74, 0.44, 1 }
 
     local track = CreateFrame("Frame", nil, parent)
     track:SetPoint("TOPRIGHT",    parent, "TOPRIGHT",    PAD, top or -34)
@@ -2839,7 +2858,8 @@ function SB.Theme.DockableColumn(hostFrame, dbKey, title, width)
     col.titleFS = titleFS
  
     -- Кнопка "вернуть на место" — видна только когда откреплена
-    local dockBtn = SB.Theme.Button(titleBar, "X", 18, 18, "secondary")
+    local dockBtn = SB.Theme.Button(titleBar, "", 18, 18, "secondary")
+    SB.Theme.AddGlyph(dockBtn, "cross", 12)
     dockBtn:SetPoint("RIGHT", titleBar, "RIGHT", -2, 0)
     dockBtn:Hide()
  
@@ -3072,9 +3092,15 @@ local PORTRAIT_MASK = "Interface\\CHARACTERFRAME\\TempPortraitAlphaMask"
 -- сохраниться в обоих.
 --
 -- RING_HOLE — ЗАМЕР ПО ПИКСЕЛЯМ ФАЙЛА, а не подбор на глаз: альфа
--- впервые становится ненулевой на радиусе 102 из 128 (половина холста),
--- то есть прозрачная середина занимает 0.797 ширины кадра. Меняешь
--- файл — меряешь заново, иначе посадка уедет.
+-- впервые становится ненулевой на радиусе 26 из 32 (половина холста),
+-- то есть прозрачная середина занимает 0.8125 ширины кадра. Меняешь
+-- файл — меряешь заново, иначе посадка уедет. Нынешнее кольцо — золото
+-- с тёмной обводкой, в манере галочки (как значки кнопок).
+--
+-- ФАЙЛ 64×64, А НЕ КРУПНЕЕ, и это не экономия: кольцо показывается в 52
+-- и 54 пикселя, а клиент уменьшает аддонную картинку без сглаживания.
+-- Кольцо в 256 на экране рассыпалось лесенкой; в 64 оно почти один к
+-- одному и край остаётся гладким, потому что сглажен ещё в файле.
 --
 -- OVERLAP — насколько портрет ЗАЛЕЗАЕТ ПОД бронзу. Ради него всё и
 -- считается: без нахлёста между портретом и кольцом остаётся волосяной
@@ -3082,7 +3108,7 @@ local PORTRAIT_MASK = "Interface\\CHARACTERFRAME\\TempPortraitAlphaMask"
 -- было заметно на рамках игроков в панели Ведущего). Увеличить — портрет
 -- сильнее уйдёт под кольцо; уменьшить до нуля — зазор вернётся.
 local RING_TEXTURE = MEDIA .. "PlayerFrame.tga"
-local RING_HOLE    = 0.797   -- доля кадра, занятая прозрачной серединой
+local RING_HOLE    = 0.8125  -- доля кадра, занятая прозрачной серединой (26/32)
 local OVERLAP      = 0.03    -- нахлёст портрета под кольцо, доля кадра
 
 function SB.Theme.RoundPortrait(parent, size)

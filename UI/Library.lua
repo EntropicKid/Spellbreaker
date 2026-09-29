@@ -254,12 +254,12 @@ function SB.Library.UpdateNpcList(classificationName)
                 if e.isTemplate then
                     GameTooltip:AddLine("Эталон вида: достаётся существу, " ..
                         "которого не настраивали вручную.", 0.6, 0.6, 0.6, true)
-                    GameTooltip:AddLine("|cFFFFD100Клик|r — создать существо с этих цифр.",
+                    GameTooltip:AddLine("|cFFCCA35CКлик|r — создать существо с этих цифр.",
                         0.6, 0.6, 0.6, true)
                 else
-                    GameTooltip:AddLine("NPC ID: |cFFFFD100" .. tostring(e.npcID) .. "|r",
+                    GameTooltip:AddLine("NPC ID: |cFFCCA35C" .. tostring(e.npcID) .. "|r",
                         1, 1, 1)
-                    GameTooltip:AddLine("|cFFFFD100Клик|r — открыть на правку.",
+                    GameTooltip:AddLine("|cFFCCA35CКлик|r — открыть на правку.",
                         0.6, 0.6, 0.6, true)
                 end
                 GameTooltip:Show()
@@ -388,7 +388,7 @@ function SB.Library.UpdateList()
             -- перечисления в строку, а не таблицу карточек.
             local htxt = (lvl == 0) and SB.Logic.GetCantripLabel(selectedClass, true)
                          or (lvl .. " Порядок")
-            hdr:SetText("|cFFFFD100" .. htxt .. "|r")
+            hdr:SetText("|cFFCCA35C" .. htxt .. "|r")
             yOff = yOff + (hdrIdx == 1 and 4 or 12)
             hdr:ClearAllPoints()
             hdr:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 8, -yOff)
@@ -704,7 +704,24 @@ function SB.Library.ShowDetail(spell)
 
     -- Концентрация — через SB.Logic.IsConcentration: флаг бывает и на
     -- контейнере, и механика читает именно так.
-    f.concBadge:SetShown((not isEff) and SB.Logic.IsConcentration(spell) or false)
+    local isConc = (not isEff) and SB.Logic.IsConcentration(spell) or false
+    f.concBadge:SetShown(isConc)
+    local uses = (not isEff) and spell.channel
+                 and (SB.Data.GetChannelUses and SB.Data.GetChannelUses(spell) or spell.channel)
+    f.chanBadge:ClearAllPoints()
+    if isConc then
+        f.chanBadge:SetPoint("RIGHT", f.concBadge, "LEFT", -4, 0)
+    else
+        f.chanBadge:SetPoint("BOTTOMRIGHT", f.concBadge:GetParent(), "BOTTOMRIGHT", -6, 6)
+    end
+    if uses then
+        -- Бессрочный поток (-1) — без числа: «×-1» читалось бы как сбой.
+        local n = tonumber(uses) or 0
+        f.chanBadge.fs:SetText((n > 0) and ("Поток ×" .. n) or "Поток")
+        f.chanBadge:Show()
+    else
+        f.chanBadge:Hide()
+    end
 
     -- ── Плитки ────────────────────────────────────────────────
     -- Длительность: -1 — бессрочно (до Долгого Отдыха), число — ходы,
@@ -768,7 +785,7 @@ function SB.Library.ShowDetail(spell)
         lines = {}
         local family = SB.Data.GetFamily and SB.Data.GetFamily(spell.id)
         if family then
-            lines[#lines + 1] = "|cFFFFD100Вытесняет:|r другие «" .. tostring(family) .. "»"
+            lines[#lines + 1] = "|cFFCCA35CВытесняет:|r другие «" .. tostring(family) .. "»"
         end
         for _, l in ipairs(SB.ActiveEffects.GetEffectLines(spell.id) or {}) do
             lines[#lines + 1] = l
@@ -782,7 +799,7 @@ function SB.Library.ShowDetail(spell)
         end
         -- Срыв концентрации — свойство попадания, а не броска.
         if SB.Logic.Interrupts and SB.Logic.Interrupts(spell) then
-            lines[#lines + 1] = "|cFFFFD100При попадании:|r срыв концентрации"
+            lines[#lines + 1] = "|cFFCCA35CПри попадании:|r срыв концентрации"
         end
     end
 
@@ -1039,6 +1056,21 @@ function SB.Library.ShowDetail(spell)
         Refit()
         C_Timer.After(0, Refit)
     end)
+
+    -- ДОГОНЯЮЩИЕ ПРОХОДЫ — для ПЕРВОГО открытия. Двух кадров хватает,
+    -- когда описание уже раскладывалось раньше; при первом показе строка
+    -- доустаивается позже (шрифт аддона и перенос по словам досчитываются
+    -- не сразу), и окно оставалось посчитанным по ещё «раздутому»
+    -- описанию: между полем отписи и кнопками зияла пустота, а повторное
+    -- открытие той же карточки ставило всё на место. Refit идемпотентен
+    -- (см. врезку выше), так что лишний проход на устоявшейся раскладке
+    -- ничего не двигает.
+    for _, delay in ipairs({ 0.1, 0.3, 0.6 }) do
+        C_Timer.After(delay, function()
+            if f._populating or not f:IsShown() then return end
+            Refit()
+        end)
+    end
 end
 
 -- ============================================================
@@ -1487,6 +1519,32 @@ function SB.Library.BuildFrame()
     badgeFS:SetTextColor(0.55, 0.88, 1.0)
     badge:Hide()
     detailFrame.concBadge = badge
+
+    -- ПОТОК — такой же плашкой рядом: это тоже свойство всего
+    -- заклинания («после каста держатель, ЛКМ повторяет бесплатно»), и
+    -- раньше карточка о нём молчала вовсе. Сиреневая, а не голубая:
+    -- рядом с концентрацией они не должны сливаться.
+    local chan = CreateFrame("Frame", nil, hero, "BackdropTemplate")
+    chan:SetSize(88, 16)
+    chan:SetBackdrop(SB.Theme.BD.input)
+    chan:SetBackdropColor(0.20, 0.08, 0.28, 0.9)
+    chan:SetBackdropBorderColor(0.75, 0.45, 1.0, 0.8)
+    chan.fs = chan:CreateFontString(nil, "OVERLAY", "SBFontHighlightSmall")
+    chan.fs:SetPoint("CENTER", chan, "CENTER", 0, 0)
+    chan.fs:SetTextColor(0.85, 0.70, 1.0)
+    chan:Hide()
+    chan:EnableMouse(true)
+    chan:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        SB.Theme.StyleTooltip(GameTooltip)
+        GameTooltip:SetText("Потоковое заклинание", 0.85, 0.70, 1.0)
+        GameTooltip:AddLine("После применения на вас повисает «Поток». ЛКМ по нему " ..
+            "повторяет заклинание без затрат ресурса — каждый повтор тратит ход " ..
+            "и бросается заново. Число — сколько повторов.", 0.85, 0.85, 0.85, true)
+        GameTooltip:Show()
+    end)
+    chan:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    detailFrame.chanBadge = chan
 
     -- ── Плитки ────────────────────────────────────────────────
     -- До трёх штук, ширина делится поровну между показанными.

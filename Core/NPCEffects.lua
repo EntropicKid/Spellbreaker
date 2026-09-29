@@ -370,9 +370,25 @@ local function FireEnd(st, effectID)
 end
 
 --- Наложить на состояние особи, без пересчёта и рассылки.
+--- Не лёг из-за подавления — прощальный эффект всё равно кладётся, если
+--- его ещё нет (то же правило, что у игрока, см. Refused в
+--- SB.ActiveEffects.Add): оглушение, отбитое подавителем, оставляет
+--- невосприимчивость, а Воздержанность не продлевает сама себя.
+local function FireEndIfAbsent(st, effectID)
+    local id = EndEffectOf(effectID)
+    if not id then return end
+    for _, e in ipairs(ListOf(st)) do
+        if e.spellID == id then return end
+    end
+    FireEnd(st, effectID)
+end
+
 function AddToState(st, effectID, turns, source)
     local list = ListOf(st)
-    if SuppressedBy(list, effectID) then return false end
+    if SuppressedBy(list, effectID) then
+        FireEndIfAbsent(st, effectID)
+        return false
+    end
 
     -- Не разменивать висящее на отказ (см. то же место у игрока).
     local newSp = SB.Data.Spells[effectID]
@@ -394,7 +410,10 @@ function AddToState(st, effectID, turns, source)
     DropFamily(list, effectID)
     for _, id in ipairs(ending) do FireEnd(st, id) end
     list = ListOf(st)
-    if SuppressedBy(list, effectID) then return false end
+    if SuppressedBy(list, effectID) then
+        FireEndIfAbsent(st, effectID)
+        return false
+    end
 
     -- Повторное наложение ПРОДЛЕВАЕТ, а не складывает — как у игрока.
     local found
@@ -415,13 +434,17 @@ function AddToState(st, effectID, turns, source)
     local def = newSp and newSp.effect
     if type(def) == "table" and type(def.suppress) == "table"
        and def.suppressClears ~= false and M then
+        local dropped = {}
         for i = #list, 1, -1 do
             local v = SB.Data.Spells[list[i].spellID]
             local isSup = v and type(v.effect) == "table" and type(v.effect.suppress) == "table"
             if not isSup and M(v, def.suppress, def.suppressBuffs) then
+                dropped[#dropped + 1] = list[i].spellID
                 table.remove(list, i)
             end
         end
+        -- Снятое подавлением — спало: прощальный эффект срабатывает.
+        for _, id in ipairs(dropped) do FireEnd(st, id) end
     end
     return true
 end
@@ -539,9 +562,10 @@ end
 --- @param source string|nil "tick" — урон ПРИШЁЛ ИЗВНЕ и гасится
 ---        сопротивлением школе. Правило и довод те же, что у игрока
 ---        (см. врезку в SB.ActiveEffects.ApplyPayload).
---- @return number hpDelta, number resDelta
+--- @return number hpDelta, number resDelta, number armor  броня — сырое
+---         число блока; куда её деть, решает вызывающий (см. TickOne)
 local function ApplyPayload(st, def, sp, source)
-    if type(def) ~= "table" then return 0, 0 end
+    if type(def) ~= "table" then return 0, 0, 0 end
 
     local dmg  = tonumber(def.damage) or 0
     local heal = tonumber(def.heal)   or 0
@@ -587,10 +611,12 @@ local function ApplyPayload(st, def, sp, source)
         res = res + (tonumber(def.resource) or 0)
     end
 
-    -- БРОНЯ ЗДЕСЬ НЕ ПРИМЕНЯЕТСЯ, и это то же решение, что у игрока
-    -- (см. врезку в SB.ActiveEffects.ApplyPayload): тик — это яд, огонь и
-    -- кровотечение, доспех от них не спасает.
-    return heal - dmg, res
+    -- БРОНЯ НЕ ГАСИТ ТИК, и это то же решение, что у игрока (см. врезку
+    -- в SB.ActiveEffects.ApplyPayload): тик — это яд, огонь и
+    -- кровотечение, доспех от них не спасает. Но ЧИНИТЬ броню тик
+    -- может — «Оборонительная стойка» доливает накладную броню каждый
+    -- ход (см. «ЗАПАС БРОНИ СУЩЕСТВА» в Core/NPC.lua).
+    return heal - dmg, res, tonumber(def.armor) or 0
 end
 
 --- Один тик всем эффектам одной особи.
@@ -602,6 +628,12 @@ local function TickOne(st)
     local AE = SB.ActiveEffects
     local hp, res, names = 0, 0, nil
     local expired, ended
+    -- Накладная броня: плюс ДОЛИВАЕТ до самого щедрого источника, минус
+    -- мнёт суммой (см. SB.NPC.GrantWard — то же правило).
+    local wardTop, wardHit = 0, 0
+    local function Ward(a)
+        if a > 0 then wardTop = math.max(wardTop, a) elseif a < 0 then wardHit = wardHit + a end
+    end
 
     for i = #list, 1, -1 do
         local e   = list[i]
@@ -617,16 +649,18 @@ local function TickOne(st)
             if e.uses <= 0 then gone = true end
         end
 
-        local h, r = ApplyPayload(st, sp and sp.effect and sp.effect.tick, sp, "tick")
+        local h, r, a = ApplyPayload(st, sp and sp.effect and sp.effect.tick, sp, "tick")
         hp, res = hp + h, res + r
+        Ward(a)
 
         if gone then
             -- Прощальный расчёт — ПОСЛЕ тика: последний ход эффект ещё
             -- отработал, и только потом спал. Сопротивление к нему НЕ
             -- применяется, как и у игрока: прощальный удар — это цена
             -- самого эффекта, а не чужой удар по школе.
-            local h2, r2 = ApplyPayload(st, sp and sp.effect and sp.effect.onRemove, sp)
+            local h2, r2, a2 = ApplyPayload(st, sp and sp.effect and sp.effect.onRemove, sp)
             hp, res = hp + h2, res + r2
+            Ward(a2)
             table.remove(list, i)
             expired = expired or {}
             expired[#expired + 1] = (sp and sp.name) or e.spellID
@@ -645,6 +679,13 @@ local function TickOne(st)
     -- этом же ходу они не получают — легли уже после него.
     for _, id in ipairs(ended or {}) do FireEnd(st, id) end
 
+    -- Броню — прямо в состояние: тик идёт только у владельца, и итог
+    -- уезжает группе той же рассылкой, что и эффекты (PublishEffects).
+    if wardTop > 0 or wardHit < 0 then
+        local w = math.max(st.ward or 0, wardTop)
+        st.ward = math.max(0, w + wardHit)
+    end
+
     return hp, res, names, expired
 end
 
@@ -654,10 +695,34 @@ function SB.NPC.TickEffects()
     if not SB.NPC.IsOwner() then return 0 end
     if not SB.NPC.EachState then return 0 end
 
-    local touched = 0
+    -- ОДИН ПАКЕТ НА ВСЮ СЦЕНУ, А НЕ ПО ДВА НА ОСОБЬ.
+    --
+    -- Раньше каждая особь с эффектами рассылала своё состояние (NPCST) и
+    -- свою строку лога (LOG) отдельными сообщениями. Сорок пехотинцев в
+    -- стойке и под ядом — восемьдесят сообщений на круг, порядка десяти
+    -- килобайт. ChatThrottleLib их не теряет, но отдаёт около 800 байт в
+    -- секунду: очередь растягивалась на 10–15 секунд, и боевые пакеты того
+    -- же приоритета всё это время стояли за ней — ход замирал.
+    --
+    -- Теперь состояния всех тикнувших особей уходят одним пакетом
+    -- (SB.NPC.PublishBatch), а строки — одним блоком, где одинаковые
+    -- исходы свёрнуты: «Горный пехотинец ×12: −1 ХП (Укус змеи)».
+    local touched, keys = 0, {}
+    local groups, order = {}, {}
     SB.NPC.EachState(function(key, st)
         local list = ListOf(st)
         if #list == 0 then return end
+
+        -- ПАВШЕЕ СУЩЕСТВО НЕ ТИКАЕТ. Эффекты с него снимаются молча: гореть
+        -- и кровоточить больше нечему, а тик по нулю здоровья писал бы
+        -- «−1 ХП» в лог до конца сессии.
+        if (st.hp or 0) <= 0 then
+            st.effects = {}
+            SB.NPC.RestatEffects(st)
+            SB.Events.Fire(SB.E.NPC_STATE_CHANGED, key)
+            keys[#keys + 1] = key
+            return
+        end
 
         local ok, hp, res, names, expired = pcall(TickOne, st)
         if not ok then
@@ -669,12 +734,11 @@ function SB.NPC.TickEffects()
         st.hp  = math.max(0, math.min(st.maxHp,  st.hp  + (hp  or 0)))
         st.res = math.max(0, math.min(st.maxRes, st.res + (res or 0)))
         SB.NPC.RestatEffects(st)
-        SB.NPC.PublishEffects(key, st)
+        SB.Events.Fire(SB.E.NPC_STATE_CHANGED, key)
+        keys[#keys + 1] = key
         touched = touched + 1
 
-        -- СТРОКА В ЛОГ — ОДНА НА ОСОБЬ, а не на эффект: сцена с тремя
-        -- отравленными волками иначе выбрасывала бы девять строк на круг
-        -- и топила в них сам ход.
+        -- СТРОКА — ОДНА НА ИСХОД, а не на особь и не на эффект.
         local G    = SB.Theme.MSG_BODY
         local name = SB.NPC.NameForKey and SB.NPC.NameForKey(key) or "Существо"
         if names and (hp ~= 0 or res ~= 0) then
@@ -687,16 +751,56 @@ function SB.NPC.TickEffects()
             if res ~= 0 then
                 what[#what + 1] = G .. (res > 0 and "+" or "") .. res .. " ресурса|r"
             end
-            SB.Events.Fire(SB.E.BROADCAST_LOG,
-                SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G .. name .. ": |r" ..
-                table.concat(what, G .. ", |r") .. G .. " (" ..
-                table.concat(names, ", ") .. ").|r", SB.LogRank.TICK)
+            local tail = table.concat(what, G .. ", |r") .. G .. " (" ..
+                table.concat(names, ", ") .. ").|r"
+            local gk = name .. "\0" .. tail
+            local g = groups[gk]
+            if not g then
+                g = { name = name, tail = tail, n = 0 }
+                groups[gk] = g
+                order[#order + 1] = gk
+            end
+            g.n = g.n + 1
         end
         -- СТРОКИ «С СУЩЕСТВА СПАЛО» БОЛЬШЕ НЕТ. Она шла в рассылку на
         -- каждый истёкший эффект каждой особи и в свалке топила чат, а
         -- сказать ей было нечего: иконка на рамке цели и так исчезает, а
-        -- список у всех сводится пакетом эффектов (см. PublishEffects).
+        -- список у всех сводится пакетом эффектов.
     end)
+
+    if #keys > 0 and SB.NPC.PublishBatch then SB.NPC.PublishBatch(keys) end
+
+    if #order > 0 then
+        -- Сперва самые многочисленные, дальше по имени: обход особей идёт
+        -- по хэш-таблице, и без сортировки строки блока меняли бы порядок
+        -- от круга к кругу.
+        table.sort(order, function(a, b)
+            if groups[a].n ~= groups[b].n then return groups[a].n > groups[b].n end
+            return a < b
+        end)
+        local G = SB.Theme.MSG_BODY
+        local function Line(g)
+            return G .. g.name .. ((g.n > 1) and (" ×" .. g.n) or "") .. ": |r" .. g.tail
+        end
+        if #order == 1 then
+            SB.Events.Fire(SB.E.BROADCAST_LOG,
+                SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. Line(groups[order[1]]),
+                SB.LogRank.TICK)
+        else
+            local out = { SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. G ..
+                          "Эффекты на существах:|r" }
+            for _, gk in ipairs(order) do
+                out[#out + 1] = "   |cFFFFD100•|r " .. Line(groups[gk])
+            end
+            if SB.Net and SB.Net.QueueLogBlock then
+                SB.Net.QueueLogBlock(out, SB.LogRank.TICK)
+            else
+                for _, line in ipairs(out) do
+                    SB.Events.Fire(SB.E.BROADCAST_LOG, line, SB.LogRank.TICK)
+                end
+            end
+        end
+    end
 
     return touched
 end

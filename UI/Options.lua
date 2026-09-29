@@ -94,22 +94,27 @@ end
 
 -- Игнорировать .caura
 local cauraOptChk = MakeCheckRow(content, addHeader, -10,
-    "Игнорировать .caura",
+    "Игнорировать .caura заклинаний",
     "ignoreCaura",
     function(val)
         if SBIgnoreCauraChk then SBIgnoreCauraChk:SetChecked(val) end
+        -- Ауры висящих эффектов гаснут/зажигаются вместе с галочкой.
+        if SB.ActiveEffects and SB.ActiveEffects.SyncCauras then SB.ActiveEffects.SyncCauras() end
     end)
 
--- Отправлять отписи
-local emoteOptChk = MakeCheckRow(content, cauraOptChk, -8,
-    "Отправлять отписи",
-    "sendEmotes",
-    function(val)
-        if SBSendEmoteChk then SBSendEmoteChk:SetChecked(val) end
-    end)
+-- Игнорировать анимацию смерти — отдельно от аур заклинаний: павший
+-- виден всем по умолчанию, но кому-то эта аура не нужна вовсе
+-- (см. OnHealthForDeath в Core/Logic.lua).
+local deathCauraOptChk = MakeCheckRow(content, cauraOptChk, -8,
+    "Игнорировать анимацию смерти",
+    "ignoreDeathCaura")
+
+-- «Отправлять отписи» УБРАНА: игрок и так решает сам, на каких
+-- заклинаниях отпись есть — заполняя её в карточке заклинания. Пустая
+-- отпись не уходит, заполненная уходит всегда.
 
 -- Скрывать сообщения в чате игры
-local hideOptChk = MakeCheckRow(content, emoteOptChk, -8,
+local hideOptChk = MakeCheckRow(content, deathCauraOptChk, -8,
     "Скрывать сообщения в чате игры",
     "hideSystemMessages",
     function(val)
@@ -174,7 +179,7 @@ overlayHint:SetText("Отключается сам в бою и на 5 секу�
 -- относится. Отсюда и разные умолчания (см. врезку «ДВЕ ПОДМЕНЫ АУР» в
 -- UI/Overlay.lua).
 local auraOptChk = MakeCheckRow(content, overlayHint, -10,
-    "Заменить отображение собственных баффов/дебаффов",
+    "Показывать эффекты аддона после своих баффов/дебаффов",
     "ownAuras",
     function(val)
         if SB.Overlay then
@@ -295,7 +300,7 @@ local function SyncOptionsFromDB()
 
     if not db then return end
     cauraOptChk:SetChecked(db.ignoreCaura or false)
-    emoteOptChk:SetChecked(db.sendEmotes ~= false)
+    deathCauraOptChk:SetChecked(db.ignoreDeathCaura or false)
     hideOptChk:SetChecked(db.hideSystemMessages or false)
     combatLogOptChk:SetChecked(db.combatLogMessages == true and not db.hideSystemMessages)
     -- Как и SB.Animate.IsEnabled: отсутствующее значение = включено.
@@ -455,7 +460,7 @@ local function MakeSliderRow(parent, name, anchor, anchorY, label, lo, hi, gette
     if high then high:SetText(tostring(hi))  end
 
     local function Sync(v)
-        if text then text:SetText(label .. ": |cFFFFD100" .. v .. "|r") end
+        if text then text:SetText(label .. ": |cFFCCA35C" .. v .. "|r") end
     end
     s:SetScript("OnValueChanged", function(_, v)
         v = math.floor(v + 0.5)

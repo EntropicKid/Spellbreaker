@@ -521,7 +521,8 @@ local function EnsureStatRow(i)
     -- Крестик у правого края, поле перед ним: убрать строку — движение
     -- редкое, и стоять ему правильнее с краю, а не между подписью и
     -- числом, куда целится рука.
-    row.del = SB.Theme.Button(row, "×", 20, 20, "danger")
+    row.del = SB.Theme.Button(row, "", 20, 20, "danger")
+    SB.Theme.AddGlyph(row.del, "cross", 12)
     row.del:SetPoint("RIGHT", row, "RIGHT", 0, 0)
     row.del:SetScript("OnClick", function(self)
         local nm = self:GetParent()._stat
@@ -568,7 +569,7 @@ function SB.NPCEditor.RefreshStats()
             -- иначе не видно, где кончается один куст и начинается другой.
             row.label:SetText(item.name)
             if item.isAttr then
-                row.label:SetTextColor(1, 0.82, 0)
+                row.label:SetTextColor(0.80, 0.64, 0.36)
             else
                 row.label:SetTextColor(SB.Theme.C.textDim[1], SB.Theme.C.textDim[2],
                                        SB.Theme.C.textDim[3])

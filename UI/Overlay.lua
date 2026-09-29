@@ -392,13 +392,16 @@ end
 -- половину было бы неверно — см. чтение ниже.
 -- ============================================================
 
---- Подменять СВОЮ панель баффов. Выключено по умолчанию.
+--- Показывать свои эффекты аддона ПОСЛЕ ванильных аур. Включено по
+--- умолчанию: раньше это была подмена — ванильная панель пряталась
+--- целиком, и включать такое игрок должен был сам. Теперь ничего не
+--- прячется, ряд аддона просто встаёт под ванильными аурами, и отнимать
+--- у человека нечего.
 function SB.Overlay.AreOwnAurasEnabled()
     local db = SpellbreakerAccountDB
-    if not db then return false end
+    if not db then return true end
     if db.ownAuras ~= nil then return db.ownAuras == true end
-    -- Явного выбора нет — смотрим на прежнюю общую галочку.
-    return db.blizzAuras == true
+    return true
 end
 
 --- Подменять ауры ЦЕЛИ. Включено по умолчанию.
@@ -670,7 +673,7 @@ local function PaintLevel(e)
         -- Цвет ванильного уровня означает «насколько он тебе опасен», и
         -- к уровню сцены это отношения не имеет. Красим ровным золотом,
         -- тем же, что и остальные подписи аддона.
-        fs:SetTextColor(1, 0.82, 0)
+        fs:SetTextColor(0.80, 0.64, 0.36)
     else
         e.levelTaken = false
         if e.levelColor then
@@ -935,9 +938,12 @@ end
 -- то, что действительно висит на персонаже по правилам аддона, живёт в
 -- отдельном окне.
 --
--- ЧТО ПОДМЕНЯЕТСЯ:
---   своя панель — прячем ванильный BuffFrame целиком (и баффы, и
---                 дебаффы) и рисуем на его месте свои иконки;
+-- ЧТО ДЕЛАЕТСЯ:
+--   своя панель — НЕ подмена: ванильные баффы и дебаффы остаются, а ряд
+--                 эффектов аддона встаёт под самой нижней из них, по
+--                 той же сетке (см. AnchorOwnHost). Раньше ванильная
+--                 панель пряталась целиком — и вместе с ней всё, чем
+--                 игрок пользуется вне отыгрыша;
 --   рамка цели  — ванильные ауры цели прячем и рисуем эффекты аддона,
 --                 которые она сама разослала (SB.Data.PlayersStatus).
 --
@@ -989,7 +995,7 @@ local function AuraTooltip(self)
             and SB.ActiveEffects.SecondsLeft(self._uses, self._seq, self._phase)
         local txt = left and SB.UI.SecondsAsTimeShort(left)
             or SB.UI.TurnsAsTimeShort(self._uses)
-        GameTooltip:AddLine("Осталось: |cFFFFD100" .. txt .. "|r", 1, 1, 1)
+        GameTooltip:AddLine("Осталось: |cFFCCA35C" .. txt .. "|r", 1, 1, 1)
     else
         GameTooltip:AddLine("Бессрочно — до Долгого Отдыха", 1, 0.82, 0)
     end
@@ -1259,6 +1265,9 @@ local function EnsureAuraHosts()
     local p = CreateFrame("Frame", nil, UIParent)
     p:SetSize(1, 1)
     p.icons, p.growLeft = {}, true
+    -- Сколько в ряд — как у ванильной панели: ряд аддона продолжает её
+    -- сетку, а не заводит свою.
+    p.perRow = tonumber(_G.BUFFS_PER_ROW) or 8
     if _G.BuffFrame then
         p:SetPoint("TOPRIGHT", _G.BuffFrame, "TOPRIGHT", 0, 0)
     else
@@ -1420,6 +1429,42 @@ end
 
 --- Тот же принцип, что у чисел: накладываем заново каждый тик, потому
 --- что клиент в любой момент показывает свои ауры обратно.
+--- Самая нижняя видимая ванильная аура своей панели: бафф, дебафф или
+--- временные чары на оружии. nil — ванильных аур нет.
+local function LowestBlizzAura()
+    local lowest, bottom
+    local function Try(b)
+        if b and b:IsShown() then
+            local y = b:GetBottom()
+            if y and (not bottom or y < bottom) then lowest, bottom = b, y end
+        end
+    end
+    for i = 1, (_G.BUFF_MAX_DISPLAY or 32) do Try(_G["BuffButton" .. i]) end
+    for i = 1, (_G.DEBUFF_MAX_DISPLAY or 16) do Try(_G["DebuffButton" .. i]) end
+    for i = 1, 3 do Try(_G["TempEnchant" .. i]) end
+    return lowest
+end
+
+--- Поставить ряд аддона под ванильные ауры: по высоте — под самой нижней
+--- из них, по горизонтали — к правому краю панели баффов, как и её ряды.
+--- Переставляем, только когда нижняя сменилась: зовётся это на каждом
+--- тике оверлея.
+local function AnchorOwnHost(host)
+    local low = LowestBlizzAura()
+    if host._low == low and host._anchored then return end
+    host._low, host._anchored = low, true
+    host:ClearAllPoints()
+    local bf = _G.BuffFrame
+    if low and bf then
+        host:SetPoint("TOP", low, "BOTTOM", 0, -(AURA_ROW_GAP + 10))
+        host:SetPoint("RIGHT", bf, "RIGHT", 0, 0)
+    elseif bf then
+        host:SetPoint("TOPRIGHT", bf, "TOPRIGHT", 0, 0)
+    else
+        host:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -205, -13)
+    end
+end
+
 local function RefreshAuras()
     -- Свой переключатель, но тот же «мирный режим»: подмена чисел может
     -- быть выключена, а подмена аур — работать, и наоборот.
@@ -1427,7 +1472,8 @@ local function RefreshAuras()
     -- ДВА ОТДЕЛЬНЫХ УСЛОВИЯ: своя панель и рамка цели включаются
     -- независимо (см. врезку «ДВЕ ПОДМЕНЫ АУР»).
     local peace     = IsPeaceful()
-    local wantOwn   = SB.Overlay.AreOwnAurasEnabled()    and peace
+    -- Своя панель от «мирного режима» не зависит: она ничего не прячет.
+    local wantOwn   = SB.Overlay.AreOwnAurasEnabled()
     local wantTgt   = SB.Overlay.AreTargetAurasEnabled() and peace
     local want      = wantOwn or wantTgt
 
@@ -1435,14 +1481,19 @@ local function RefreshAuras()
     if not want and not auraHosts then return end
     local hosts = EnsureAuraHosts()
 
-    if wantOwn then
+    -- СВОЯ ПАНЕЛЬ — НЕ ПОДМЕНА, А ПРОДОЛЖЕНИЕ. Ванильные ауры остаются
+    -- на месте, ряд аддона встаёт под самой нижней из них (см.
+    -- AnchorOwnHost). Раз ничего не прячется, «мирный режим» здесь ни к
+    -- чему: ряд показывается и в бою. Ванильную панель возвращаем
+    -- всегда — вдруг её спрятала прежняя подмена.
+    SetOwnBlizzAuras(false)
+    if SB.Overlay.AreOwnAurasEnabled() then
+        AnchorOwnHost(hosts.player)
         LayoutAuraHost(hosts.player, SB.ActiveEffects and SB.ActiveEffects.GetAll())
         RefreshAuraCounts(hosts.player)
         hosts.player:Show()
-        SetOwnBlizzAuras(true)
     else
         hosts.player:Hide()
-        SetOwnBlizzAuras(false)
     end
 
     local list = wantTgt and TargetAddonAuras() or nil
@@ -1929,8 +1980,25 @@ end
 -- ============================================================
 local driver = CreateFrame("Frame")
 local sinceTick = 0
+-- УДЕРЖИВАЕМАЯ ЦЕЛЬ ПЕРЕСПРАШИВАЕТСЯ. Игрок вне группы рассылает свои
+-- изменения тем, кто на него навёлся, но подписка у него живёт 45 секунд
+-- (см. «НАБЛЮДАТЕЛИ» в Core/Network.lua): держать цель — не событие, и
+-- узнать, что его выпустили из неё, ему не из чего. Раз в 20 секунд
+-- продлеваем её тем же срочным вопросом; старому клиенту без подписок
+-- это заодно освежает числа.
+local TARGET_RENEW = 20
+local sinceRenew = 0
 driver:SetScript("OnUpdate", function(_, dt)
     sinceTick = sinceTick + dt
+    sinceRenew = sinceRenew + dt
+    if sinceRenew >= TARGET_RENEW then
+        sinceRenew = 0
+        -- Только игрока в цели: существо своё состояние не подписывает.
+        if (SB.Overlay.IsEnabled() or SB.Overlay.AreAurasEnabled())
+           and SB.Net and SB.Net.ProbePlayerStatus then
+            ProbeUnit("target")
+        end
+    end
     if sinceTick < TICK then return end
     sinceTick = 0
     Refresh()
@@ -1971,6 +2039,7 @@ driver:SetScript("OnEvent", function(_, event)
 
     elseif event == "PLAYER_TARGET_CHANGED" or event == "UNIT_TARGET" then
         ProbeTarget()
+        sinceRenew = 0
         -- ПЕРЕКЛАДЫВАЕМ НЕМЕДЛЕННО, не дожидаясь тика. Клиент собирает
         -- рамку новой цели прямо в этом событии, и до ближайшего тика
         -- (до 0.1с) на ней успевали мелькнуть ванильные цифры и цвета —

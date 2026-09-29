@@ -91,6 +91,10 @@ end
 -- ============================================================
 local STATE_TTL = 3 * 3600   -- секунд
 
+-- Сколько полных состояний пришло от лидера по сети. По нему вход в
+-- группу узнаёт, ответил ли лидер раньше сброса (см. joinWatch).
+local leaderStamp = 0
+
 local state = {
     active  = false,
     mode    = DEFAULT_MODE,
@@ -426,6 +430,46 @@ end
 
 function TO.HasActed(name)
     return state.acted[name] == true
+end
+
+--- Пришедшие посреди круга: отметка «походил» есть, места в очереди
+--- ещё нет — оно появится на «Новом ходе». Для показа за чертой полосы
+--- очереди (UI/TurnQueue.lua), по имени, чтобы порядок не прыгал.
+--- @return table  { "Имя", ... }
+function TO.GetLateJoiners()
+    if not state.active then return {} end
+    local listed = {}
+    for _, slot in ipairs(state.slots) do
+        for _, n in ipairs(slot) do listed[n] = true end
+    end
+    -- ТОЛЬКО ТЕ, КТО В ИГРЕ И В ГРУППЕ. Отметка «походил» у ушедшего
+    -- остаётся до конца круга (вернётся — останется походившим), и без
+    -- этой проверки вышедший из игры висел бы в полосе за чертой, как
+    -- будто он здесь и ждёт следующего круга.
+    --
+    -- Состав берём прямым обходом юнитов, тем же, что у Participants, а
+    -- не из кэша группы: кэш перестраивается по событию состава, а выход
+    -- из игры приходит другим событием (UNIT_CONNECTION).
+    local me = UnitName("player")
+    local online = { [me or ""] = true }
+    if IsInGroup() then
+        local prefix = IsInRaid() and "raid" or "party"
+        for i = 1, (IsInRaid() and 40 or 4) do
+            local unit = prefix .. i
+            if UnitExists(unit) and UnitIsConnected(unit) then
+                local n = UnitName(unit)
+                if n then online[n] = true end
+            end
+        end
+    end
+    local out = {}
+    for name, v in pairs(state.acted) do
+        if v == true and not listed[name] and online[name] then
+            out[#out + 1] = name
+        end
+    end
+    table.sort(out)
+    return out
 end
 
 -- ============================================================
@@ -995,8 +1039,11 @@ end
 --- Применить состояние: пришедшее от Ведущего по сети или своё
 --- сохранённое после /reload. По смыслу ничего не проверяет — проверка
 --- одна и она в Core/Network.lua: пакет принят только от лидера группы.
-function TO.ApplyRemoteState(t)
+--- @param fromLeader boolean|nil  пакет от лидера по сети (а не своя
+---        сохранёнка или сброс) — см. leaderStamp у joinWatch.
+function TO.ApplyRemoteState(t, fromLeader)
     if type(t) ~= "table" then return end
+    if fromLeader then leaderStamp = leaderStamp + 1 end
 
     -- Переключение режима обнуляет пройденный путь В ОБЕ СТОРОНЫ. Путь
     -- копится только внутри пошагового режима (см. ShouldCount в
@@ -1879,22 +1926,117 @@ end)
 -- ждать некому.
 --
 -- «Ушедший» — это и вышедший из группы, и вышедший из ИГРЫ: второй в
--- составе остаётся, но ходить не может (см. Participants). Клиент шлёт
--- на разрыв связи то же событие ростера, что и на выход из группы, —
--- отдельной подписки не нужно.
+-- составе остаётся, но ходить не может (см. Participants). Выход из игры
+-- и возвращение клиент сообщает событием UNIT_CONNECTION — слушаем его
+-- вместе с событием состава: полагаться на то, что заодно придёт и
+-- GROUP_ROSTER_UPDATE, нельзя.
+--
+-- ПРАВИЛО ОДНО ДЛЯ ВЫХОДА ИЗ ГРУППЫ И ИЗ ИГРЫ:
+--   ушёл     — выбывает из очереди, ход переходит дальше, если ждали его;
+--   вернулся — считается походившим в этом круге и встаёт в очередь на
+--              «Новом ходе» (см. врезку «ПРИШЕДШИЙ ПОСРЕДИ КРУГА» ниже).
+--
+-- /reload сюда не относится: связь с сервером он не рвёт, событий
+-- состава не шлёт, и очередь его не замечает.
+local lateAnnounced = {}   -- кому уже объявили «ходит со следующего круга»
+
+-- ВЕРНУВШИЙСЯ В ИГРУ — ПОХОДИВШИЙ И У СЕБЯ, СРАЗУ. Клиент при входе
+-- восстанавливает свой снимок очереди (см. SB_INIT выше), и если в нём
+-- стоял его ход, первые секунды — пока не пришёл пакет Ведущего — он мог
+-- бы действовать: для очереди его уже нет, а для него самого ход открыт.
+-- Ведущий пометит его походившим тем же правилом (см. rosterWatch ниже);
+-- здесь это просто случается раньше, на своей стороне.
+--
+-- ТОЛЬКО ВХОД В ИГРУ, НЕ /reload: перезагрузка интерфейса связь с
+-- сервером не рвёт, и для очереди игрок никуда не уходил.
+local loginWatch = CreateFrame("Frame")
+loginWatch:RegisterEvent("PLAYER_ENTERING_WORLD")
+loginWatch:SetScript("OnEvent", function(_, _, isInitialLogin)
+    if not isInitialLogin then return end
+    if not state.active or AssertGM() then return end
+    local me = UnitName("player")
+    if me and not state.acted[me] then
+        state.acted[me] = true
+        Changed()
+    end
+end)
+
+-- СБРАСЫВАЕТСЯ ТОЛЬКО СВОЯ, ПРИНЕСЁННАЯ ОЧЕРЕДЬ — и только если пакет
+-- лидера ещё не пришёл. Лидер в пошаговом отвечает пришедшему быстрее
+-- секунды; раньше сброс по таймеру затирал уже полученную очередь, и
+-- режим прыгал «пошаговый → свободный → пошаговый». Теперь: пришёл
+-- свободным — сбрасывать нечего; пакет лидера пришёл после входа —
+-- ему и верим.
+--
+-- ВОШЕДШИЙ В ГРУППУ ЗАБЫВАЕТ СВОЮ ОЧЕРЕДЬ. Сцена — у лидера группы, а
+-- у пришедшего могла остаться своя: вёл пошаговый бой один или в другой
+-- группе. Раньше она так и оставалась — лидер в свободном ходе очередь не
+-- рассылает (см. «свободный ход» в rosterWatch), и пришедший играл по
+-- пошаговым правилам в свободной сцене. Теперь при входе в группу чужой
+-- сцены клиент переходит в свободный ход; если у лидера идёт пошаговый,
+-- его пакет придёт следом и включит очередь заново.
+--
+-- С задержкой: в момент GROUP_JOINED клиент ещё может не знать, кто
+-- лидер, — и собравший группу сам сбросил бы собственную сцену.
+local joinWatch = CreateFrame("Frame")
+joinWatch:RegisterEvent("GROUP_JOINED")
+joinWatch:SetScript("OnEvent", function()
+    if not state.active then return end
+    local stamp = leaderStamp
+    C_Timer.After(1, function()
+        if leaderStamp ~= stamp then return end
+        if not state.active or not IsInGroup() or AssertGM() then return end
+        TO.ApplyRemoteState({
+            active = false, mode = state.mode,
+            moveFree = state.moveFree, session = state.session,
+        })
+    end)
+end)
+
+-- Кого лидер уже видел в составе, пока шёл свободный ход (см. ниже).
+local seenFree = nil
+local freeBroadcastDue = false
+
 local rosterWatch = CreateFrame("Frame")
 rosterWatch:RegisterEvent("GROUP_ROSTER_UPDATE")
+rosterWatch:RegisterEvent("UNIT_CONNECTION")
 rosterWatch:SetScript("OnEvent", function()
-    if not state.active or not AssertGM() then return end
+    if not AssertGM() then return end
+
+    -- СВОБОДНЫЙ ХОД ТОЖЕ СООБЩАЕТСЯ ПРИШЕДШИМ. Вошедший в группу или
+    -- в игру мог принести пошаговую очередь из своего снимка — лидер
+    -- говорит ему «сцена свободная» тем же пакетом очереди. Только
+    -- новым в составе и одним пакетом на пачку событий.
+    if not state.active then
+        local fresh = false
+        local now = {}
+        for _, name in ipairs(Participants()) do
+            now[name] = true
+            if not seenFree or not seenFree[name] then fresh = true end
+        end
+        seenFree = now
+        if fresh and IsInGroup() and not freeBroadcastDue then
+            freeBroadcastDue = true
+            C_Timer.After(3, function()
+                freeBroadcastDue = false
+                if not state.active and AssertGM() then Broadcast() end
+            end)
+        end
+        return
+    end
+    seenFree = nil
+    -- Кто ходил ДО изменения состава: по нему видно, сдвинулся ли ход.
+    local whoBefore = (state.index >= 1) and CurrentText() or nil
 
     local present = {}
     for _, name in ipairs(Participants()) do present[name] = true end
 
-    local changed = false
+    local changed, gone = false, {}
     for i, slot in ipairs(state.slots) do
         local keep = {}
         for _, n in ipairs(slot) do
-            if present[n] then keep[#keep + 1] = n else changed = true end
+            if present[n] then keep[#keep + 1] = n
+            else changed = true; gone[#gone + 1] = n end
         end
         state.slots[i] = keep
     end
@@ -1937,22 +2079,45 @@ rosterWatch:SetScript("OnEvent", function()
         end
     end
 
-    -- ПРИШЕДШИЙ ПОСРЕДИ СЦЕНЫ. Раньше он вставал в очередь только со
-    -- следующего круга, а полное состояние получал только на границе
-    -- круга — до тех пор полоса у него показывала одного себя. Теперь
-    -- Ведущий ставит его в очередь сразу (в «по игроку» — в конец) и
-    -- рассылает состояние: сейчас и ещё раз через три секунды, когда
-    -- клиент пришедшего уже в группе и слышит её канал.
+    -- ПРИШЕДШИЙ ПОСРЕДИ КРУГА СЧИТАЕТСЯ ПОХОДИВШИМ.
+    --
+    -- Раньше Ведущий вставлял его в очередь сразу: в конец, к своей
+    -- рейдовой группе или в общий слот — и очередь посреди круга
+    -- пересобиралась, пытаясь решить, куда его деть и дошёл ли до него
+    -- ход. Со стороны это выглядело как «очередь ведёт себя нестабильно».
+    --
+    -- Теперь текущую очередь новичок НЕ ТРОГАЕТ вовсе: он получает
+    -- отметку «походил» на этот круг и встаёт в очередь на «Новом ходе»
+    -- — туда его дописывает NewRound (см. AddNewcomers), и отметки там
+    -- же сбрасываются. Это ещё и баланс: вошедший посреди боя не
+    -- действует раньше тех, кто в нём с начала.
+    --
+    -- Состояние рассылаем сейчас и ещё раз через три секунды — когда
+    -- клиент пришедшего уже в группе и слышит её канал. Считаем и того,
+    -- у кого отметка уже была (походил, вышел и вернулся в том же
+    -- круге): ему свежий пакет нужен ровно так же.
+    --
+    -- Это же правило — для ВЕРНУВШЕГОСЯ В ИГРУ: выход из игры вычеркнул
+    -- его из очереди (см. выше), и при возвращении он для очереди такой
+    -- же пришедший посреди круга.
     local known = {}
     for _, slot in ipairs(state.slots) do
         for _, n in ipairs(slot) do known[n] = true end
     end
-    local newcomers = false
+    local back = {}
     for name in pairs(present) do
-        if not known[name] then newcomers = true end
+        if not known[name] then
+            if not state.acted[name] then state.acted[name] = true end
+            if not lateAnnounced[name] then
+                lateAnnounced[name] = true
+                back[#back + 1] = name
+            end
+        end
     end
-    if newcomers and (state.round or 0) > 0 then
-        AddNewcomers()
+    -- Ушедший может вернуться снова — тогда о нём объявим заново.
+    for _, n in ipairs(gone) do lateAnnounced[n] = nil end
+
+    if #back > 0 and (state.round or 0) > 0 then
         changed = true
         C_Timer.After(3, function()
             if state.active and AssertGM() then Broadcast() end
@@ -1961,22 +2126,84 @@ rosterWatch:SetScript("OnEvent", function()
 
     if not changed then return end
 
-    -- Слот мог опустеть целиком — тогда он больше никого не ждёт.
+    -- СЛОТ МОГ ОПУСТЕТЬ ЦЕЛИКОМ — тогда он больше никого не ждёт.
+    --
+    -- НОМЕР ИДУЩЕГО СЛОТА ПЕРЕСЧИТЫВАЕМ по новой нумерации. Раньше он
+    -- оставался прежним: опустевший слот ДО идущего выпадал, остальные
+    -- съезжали на место выше, и номер начинал указывать на следующий —
+    -- очередь молча перескакивала через целый слот.
+    local oldIndex = state.index
+    local newIndex = 0
     local packed, packedGroups = {}, {}
     for i, slot in ipairs(state.slots) do
         if #slot > 0 then
             packed[#packed + 1] = slot
             packedGroups[#packed] = slotGroup[i]
+            if i == oldIndex then newIndex = #packed end
+        elseif i == oldIndex then
+            -- Опустел ИДУЩИЙ слот: ход переходит к следующему, который
+            -- встанет ровно на это место.
+            newIndex = #packed + 1
         end
     end
     state.slots = packed
     slotGroup   = packedGroups
-    if state.index > #state.slots then state.index = 0 end
-    if state.index == 0 and #state.slots > 0 and state.round > 0 then
-        -- Ушёл тот, чей был ход, и очередь упёрлась в конец — не
-        -- закрываем круг молча, пусть Ведущий решает.
+    if oldIndex < 1 or newIndex > #state.slots then
         state.index = 0
+    else
+        state.index = newIndex
+    end
+
+    -- ЖДАЛИ УШЕДШЕГО — ХОД ПЕРЕХОДИТ ДАЛЬШЕ. Идущий слот закрыт, когда
+    -- отходили все, кто в нём остался; остались одни походившие (или
+    -- слот опустел) — дальше круг ждал бы человека, которого в игре нет.
+    -- В режиме «все сразу» тот же вопрос про единственный слот.
+    local function SlotDone(slot)
+        if not slot then return false end
+        for _, n in ipairs(slot) do
+            if not state.acted[n] then return false end
+        end
+        return true
+    end
+    local roundClosed = false
+    if state.mode == "all" then
+        if oldIndex >= 1 and #gone > 0 and SlotDone(state.slots[1]) then
+            state.index = 0
+            roundClosed = true
+        end
+    else
+        while state.index >= 1 and SlotDone(state.slots[state.index]) do
+            state.index = state.index + 1
+            if state.index > #state.slots then state.index = 0 end
+        end
     end
     Broadcast()
     Changed()
+
+    -- ОДНОЙ СТРОКОЙ: кто выбыл, кто вернулся и что с ходом.
+    local parts = {}
+    if #gone > 0 then
+        table.sort(gone)
+        parts[#parts + 1] = "Выбывает из очереди: " .. table.concat(gone, ", ") .. "."
+    end
+    if #back > 0 and (state.round or 0) > 0 then
+        table.sort(back)
+        parts[#parts + 1] = "Ходит со следующего круга: " .. table.concat(back, ", ") .. "."
+    end
+    if roundClosed then
+        parts[#parts + 1] = "Все походили."
+    elseif state.mode ~= "all" and oldIndex >= 1 and #gone > 0 then
+        if state.index < 1 then
+            parts[#parts + 1] = "Круг пройден."
+        else
+            -- Ход мог достаться павшему — пролистываем его молча; кто
+            -- ходит в итоге, скажет эта же строка.
+            SkipDownedSlots(false)
+            local who = CurrentText()
+            if who ~= whoBefore then
+                parts[#parts + 1] = who and ("Ходит: " .. who .. ".") or "Круг пройден."
+            end
+        end
+    end
+    if #parts > 0 then Announce(table.concat(parts, " ")) end
 end)
