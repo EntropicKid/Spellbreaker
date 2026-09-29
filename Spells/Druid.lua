@@ -14,7 +14,7 @@ Add({
     isCantrip = true,
     resistable = true,
     canCrit = true,
-	distance = 19,
+	distance = 30,
 	scaling = {
 		hit    = { ["Исток"] = 1, ["Эрудиция"] = 0.5 },
 		crit   = { ["Интуиция"] = 1 },
@@ -136,7 +136,6 @@ Add({
     resistable = true,
 	duration = 10,
     isConcentration = false,
-	distance = 2.5,
 	buff = "eff_weapon_enchant_mighty_fangs",
 	scaling = {
 		hit    = { ["Выживание"] = 1, ["Запугивание"] = 0.5 },
@@ -156,7 +155,6 @@ Add({
 	duration = 600,
     isConcentration = false,
 	distance = 2.5,
-
     buff = "eff_easy_step",
 	scaling = {
 		hit    = { ["Выживание"] = 1, ["Акробатика"] = 0.5 },
@@ -191,9 +189,9 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = false,
-	duration = 100,
+	duration = 5,
     isConcentration = true,
-	distance = 8,
+	aoe = { radius = 6 },
     container = "eff_bestial_trance",
 	scaling = {
 		hit    = { ["Выживание"] = 1.5, ["Запугивание"] = 0.5 },
@@ -212,13 +210,13 @@ Add({
     isCantrip = true,
     resistable = true,
     canCrit = true,
-	distance = 19,
+	distance = 30,
 	debuff = "eff_blinded_insect_swarm",
     duration = 4,
 	scaling = {
 		hit    = { ["Исток"] = 1, ["Интуиция"] = 0.5 },
 		crit   = { ["Рвение"] = 1 },
-		damage = { ["Дух"] = 1 },
+		damage = { ["Дух"] = 0.75 },
 	},
 })
 Add({
@@ -234,7 +232,7 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-	distance = 19,
+	distance = 30,
     -- ГОРИТ ДАЛЬШЕ: «их тела страдают и сгорают в холодном ночном
     -- пламени» — до сих пор заклинание било разом и на этом кончалось.
 	debuff = "eff_bleeding_lunar_flame",
@@ -257,7 +255,7 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = false,
-	duration = 3,
+	duration = 10,
     isConcentration = false,
 	distance = 2.5,
     buff = "eff_thorns",
@@ -278,7 +276,7 @@ Add({
     resistable = false,
 	duration = 3,
     isConcentration = false,
-	distance = 41,
+	distance = 40,
     debuff = "eff_swamp_mist",
 	scaling = {
 		hit    = { ["Исток"] = 1, ["Интуиция"] = 0.5 },
@@ -298,7 +296,7 @@ Add({
     canCrit = false,
 	duration = 2,
     isConcentration = false,
-	distance = 19,
+	distance = 30,
 	debuff = "eff_slowed_tree_wrath",
 	scaling = {
 		hit    = { ["Исток"] = 1, ["Концентрация"] = 0.5 },
@@ -318,7 +316,7 @@ Add({
     canCrit = false,
 	duration = 3,
     isConcentration = false,
-	distance = 19,
+	distance = 30,
 	debuff = "eff_vulnerable_faerie_fire",
 	scaling = {
 		hit    = { ["Исток"] = 1, ["Эрудиция"] = 0.5 },
@@ -338,7 +336,7 @@ Add({
     canCrit = false,
 	duration = 2,
     isConcentration = false,
-	distance = 8,
+	distance = 30,
     debuff = "eff_druid_sleep",
 	scaling = {
 		hit    = { ["Исток"] = 1.5, ["Интуиция"] = 0.5 },
@@ -357,11 +355,10 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-	duration = 3,
     isConcentration = false,
-	distance = 19,
-	aoe = { radius = 18 },
-    container = "eff_druid_starfall",
+	distance = 20,
+	aoe = { radius = 12 },
+	channel = 3,
 	scaling = {
 		hit    = { ["Исток"] = 1.5, ["Концентрация"] = 0.5 },
 		crit   = { ["Интуиция"] = 1.5 },
@@ -382,7 +379,7 @@ Add({
     canCrit = false,
 	duration = 10,
     isConcentration = false,
-	distance = 13,
+	distance = 10,
     debuff = "eff_beast_calm",
 	scaling = {
 		hit    = { ["Исток"] = 1.5, ["Эрудиция"] = 0.5 },
@@ -401,11 +398,12 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-	duration = 3,
     isConcentration = false,
-	distance = 13,
-	aoe = { radius = 12 },
-    container = "eff_druid_hurricane",
+	distance = 30,
+	aoe = { radius = 3 },
+	duration = 1,
+	channel = 3,
+    debuff = "eff_druid_hurricane",
 	scaling = {
 		hit    = { ["Исток"] = 1.5, ["Интуиция"] = 1 },
 		crit   = { ["Интуиция"] = 1.5 },
@@ -426,8 +424,8 @@ Add({
     canCrit = false,
 	duration = 2,
     isConcentration = false,
-	distance = 19,
-    container = "eff_druid_tornado",
+	distance = 30,
+    debuff = "eff_druid_tornado",
 	scaling = {
 		hit    = { ["Исток"] = 1.5, ["Концентрация"] = 1 },
 	},
@@ -443,7 +441,7 @@ Add({
 	description = "Друид облачается в дубовую кору, становясь подобным дереву: он крайне устойчив к колющим, и режущим ударам, к урону холодом, и ядом но никак не защищен от рубящих ударов топором, в случае если друид будет подожжен, то дубовая кора умножит в два раза получаемый урон от пламени.\n\nК Дубовой коже можно воззвать даже будучи оглушенным, замороженным, в состоянии паралича, или испуга, и даже в облике зверя. ",
     isCantrip = false,
     resistable = true,
-	duration = 3,
+	duration = 4,
     isConcentration = false,
 	container = "eff_stone_skin_druid_stoneskin",
 	scaling = {
@@ -483,7 +481,7 @@ Add({
     resistable = true,
 	duration = 3,
     isConcentration = false,
-	distance = 19,
+	distance = 30,
     buff = "eff_rejuvenation",
 	scaling = {
 		hit    = { ["Милосердие"] = 1, ["Выживание"] = 0.5 },
@@ -500,7 +498,7 @@ Add({
 	description = "!!!ПРИДУМАТЬ АЛЬТЕРНАТИВНОЕ НАПИСАНИЕ в стиле друидов!!!Прикоснувшись к живому существу и воззвав к силам Природы, вы способны исцелять легкие ранения: порезы, глубокие колотые ранения, этой силы недостаточно чтобы исцелить внутренние повреждения органов, сращивать разрезанные конечности или восстановить им функциональность в обход длительной реабилитации. Этим заклинанием можно остановить кровотечение или залечить вскрытую артерию; ожоги и раны оставленные темной магией залечиваются неохотно.",
     isCantrip = false,
     resistable = true,
-	distance = 19,
+	distance = 30,
     isHeal = true,
 	scaling = {
 		hit    = { ["Милосердие"] = 1, ["Интуиция"] = 0.5 },
@@ -538,7 +536,7 @@ Add({
 	description = "Взывая к силам природы, друид может легким наложением рук вывести яд из организма существа, это не исцеляет нанесенных ядом повреждений, но предотвращает дальнейшую смерть и позволяет субъекту начать восстанавливаться.",
     isCantrip = false,
     resistable = true,
-	distance = 19,
+	distance = 30,
 	dispel = { "poison" },
 	scaling = {
 		hit    = { ["Милосердие"] = 1, ["Выживание"] = 0.5 },
@@ -575,7 +573,6 @@ Add({
     isCantrip = false,
     resistable = true,
 	distance = 2.5,
-	-- «И от яда, и проклятий» — обе школы прямо из описания.
 	dispel = { "curse", "poison" },
 	scaling = {
 		hit    = { ["Милосердие"] = 1.5, ["Живучесть"] = 0.5 },
@@ -616,10 +613,7 @@ Add({
     resistable = true,
 	duration = 1,
     isConcentration = false,
-	-- «Всех живых существ вокруг себя»: круг вокруг друида, цель не
-	-- нужна. Бафф ложится на тех, на ком сработало лечение.
-	distance = 0,
-	aoe = { radius = 4.5 },
+	aoe = { radius = 6 },
     isHeal = true,
     buff = "eff_tranquility",
 	scaling = {
@@ -641,7 +635,7 @@ Add({
     resistable = true,
 	duration = 3,
     isConcentration = false,
-	distance = 19,
+	distance = 30,
     isHeal = true,
     buff = "eff_lifebloom",
 	scaling = {
@@ -663,8 +657,7 @@ Add({
     resistable = true,
 	duration = 600,
     isConcentration = false,
-	distance = 19,
-	buff = "eff_fortitude_nature_blessing",
+	buff = "eff_devotion_wildlife_sign",
 	aoe = { radius = 18 },
 	scaling = {
 		hit    = { ["Милосердие"] = 1.5, ["Выживание"] = 1 },
@@ -728,7 +721,7 @@ Add({
     distance = 2.5,
     scaling = {
     	hit    = { ["Акробатика"] = 1 },
-    	crit   = { ["Точность"] = 0.5, ["Скрытность"] = 0.5 },
+    	crit   = { ["Скрытность"] = 1 },
     	damage = { ["Ловкость"] = 0.75 },
     },
 })
@@ -750,7 +743,7 @@ Add({
     debuff = "eff_bleeding_rake",
     scaling = {
     	hit    = { ["Скрытность"] = 1 },
-    	crit   = { ["Точность"] = 1 },
+    	crit   = { ["Скрытность"] = 1 },
     	damage = { ["Ловкость"] = 0.5 },
     },
 })
@@ -769,7 +762,7 @@ Add({
     duration = 4,
     debuff = "eff_bleeding_rip",
     scaling = {
-    	hit    = { ["Скрытность"] = 1, ["Точность"] = 0.5 },
+    	hit    = { ["Скрытность"] = 1.5 },
     },
 })
 
@@ -788,7 +781,7 @@ Add({
     distance = 2.5,
     scaling = {
     	hit    = { ["Акробатика"] = 1 },
-    	crit   = { ["Точность"] = 1 },
+    	crit   = { ["Скрытность"] = 1 },
     	damage = { ["Ловкость"] = 1.5 },
     },
 })
@@ -888,7 +881,6 @@ Add({
     description = "Ярость зверя обращается внутрь: раны стягиваются на глазах, мясо нарастает на рассечённом плече, и любое лечение ложится на медведя вдвое охотнее. Несколько ходов друид восстанавливается сам.",
     isCantrip = false,
     resistable = false,
-    distance = 0,
     duration = 3,
     container = "eff_frenzied_regeneration",
     scaling = {
