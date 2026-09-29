@@ -3876,3 +3876,61 @@ SB.Events.On("SB_INIT", function()
     end)
 	
 end)
+
+-- ============================================================
+-- ВИЗУАЛЬНЫЕ АУРЫ ЭФФЕКТОВ (.caura)
+--
+-- У эффекта может стоять caura = N (см. AddEffect в Spells/Effects.lua).
+-- Пока такой эффект висит на персонаже, на нём видна серверная аура N:
+-- появился эффект — «.caura toggle N», спал — ещё раз «.caura toggle N».
+--
+-- ИМЕННО toggle. «.caura N» вешает ауру на того, кто в цели, а взять себя
+-- в цель аддон не вправе (TargetUnit защищён). toggle же всегда
+-- действует на пишущего, кто бы ни стоял в цели.
+--
+-- ПЕРЕКЛЮЧАТЕЛЬ ТРЕБУЕТ ПАМЯТИ. Одна лишняя команда — и аура висит без
+-- эффекта или пропадает при эффекте. Поэтому шлём не «на каждое
+-- наложение», а по РАЗНИЦЕ: какие ауры должны гореть (по висящим
+-- эффектам) против тех, что мы уже включили. Включённые хранятся в
+-- сохранёнке персонажа: после /reload эффекты восстанавливаются из неё
+-- же, и разница выходит нулевой — лишнего переключения не будет.
+--
+-- Два эффекта с одной аурой — одна аура: она гаснет, когда спадёт
+-- последний. Галочка «Игнорировать .caura заклинаний» гасит и эти ауры.
+-- ============================================================
+local function EffectCaura(spellID)
+    local sp = SB.Data.Spells[spellID]
+    if not (sp and sp.isContainer) then return nil end
+    local n = tonumber(sp.caura)
+    if n and n > 0 then return math.floor(n) end
+    return nil
+end
+SB.ActiveEffects.EffectCaura = EffectCaura
+
+function SB.ActiveEffects.SyncCauras()
+    if not SpellbreakerCharDB then return end
+    local on = SpellbreakerCharDB.effectCauras
+    if type(on) ~= "table" then on = {} end
+
+    local want = {}
+    if not (SpellbreakerAccountDB and SpellbreakerAccountDB.ignoreCaura) then
+        for _, eff in ipairs(effects) do
+            local n = EffectCaura(eff.spellID)
+            if n then want[n] = true end
+        end
+    end
+
+    local flip = {}
+    for n in pairs(want) do if not on[n] then flip[#flip + 1] = n end end
+    for n in pairs(on)   do if not want[n] then flip[#flip + 1] = n end end
+    table.sort(flip)
+    for _, n in ipairs(flip) do
+        if SB.Logic and SB.Logic.ServerCommand then
+            SB.Logic.ServerCommand(".caura toggle " .. n)
+        end
+        on[n] = (not on[n]) or nil
+    end
+    SpellbreakerCharDB.effectCauras = on
+end
+
+SB.Events.On("ACTIVE_EFFECTS_CHANGED", function() SB.ActiveEffects.SyncCauras() end)

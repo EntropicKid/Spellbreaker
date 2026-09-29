@@ -21931,6 +21931,52 @@ do
     stub.world.inGroup = wasGroup
 end
 
+-- ============================================================
+-- ВИЗУАЛЬНАЯ АУРА ЭФФЕКТА: .caura toggle при появлении и при спадании
+-- ============================================================
+do
+    local AE = SB.ActiveEffects
+    SB.Data.Spells["t_caura_a"] = { id = "t_caura_a", name = "Проба ауры А",
+        class = "Эффект", level = 0, isContainer = true, caura = 7,
+        effect = { kind = "buff" } }
+    SB.Data.Spells["t_caura_b"] = { id = "t_caura_b", name = "Проба ауры Б",
+        class = "Эффект", level = 0, isContainer = true, caura = 7,
+        effect = { kind = "buff" } }
+    local realCmd, cmds = SB.Logic.ServerCommand, {}
+    SB.Logic.ServerCommand = function(c) cmds[#cmds + 1] = c; return true end
+    local savedIgnore = SpellbreakerAccountDB.ignoreCaura
+    SpellbreakerAccountDB.ignoreCaura = false
+    AE.Clear()
+    SpellbreakerCharDB.effectCauras = {}
+    cmds = {}
+
+    AE.Add("t_caura_a", 3, false)
+    check("появился — одна команда", #cmds, 1)
+    check("и это toggle", cmds[1], ".caura toggle 7")
+    AE.Add("t_caura_b", 3, false)
+    check("второй эффект с той же аурой — без команды", #cmds, 1)
+    AE.Remove("t_caura_a")
+    check("спал один из двух — аура ещё горит", #cmds, 1)
+    AE.Remove("t_caura_b")
+    check("спал последний — второй toggle", #cmds, 2)
+    check("тот же toggle", cmds[2], ".caura toggle 7")
+
+    -- Как после /reload: эффект восстановлен, аура уже включена — тишина.
+    AE.Add("t_caura_a", 3, false)
+    local n = #cmds
+    AE.SyncCauras()
+    check("повторная сверка ничего не шлёт", #cmds, n)
+    SpellbreakerAccountDB.ignoreCaura = true
+    AE.SyncCauras()
+    check("галочка «Игнорировать .caura» гасит ауру", #cmds, n + 1)
+
+    AE.Clear()
+    SpellbreakerCharDB.effectCauras = {}
+    SpellbreakerAccountDB.ignoreCaura = savedIgnore
+    SB.Logic.ServerCommand = realCmd
+    SB.Data.Spells["t_caura_a"], SB.Data.Spells["t_caura_b"] = nil, nil
+end
+
 -- ИТОГ
 -- ============================================================
 print("")

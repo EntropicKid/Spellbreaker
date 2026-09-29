@@ -98,6 +98,8 @@ local cauraOptChk = MakeCheckRow(content, addHeader, -10,
     "ignoreCaura",
     function(val)
         if SBIgnoreCauraChk then SBIgnoreCauraChk:SetChecked(val) end
+        -- Ауры висящих эффектов гаснут/зажигаются вместе с галочкой.
+        if SB.ActiveEffects and SB.ActiveEffects.SyncCauras then SB.ActiveEffects.SyncCauras() end
     end)
 
 -- Игнорировать анимацию смерти — отдельно от аур заклинаний: павший
