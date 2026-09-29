@@ -870,9 +870,14 @@ end
 function SB.NPC.ApplyRemoteState(key, hp, maxHp, res, maxRes, packed, ward)
     if type(key) ~= "string" or key == "" then return end
     local prev = state[key]
+    -- ВИД И ИМЯ — И У ОСОБИ, ЗНАКОМОЙ ТОЛЬКО ПО СЕТИ. Раньше запись по
+    -- чужому пакету оставалась без npcID и без имени: в логе тика она
+    -- была безликим «Существом», а пересчёт по виду её не находил.
+    local npcID = (prev and prev.npcID) or SB.NPC.NpcIDFromKey(key)
+    local rec   = npcID and SB.NPC.Get(npcID)
     state[key] = {
-        npcID  = prev and prev.npcID,
-        name   = prev and prev.name,
+        npcID  = npcID,
+        name   = (prev and prev.name) or (rec and rec.name),
         hp     = math.max(0, tonumber(hp)     or 0),
         maxHp  = math.max(1, tonumber(maxHp)  or 1),
         res    = math.max(0, tonumber(res)    or 0),
@@ -1568,7 +1573,39 @@ end
 --- UnitName у тушки, которой нет в цели, не у кого.
 function SB.NPC.NameForKey(key)
     local st = key and state[key]
-    return (st and st.name) or "Существо"
+    if st and st.name then return st.name end
+    local rec = SB.NPC.Get(SB.NPC.NpcIDFromKey(key))
+    return (rec and rec.name) or "Существо"
+end
+
+--- Номер особи из ключа — вторая половина «npcID:spawnUID», та же, что в
+--- конце GUID существа. По нему Ведущий отличает одноимённых и находит
+--- тушку, про которую пишет лог.
+function SB.NPC.SpawnIDOfKey(key)
+    if type(key) ~= "string" then return nil end
+    return key:match("^%d+:(.+)$")
+end
+
+-- ============================================================
+-- СБРОС СУЩЕСТВ СЦЕНЫ
+--
+-- Одна кнопка у Ведущего (и Долгий Отдых): у всех особей полное
+-- здоровье и ни одного эффекта. Нужна там, где сцена кончилась, а
+-- тушка осталась с висящим эффектом, — например, босса убрали, а на
+-- нём продолжал тикать «Жертвенный огонь».
+--
+-- ЗАБЫВАЮТ ВСЕ, А НЕ ТОЛЬКО ВЛАДЕЛЕЦ. Сбрось он одного себя — копии
+-- у остальных остались бы старыми, и при ближайшей пересборке сцены
+-- (смена состава, передача лидерства) они вернулись бы к нему
+-- предложением NPCOFR вместе со всеми эффектами. Поэтому одним пакетом
+-- забывают все, и особи заводятся заново по шаблону при первом
+-- обращении — ровно как нетронутые.
+-- ============================================================
+function SB.NPC.ResetScene()
+    if not SB.NPC.IsOwner() then return false end
+    SB.NPC.ResetState()
+    if IsInGroup() and SB.Net and SB.Net.SendNpcReset then SB.Net.SendNpcReset() end
+    return true
 end
 
 --- Разослать состояние МНОГИХ особей одним пакетом — тик существ на

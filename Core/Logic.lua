@@ -3026,8 +3026,11 @@ function SB.Logic.Rest()
     if SB.Cooldowns and not SB.Cooldowns.Check(SB.Cooldowns.GM) then return end
     if SB.Cooldowns then SB.Cooldowns.Start(SB.Cooldowns.GM) end
     SB.Logic.LocalRest()
+    -- Конец сцены — и для существ: здоровье полное, эффекты сняты
+    -- (см. SB.NPC.ResetScene).
+    if SB.NPC and SB.NPC.ResetScene then SB.NPC.ResetScene() end
     local sysMsg = "|cFF9933FF[Spellbreaker]:|r " .. UnitName("player") ..
-                   " объявляет Долгий Отдых. Ресурсы и здоровье восстановлены у всех!"
+                   " объявляет Долгий Отдых. Ресурсы и здоровье восстановлены у всех, существа сцены сброшены!"
     SB.Events.Fire("BROADCAST_LOG", sysMsg, SB.LogRank.ACTION)
     SB.Events.Fire("BROADCAST_REST", "LONG")
 end

@@ -713,6 +713,17 @@ function SB.NPC.TickEffects()
         local list = ListOf(st)
         if #list == 0 then return end
 
+        -- ПАВШЕЕ СУЩЕСТВО НЕ ТИКАЕТ. Эффекты с него снимаются молча: гореть
+        -- и кровоточить больше нечему, а тик по нулю здоровья писал бы
+        -- «−1 ХП» в лог до конца сессии.
+        if (st.hp or 0) <= 0 then
+            st.effects = {}
+            SB.NPC.RestatEffects(st)
+            SB.Events.Fire(SB.E.NPC_STATE_CHANGED, key)
+            keys[#keys + 1] = key
+            return
+        end
+
         local ok, hp, res, names, expired = pcall(TickOne, st)
         if not ok then
             print("|cFFFF0000[Spellbreaker]|r тик существа «" ..
@@ -745,7 +756,8 @@ function SB.NPC.TickEffects()
             local gk = name .. "\0" .. tail
             local g = groups[gk]
             if not g then
-                g = { name = name, tail = tail, n = 0 }
+                g = { name = name, tail = tail, n = 0,
+                      id = SB.NPC.SpawnIDOfKey and SB.NPC.SpawnIDOfKey(key) }
                 groups[gk] = g
                 order[#order + 1] = gk
             end
@@ -769,7 +781,11 @@ function SB.NPC.TickEffects()
         end)
         local G = SB.Theme.MSG_BODY
         local function Line(g)
-            return G .. g.name .. ((g.n > 1) and (" ×" .. g.n) or "") .. ": |r" .. g.tail
+            -- Номер особи — только у одиночки: у «×12» их двенадцать, и
+            -- строка ушла бы за край. Одиночку же и надо уметь найти.
+            local suffix = (g.n > 1) and (" ×" .. g.n)
+                or (g.id and (" (" .. g.id .. ")")) or ""
+            return G .. g.name .. suffix .. ": |r" .. g.tail
         end
         if #order == 1 then
             SB.Events.Fire(SB.E.BROADCAST_LOG,

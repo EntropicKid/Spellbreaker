@@ -21833,6 +21833,50 @@ do
     TO.Stop()
 end
 
+-- ============================================================
+-- СУЩЕСТВА: павший не тикает, номер особи в логе, сброс сцены
+-- ============================================================
+do
+    local wasLeader, wasGroup = stub.world.isLeader, stub.world.inGroup
+    stub.world.isLeader, stub.world.inGroup = true, false
+    local savedDB = _G.SpellbreakerNPCDB
+    _G.SpellbreakerNPCDB = { npcs = {} }
+    SB.NPC.ResetState()
+
+    local lines = {}
+    local listen = true
+    SB.Events.On(SB.E.BROADCAST_LOG, function(msg) if listen then lines[#lines + 1] = msg end end)
+
+    SB.NPC.ApplyRemoteState("9002:777", 3, 10, 0, 0, "eff_immolation:-1")
+    SB.NPC.TickEffects()
+    local last = lines[#lines] or ""
+    checkTrue("в строке тика — номер особи", last:find("(777)", 1, true) ~= nil)
+
+    SB.NPC.ApplyRemoteState("9002:777", 0, 10, 0, 0, "eff_immolation:-1")
+    local before = #lines
+    SB.NPC.TickEffects()
+    check("павшее существо не тикает", #lines, before)
+    local st
+    SB.NPC.EachState(function(k, s) if k == "9002:777" then st = s end end)
+    check("и эффекты с него сняты", st and #st.effects, 0)
+
+    -- Сброс сцены: у себя забыто, группе ушёл пакет.
+    local realSend, sent = SB.Net.SendNpcReset, 0
+    SB.Net.SendNpcReset = function() sent = sent + 1 end
+    stub.world.inGroup = true
+    checkTrue("ведущий сбрасывает существ", SB.NPC.ResetScene())
+    check("у себя никого не помнит", SB.NPC.StateCount(), 0)
+    check("группе — один пакет", sent, 1)
+    stub.world.isLeader = false
+    checkTrue("не владелец сбросить не может", not SB.NPC.ResetScene())
+    SB.Net.SendNpcReset = realSend
+
+    listen = false
+    SB.NPC.ResetState()
+    _G.SpellbreakerNPCDB = savedDB
+    stub.world.isLeader, stub.world.inGroup = wasLeader, wasGroup
+end
+
 -- ИТОГ
 -- ============================================================
 print("")

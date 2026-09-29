@@ -790,6 +790,13 @@ end
 --- Своё не применяем повторно: у отправителя правка уже легла (см.
 --- SB.NPC.SaveTemplate), а ApplyTemplateFromNet намеренно не рассылает
 --- дальше — иначе двое Ведущих гоняли бы пакет по кругу.
+--- Владелец сцены сбросил существ (см. SB.NPC.ResetScene).
+local function ParseNPCRST(sender, t)
+    if sender == UnitName("player") then return end
+    if not IsFromLeaderOrAssist(sender) then return end
+    if SB.NPC and SB.NPC.ResetState then SB.NPC.ResetState() end
+end
+
 local function ParseNPCTMPL(sender, t)
     if sender == UnitName("player") then return end
     if not IsFromLeader(sender) then return end
@@ -1557,6 +1564,7 @@ Dispatch = function(sender, t)
     elseif action == "NPCDLT"  then ParseNPCDLT(sender, t)
     elseif action == "NPCEFF"  then ParseNPCEFF(sender, t)
     elseif action == "NPCTMPL" then ParseNPCTMPL(sender, t)
+    elseif action == "NPCRST"  then ParseNPCRST(sender, t)
     elseif action == "NPCREQ"  then ParseNPCREQ(sender, t)
     elseif action == "NPCOFR"  then ParseNPCOFR(sender, t)
     elseif action == "NPCRSY"  then ParseNPCRSY(sender, t)
@@ -1997,6 +2005,14 @@ end
 --- Шлёт только владелец (проверку делает вызывающий, см.
 --- SB.NPC.RequestResync); ответом идут NPCOFR от каждого, кто что-то
 --- помнит.
+--- Сброс существ сцены — всем (см. SB.NPC.ResetScene). NORMAL, а не
+--- BULK: пакет крошечный, и за ним не должны успеть проехать старые
+--- состояния из очереди.
+function SB.Net.SendNpcReset()
+    if not IsInGroup() then return end
+    SendToGroup({ action = "NPCRST" }, "NORMAL")
+end
+
 function SB.Net.RequestNpcResync()
     if not IsInGroup() then return end
     SendToGroup({ action = "NPCRSY" }, "BULK")
