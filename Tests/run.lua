@@ -21322,13 +21322,15 @@ do
     AE.BreakOn("controlled")
     checkTrue("удержание спасает концентрацию от контроля", has("t_hold_conc"))
     check("и тратится", SB.Skills.GetHoldLeft(), 0)
-    -- Прерывание снимает МИМО удержаний: вернём одно и проверим.
+    -- Прерывание РАСХОДУЕТ удержание, а без удержаний — срывает.
     SB.Skills.RestoreHold()
     if base > 0 then SB.Skills.SpendFromPool("hold", base) end
     check("удержание снова есть", SB.Skills.GetHoldLeft(), 1)
     AE.BreakOn("interrupted")
-    checkTrue("прерывание снимает мимо удержаний", not has("t_hold_conc"))
-    check("и удержание не тратит", SB.Skills.GetHoldLeft(), 1)
+    checkTrue("прерывание съедает удержание, концентрация цела", has("t_hold_conc"))
+    check("удержаний не осталось", SB.Skills.GetHoldLeft(), 0)
+    AE.BreakOn("interrupted")
+    checkTrue("без удержаний прерывание срывает", not has("t_hold_conc"))
     check("к защите навык больше не прибавляет",
           SB.Skills.GetConcentrationDefenseBonus, nil)
 
@@ -21874,6 +21876,31 @@ do
     listen = false
     SB.NPC.ResetState()
     _G.SpellbreakerNPCDB = savedDB
+    stub.world.isLeader, stub.world.inGroup = wasLeader, wasGroup
+end
+
+-- ============================================================
+-- «ЛИДЕРСТВО» НАЛИВАЕТ ТОЛЬКО В ПОШАГОВОМ РЕЖИМЕ
+-- ============================================================
+do
+    local realPeriod = SB.Skills.GetLeadershipRegenPeriod
+    SB.Skills.GetLeadershipRegenPeriod = function() return 1 end
+    local PM = SB.PlayerModel
+    local wasLeader, wasGroup = stub.world.isLeader, stub.world.inGroup
+    stub.world.isLeader, stub.world.inGroup = true, false
+    SB.TurnOrder.Stop()
+    local function setRes(v) if PM.IsCaster() then PM.SetZeal(v) else PM.SetClassResource(v) end end
+    local keep = PM.GetCastResource()
+    setRes(0)
+    SB.Events.Fire(SB.E.TURN_TICK)
+    check("свободный ход — ручейка нет", PM.GetCastResource(), 0)
+    SB.TurnOrder.Start()
+    setRes(0)
+    SB.Events.Fire(SB.E.TURN_TICK)
+    check("пошаговый — +1", PM.GetCastResource(), 1)
+    SB.TurnOrder.Stop()
+    setRes(keep)
+    SB.Skills.GetLeadershipRegenPeriod = realPeriod
     stub.world.isLeader, stub.world.inGroup = wasLeader, wasGroup
 end
 

@@ -3607,15 +3607,19 @@ function SB.ActiveEffects.BreakOn(trigger)
         -- breakOn = { interrupted = false }.
         -- Держатель потока — концентрация по определению, даже если
         -- запись пришла без isConc (старое сохранение).
-        if not hit and trigger == "interrupted"
-           and (eff.isConc or (sp and sp.isChannelHolder)) then
+        local concLike = eff.isConc or (sp and sp.isChannelHolder)
+        if not hit and trigger == "interrupted" and concLike then
             local said
             if type(def) == "table" then said = def.interrupted end
             hit = (said ~= false)
-            -- В concHit НЕ ПОПАДАЕТ: прерывание — способность, заведённая
-            -- ровно для того, чтобы сбить сосредоточение, и удержания
-            -- Концентрации от неё не спасают. Иначе пинок против
-            -- вкачанной Концентрации переставал бы значить хоть что-то.
+        end
+        -- ПРЕРЫВАНИЕ РАСХОДУЕТ УДЕРЖАНИЕ, А НЕ ПРОБИВАЕТ ЕГО. Раньше пинок
+        -- сносил концентрацию сквозь любой запас «Концентрации»; теперь
+        -- попадание снимает одно удержание, если оно есть, и только без
+        -- удержаний срывает концентрацию или поток. Вкачанная Концентрация
+        -- значит «сбить меня стоит нескольких зуботычин», а не «не сбить».
+        if hit and trigger == "interrupted" and concLike then
+            concHit[eff.spellID] = true
         end
 
         if not hit and trigger == "healed" then
@@ -3633,6 +3637,7 @@ function SB.ActiveEffects.BreakOn(trigger)
     if not doomed then return end
 
     -- ── УДЕРЖАНИЕ КОНЦЕНТРАЦИИ ─────────────────────────────
+    -- От контроля и от прерывания одинаково (см. выше).
     -- Одно удержание спасает ВСЁ, что этот срыв снял бы как
     -- концентрацию: концентрация у персонажа одна, а держатель потока
     -- рядом с ней — та же сосредоточенность, и платить за них дважды за
