@@ -21977,6 +21977,24 @@ do
     SB.Data.Spells["t_caura_a"], SB.Data.Spells["t_caura_b"] = nil, nil
 end
 
+-- ============================================================
+-- СКЕЙЛИНГ: без множителя от круга, дробь усекается вниз
+-- ============================================================
+do
+    local base = SB.Data.STAT_BASE or 0
+    local function stat(v) return function() return base + v end end
+    local sp1 = { id = "t_sc1", level = 1, scaling = { damage = { ["Интеллект"] = 1 } } }
+    local sp3 = { id = "t_sc3", level = 3, scaling = { damage = { ["Интеллект"] = 1 } } }
+    -- 5 очков × 0.5 = 2.5 → 2, и на третьем круге столько же.
+    check("урон 2.5 усекается до 2", (SB.Logic.GetSpellScaling(sp1, "damage", nil, stat(5))), 2)
+    check("круг заклинания урон не множит", (SB.Logic.GetSpellScaling(sp3, "damage", nil, stat(5))), 2)
+    -- 3 очка × 0.5 = 1.5 → 1: вложить ещё очко «до округления» нельзя.
+    check("1.5 — это 1, а не 2", (SB.Logic.GetSpellScaling(sp1, "damage", nil, stat(3))), 1)
+    local hit = { id = "t_sc4", level = 1, scaling = { hit = { ["Интеллект"] = 1.5 } } }
+    -- 1 очко × 3 × 1.5 = 4.5 → 4.
+    check("попадание 4.5 усекается до 4", (SB.Logic.GetSpellScaling(hit, "hit", nil, stat(1))), 4)
+end
+
 -- ИТОГ
 -- ============================================================
 print("")
