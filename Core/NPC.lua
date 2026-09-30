@@ -808,6 +808,8 @@ local state = {}   -- [spawnKey] = { hp, maxHp, res, maxRes, npcID }
 -- глобальную переменную (то есть nil) — и молча теряла бы дельту ровно
 -- в том случае, ради которого функция и заведена.
 local StateFromKey
+-- Тоже заранее: зовут и GetState, и StateFromKey (см. «СОХРАНЁННАЯ СЦЕНА»).
+local ClaimRestored
 
 --- Вправе ли этот клиент менять состояние существ.
 function SB.NPC.IsOwner()
@@ -824,6 +826,10 @@ function SB.NPC.GetState(unit)
     if not key then return nil end
 
     local st = state[key]
+    -- Особь из загруженной сцены нашлась живой под своим номером —
+    -- дальше она обычная, забирать её состояние другим больше нельзя.
+    if st and st.restored then st.restored = nil end
+    if not st then st = ClaimRestored(key, SB.NPC.UnitNpcID(unit)) end
     if not st then
         local stats = SB.NPC.StatsForUnit(unit)
         if not stats then return nil end
@@ -1102,6 +1108,8 @@ end
 function StateFromKey(key)
     local npcID = SB.NPC.NpcIDFromKey(key)
     if not npcID then return nil end
+    local claimed = ClaimRestored(key, npcID)
+    if claimed then return claimed end
 
     local stats = SB.NPC.Get(npcID)
     if not stats then
@@ -1592,6 +1600,96 @@ end
 -- забывают все, и особи заводятся заново по шаблону при первом
 -- обращении — ровно как нетронутые.
 -- ============================================================
+-- ============================================================
+-- СОХРАНЁННАЯ СЦЕНА (см. Core/Scenes.lua)
+--
+-- Состояние существ живёт только в памяти: вылет Ведущего или
+-- продолжение боя назавтра — и босс снова цел, а с него снято всё.
+-- Здесь две двери: выгрузить всех особей в таблицу и загрузить их
+-- обратно. Где хранить и как называть — забота Core/Scenes.lua.
+--
+-- НОМЕР ОСОБИ НЕ ВЕЧЕН. Ключ «npcID:spawnUID» берётся из GUID, а
+-- spawnUID сервер выдаёт заново после перезапуска и при каждом
+-- респауне. Поэтому загруженная особь помечается restored и ждёт:
+--   • встретилась живой под своим ключом — её и получила;
+--   • под своим ключом так и не встретилась, а существо ТОГО ЖЕ ВИДА
+--     под новым ключом — первое такое и забирает её состояние
+--     (ClaimRestored). Босс, единственный своего вида, так переживает
+--     перезапуск сервера; из десятка одинаковых стражников раненые
+--     достанутся первым встреченным — число и раны сохранятся, кто
+--     именно из них ранен — нет.
+-- ============================================================
+function ClaimRestored(key, npcID)
+    npcID = tonumber(npcID)
+    if not npcID or not key then return nil end
+    local pick
+    for k, st in pairs(state) do
+        if st.restored and st.npcID == npcID and k ~= key
+           and (not pick or k < pick) then
+            pick = k
+        end
+    end
+    if not pick then return nil end
+    local st = state[pick]
+    state[pick] = nil
+    state[key] = st
+    st.restored = nil
+    return st
+end
+
+--- Все известные особи — для сохранения сцены. Копии, а не сами
+--- записи: сохранёнка не должна меняться вместе с живой сценой.
+--- @return table list  { { key, npcID, name, hp, maxHp, res, maxRes,
+---         ward, baseMaxHp, baseMaxRes, effects = "packed" }, ... }
+function SB.NPC.ExportScene()
+    local list = {}
+    for key, st in pairs(state) do
+        list[#list + 1] = {
+            key = key, npcID = st.npcID, name = st.name,
+            hp = st.hp, maxHp = st.maxHp, res = st.res, maxRes = st.maxRes,
+            ward = st.ward, baseMaxHp = st.baseMaxHp, baseMaxRes = st.baseMaxRes,
+            effects = SB.NPC.PackEffects and SB.NPC.PackEffects(st.effects) or nil,
+        }
+    end
+    table.sort(list, function(a, b) return a.key < b.key end)
+    return list
+end
+
+--- Загрузить особей из сохранения. Только владелец. Прежние существа
+--- забываются у всей группы (тот же сброс, что у кнопки), загруженные
+--- расходятся всем одним пакетом.
+--- @return number  сколько особей загружено, или false — не владелец
+function SB.NPC.ImportScene(list)
+    if not SB.NPC.IsOwner() then return false end
+    SB.NPC.ResetScene()
+    local keys = {}
+    for _, e in ipairs(type(list) == "table" and list or {}) do
+        if type(e) == "table" and type(e.key) == "string" and e.key ~= "" then
+            local npcID = tonumber(e.npcID) or SB.NPC.NpcIDFromKey(e.key)
+            local maxHp = math.max(1, tonumber(e.maxHp) or 1)
+            local st = {
+                npcID  = npcID,
+                name   = e.name,
+                hp     = math.max(0, math.min(maxHp, tonumber(e.hp) or maxHp)),
+                maxHp  = maxHp,
+                res    = math.max(0, tonumber(e.res) or 0),
+                maxRes = math.max(0, tonumber(e.maxRes) or 0),
+                ward   = math.max(0, tonumber(e.ward) or 0),
+                baseMaxHp  = tonumber(e.baseMaxHp) or maxHp,
+                baseMaxRes = tonumber(e.baseMaxRes) or tonumber(e.maxRes) or 0,
+                effects = SB.NPC.UnpackEffects and SB.NPC.UnpackEffects(e.effects) or {},
+                restored = true,
+            }
+            state[e.key] = st
+            if SB.NPC.RestatEffects then SB.NPC.RestatEffects(st) end
+            keys[#keys + 1] = e.key
+        end
+    end
+    SB.Events.Fire(SB.E.NPC_STATE_CHANGED)
+    if #keys > 0 and SB.NPC.PublishBatch then SB.NPC.PublishBatch(keys) end
+    return #keys
+end
+
 function SB.NPC.ResetScene()
     if not SB.NPC.IsOwner() then return false end
     SB.NPC.ResetState()

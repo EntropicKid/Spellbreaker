@@ -21995,6 +21995,53 @@ do
     check("попадание 4.5 усекается до 4", (SB.Logic.GetSpellScaling(hit, "hit", nil, stat(1))), 4)
 end
 
+-- ============================================================
+-- СОХРАНЁННАЯ СЦЕНА: существа и режим хода переживают сброс
+-- ============================================================
+do
+    local wasLeader, wasGroup = stub.world.isLeader, stub.world.inGroup
+    stub.world.isLeader, stub.world.inGroup = true, false
+    local savedDB = _G.SpellbreakerNPCDB
+    _G.SpellbreakerNPCDB = { npcs = {} }
+    SB.NPC.ResetState()
+    SB.TurnOrder.Stop()
+
+    SB.TurnOrder.Start()
+    SB.NPC.ApplyRemoteState("9100:1", 7, 20, 2, 5, "eff_immolation:3")
+    SB.NPC.ApplyRemoteState("9100:2", 20, 20, 5, 5, nil)
+    local ok, n = SB.Scenes.Save("Проба")
+    checkTrue("сцена сохранена", ok)
+    check("в ней обе особи", n, 2)
+
+    SB.TurnOrder.Stop()
+    SB.NPC.ResetScene()
+    check("после сброса существ нет", SB.NPC.StateCount(), 0)
+
+    ok, n = SB.Scenes.Load("Проба")
+    checkTrue("сцена загружена", ok)
+    check("загружено две особи", n, 2)
+    checkTrue("пошаговый режим вернулся", SB.TurnOrder.IsActive())
+    local st1
+    SB.NPC.EachState(function(k, s) if k == "9100:1" then st1 = s end end)
+    check("раненая осталась раненой — без лишнего тика", st1 and st1.hp, 7)
+    check("и эффект на ней", st1 and st1.effects[1] and st1.effects[1].spellID, "eff_immolation")
+
+    -- Сервер перезапускался: у особей новые номера. Первое же существо
+    -- того же вида забирает сохранённое состояние.
+    SB.NPC.ReplyState("9100:77")
+    local moved
+    SB.NPC.EachState(function(k, s) if k == "9100:77" then moved = s end end)
+    checkTrue("особь под новым номером получила сохранённое", moved ~= nil and moved.restored == nil)
+
+    checkTrue("сцену можно удалить", SB.Scenes.Delete("Проба"))
+    check("и её больше нет", #SB.Scenes.List(), 0)
+
+    SB.TurnOrder.Stop()
+    SB.NPC.ResetState()
+    _G.SpellbreakerNPCDB = savedDB
+    stub.world.isLeader, stub.world.inGroup = wasLeader, wasGroup
+end
+
 -- ИТОГ
 -- ============================================================
 print("")

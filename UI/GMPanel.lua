@@ -548,7 +548,94 @@ function SB.UI.BuildGMPanel()
     turnStatus:SetJustifyH("LEFT")
     turnStatus:SetJustifyV("TOP")
     turnStatus:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
-    y = y - 26 - 8
+    y = y - 26 - 4
+
+    -- ── Сохранённые сцены (см. Core/Scenes.lua) ─────────────
+    -- Существа и режим хода — чтобы бой, прерванный вылетом или
+    -- отложенный до завтра, продолжился с тех же ран и эффектов.
+    local function SceneLog(text)
+        SB.Events.Fire("BROADCAST_LOG", SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " ..
+            SB.Theme.MSG_BODY .. text .. "|r", SB.LogRank.ACTION)
+    end
+
+    local saveSceneBtn = SB.Theme.Button(settingsPanel, "Сохранить сцену", 150, 22, "secondary")
+    saveSceneBtn:SetScript("OnClick", function()
+        if not SB.UI.IsGameMaster() then RefreshGMAccess() return end
+        StaticPopupDialogs["SPELLBREAKER_SCENE_SAVE"] = {
+            text = "Название сцены (то же название — перезапись):",
+            button1 = "Сохранить", button2 = "Отмена",
+            hasEditBox = 1, maxLetters = 60,
+            OnShow = function(self)
+                local eb = self.editBox or self.EditBox
+                if eb then eb:SetText(SB.Scenes.DefaultName()); eb:HighlightText() end
+            end,
+            OnAccept = function(self)
+                local eb = self.editBox or self.EditBox
+                local ok, n = SB.Scenes.Save(eb and eb:GetText() or "")
+                if ok then
+                    print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BODY ..
+                        "сцена сохранена: существ — " .. n .. ".|r")
+                end
+            end,
+            EditBoxOnEnterPressed = function(self)
+                local parent = self:GetParent()
+                StaticPopupDialogs["SPELLBREAKER_SCENE_SAVE"].OnAccept(parent)
+                parent:Hide()
+            end,
+            EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+            timeout = 0, whileDead = true, hideOnEscape = true,
+        }
+        StaticPopup_Show("SPELLBREAKER_SCENE_SAVE")
+    end)
+    Tip(saveSceneBtn, "Сохранить сцену",
+        "Существа (здоровье, ресурс, броня, эффекты) и режим хода. Игроков не " ..
+        "трогает — своё каждый хранит сам.")
+
+    local loadSceneBtn = SB.Theme.Button(settingsPanel, "Загрузить сцену", 150, 22, "secondary")
+    local function ConfirmLoad(name)
+        StaticPopupDialogs["SPELLBREAKER_SCENE_LOAD"] = {
+            text = "Загрузить сцену «" .. name .. "»? Текущие существа будут заменены у всей группы.",
+            button1 = "Загрузить", button2 = "Отмена",
+            OnAccept = function()
+                local ok, n = SB.Scenes.Load(name)
+                if ok then
+                    SceneLog(UnitName("player") .. " загружает сцену «" .. name ..
+                        "»: существ — " .. n .. ".")
+                    SB.UI.RefreshGMSettings()
+                end
+            end,
+            timeout = 0, whileDead = true, hideOnEscape = true,
+        }
+        StaticPopup_Show("SPELLBREAKER_SCENE_LOAD")
+    end
+    loadSceneBtn:SetScript("OnClick", function(self)
+        if not SB.UI.IsGameMaster() then RefreshGMAccess() return end
+        local items = {}
+        for _, s in ipairs(SB.Scenes.List()) do
+            local name = s.name
+            items[#items + 1] = {
+                text = name .. " |cFF808080(" .. #(s.npcs or {}) .. ")|r",
+                notCheckable = true, hasArrow = true,
+                menuList = {
+                    { text = "Загрузить", notCheckable = true,
+                      func = function() ConfirmLoad(name) end },
+                    { text = "|cFFFF4444Удалить|r", notCheckable = true,
+                      func = function() SB.Scenes.Delete(name) end },
+                },
+            }
+        end
+        if #items == 0 then
+            items[1] = { text = "|cFF808080Сохранённых сцен нет|r", notCheckable = true, disabled = true }
+        end
+        SB.Theme.PopupMenu(items, self)
+    end)
+    Tip(loadSceneBtn, "Загрузить сцену",
+        "Существа возвращаются с теми же ранами и эффектами, режим хода — тот же " ..
+        "(пошаговый начнётся новым кругом). Если сервер перезапускался, состояние " ..
+        "особи достаётся первому встреченному существу её вида.")
+
+    SB.Theme.LayoutRow(settingsPanel, { saveSceneBtn, loadSceneBtn }, "TOPLEFT", 0, y, PW)
+    y = y - 22 - 8
 
     -- ── Порядок хода ─────────────────────────────────────────
     local orderHdr = SB.Theme.SectionHeader(settingsPanel, "Порядок хода", 0)

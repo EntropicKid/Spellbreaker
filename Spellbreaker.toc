@@ -117,6 +117,8 @@ Core\NPCCommands.lua
 # берутся оттуда же, что у игрока, — второй таблицы «эффекты для НПС» в
 # аддоне нет и быть не должно (см. врезку в Core\NPCEffects.lua).
 Core\NPCEffects.lua
+# Сохранённые сцены Ведущего: существа и режим хода (после NPC и TurnOrder).
+Core\Scenes.lua
 # Предметы. После ActiveEffects: предмет устроен как
 # заклинание и живёт в той же таблице (см. врезку в Core\Items.lua).
 Core\Items.lua
