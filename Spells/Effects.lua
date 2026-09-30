@@ -866,14 +866,6 @@ AddEffect({
 })
 
 AddEffect({
-    id   = "eff_mana_burst",
-    name = "Чародейская вспышка",
-    icon = "Interface\\Icons\\Ability_argus_soulburst",
-    description = "Вокруг мага пространство идёт волнами. Чужая магия рядом становится нестабильной.",
-    effect = { kind = "buff", school = "magic", mods = { attack = 25, damage = 1 } },
-})
-
-AddEffect({
     id   = "eff_undetectable",
     name = "Необнаружимость",
     icon = "Interface\\Icons\\Inv12_apextalent_mage_touchofthearchmage",
@@ -1330,7 +1322,7 @@ AddEffect({
     name = "Жизнецвет",
     icon = "Interface\\Icons\\Inv_misc_herb_felblossom",
     description = "Природа смотрит на одного и не отводит взгляда: раны закрываются, пока цветёт.",
-    effect = { kind = "buff", school = "magic", mods = { heal = 1 }, tick = { healTaken = 1 } },
+    effect = { kind = "buff", school = "magic", mods = { heal = 1, healTaken = 1 } },
 })
 
 -- ==========================================================
@@ -1470,14 +1462,6 @@ AddEffect({
 })
 
 AddEffect({
-    id   = "eff_warlock_shadow_of_warrior",
-    name = "Тень Воина",
-    icon = "Interface\\Icons\\Spell_shadow_soulleech_3",
-    description = "От цели идёт жуткая аура. Рядом с ней трудно собраться, и руки дрожат сами.",
-    effect = { kind = "buff", school = "magic", mods = { defense = 25 }, stats = { ["Запугивание"] = 2 } },
-})
-
-AddEffect({
     id   = "eff_summon_sayaada",
     name = "Сайаад",
     icon = "Interface\\Icons\\Ability_warlock_randomizesuccubusincubus",
@@ -1525,14 +1509,6 @@ AddEffect({
 -- РЫЦАРЬ СМЕРТИ: каналы
 -- ==========================================================
 
-AddEffect({
-    id   = "eff_remorseless_winter",
-    name = "Беспощадная зима",
-    icon = "Interface\\Icons\\Ability_deathknight_remorselesswinters2",
-    description = "Метель кружит вокруг рыцаря и не стихает, пока он её держит. Живым в ней холодно, ему — привычно.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 20, attack = 25 } },
-})
-
 -- ==========================================================
 -- ПАЛАДИН: приговор
 -- ==========================================================
@@ -1566,7 +1542,7 @@ AddEffect({
     damageType = "nature",
     icon = "Interface\\Icons\\INV_Potion_19",
     description = "В голове разорвалось что-то чужое. Мысли не собираются, руки не слушаются.",
-    effect = { kind = "debuff", resist = "Выносливость", school = "poison", tick = { damage = 1, movePct = -40 } },
+    effect = { kind = "debuff", resist = "Выносливость", school = "poison", mods = { movePct = -40 }, tick = { damage = 1 } },
 })
 
 AddEffect({
@@ -1629,13 +1605,6 @@ AddEffect({
                onRemove = { effect = "eff_stun_immunity", duration = 3 }, mods = { attack = -70, defense = -15, movePct = -75 } },
 })
 
-AddEffect({
-    id   = "eff_shield_slam",
-    name = "Удар щитом",
-    icon = "Interface\\Icons\\Ability_warrior_shieldbash",
-    description = "Цель лишена равновесия и возможности нормально защищаться после удара об щит.",
-    effect = { kind = "debuff", resist = "Выносливость", mods = { defense = -12 }, stats = { ["Акробатика"] = -2 } },
-})
 AddEffect({
     id   = "eff_shield_block",
     name = "Блок щитом",
