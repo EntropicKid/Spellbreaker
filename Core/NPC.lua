@@ -892,6 +892,9 @@ function SB.NPC.ApplyRemoteState(key, hp, maxHp, res, maxRes, packed, ward)
         ward   = math.max(0, tonumber(ward)   or 0),
         effects = SB.NPC.UnpackEffects and SB.NPC.UnpackEffects(packed) or {},
     }
+    if prev and SB.NPC.CarryResistUsed then
+        SB.NPC.CarryResistUsed(prev.effects, state[key].effects)
+    end
     -- База нужна и здесь: если следом на эту особь навесят ещё один
     -- бафф до прихода нового пакета, пересчёт должен от чего-то плясать.
     local st = state[key]
@@ -1746,7 +1749,9 @@ function SB.NPC.ApplyRemoteEffects(key, packed)
     if not SB.NPC.IsOwner() then return end
     local st = state[key]
     if not st then return end          -- этой тушки владелец не видел
+    local old = st.effects
     st.effects = SB.NPC.UnpackEffects(packed)
+    if SB.NPC.CarryResistUsed then SB.NPC.CarryResistUsed(old, st.effects) end
     SB.NPC.RestatEffects(st)
     SB.Events.Fire(SB.E.NPC_STATE_CHANGED, key)
     Broadcast(key, st)

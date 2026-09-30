@@ -22065,6 +22065,80 @@ do
     stub.world.isLeader, stub.world.inGroup = wasLeader, wasGroup
 end
 
+-- ============================================================
+-- СОПРОТИВЛЕНИЕ ТИКУ — ОДИН РАЗ НА НАЛОЖЕНИЕ
+-- ============================================================
+do
+    local R = SB.Skills.ResistOncePerEffect
+    local d1, u1 = R(1, 1, nil)
+    local d2, u2 = R(1, 1, u1)
+    local d3     = R(1, 1, u2)
+    check("резист 1: первый тик погашен", d1, 0)
+    check("второй проходит", d2, 1)
+    check("третий проходит", d3, 1)
+    local a, ua = R(1, 2, nil); local b, ub = R(1, 2, ua); local c = R(1, 2, ub)
+    check("резист 2 против 1×3: гасит два тика", a + b + c, 1)
+    local x, ux = R(3, 1, nil); local y = R(3, 1, ux)
+    check("тик 3 при резисте 1: 2, затем 3", x * 10 + y, 23)
+    local v1, uv = R(1, -1, nil); local v2 = R(1, -1, uv)
+    check("уязвимость прибавляет единожды", v1 + v2, 3)
+
+    -- Существо: «Боль» 1 × 3 против сопротивления магии 1 — 2 из 3.
+    local wasLeader, wasGroup = stub.world.isLeader, stub.world.inGroup
+    stub.world.isLeader, stub.world.inGroup = true, false
+    local savedDB = _G.SpellbreakerNPCDB
+    _G.SpellbreakerNPCDB = { npcs = {} }
+    SB.NPC.ResetState()
+    SB.Data.Spells["t_rs_dot"] = { id = "t_rs_dot", name = "Проба тьмы", class = "Эффект",
+        level = 0, isContainer = true, damageType = "shadow",
+        effect = { kind = "debuff", tick = { damage = 1 } } }
+    SB.Data.Spells["t_rs_ward"] = { id = "t_rs_ward", name = "Проба оберега", class = "Эффект",
+        level = 0, isContainer = true, effect = { kind = "buff", mods = { resistMagic = 1 } } }
+    SB.NPC.ApplyRemoteState("9200:1", 10, 10, 0, 0, "t_rs_dot:3;t_rs_ward:-1")
+    local function hp()
+        local h
+        SB.NPC.EachState(function(k, s) if k == "9200:1" then h = s.hp end end)
+        return h
+    end
+    SB.NPC.TickEffects()
+    check("существо: первый тик погашен", hp(), 10)
+    -- Эхо собственной рассылки не возвращает бюджет.
+    SB.NPC.ApplyRemoteState("9200:1", 10, 10, 0, 0, "t_rs_dot:2;t_rs_ward:-1")
+    SB.NPC.TickEffects()
+    SB.NPC.TickEffects()
+    check("существо: за три тика — два урона", hp(), 8)
+
+    SB.NPC.ResetState()
+    SB.Data.Spells["t_rs_dot"], SB.Data.Spells["t_rs_ward"] = nil, nil
+    _G.SpellbreakerNPCDB = savedDB
+    stub.world.isLeader, stub.world.inGroup = wasLeader, wasGroup
+end
+
+-- Игрок: тот же бюджет, и повторное наложение начинает его заново.
+do
+    local AE, PM = SB.ActiveEffects, SB.PlayerModel
+    SB.Data.Spells["t_rs_pdot"] = { id = "t_rs_pdot", name = "Проба тьмы", class = "Эффект",
+        level = 0, isContainer = true, damageType = "shadow",
+        effect = { kind = "debuff", tick = { damage = 1 } } }
+    SB.Data.Spells["t_rs_pward"] = { id = "t_rs_pward", name = "Проба оберега", class = "Эффект",
+        level = 0, isContainer = true, effect = { kind = "buff", mods = { resistMagic = 1 } } }
+    AE.Clear()
+    local keep = PM.GetHealth()
+    PM.SetHealth(PM.GetMaxHealth())
+    local start = PM.GetHealth()
+    AE.Add("t_rs_pward", 20, false)
+    AE.Add("t_rs_pdot", 10, false)
+    AE.TickAll(); AE.TickAll(); AE.TickAll()
+    check("игрок: три тика по 1 при резисте 1 — два урона", start - PM.GetHealth(), 2)
+    local mid = PM.GetHealth()
+    AE.Add("t_rs_pdot", 10, false)
+    AE.TickAll()
+    check("повторное наложение: резист снова гасит тик", mid - PM.GetHealth(), 0)
+    AE.Clear()
+    PM.SetHealth(keep)
+    SB.Data.Spells["t_rs_pdot"], SB.Data.Spells["t_rs_pward"] = nil, nil
+end
+
 -- ИТОГ
 -- ============================================================
 print("")
