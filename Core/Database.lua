@@ -1438,10 +1438,14 @@ SB.Data.WeaponBonuses = {
     shield   = { label = "Щит",             channel = "armor",           value = 15,  stacks = false },
     fist     = { label = "Кистевое оружие", channel = "rollFloor",       value = 5,   stacks = true  },
     unarmed  = { label = "Свободная рука",  channel = "rollFloor",       value = 5,   stacks = true  },
-    offhand  = { label = "Предмет в левой руке", channel = "prepared",   value = 1,   stacks = false },
+    -- Левая рука — +1 к «Эрудиции», то есть +1 к лимиту подготовки под тем
+    -- же потолком (Config.MaxPreparedHard). Не складывается.
+    offhand  = { label = "Предмет в левой руке", stat = "Эрудиция",     value = 1,   stacks = false },
     polearm  = { label = "Древковое",       channel = "meleeRange",      value = 1.5, stacks = false },
     crossbow = { label = "Арбалет",         channel = "rangedRange",     value = 6,   stacks = false },
-    wand     = { label = "Жезл",            stat    = "Рвение",          value = 2,   stacks = true  },
+    -- Жезл — +1 к «Лидерству»: ресурс каста капает сам в пошаговом бою.
+    -- Универсально для всех заклинателей. Не складывается.
+    wand     = { label = "Жезл",            stat    = "Лидерство",       value = 1,   stacks = false },
     dagger   = { label = "Кинжал",          stat    = "Скрытность",      value = 1,   stacks = true  },
     axe      = { label = "Топор",           channel = "attack",          value = 5,   stacks = true  },
     bow      = { label = "Лук",             stat    = "Выносливость",    value = 1,   stacks = false },

@@ -2425,15 +2425,17 @@ function SB.Logic.GetSpellScalingLines(spell)
 
     -- ── Урон или Лечение ────────────────────────────────────
     local dmgSources = ScalingSourceNames(spell, "damage")
-    if spell.isHeal then
+
+    local function HealShown()
         local base = SB.Logic.GetHealPower(spell, slot)
         -- Тем же ответом, что уйдёт в резолв: карточка обязана показывать
         -- то, что персонаж реально вылечит (см. SB.Logic.GetHealBonus).
         local eff  = SB.Logic.GetHealBonus()
         local sum  = base + SB.Logic.GetSpellScaling(spell, "damage", slot) + eff
-        Line("Лечение", tostring(math.max(0, sum)), dmgSources)
-    elseif spell.canCrit or dmgSources then
-        -- (ветка урона ниже)
+        return tostring(math.max(0, sum))
+    end
+
+    local function DamageShown()
         local base = SB.Logic.GetCastPower(spell, slot)
         -- Та же школьная прибавка, что уйдёт в бросок: карточка обязана
         -- показывать то, что персонаж реально нанесёт, а «+2 огню» на
@@ -2466,7 +2468,19 @@ function SB.Logic.GetSpellScalingLines(spell)
         if dt then
             shown = SB.Data.ColorByDamageType(dt, shown .. " — " .. dt.name)
         end
-        Line("Урон", shown, dmgSources)
+        return shown
+    end
+
+    -- СДВОЕННОЕ ЗАКЛИНАНИЕ («Шок небес», «Лик смерти»): союзника лечит,
+    -- врага бьёт — смотря на кого наведено. Карточка показывает обе
+    -- стороны одной строкой, иначе урон и его тип у таких заклинаний не
+    -- были видны вовсе.
+    if spell.isHeal and spell.canCrit then
+        Line("Лечение / урон", HealShown() .. " / " .. DamageShown(), dmgSources)
+    elseif spell.isHeal then
+        Line("Лечение", HealShown(), dmgSources)
+    elseif spell.canCrit or dmgSources then
+        Line("Урон", DamageShown(), dmgSources)
     end
 
     -- ── Починка доспеха ─────────────────────────────────────

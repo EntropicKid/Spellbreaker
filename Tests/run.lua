@@ -2927,6 +2927,28 @@ _G.SpellbreakerCharDB.zeal = 3
 _G.SpellbreakerCharDB.classResource = 0
 
 -- ============================================================
+-- СДВОЕННЫЕ ЗАКЛИНАНИЯ: ЛЕЧЕНИЕ / УРОН В КАРТОЧКЕ
+--
+-- «Шок небес» и «Лик смерти» лечат союзника и бьют врага. Карточка
+-- обязана показать обе стороны и тип урона, а не одно «Лечение».
+-- ============================================================
+do
+    for _, id in ipairs({ "holy_shock", "death_coil" }) do
+        local sp = SB.Data.Spells[id]
+        local found
+        for _, l in ipairs(SB.Logic.GetSpellScalingLines(sp) or {}) do
+            if l:find("Лечение / урон", 1, true) then found = l end
+        end
+        checkTrue("«" .. sp.name .. "»: строка «Лечение / урон»", found ~= nil)
+        local dt = SB.Data.GetDamageType and SB.Data.GetDamageType(sp)
+        if found and dt then
+            checkTrue("«" .. sp.name .. "»: тип урона в строке",
+                      found:find(dt.name, 1, true) ~= nil)
+        end
+    end
+end
+
+-- ============================================================
 -- МАНА ОТ УРОВНЯ, «ИСТОК» — ПРОЦЕНТ
 --
 -- Мана: 3 на старте и +1 на уровнях 4, 7, …, 25 — от ранга не зависит.
@@ -19766,6 +19788,14 @@ do
           PM.GetMaxPrepared() - p0, math.min(1, hard - p0))
     Hands({ [16] = ROD, [17] = { 4, 6 } })
     check("щит — не «предмет в левой руке»", PM.GetMaxPrepared(), p0)
+    do
+        Hands({ [16] = ROD, [17] = ROD })
+        local e0 = SB.Skills.GetEffective("Эрудиция")
+        Hands({ [16] = ROD, [17] = { 4, 0 } })
+        check("левая рука — это +1 к Эрудиции", SB.Skills.GetEffective("Эрудиция") - e0, 1)
+        Hands({ [16] = { 4, 0 }, [17] = { 4, 0 } })
+        check("и не складывается",              SB.Skills.GetEffective("Эрудиция") - e0, 1)
+    end
 
     -- ── ДРЕВКОВОЕ И АРБАЛЕТ: ДАЛЬНОСТЬ ПО ВИДУ ПРИЁМА ──────
     local melee  = { distance = L.MELEE_RANGE }
@@ -19783,11 +19813,13 @@ do
     local function Eff(k) return SB.Attributes.GetEffective(k) end
     Hands({ [16] = ROD, [17] = ROD })
     local base = {}
-    for _, k in ipairs({ "Рвение", "Скрытность", "Внушение", "Выносливость", "Ловкость" }) do
+    for _, k in ipairs({ "Лидерство", "Скрытность", "Внушение", "Выносливость", "Ловкость" }) do
         base[k] = Eff(k)
     end
     Hands({ [16] = { 2, 19 }, [17] = ROD })
-    check("жезл: +2 к Рвению",                 Eff("Рвение") - base["Рвение"], 2)
+    check("жезл: +1 к Лидерству",              Eff("Лидерство") - base["Лидерство"], 1)
+    Hands({ [16] = { 2, 19 }, [17] = { 2, 19 } })
+    check("два жезла не складываются",         Eff("Лидерство") - base["Лидерство"], 1)
     Hands({ [16] = { 2, 15 }, [17] = { 2, 15 } })
     check("два кинжала: +2 к Скрытности",       Eff("Скрытность") - base["Скрытность"], 2)
     check("а вложенное не тронуто",            SB.Skills.Get("Скрытность"), base["Скрытность"])
