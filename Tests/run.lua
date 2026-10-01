@@ -22029,6 +22029,10 @@ do
         SB.Scenes.ParseUptime("Server uptime: 1 Day(s) 2 Hour(s) 3 Minute(s) 4 Second(s)"),
         86400 + 2 * 3600 + 3 * 60 + 4)
     check("чужая строка — не время работы", SB.Scenes.ParseUptime("Игроков в сети: 13"), nil)
+    checkTrue("отказ в команде узнаётся",
+        SB.Scenes.IsDenied("Command 'server info' does not exist"))
+    checkTrue("а чужая ошибка — нет",
+        not SB.Scenes.IsDenied("Command 'npc info' does not exist"))
 
     local wasLeader, wasGroup = stub.world.isLeader, stub.world.inGroup
     stub.world.isLeader, stub.world.inGroup = true, false

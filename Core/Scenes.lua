@@ -23,9 +23,13 @@
 -- запуск — сцена отбрасывается. Вывод «.server info» в чат не попадает:
 -- пока ждём ответ, его строки фильтруются.
 --
--- Если сервер не ответил (нет команды, другой формат) — восстанавливаем
--- только свежее сохранение (FALLBACK_FRESH): /reload и вылет сцену
--- переживают, а вчерашняя сцена — нет.
+-- «.server info» ЕСТЬ НЕ У ВСЕХ: обычному игроку сервер отвечает
+-- «Command 'server info' does not exist». Такой ответ тоже прячется, и
+-- ждать дальше незачем — решаем сразу. Отказ запоминается на аккаунт, и
+-- следующие сутки команда не отправляется вовсе (DENIED_RETRY).
+--
+-- Без ответа сервера восстанавливаем только свежее сохранение
+-- (FALLBACK_FRESH): /reload и вылет сцену переживают, а вчерашняя — нет.
 -- ============================================================
 local addonName, SB = ...
 
@@ -35,6 +39,7 @@ local SAVE_DELAY     = 2      -- с, пачка изменений — одно 
 local PROBE_TIMEOUT  = 6      -- с, сколько ждём ответ «.server info»
 local SAME_START_TOL = 300    -- с, расхождение момента запуска «на тот же запуск»
 local FALLBACK_FRESH = 900    -- с, без ответа сервера — восстанавливаем только свежее
+local DENIED_RETRY   = 86400  -- с, после отказа в команде не спрашиваем сутки
 
 local serverStart   = nil     -- момент запуска сервера в этой сессии, time()
 local probeUntil    = 0       -- до какого GetTime() прячем вывод «.server info»
@@ -92,6 +97,17 @@ local INFO_LINES = {
     "Разница времени", "[Uu]pdate time diff", "diff [Tt]ime", "diff: %-?%d+ ms",
 }
 
+--- Отказ сервера в команде: «Command 'server info' does not exist»
+--- (или переведённый вариант с «server info» и «не существует»).
+function SB.Scenes.IsDenied(msg)
+    if type(msg) ~= "string" then return false end
+    msg = StripCodes(msg)
+    if not msg:find("server info", 1, true) then return false end
+    return msg:find("does not exist", 1, true) ~= nil
+        or msg:find("не существует", 1, true) ~= nil
+        or msg:find("нет такой", 1, true) ~= nil
+end
+
 local function IsInfoLine(msg)
     msg = StripCodes(msg)
     for _, pat in ipairs(INFO_LINES) do
@@ -113,6 +129,13 @@ function SB.Scenes.ProbeServerStart(callback)
         if callback then callback(serverStart) end
         return
     end
+    -- Недавно отказали — не спрашиваем: ответ будет тем же.
+    local denied = tonumber(Store().serverInfoDeniedAt)
+    if denied and Now() - denied < DENIED_RETRY then
+        probed = true
+        if callback then callback(nil) end
+        return
+    end
     if callback then probeWaiters[#probeWaiters + 1] = callback end
     if #probeWaiters > 1 then return end   -- запрос уже ушёл
     probeUntil = Clock() + PROBE_TIMEOUT
@@ -129,6 +152,12 @@ do
     f:RegisterEvent("CHAT_MSG_SYSTEM")
     f:SetScript("OnEvent", function(_, _, msg)
         if type(msg) ~= "string" or Clock() > probeUntil then return end
+        if SB.Scenes.IsDenied(msg) and not serverStart and not probed then
+            Store().serverInfoDeniedAt = Now()
+            probed = true
+            Resolve(nil)
+            return
+        end
         local up = SB.Scenes.ParseUptime(msg)
         if up and not serverStart then
             serverStart = Now() - up
@@ -139,7 +168,8 @@ do
     -- Вывод «.server info» — служебный: в чат он не идёт, пока ждём ответ.
     if ChatFrame_AddMessageEventFilter then
         ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", function(_, _, msg)
-            if type(msg) == "string" and Clock() <= probeUntil and IsInfoLine(msg) then
+            if type(msg) == "string" and Clock() <= probeUntil
+               and (IsInfoLine(msg) or SB.Scenes.IsDenied(msg)) then
                 return true
             end
             return false
