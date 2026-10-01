@@ -15,17 +15,10 @@ Add({
 	resistable = true,
 	canCrit = true,
 	distance = 30,
-	-- Скейлинг от характеристик. Ключ — имя АТРИБУТА или НАВЫКА,
-	-- значение — коэффициент (можно дробный и отрицательный).
-	-- Подробности и цена очка: SB.Logic.GetSpellScaling в Core/Logic.lua.
-	--
-	-- Раскладка ниже — общая для всех уронных заклинаний Жреца ветки
-	-- Света: Дух ведёт бросок, Религия — шанс крита, Дух же добавляет
-	-- урон с половинным коэффициентом (у кастера основной урон задаёт
-	-- вложенная мана, см. SB.Logic.GetCastPower).
 	scaling = {
 		hit    = { ["Религия"] = 2 },
 		crit   = { ["Рвение"] = 2 },
+		damage = { ["Дух"] = 0.7 },
 	},
 })
 Add({
@@ -419,7 +412,7 @@ Add({
     description = "Слово, наполненное божественной силой, укрепляет тело и дух цели: растёт максимум её здоровья, и она крепче держит удары. Пока слово действует, спасброски от истощения и ослабления тела совершаются с преимуществом.\n\nЭффект оканчивается, если цель теряет сознание. На нежить и конструктов не действует.",
     isCantrip = true,
     resistable = true,
-	duration = 300,
+	duration = 150,
     isConcentration = false,
 	distance = 2.5,
 	buff = "eff_fortitude_word_fortitude",
@@ -546,7 +539,7 @@ Add({
     description = "Вы громогласно возносите молитву, вкладывая глубокую веру в свои слова, и призываете силы Света чтобы одарить вас, и ваших сопартийцев эффектом Cлова силы: Стойкость.",
     isCantrip = false,
     resistable = true,
-	duration = 300,
+	duration = 150,
     isConcentration = false,
 	buff = "eff_fortitude",
 	aoe = { radius = 18 },
@@ -570,7 +563,7 @@ Add({
 	distance = 30,
 	debuff = "eff_mana_burn",
 	scaling = {
-		hit    = { ["Воля"] = 1, ["Наука"] = 0.5 },
+		hit    = { ["Воля"] = 1.5, ["Наука"] = 0.5 },
 	},
 })
 Add({
@@ -678,7 +671,7 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-	duration = 2,
+	duration = 1,
 	distance = 20,
     debuff = "eff_mind_flay",
 	channel = 2,
@@ -798,7 +791,7 @@ Add({
     resistable = true,
 	duration = 600,
     isConcentration = false,
-    buff = "eff_prayer_of_shadow_protection",
+    buff = "eff_anti_shadow",
 	aoe = { radius = 18 },
 	scaling = {
 		hit    = { ["Внушение"] = 1, ["Воля"] = 0.5 },
