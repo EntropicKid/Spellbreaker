@@ -254,7 +254,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_shadow_mindsteal",
     description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
     effect = {
-        kind  = "debuff", resist = "Выносливость",
+        kind  = "debuff", family = "Ослепление", resist = "Выносливость",
         mods  = { attack = -33, defense = -33, range = -18 },
         stats = { ["Точность"] = -4 },
 		breakOn = { damaged = true },
@@ -814,10 +814,6 @@ AddEffect({
     name = "Падение перышком",
     icon = "Interface\\Icons\\Spell_magic_featherfall",
     description = "Вес почти исчез: падение медленное и безопасное. Удары и атаки это не смягчает.",
-    -- НАСТОЯЩЕЕ МЕДЛЕННОЕ ПАДЕНИЕ: пока эффект висит, сервер держит на
-    -- носителе ауру «Медленного падения» (spell 130) — персонаж и в игре
-    -- падает плавно и не разбивается (см. SB.ActiveEffects.SyncCauras).
-    caura = 130,
     effect = { kind = "buff", school = "magic" },
 })
 
@@ -991,10 +987,6 @@ AddEffect({
     name = "Падение перышком",
     icon = "Interface\\Icons\\Inv_icon_feather06e",
     description = "Падение стало медленным, будто вес почти исчез. Удары и атаки это не смягчает.",
-    -- НАСТОЯЩЕЕ МЕДЛЕННОЕ ПАДЕНИЕ: пока эффект висит, сервер держит на
-    -- носителе ауру «Медленного падения» (spell 130) — персонаж и в игре
-    -- падает плавно и не разбивается (см. SB.ActiveEffects.SyncCauras).
-    caura = 130,
     effect = { kind = "buff", school = "magic" },
 })
 
@@ -2218,7 +2210,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_shadow_mindsteal",
     description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
     effect = {
-        kind  = "debuff", resist = "Выносливость",
+        kind  = "debuff", family = "Ослепление", resist = "Выносливость",
         school = "magic",
         mods = { attack = -33, defense = -33 },
         stats = { ["Точность"] = -4 },
@@ -2319,7 +2311,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_nature_insectswarm",
     description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
     effect = {
-        kind  = "debuff", resist = "Выносливость",
+        kind  = "debuff", family = "Ослепление", resist = "Выносливость",
         mods = { attack = -5, defense = -5 },
     },
 })
@@ -3147,7 +3139,7 @@ AddEffect({
     icon = "Interface\\Icons\\Ability_rogue_smoke",
     description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
     effect = {
-        kind  = "debuff", resist = "Выносливость",
+        kind  = "debuff", family = "Ослепление", resist = "Выносливость",
         mods = { attack = -40, defense = -40 },
         stats = { ["Точность"] = -5 },
     },
@@ -3409,7 +3401,7 @@ AddEffect({
     icon = "Interface\\Icons\\Inv_misc_dust",
     description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
     effect = {
-        kind  = "debuff", resist = "Выносливость", school = "magic",
+        kind  = "debuff", family = "Ослепление", resist = "Выносливость", school = "magic",
         mods = { attack = -33, defense = -33 },
         stats = { ["Точность"] = -4 },
     },

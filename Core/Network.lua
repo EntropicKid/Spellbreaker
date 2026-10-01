@@ -875,7 +875,7 @@ local function ParseDISPEL(t)
     if type(t.schools) == "table" then
         for key, v in pairs(t.schools) do
             if v == true and (SB.Data.EffectSchools[key]
-                              or (SB.Data.DispelNests and SB.Data.DispelNests[key])) then
+                              or (SB.Data.IsEffectFamily and SB.Data.IsEffectFamily(key))) then
                 schools[key] = true
             end
         end

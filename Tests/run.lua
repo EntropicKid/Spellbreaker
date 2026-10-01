@@ -896,8 +896,8 @@ do
         if type(d) == "string" then d = { d } end
         if type(d) == "table" then
             for _, key in ipairs(d) do
-                -- Гнездо (SB.Data.DispelNests) — законное имя рядом со школами.
-                if not (SB.Data.DispelNests and SB.Data.DispelNests[key]) then
+                -- Семейство эффекта — законное имя рядом со школами.
+                if not SB.Data.IsEffectFamily(key) then
                     CheckSchool("dispel", sp.name or id, key)
                 end
             end
@@ -2988,17 +2988,26 @@ end
 do
     local AE, PM = SB.ActiveEffects, SB.PlayerModel
 
-    -- «Исцелить недуг» снимает ослепление любой школы, и только его.
+    -- «Исцелить недуг» снимает семейство «Ослепление» любой школы, и только его.
+    for _, id in ipairs({ "eff_blinded", "eff_blinded_smoke_bomb", "eff_blinded_insect_swarm",
+                          "eff_blinded_dust_darkness", "eff_blinded_chaos_nova" }) do
+        check("«" .. SB.Data.Spells[id].name .. "» — семейство «Ослепление»",
+              SB.Data.Spells[id].effect.family, "Ослепление")
+    end
     ResetEffects()
-    AE.Add("eff_blinded_smoke_bomb", 3, false)
     AE.Add("eff_blinded_dust_darkness", 3, false)
     AE.Add("t_pain", 3, false)
     local set = SB.Logic.GetDispelSchools(SB.Data.Spells["cure_blind"])
-    checkTrue("недуг: гнездо ослеплений в списке", set and set["Ослепление"])
+    checkTrue("недуг рассеивает семейство «Ослепление»", set and set["Ослепление"])
     AE.Dispel(set, 5, true)
-    check("снята дымовая завеса (без школы)", UsesOf("eff_blinded_smoke_bomb"), nil)
-    check("и пылевой морок (магия)",          UsesOf("eff_blinded_dust_darkness"), nil)
-    check("а боль не тронута",                UsesOf("t_pain"), 3)
+    check("пылевой морок (магия) снят", UsesOf("eff_blinded_dust_darkness"), nil)
+    check("а боль не тронута",          UsesOf("t_pain"), 3)
+    ResetEffects()
+    AE.Add("eff_blinded_smoke_bomb", 3, false)
+    AE.Dispel(set, 5, true)
+    check("и дымовая завеса (без школы) тоже", UsesOf("eff_blinded_smoke_bomb"), nil)
+    checkTrue("опечатка в dispel не становится семейством",
+              not SB.Data.IsEffectFamily("Ослеплние"))
     ResetEffects()
 
     -- «Ревностный защитник»: смертельный удар оставляет на 5 ХП, один раз.
@@ -3051,9 +3060,6 @@ do
     check("и чтение мыслей тоже",  UsesOf("eff_detect_thougts"), nil)
     ResetEffects()
 
-    -- Падение пёрышком — серверная аура медленного падения.
-    check("пёрышко мага — аура 130",   SB.Data.Spells["eff_mage_featherfall"].caura, 130)
-    check("пёрышко шамана — аура 130", SB.Data.Spells["eff_shaman_featherfall"].caura, 130)
 
     -- Канал здоровья лечит ценой своей крови.
     local hf = SB.Data.Spells["health_funnel"]

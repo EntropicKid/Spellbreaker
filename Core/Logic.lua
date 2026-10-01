@@ -5408,8 +5408,8 @@ function SB.Logic.GetDispelSchools(spell)
         -- кто пишет заклинания.
         local info = SB.Data.EffectSchools[s]
         if info and not info.undispellable then set[s] = true; any = true end
-        -- Или гнездо, объявленное снимаемым (см. SB.Data.DispelNests).
-        if SB.Data.DispelNests and SB.Data.DispelNests[s] then
+        -- Или семейство эффекта (см. SB.Data.IsEffectFamily).
+        if not info and SB.Data.IsEffectFamily and SB.Data.IsEffectFamily(s) then
             set[s] = true; any = true
         end
     end

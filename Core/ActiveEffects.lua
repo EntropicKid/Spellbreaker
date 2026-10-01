@@ -3534,11 +3534,11 @@ function SB.ActiveEffects.MatchesDispel(spellID, set)
     if school and set[school] and not (info and info.undispellable) then
         return true
     end
-    -- ГНЕЗДО — из объявленных снимаемыми (SB.Data.DispelNests).
-    for key, nest in pairs(SB.Data.DispelNests or {}) do
-        if set[key] and SB.Data.InNest(spellID, nest) then return true end
-    end
-    return false
+    -- ИЛИ СЕМЕЙСТВО: dispel = { "Ослепление" } снимает всё, что
+    -- объявлено этим family, какой бы школы оно ни было.
+    local sp     = SB.Data.Spells[spellID]
+    local family = sp and type(sp.effect) == "table" and sp.effect.family
+    return type(family) == "string" and set[family] == true
 end
 
 function SB.ActiveEffects.Dispel(schools, count, friend)
