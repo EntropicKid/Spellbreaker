@@ -427,55 +427,81 @@ for _, path in ipairs(turnPaths) do
     end
 end
 
--- ТИК В НАЧАЛЕ СВОЕГО ХОДА, СНЯТИЕ — В КОНЦЕ.
+-- БАФФЫ ТИКАЮТ В НАЧАЛЕ СВОЕГО ХОДА, ДЕБАФФЫ — В КОНЦЕ.
 do
     local me = stub.world.playerName
+    SB.Data.Spells["t_boon"] = { id = "t_boon", name = "Проверочное благо",
+        class = "Эффект", level = 0,
+        effect = { kind = "buff", tick = { heal = 1 } } }
+    local function St(round, acted)
+        SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = round,
+            index = 2, slots = { { "Первый" }, { me } },
+            acted = acted or { ["Первый"] = true }, session = 77 })
+    end
+    local function EndTurn()
+        SB.Cooldowns.Start(SB.Cooldowns.TURN)
+        SB.Logic.SpendTurnManually()
+    end
     _G.SpellbreakerCharDB.turnTickKey = nil
+    _G.SpellbreakerCharDB.turnEndTickKey = nil
     SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 1,
         index = 1, slots = { { "Первый" }, { me } }, acted = {}, session = 77 })
     ResetEffects()
     SB.ActiveEffects.Add("t_pain", 2, false)
-    check("чужой ход — тика нет", UsesOf("t_pain"), 2)
-    -- Ход дошёл до нас: новое состояние, тот же круг.
+    SB.ActiveEffects.Add("t_boon", 2, false)
+    check("чужой ход — дебафф не тикал", UsesOf("t_pain"), 2)
+    check("чужой ход — бафф не тикал",   UsesOf("t_boon"), 2)
+
+    -- Ход дошёл до нас.
     SB.TurnOrder.ApplyRemoteMark({ round = 1, index = 2, names = { "Первый" } })
-    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 1,
-        index = 2, slots = { { "Первый" }, { me } }, acted = { ["Первый"] = true },
-        session = 77 })
-    check("свой ход начался — тикнуло", UsesOf("t_pain"), 1)
-    -- Повторный пакет о том же ходе второй раз не тикает.
-    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 1,
-        index = 2, slots = { { "Первый" }, { me } }, acted = { ["Первый"] = true },
-        session = 77 })
-    check("повторный пакет не тикает", UsesOf("t_pain"), 1)
+    St(1)
+    check("начало хода: бафф тикнул",      UsesOf("t_boon"), 1)
+    check("начало хода: дебафф ждёт конца", UsesOf("t_pain"), 2)
+    St(1)
+    check("повторный пакет не тикает", UsesOf("t_boon"), 1)
+    EndTurn()
+    check("конец хода: дебафф тикнул", UsesOf("t_pain"), 1)
+    check("конец хода: бафф не тронут", UsesOf("t_boon"), 1)
 
-    -- Следующий круг: единица — последний ход, эффект доживает его.
-    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 2,
-        index = 2, slots = { { "Первый" }, { me } }, acted = { ["Первый"] = true },
-        session = 77 })
-    check("последний ход — эффект ещё висит", UsesOf("t_pain"), 1)
-    SB.Cooldowns.Start(SB.Cooldowns.TURN)
-    SB.Logic.SpendTurnManually()
-    check("окончил ход — эффект снят", UsesOf("t_pain"), nil)
+    -- Следующий круг: последний ход у обоих.
+    St(2)
+    check("бафф доживает последний ход", UsesOf("t_boon"), 1)
+    check("дебафф до конца хода висит",  UsesOf("t_pain"), 1)
+    EndTurn()
+    check("в конце хода бафф снят",   UsesOf("t_boon"), nil)
+    check("и дебафф истёк",            UsesOf("t_pain"), nil)
 
-    -- Оглушение на один ход, наложенное между ходами, обязано
-    -- подействовать на ход целиком, а не спасть в его начале.
+    -- Дебафф, наложенный посреди своего хода, в этот конец не тикает:
+    -- оглушение на ход обязано подействовать хоть один ход.
+    St(3)
     SB.ActiveEffects.Add("t_pain", 1, false)
-    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 3,
-        index = 2, slots = { { "Первый" }, { me } }, acted = { ["Первый"] = true },
-        session = 77 })
-    check("эффект на один ход держится весь ход", UsesOf("t_pain"), 1)
+    EndTurn()
+    check("наложенный на своём ходу дебафф пережил его конец", UsesOf("t_pain"), 1)
+    St(4)
+    check("и весь следующий ход висит", UsesOf("t_pain"), 1)
+    EndTurn()
+    check("а в его конце спадает", UsesOf("t_pain"), nil)
+
+    -- Бафф на один ход, наложенный между ходами, держится весь ход.
+    SB.ActiveEffects.Add("t_boon", 1, false)
+    St(5)
+    check("бафф на один ход держится весь ход", UsesOf("t_boon"), 1)
     SB.TurnOrder.ApplyRemoteState({ active = false })
-    check("выход из режима снимает доживавших", UsesOf("t_pain"), nil)
+    check("выход из режима снимает доживавших", UsesOf("t_boon"), nil)
     ResetEffects()
 
     -- ПОТОК: держатель списывается раз за ход, а не дважды.
-    SB.ActiveEffects.Add("t_pain", 3, false)
-    SB.ActiveEffects.MarkStepped("t_pain")
+    SB.ActiveEffects.Add("t_boon", 3, false)
+    SB.ActiveEffects.MarkStepped("t_boon")
     SB.ActiveEffects.TickTurnStart()
-    check("продолженный поток тик начала хода не списывает", UsesOf("t_pain"), 3)
+    check("продолженный поток тик начала хода не списывает", UsesOf("t_boon"), 3)
     SB.ActiveEffects.TickTurnStart()
-    check("не продолжал — тик спишет", UsesOf("t_pain"), 2)
+    check("не продолжал — тик спишет", UsesOf("t_boon"), 2)
     ResetEffects()
+
+    -- Свободный режим не задет: у дебаффа и баффа одни и те же свои часы.
+    checkTrue("свободный режим тикает всё по своим часам",
+              ReadFile("Core/ActiveEffects.lua"):find("function SB.ActiveEffects.RealtimeClock", 1, true) ~= nil)
 end
 
 -- ОТВЕТ ВЕДУЩЕГО НЕ ТРАТИТ ХОД ВТОРОЙ РАЗ.
@@ -1680,6 +1706,7 @@ do
     -- Тик в начале хода помнит, какой круг уже тикнул; блок начинает
     -- с чистого листа.
     _G.SpellbreakerCharDB.turnTickKey = nil
+    _G.SpellbreakerCharDB.turnEndTickKey = nil
 
     SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 1,
         index = 1, slots = { { me }, { "Другой" } }, acted = {}, skipped = {} })
@@ -1713,6 +1740,7 @@ do
     ResetEffects()
     SB.ActiveEffects.Add("t_pain", 3, false)
     _G.SpellbreakerCharDB.turnTickKey = nil
+    _G.SpellbreakerCharDB.turnEndTickKey = nil
     SB.TurnOrder.ApplyRemoteState({ active = true, mode = "player", round = 2,
         index = 1, slots = { { me }, { "Другой" } }, acted = {}, skipped = {} })
     local savedHP = _G.SpellbreakerCharDB.health

@@ -2083,6 +2083,9 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc, source, level)
             -- Продлённый эффект больше не доживает последний ход
             -- (см. «ТИК В НАЧАЛЕ ХОДА» у TurnStartOne).
             eff.expiring = nil
+            -- Наложен заново — посреди своего хода или нет, решает тик
+            -- конца хода (см. «ДЕБАФФЫ — В КОНЦЕ ХОДА»).
+            eff.addedSeq = tickSeq
             -- И его часы свободного режима идут заново (см. «СВОИ ЧАСЫ»).
             eff.phaseAt  = GetTime()
             -- ИСТОЧНИК ПЕРЕПИСЫВАЕТСЯ, а не сохраняется: провокацию
@@ -2124,6 +2127,8 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc, source, level)
         src       = source or UnitName("player"),
         -- Часы свободного режима — с момента наложения (см. «СВОИ ЧАСЫ»).
         phaseAt   = GetTime(),
+        -- Номер тика на момент наложения (см. «ДЕБАФФЫ — В КОНЦЕ ХОДА»).
+        addedSeq  = tickSeq,
         -- Круг, на котором наложили. Не передали — собственный круг
         -- заклинания: выдача Ведущего вложения не знает, и брать с неё
         -- больше единицы не за что (см. WillCostOf).
@@ -3261,9 +3266,59 @@ end
 --- Доживавшие с прошлого хода (конец хода не наступил — вылет, смена
 --- режима на ходу) сначала снимаются: второй «последний ход» им не
 --- положен.
+-- ============================================================
+-- ДЕБАФФЫ — В КОНЦЕ ХОДА (пошаговый режим)
+--
+-- Баффы тикают в начале своего хода (выше), дебаффы — в конце: яд
+-- капает, когда ход отыгран, а не до него. Конец хода для дебаффа —
+-- обычный тик (SB.ActiveEffects.DecrementOne): выплата, счётчик вниз,
+-- на нуле — снятие с прощальным расчётом. Делить его надвое, как баффы,
+-- незачем: «N ходов» и так значит «N твоих ходов под эффектом».
+--
+-- НАЛОЖЕННЫЙ ПОСРЕДИ СВОЕГО ХОДА В ЭТОТ КОНЕЦ НЕ ТИКАЕТ. Иначе
+-- оглушение на ход, повешенное в режиме «все сразу» (или ответным
+-- приёмом), спадало бы в конце того же хода — то есть не действовало
+-- бы ни секунды. Отличаем по номеру тика: всё, что наложено после тика
+-- начала хода, несёт его номер (turnStartSeq).
+--
+-- ТАКТ «ПРОШЁЛ ХОД» (TURN_TICK) ЗДЕСЬ НЕ ПОДНИМАЕТСЯ: он уже прозвучал в
+-- начале хода, и второй раз удвоил бы ручейки (Резонанс, Фокус).
+--
+-- Свободный режим это не задевает вовсе: там у каждого эффекта свои
+-- часы (см. «СВОИ ЧАСЫ»), и делёж по видам к ним не относится.
+-- ============================================================
+local turnStartSeq = nil
+
+local function IsDebuff(spellID)
+    return SB.ActiveEffects.GetKind(spellID) == "debuff"
+end
+
 function SB.ActiveEffects.TickTurnStart()
     SB.ActiveEffects.ExpireTurnEnd()
-    return SB.ActiveEffects.TickAll(nil, nil, true)
+    local skip = {}
+    for _, eff in ipairs(effects) do
+        if IsDebuff(eff.spellID) then skip[eff.spellID] = true end
+    end
+    local r = SB.ActiveEffects.TickAll(skip, nil, true)
+    turnStartSeq = tickSeq
+    return r
+end
+
+--- Тик конца своего хода: только дебаффы, и только те, что висели до
+--- начала хода (см. врезку выше).
+function SB.ActiveEffects.TickTurnEnd()
+    local skip, any = {}, false
+    for _, eff in ipairs(effects) do
+        local fresh = turnStartSeq ~= nil and eff.addedSeq == turnStartSeq
+        if not IsDebuff(eff.spellID) or fresh then
+            skip[eff.spellID] = true
+        else
+            any = true
+        end
+    end
+    turnStartSeq = nil
+    if not any then return end
+    return SB.ActiveEffects.TickAll(skip, nil, nil, true)
 end
 
 -- ============================================================

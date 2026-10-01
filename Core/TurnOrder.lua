@@ -282,7 +282,7 @@ local function NotifyTransitions()
     end
 
     -- ============================================================
-    -- ТИК ЭФФЕКТОВ — В НАЧАЛЕ СВОЕГО ХОДА, СНЯТИЕ — В КОНЦЕ
+    -- ТИК ЭФФЕКТОВ — БАФФЫ В НАЧАЛЕ СВОЕГО ХОДА, ДЕБАФФЫ В КОНЦЕ
     --
     -- Правило и то, почему тик разделён на две половины, — во врезке
     -- «ТИК В НАЧАЛЕ ХОДА» в Core/ActiveEffects.lua. Здесь только то,
@@ -314,6 +314,15 @@ local function NotifyTransitions()
     end
     if not turnOpen and AE and AE.ExpireTurnEnd then
         AE.ExpireTurnEnd()
+    end
+    -- ДЕБАФФЫ — В КОНЦЕ ХОДА, тоже раз за круг и со своим ключом в
+    -- сохранёнке (см. «ДЕБАФФЫ — В КОНЦЕ ХОДА» в Core/ActiveEffects.lua).
+    if turnPassed and AE and AE.TickTurnEnd and SpellbreakerCharDB then
+        local key = (state.session or 0) .. ":" .. (state.round or 0)
+        if SpellbreakerCharDB.turnEndTickKey ~= key then
+            SpellbreakerCharDB.turnEndTickKey = key
+            AE.TickTurnEnd()
+        end
     end
 
     if myTurn and lastMyTurn == false then
