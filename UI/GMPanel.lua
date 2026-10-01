@@ -375,17 +375,28 @@ end
 --- отовсюду, где меняется одно из двух: сам режим, состав группы, право
 --- Ведущего.
 local function SyncRealtimeToTurnMode()
-    local enabled = SB.UI.IsGameMaster() and not (SB.TurnOrder and SB.TurnOrder.IsActive())
+    -- ВРЕМЯ ИДЁТ У ВСЕХ, А ТАКТ ДАЁТ ОДИН. Флаг «время идёт само» — это
+    -- просто «пошаговый выключен», и он одинаков у Ведущего и у игроков:
+    -- по нему свои часы эффектов (см. «СВОИ ЧАСЫ» в Core/ActiveEffects.lua)
+    -- решают, тикать ли. Шестисекундный таймер такта — только у Ведущего.
+    --
+    -- Раньше флаг здесь был «Ведущий И свободный ход», а функция зовётся
+    -- у всех (панель строится у каждого) — на любом событии состава
+    -- игрок сам себе гасил время. Лидер вышел из игры — у группы
+    -- эффекты застыли; лидер вернулся — режим у него не менялся, пакет
+    -- RTSYNC не уходил, и время у остальных так и стояло.
+    local running = not (SB.TurnOrder and SB.TurnOrder.IsActive())
+    local enabled = SB.UI.IsGameMaster() and running
     local was     = SpellbreakerAccountDB and SpellbreakerAccountDB.realtimeEffects or false
-    if SpellbreakerAccountDB then SpellbreakerAccountDB.realtimeEffects = enabled end
+    if SpellbreakerAccountDB then SpellbreakerAccountDB.realtimeEffects = running end
 
     if enabled then StartRealtimeTimer() else StopRealtimeTimer() end
 
     -- Группе сообщаем только о СМЕНЕ и только от Ведущего: пакет
     -- информационный, а принимают его всё равно лишь от лидера.
-    if was ~= enabled and IsInGroup() and SB.UI.IsGameMaster()
+    if was ~= running and IsInGroup() and SB.UI.IsGameMaster()
        and SB.Net and SB.Net.SendRealtimeSync then
-        SB.Net.SendRealtimeSync(enabled)
+        SB.Net.SendRealtimeSync(running)
     end
 end
 

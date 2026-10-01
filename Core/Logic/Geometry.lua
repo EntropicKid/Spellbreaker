@@ -57,14 +57,22 @@ SB.Logic.MELEE_RANGE = MELEE_RANGE
 function SB.Logic.GetSpellRange(spell)
     local base = tonumber(spell and spell.distance) or 0
     if base <= 0 then return 0 end
-    local mod = (SB.ActiveEffects and SB.ActiveEffects.GetMod
-                 and SB.ActiveEffects.GetMod("range")) or 0
+    local melee = base <= MELEE_RANGE
+    -- ЭФФЕКТЫ ДВИГАЮТ ТОЛЬКО ДАЛЬНИЙ БОЙ. Канал "range" висящих баффов
+    -- («Видеть невидимое» +5 м) — про то, насколько далеко заклинатель
+    -- видит и достаёт магией; руку с мечом он не удлиняет. Ближний бой
+    -- удлиняет одно древковое оружие (канал meleeRange ниже).
+    local mod = 0
+    if not melee then
+        mod = (SB.ActiveEffects and SB.ActiveEffects.GetMod
+               and SB.ActiveEffects.GetMod("range")) or 0
+    end
     -- ОРУЖИЕ — ПО ВИДУ ПРИЁМА, А НЕ ПО ВИДУ ОРУЖИЯ. Древковое удлиняет
     -- только ближний бой (2.5 → 4 м), арбалет — только то, что и так
     -- бьёт дальше вытянутой руки. Вид приёма решает записанная
     -- дальность: эффект «удлинить руки» ближний бой дальним не делает.
     if SB.Skills and SB.Skills.GetWeaponBonus then
-        local channel = (base <= MELEE_RANGE) and "meleeRange" or "rangedRange"
+        local channel = melee and "meleeRange" or "rangedRange"
         mod = mod + ((SB.Skills.GetWeaponBonus(channel)) or 0)
     end
     if mod == 0 then return base end
