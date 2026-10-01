@@ -1446,7 +1446,7 @@ function SB.NPC.AttackModifier(stats, unit, spell, versus)
     local hit = 0
     if spell and SB.Logic and SB.Logic.GetSpellScaling then
         local hitParts
-        hit, hitParts = SB.Logic.GetSpellScaling(spell, "hit", nil,
+        hit, hitParts = SB.Logic.GetSpellScaling(spell, "hit",
             SB.NPC.StatReader(stats, unit))
         for _, p in ipairs(hitParts or {}) do parts[#parts + 1] = p end
     end

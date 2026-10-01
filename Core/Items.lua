@@ -216,7 +216,7 @@ function SB.Items.EffectSummary(spell)
             end
         end
         if #names > 0 then
-            local count = SB.Logic.GetDispelCount(spell, spell.level or 0)
+            local count = SB.Logic.GetDispelCount(spell)
             lines[#lines + 1] = "|cFFFFD100Снимает:|r " ..
                 table.concat(names, ", ") ..
                 ((count > 1) and (" — до " .. count) or " — один")

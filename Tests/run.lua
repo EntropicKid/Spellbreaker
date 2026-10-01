@@ -1408,11 +1408,11 @@ do
         effect = { kind = "debuff", mods = { attack = -1 } } }
     local share = SB.Data.Config.EncouragementPerPoint
     check("чужому сроку прибавка идёт",
-          SB.Logic.GetEffectDuration("t_fr_deb", hex, 1,
+          SB.Logic.GetEffectDuration("t_fr_deb", hex,
               SB.Logic.EncouragementFor("t_fr_deb", "Чужой")),
           10 + math.floor(10 * share * SB.Skills.GetPersuasionBonus()))
     check("а своему — нет",
-          SB.Logic.GetEffectDuration("t_fr_deb", hex, 1,
+          SB.Logic.GetEffectDuration("t_fr_deb", hex,
               SB.Logic.EncouragementFor("t_fr_deb", me)), 10)
 
     -- ── ОТПРАВИТЕЛИ СПРАШИВАЮТ С ИМЕНЕМ ─────────────────────
@@ -3321,8 +3321,8 @@ stub.world.inGroup = false
 local firstCircle = { id = "x", level = 1 }
 local cantrip     = { id = "x", level = 0 }
 
-check("урон первого круга с базой",     SB.Logic.GetCastPower(firstCircle, 0), 1)
-check("урон заговора с базой",          SB.Logic.GetCastPower(cantrip, 0), 1)
+check("урон первого круга с базой",     SB.Logic.GetCastPower(firstCircle), 1)
+check("урон заговора с базой",          SB.Logic.GetCastPower(cantrip), 1)
 -- Заниженная база (клиент прежней версии) выправляется молча, без претензии.
 do
     local b, _, note = SB.Logic.VerifyIncomingDamage(firstCircle, 1, 0, 0)
@@ -3332,8 +3332,8 @@ do
     check("завышенная — тоже", b2, 1)
     checkTrue("но с претензией", note2 ~= nil)
 end
-check("исцеление первого круга с базой", SB.Logic.GetHealPower(firstCircle, 0), 1)
-check("исцеление заговора с базой",      SB.Logic.GetHealPower(cantrip, 0), 1)
+check("исцеление первого круга с базой", SB.Logic.GetHealPower(firstCircle), 1)
+check("исцеление заговора с базой",      SB.Logic.GetHealPower(cantrip), 1)
 
 check("крит исцеления умножает итог", (SB.Logic.ApplyCritHeal(4, true)), 8)
 check("без крита итог не трогается",  (SB.Logic.ApplyCritHeal(4, false)), 4)
@@ -4422,10 +4422,10 @@ do
     -- Сколько снимает каст — столько, какой круг у заклинания, и
     -- вливание сверх круга этого не меняет.
     local d3 = { level = 3 }
-    check("третий круг снимает три",        SB.Logic.GetDispelCount(d3, 3), 3)
-    check("вливание сверх не добавляет",    SB.Logic.GetDispelCount(d3, 5), 3)
-    check("первый круг — один",             SB.Logic.GetDispelCount({ level = 1 }, 1), 1)
-    check("заговор — тоже один",            SB.Logic.GetDispelCount({ level = 0 }, 0), 1)
+    check("третий круг снимает три",        SB.Logic.GetDispelCount(d3), 3)
+    check("вливание сверх не добавляет",    SB.Logic.GetDispelCount(d3), 3)
+    check("первый круг — один",             SB.Logic.GetDispelCount({ level = 1 }), 1)
+    check("заговор — тоже один",            SB.Logic.GetDispelCount({ level = 0 }), 1)
     local priest = SB.Data.Spells["dispel_magic"]
     for _, sp in pairs(SB.Data.Spells) do
         if sp.name == "Рассеивание магии" and sp.class == "Жрец" then priest = sp end
@@ -4433,10 +4433,10 @@ do
     end
     if priest and (priest.level or 0) >= 1 then
         check("«Рассеивание магии» жреца снимает по кругу",
-              SB.Logic.GetDispelCount(priest, priest.level), priest.level)
+              SB.Logic.GetDispelCount(priest), priest.level)
     end
     check("«Антимагия» мага снимает по кругу",
-          SB.Logic.GetDispelCount(d3, d3.level or 0), math.max(1, d3.level or 0))
+          SB.Logic.GetDispelCount(d3), math.max(1, d3.level or 0))
 
     -- Разбор объявления школ.
     checkTrue("одна школа строкой",
@@ -4553,13 +4553,13 @@ do
     captured = nil
     SB.Logic.ResolveDispel("t_dispel_target", 0)
     checkTrue("другу рассеивание ушло по сети", captured ~= nil)
-    check("другу — friend передан true", captured and captured[7], true)
+    check("другу — friend передан true", captured and captured[6], true)
 
     SB.Data.SetFriend("Ирина", false)
     captured = nil
     SB.Logic.ResolveDispel("t_dispel_target", 0)
     checkTrue("недругу рассеивание тоже ушло", captured ~= nil)
-    check("недругу — friend передан false", captured and captured[7], false)
+    check("недругу — friend передан false", captured and captured[6], false)
 
     SB.Net.SendDispel = prevSendDispel
     SB.Data.SetFriend("Ирина", false)   -- то же состояние, что до этого блока
@@ -5116,7 +5116,7 @@ do
     -- И ровно настолько, насколько тот же скейлинг дал бы игроку.
     local reader = SB.NPC.StatReader(buff, nil)
     local asPlayer = SB.Logic.GetSpellScaling(
-        SB.Data.Spells["t_npcatk"], "hit", nil, reader)
+        SB.Data.Spells["t_npcatk"], "hit", reader)
     check("прибавка та же, что у игрока с такими же цифрами",
           mBuff - mWeak, asPlayer)
 
@@ -5140,10 +5140,10 @@ do
     local realSend = SB.Net.SendPvpAttack
     local calls = {}
     SB.Net.SendPvpAttack = function(target, spellID, roll, mod, total,
-                                    isCrit, dmgBonus, baseDmg, slot, persuade, npcName, aoe)
+                                    isCrit, dmgBonus, baseDmg, persuade, npcName, aoe)
         calls[#calls + 1] = { target = target, spellID = spellID, roll = roll,
             mod = mod, total = total, isCrit = isCrit, baseDmg = baseDmg,
-            slot = slot, npcName = npcName, aoe = aoe }
+            npcName = npcName, aoe = aoe }
     end
 
     SB.Data.Spells["t_claw"] = { id = "t_claw", name = "Когти твари",
@@ -5321,7 +5321,7 @@ do
     local realBuff = SB.Net.SendBuff
     local realHeal = SB.Net.SendHealResult
     local buffs, heals = {}, {}
-    SB.Net.SendBuff = function(target, spellID, effectID, slot, npcName)
+    SB.Net.SendBuff = function(target, spellID, effectID, npcName)
         buffs[#buffs + 1] = { target = target, effectID = effectID, npcName = npcName }
     end
     SB.Net.SendHealResult = function(target, spellID, success, amount, armor, npcName)
@@ -5391,7 +5391,7 @@ do
     -- тихо превратилось в ноль.
     do
         local rolls = {}
-        SB.Net.SendBuff = function(target, spellID, effectID, slot, npc, roll, mod, total)
+        SB.Net.SendBuff = function(target, spellID, effectID, npc, roll, mod, total)
             rolls[#rolls + 1] = { target = target, roll = roll, total = total }
         end
         SB.Data.Spells["t_npc_res"] = { id = "t_npc_res", name = "Удушающий рык",
@@ -5470,7 +5470,7 @@ do
         _G.SpellbreakerCharDB.attributes["Выносливость"] = savedEnd
 
         if unsub then unsub() end
-        SB.Net.SendBuff = function(target, spellID, effectID, slot, npcName)
+        SB.Net.SendBuff = function(target, spellID, effectID, npcName)
             buffs[#buffs + 1] = { target = target, effectID = effectID, npcName = npcName }
         end
     end
@@ -5897,7 +5897,7 @@ do
                 if realMod > capMod then overModel[#overModel + 1] = id end
                 if capMod - realMod < tightest then tightest = capMod - realMod end
 
-                local realDmg = SB.Logic.GetSpellScaling(spell, "damage", slot)
+                local realDmg = SB.Logic.GetSpellScaling(spell, "damage")
                 local _, capDmg = SB.Logic.MaxPlausibleDamage(spell, slot)
                 if realDmg > capDmg then overDamage[#overDamage + 1] = id end
             end
@@ -9340,23 +9340,23 @@ do
     -- «своя» длительность контейнера не позволяла: заговор и третий круг
     -- вешали бы одно и то же на одинаковое число ходов.
     check("короткое заклинание вешает на свой срок",
-          SB.Logic.GetEffectDuration("t_dur_eff", SB.Data.Spells["t_dur_short"], 0), 2)
+          SB.Logic.GetEffectDuration("t_dur_eff", SB.Data.Spells["t_dur_short"]), 2)
     check("долгое — на свой",
-          SB.Logic.GetEffectDuration("t_dur_eff", SB.Data.Spells["t_dur_long"], 0), 8)
+          SB.Logic.GetEffectDuration("t_dur_eff", SB.Data.Spells["t_dur_long"]), 8)
     check("без срока — один ход",
-          SB.Logic.GetEffectDuration("t_dur_eff", SB.Data.Spells["t_dur_none"], 0), 1)
+          SB.Logic.GetEffectDuration("t_dur_eff", SB.Data.Spells["t_dur_none"]), 1)
 
     -- И СОБСТВЕННОЕ ПОЛЕ ЭФФЕКТА НЕ ЧИТАЕТСЯ, даже если кто-то его
     -- припишет: второй источник правды не должен вернуться тихо.
     SB.Data.Spells["t_dur_eff"].duration = 99
     check("приписанный эффекту срок игнорируется",
-          SB.Logic.GetEffectDuration("t_dur_eff", SB.Data.Spells["t_dur_none"], 0), 1)
+          SB.Logic.GetEffectDuration("t_dur_eff", SB.Data.Spells["t_dur_none"]), 1)
     SB.Data.Spells["t_dur_eff"].duration = nil
 
     -- Бесконечность заклинания по-прежнему работает.
     SB.Data.Spells["t_dur_none"].duration = -1
     check("минус единица — бесконечный эффект",
-          SB.Logic.GetEffectDuration("t_dur_eff", SB.Data.Spells["t_dur_none"], 0),
+          SB.Logic.GetEffectDuration("t_dur_eff", SB.Data.Spells["t_dur_none"]),
           SB.ActiveEffects.INFINITE)
     SB.Data.Spells["t_dur_none"].duration = nil
 
@@ -10407,13 +10407,13 @@ do
         repairArmor = 2 * perDR,
         scaling = { hit = { ["Ношение брони"] = 30 } } }
     check("починка каста читается",
-        SB.Logic.GetSpellRepair(SB.Data.Spells["t_repair"], 0), 2 * perDR)
+        SB.Logic.GetSpellRepair(SB.Data.Spells["t_repair"]), 2 * perDR)
     checkTrue("чистая починка идёт путём лечения",
         SB.Logic.IsHealingCast(SB.Data.Spells["t_repair"]))
     -- У чистой починки базы лечения нет: удавшийся бросок не должен
     -- дарить единицу ХП заклинанием, которое лечит железо.
     check("и здоровья она не касается",
-        SB.Logic.GetHealPower(SB.Data.Spells["t_repair"], 0), 0)
+        SB.Logic.GetHealPower(SB.Data.Spells["t_repair"]), 0)
 
     -- Скейлинг канала "armor" — необязательная прибавка сверх плоской.
     SB.Data.Spells["t_repair_scaled"] = { id = "t_repair_scaled",
@@ -10423,7 +10423,7 @@ do
         -- блока) — и по смыслу починку доспеха двигает именно оно.
         scaling = { armor = { ["Ношение брони"] = 1 } } }
     checkTrue("скейлинг брони прибавляется",
-        SB.Logic.GetSpellRepair(SB.Data.Spells["t_repair_scaled"], 1) > perDR)
+        SB.Logic.GetSpellRepair(SB.Data.Spells["t_repair_scaled"]) > perDR)
 
     -- Каст на себя чинит запас на месте, без сети.
     SB.Skills.ResetArmor()
@@ -11286,11 +11286,11 @@ do
                   level = 1, duration = 10, debuff = "t_pers_deb" }
     local share = SB.Data.Config.EncouragementPerPoint
     check("полностью вложенное «Внушение» держит вдвое",
-          SB.Logic.GetEffectDuration("t_pers_deb", src, 1),
+          SB.Logic.GetEffectDuration("t_pers_deb", src),
           10 + math.floor(10 * share * 5))
     SB.Skills.Set("Внушение", 0)
     check("а без него — ровно свой срок",
-          SB.Logic.GetEffectDuration("t_pers_deb", src, 1), 10)
+          SB.Logic.GetEffectDuration("t_pers_deb", src), 10)
     SB.Skills.Set("Внушение", 5)
 
     SB.Data.Spells["t_pers_deb"], SB.Data.Spells["t_pers_buf"] = nil, nil
@@ -11631,7 +11631,7 @@ do
     local realGroup = _G.IsInGroup
     _G.IsInGroup = function() return true end
     local sent = {}
-    SB.Net.SendBuff = function(target, spellID, effectID, slot, npc, roll, mod, total)
+    SB.Net.SendBuff = function(target, spellID, effectID, npc, roll, mod, total)
         sent[#sent + 1] = { target = target, roll = roll, total = total }
     end
 
@@ -12488,7 +12488,7 @@ do
     local sp = { id = "t_base_sc", name = "Проба", class = "Маг", level = 1,
                  scaling = { hit = { ["Сила"] = 1 } } }
     local function HitAt(v)
-        return (SB.Logic.GetSpellScaling(sp, "hit", nil,
+        return (SB.Logic.GetSpellScaling(sp, "hit",
             function(k) return (k == "Сила") and v or BASE end))
     end
     check("скейлинг: невложенное — ноль", HitAt(BASE), 0)
@@ -15262,7 +15262,7 @@ do
         local schools = SB.Logic.GetDispelSchools(potion)
         checkTrue("склянка снимает яд", schools ~= nil and schools.poison == true)
         check("и только его", schools and schools.magic, nil)
-        check("ровно один", SB.Logic.GetDispelCount(potion, potion.level or 0), 1)
+        check("ровно один", SB.Logic.GetDispelCount(potion), 1)
 
         local txt = Plain(potion)
         checkTrue("карточка называет, что снимает",
@@ -16115,18 +16115,18 @@ do
         class = "Проверка", level = 1, canCrit = true, distance = 30,
         scaling = { damage = { ["Точность"] = 1 } } }
 
-    local hurt = SB.Logic.GetSpellScaling(SB.Data.Spells["t_aimed"], "damage", 0)
+    local hurt = SB.Logic.GetSpellScaling(SB.Data.Spells["t_aimed"], "damage")
     checkTrue("скейлинг ушёл в минус", hurt < 0)
 
     SB.ActiveEffects.Remove("t_crush", true)
-    local fine = SB.Logic.GetSpellScaling(SB.Data.Spells["t_aimed"], "damage", 0)
+    local fine = SB.Logic.GetSpellScaling(SB.Data.Spells["t_aimed"], "damage")
     check("без дебаффа скейлинга нет вовсе", fine, 0)
     -- ШТРАФ РОВНО ТОЙ ЖЕ ВЕЛИЧИНЫ, какой была бы прибавка. Считается всё
     -- от нуля: при вложенной единице и «−6» выходит −5, при вложенных
     -- пяти без эффекта — ровно +5. Значит и скейлинг должен совпасть по
     -- модулю.
     _G.SpellbreakerCharDB.skills["Точность"] = 5
-    local up = SB.Logic.GetSpellScaling(SB.Data.Spells["t_aimed"], "damage", 0)
+    local up = SB.Logic.GetSpellScaling(SB.Data.Spells["t_aimed"], "damage")
     _G.SpellbreakerCharDB.skills["Точность"] = 1
     SB.ActiveEffects.Add("t_crush", 5, false)
     checkTrue("прибавка при пяти очках есть", up > 0)
@@ -16424,9 +16424,9 @@ do
     -- ЧТО БЫ НИ ПРИСЛАЛИ ЧЕТВЁРТЫМ АРГУМЕНТОМ — срок один и тот же.
     -- Аргумент остался в подписи ради двух десятков вызовов и пакетов
     -- старых сборок, но на число он больше не влияет.
-    check("свой круг — три хода",  L.GetEffectDuration("t_nu_eff", src, 1, 0), 3)
-    check("третий круг — те же три", L.GetEffectDuration("t_nu_eff", src, 3, 0), 3)
-    check("и пятый — тоже",          L.GetEffectDuration("t_nu_eff", src, 5, 0), 3)
+    check("свой круг — три хода",  L.GetEffectDuration("t_nu_eff", src, 0), 3)
+    check("третий круг — те же три", L.GetEffectDuration("t_nu_eff", src, 0), 3)
+    check("и пятый — тоже",          L.GetEffectDuration("t_nu_eff", src, 0), 3)
 
     -- И УРОН НЕ РАСТЁТ: множитель скейлинга читает круг ЗАКЛИНАНИЯ.
     SB.Data.Spells["t_nu_dmg"] = { id = "t_nu_dmg", name = "Проба урона",
@@ -16434,7 +16434,7 @@ do
         scaling = { damage = { ["Сила"] = 1 } } }
     local dmg = SB.Data.Spells["t_nu_dmg"]
     check("вложенное на урон не влияет",
-          L.GetSpellScaling(dmg, "damage", 3), L.GetSpellScaling(dmg, "damage", 1))
+          L.GetSpellScaling(dmg, "damage"), L.GetSpellScaling(dmg, "damage"))
 
     SB.Data.Spells["t_nu_eff"], SB.Data.Spells["t_nu_dmg"] = nil, nil
 end
@@ -17689,7 +17689,7 @@ do
     --- Считает скейлинг при заданных характеристиках, минуя базу.
     --- Числа — ВЛОЖЕННЫЕ ОЧКИ: база в ноль, и «Дух 4» — это четыре очка.
     local function At(spirit, charisma)
-        return L.GetSpellScaling(half, "damage", nil, function(k)
+        return L.GetSpellScaling(half, "damage", function(k)
             if k == "Дух" then return spirit end
             if k == "Характер" then return charisma end
             return SB.Data.STAT_BASE
@@ -17756,7 +17756,7 @@ do
     -- усечения, а не его правило.
     local penalty = { id = "t_pen", name = "Проба штрафа", class = "Шаман",
         level = 1, scaling = { damage = { ["Дух"] = -1 } } }
-    local neg = L.GetSpellScaling(penalty, "damage", nil,
+    local neg = L.GetSpellScaling(penalty, "damage",
         function(k) return (k == "Дух") and 3 or SB.Data.STAT_BASE end)
     check("отрицательный скейлинг усекается к нулю", neg, -1)
 end
@@ -18041,20 +18041,20 @@ do
     -- БЕЗ ПРИБАВКИ — ЗНАЧИТ КАСТ СВОЙ, и навык читается у себя же:
     -- три хода плюс 20% × 3 очка = 1,8 → ВНИЗ до 1.
     check("свой каст берёт навык сам",
-          L.GetEffectDuration("t_enc_buff", src, 1), 4)
+          L.GetEffectDuration("t_enc_buff", src), 4)
     -- ЯВНЫЙ НОЛЬ — ЭТО ЧУЖОЙ БАФФ БЕЗ НАВЫКА, и мой сюда попасть не
     -- должен: иначе к присланному эффекту прибавился бы МОЙ навык.
     check("явный ноль оставляет свой срок",
-          L.GetEffectDuration("t_enc_buff", src, 1, 0), 3)
+          L.GetEffectDuration("t_enc_buff", src, 0), 3)
     check("с прибавкой — длиннее на свою долю",
-          L.GetEffectDuration("t_enc_buff", src, 1, 3), 4)
+          L.GetEffectDuration("t_enc_buff", src, 3), 4)
     -- И ПРОМЕЖУТОЧНЫЕ ВЛОЖЕНИЯ НЕ ПУСТЫЕ. При округлении вверх у срока
     -- в три хода очки давали 4/5/5/7/7 — второе и четвёртое не значили
     -- ничего. Вниз выходит 3/3/4/4/6: пустых очков стало не больше, а
     -- потолок перестал упираться в самого себя.
     local ladder = {}
     for pts = 1, 5 do
-        ladder[pts] = L.GetEffectDuration("t_enc_buff", src, 1, pts)
+        ladder[pts] = L.GetEffectDuration("t_enc_buff", src, pts)
     end
     check("лестница трёхходового", table.concat(ladder, "/"), "3/4/4/5/6")
     -- РАЗЛИЧИМЫХ СТУПЕНЕЙ СТАЛО БОЛЬШЕ, а не меньше: вверх выходило
@@ -18066,9 +18066,9 @@ do
     local long = { id = "t_enc_long", name = "Долгий", class = "Жрец",
                    level = 1, duration = 100, buff = "t_enc_buff" }
     check("сто ходов при пяти очках — сто восемьдесят",
-          L.GetEffectDuration("t_enc_buff", long, 1, 4), 180)
+          L.GetEffectDuration("t_enc_buff", long, 4), 180)
     check("и вдвое при полностью вложенном навыке",
-          L.GetEffectDuration("t_enc_buff", long, 1, 5), 200)
+          L.GetEffectDuration("t_enc_buff", long, 5), 200)
 
     -- ── ОКРУГЛЕНИЕ ВНИЗ ────────────────────────────────────
     --
@@ -18082,11 +18082,11 @@ do
     local one = { id = "t_enc_one", name = "На ход", class = "Жрец",
                   level = 1, duration = 1, buff = "t_enc_buff" }
     check("одноходовому одного очка мало",
-          L.GetEffectDuration("t_enc_buff", one, 1, 1), 1)
+          L.GetEffectDuration("t_enc_buff", one, 1), 1)
     check("и четырёх мало",
-          L.GetEffectDuration("t_enc_buff", one, 1, 4), 1)
+          L.GetEffectDuration("t_enc_buff", one, 4), 1)
     check("а пять дают второй ход",
-          L.GetEffectDuration("t_enc_buff", one, 1, 5), 2)
+          L.GetEffectDuration("t_enc_buff", one, 5), 2)
 
     -- ОБЕЩАНИЕ НАВЫКА ЦЕЛО НА ЛЮБОМ СРОКЕ. «Полностью вложенный —
     -- вдвое» держится ТОЧНО: доля пять на пять даёт ровно единицу, а
@@ -18101,7 +18101,7 @@ do
            and not seen[dur] then
             seen[dur] = true
             local got = L.GetEffectDuration("t_enc_buff",
-                { id = "x", duration = dur, buff = "t_enc_buff" }, 1, 5)
+                { id = "x", duration = dur, buff = "t_enc_buff" }, 5)
             if got ~= dur * 2 then broken[#broken + 1] = dur .. "→" .. got end
         end
     end
@@ -18111,25 +18111,25 @@ do
     local dsrc = { id = "t_enc_dsrc", name = "Источник зла", class = "Жрец",
                    level = 1, duration = 3, debuff = "t_enc_debuff" }
     check("свой дебафф навыком не тянется",
-          L.GetEffectDuration("t_enc_debuff", dsrc, 1), 3)
+          L.GetEffectDuration("t_enc_debuff", dsrc), 3)
 
     -- ЧЕТВЁРТЫЙ АРГУМЕНТ НИЧЕГО НЕ МЕНЯЕТ. Прежде здесь проверялось,
     -- что доля навыка считается от БАЗЫ, а не от растянутых вливанием
     -- девяти ходов. Вливания больше нет, растягивать нечем — но
     -- проверка остаётся сторожем того, что «круг каста» в расчёт срока
     -- больше не попадает ни с какой стороны.
-    local base = L.GetEffectDuration("t_enc_buff", src, 1, 0)
+    local base = L.GetEffectDuration("t_enc_buff", src, 0)
     check("круг каста на срок не влияет",
-          L.GetEffectDuration("t_enc_buff", src, 3, 0), base)
+          L.GetEffectDuration("t_enc_buff", src, 0), base)
     check("а доля навыка считается от базы",
-          L.GetEffectDuration("t_enc_buff", src, 3, 3), base + 1)
+          L.GetEffectDuration("t_enc_buff", src, 3), base + 1)
 
     -- Бесконечное не продлевается: «до конца сцены» плюс ход — это всё
     -- та же «до конца сцены».
     local forever = { id = "t_enc_inf", name = "Навсегда", class = "Жрец",
                       level = 1, duration = -1, buff = "t_enc_buff" }
     check("бесконечный эффект остаётся бесконечным",
-          L.GetEffectDuration("t_enc_buff", forever, 1, 3), SB.ActiveEffects.INFINITE)
+          L.GetEffectDuration("t_enc_buff", forever, 3), SB.ActiveEffects.INFINITE)
 
     SB.Data.Spells["t_enc_buff"], SB.Data.Spells["t_enc_debuff"] = nil, nil
     _G.SpellbreakerCharDB.skills = savedSkills
@@ -19242,7 +19242,7 @@ do
     local cure = SB.Data.Spells["cure_blind"]
     local disp = table.concat(L.GetSpellScalingLines(cure), "\n")
     checkTrue("рассеивание называет число",
-              disp:find(tostring(L.GetDispelCount(cure, cure.level)), 1, true) ~= nil)
+              disp:find(tostring(L.GetDispelCount(cure)), 1, true) ~= nil)
     -- «Исцелить недуг» снимает не школу, а гнездо ослеплений.
     checkTrue("и что именно снимает",       disp:find("Ослепление", 1, true) ~= nil)
 end
@@ -19474,10 +19474,8 @@ do
 
     -- И ДО УРОНА: скейлинг существа читает те же характеристики тем же
     -- читателем, что и бросок.
-    local dmgBefore = SB.Logic.GetSpellScaling(SB.Data.Spells["t_st_claw"], "damage",
-                          nil, SB.NPC.StatReader(Stats(), nil))
-    local dmgAfter  = SB.Logic.GetSpellScaling(SB.Data.Spells["t_st_claw"], "damage",
-                          nil, SB.NPC.StatReader(Stats(), "target"))
+    local dmgBefore = SB.Logic.GetSpellScaling(SB.Data.Spells["t_st_claw"], "damage", SB.NPC.StatReader(Stats(), nil))
+    local dmgAfter  = SB.Logic.GetSpellScaling(SB.Data.Spells["t_st_claw"], "damage", SB.NPC.StatReader(Stats(), "target"))
     checkTrue("и до урона существа", dmgAfter > dmgBefore)
 
     SB.NPC.RemoveEffect("target", "t_st_attr")
@@ -20194,13 +20192,13 @@ do
     check("потолок — это все очки навыка", cap, 5)
     local full = 3 + math.floor(3 * SB.Data.Config.EncouragementPerPoint * cap)
     check("честная прибавка проходит целиком",
-          L.GetEffectDuration("t_cap_eff", src, 1, cap), full)
+          L.GetEffectDuration("t_cap_eff", src, cap), full)
     check("присланное сверх потолка зажимается",
-          L.GetEffectDuration("t_cap_eff", src, 1, 9999), full)
+          L.GetEffectDuration("t_cap_eff", src, 9999), full)
     check("отрицательное не укорачивает срок",
-          L.GetEffectDuration("t_cap_eff", src, 1, -50), 3)
+          L.GetEffectDuration("t_cap_eff", src, -50), 3)
     check("мусор вместо числа не роняет",
-          L.GetEffectDuration("t_cap_eff", src, 1, "много"), 3)
+          L.GetEffectDuration("t_cap_eff", src, "много"), 3)
 
     SB.Data.Spells["t_cap_eff"] = nil
 end
@@ -22392,13 +22390,13 @@ do
     local sp1 = { id = "t_sc1", level = 1, scaling = { damage = { ["Интеллект"] = 1 } } }
     local sp3 = { id = "t_sc3", level = 3, scaling = { damage = { ["Интеллект"] = 1 } } }
     -- 5 очков × 0.5 = 2.5 → 2, и на третьем круге столько же.
-    check("урон 2.5 усекается до 2", (SB.Logic.GetSpellScaling(sp1, "damage", nil, stat(5))), 2)
-    check("круг заклинания урон не множит", (SB.Logic.GetSpellScaling(sp3, "damage", nil, stat(5))), 2)
+    check("урон 2.5 усекается до 2", (SB.Logic.GetSpellScaling(sp1, "damage", stat(5))), 2)
+    check("круг заклинания урон не множит", (SB.Logic.GetSpellScaling(sp3, "damage", stat(5))), 2)
     -- 3 очка × 0.5 = 1.5 → 1: вложить ещё очко «до округления» нельзя.
-    check("1.5 — это 1, а не 2", (SB.Logic.GetSpellScaling(sp1, "damage", nil, stat(3))), 1)
+    check("1.5 — это 1, а не 2", (SB.Logic.GetSpellScaling(sp1, "damage", stat(3))), 1)
     local hit = { id = "t_sc4", level = 1, scaling = { hit = { ["Интеллект"] = 1.5 } } }
     -- 1 очко × 3 × 1.5 = 4.5 → 4.
-    check("попадание 4.5 усекается до 4", (SB.Logic.GetSpellScaling(hit, "hit", nil, stat(1))), 4)
+    check("попадание 4.5 усекается до 4", (SB.Logic.GetSpellScaling(hit, "hit", stat(1))), 4)
 end
 
 -- ============================================================

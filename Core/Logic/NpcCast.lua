@@ -329,8 +329,8 @@ function SB.NpcCast.RollFor(stats, unit, spell, versus)
     local mod = SB.NPC.AttackModifier(stats, unit, spell, versus)
 
     local statFn    = SB.NPC.StatReader(stats, unit)
-    local critBonus = SB.Logic.GetSpellScaling(spell, "crit", nil, statFn)
-    local dmgBonus  = SB.Logic.GetSpellScaling(spell, "damage", nil, statFn)
+    local critBonus = SB.Logic.GetSpellScaling(spell, "crit", statFn)
+    local dmgBonus  = SB.Logic.GetSpellScaling(spell, "damage", statFn)
     -- У существа те же три уровня прибавки, что у игрока: определения
     -- эффектов общие, и «+2 огню» на волке обязано работать так же
     -- (см. SB.ActiveEffects.GetNpcDamageMod).
@@ -345,7 +345,7 @@ function SB.NpcCast.RollFor(stats, unit, spell, versus)
     -- База — по кругу самого заклинания. Вливать ресурс существу некуда:
     -- ресурс у него есть, но тратит его Ведущий вручную, а «во сколько
     -- влил» — решение игрока, которого у существа нет.
-    local baseDmg = SB.Logic.GetCastPower(spell, spell.level)
+    local baseDmg = SB.Logic.GetCastPower(spell)
 
     return roll, mod, total, isCrit, dmgBonus, baseDmg
 end
@@ -522,7 +522,7 @@ function SB.NpcCast.Confirm()
             -- НОЛЬ ЯВНО: кастует СУЩЕСТВО, а Ведущий одалживает ему свои
             -- руки, а не свой навык (то же правило, что в SB.Net.SendBuff).
             -- Без числа GetEffectDuration принял бы это за свой каст.
-            local turns = SB.Logic.GetEffectDuration(effectID, spell, spell.level, 0)
+            local turns = SB.Logic.GetEffectDuration(effectID, spell, 0)
             landed = SB.NPC.AddEffect(caster, effectID, turns)
         end
         SB.Events.Fire(SB.E.BROADCAST_LOG,
@@ -680,7 +680,7 @@ function SB.NpcCast.Confirm()
                     aoe or nil, nil, true, me)
             elseif SB.Net and SB.Net.SendPvpAttack then
                 SB.Net.SendPvpAttack(name, pending.spellID, roll, mod, total,
-                    isCrit, dmgBonus, baseDmg, spell.level or 0, nil, pending.npcName, aoe)
+                    isCrit, dmgBonus, baseDmg, nil, pending.npcName, aoe)
             end
             landedOn = landedOn + 1
 
@@ -724,8 +724,7 @@ function SB.NpcCast.Confirm()
                 -- обязан быть выше настоящего, и отсекать чужой исход
                 -- у себя значит решать за цель ровно то, чего мы не знаем.
                 landedOn = landedOn + 1
-                SB.Net.SendBuff(name, pending.spellID, effectID,
-                                spell.level or 0, pending.npcName,
+                SB.Net.SendBuff(name, pending.spellID, effectID, pending.npcName,
                                 roll, mod, total)
                 SB.Logic.BuffAwait(name, pending.spellID, threshold, ok, Say)
             else
@@ -734,8 +733,7 @@ function SB.NpcCast.Confirm()
                 if ok then
                     landedOn = landedOn + 1
                     if SB.Net and SB.Net.SendBuff then
-                        SB.Net.SendBuff(name, pending.spellID, effectID,
-                                        spell.level or 0, pending.npcName)
+                        SB.Net.SendBuff(name, pending.spellID, effectID, pending.npcName)
                     end
                 end
                 Say(threshold, ok)
@@ -749,7 +747,7 @@ function SB.NpcCast.Confirm()
             local amount = 0
             if ok then
                 landedOn = landedOn + 1
-                amount = math.max(1, (SB.Logic.GetHealPower(spell, spell.level) or 1)
+                amount = math.max(1, (SB.Logic.GetHealPower(spell) or 1)
                                      + (dmgBonus or 0))
                 if isCrit then amount = amount * 2 end
                 if name == me then
@@ -844,8 +842,7 @@ function SB.NpcCast.Confirm()
                     -- выше у одиночного эффекта: Ведущий одалживает
                     -- существу руки, а не своё «Внушение». Без числа
                     -- GetEffectDuration принял бы это за свой каст.
-                    local turns = SB.Logic.GetEffectDuration(spell.debuff, spell,
-                                                             spell.level, 0)
+                    local turns = SB.Logic.GetEffectDuration(spell.debuff, spell, 0)
                     SB.NPC.AddEffect(unit, spell.debuff, turns, pending.npcName)
                 end
                 local guard = {}
@@ -864,7 +861,7 @@ function SB.NpcCast.Confirm()
                 -- (см. ветку heal выше): бросок там есть, но отвести его
                 -- нечем, и на своём же существе он тем более ни к чему.
                 local amount = math.max(1,
-                    (SB.Logic.GetHealPower(spell, spell.level) or 1) + (dmgBonus or 0))
+                    (SB.Logic.GetHealPower(spell) or 1) + (dmgBonus or 0))
                 if isCrit then amount = amount * 2 end
                 SB.NPC.AdjustHealth(unit, amount)
                 landedOn = landedOn + 1
@@ -884,7 +881,7 @@ function SB.NpcCast.Confirm()
                 if ok then
                     -- Ноль последним доводом: см. соседнюю ветку —
                     -- навык Ведущего существу не достаётся.
-                    local turns = SB.Logic.GetEffectDuration(effectID, spell, spell.level, 0)
+                    local turns = SB.Logic.GetEffectDuration(effectID, spell, 0)
                     ok = SB.NPC.AddEffect(unit, effectID, turns, pending.npcName)
                     if ok then landedOn = landedOn + 1 end
                     if ok and isDebuff then SB.Logic.ApplyInterruptToNpc(unit, spell, nm) end

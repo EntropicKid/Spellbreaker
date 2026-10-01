@@ -401,10 +401,10 @@ function SB.Logic.InitiateAoeAttack(spellID, slotLevel)
     -- объявить Короткий Отдых всей группе (см. PM.IsPvpEngaged).
     SB.PlayerModel.SetPvpEngaged(true)
 
-    local baseDmg             = SB.Logic.GetCastPower(spell, slotLevel)
+    local baseDmg             = SB.Logic.GetCastPower(spell)
     local hitBonus, hitParts  = SB.Logic.GetSpellScaling(spell, "hit")
     local critBonus           = SB.Logic.GetSpellScaling(spell, "crit")
-    local dmgBonus            = SB.Logic.GetSpellScaling(spell, "damage", slotLevel)
+    local dmgBonus            = SB.Logic.GetSpellScaling(spell, "damage")
     if SB.ActiveEffects and SB.ActiveEffects.GetDamageMod then
         dmgBonus = dmgBonus + (SB.ActiveEffects.GetDamageMod(spell))
     end
@@ -460,7 +460,7 @@ function SB.Logic.InitiateAoeAttack(spellID, slotLevel)
             "решает Ведущий.|r")
     end
 
-    SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, radius, slotLevel, epi)
+    SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, radius, epi)
 
     -- Тот же собственный контейнер, что и у одиночной атаки, и той же
     -- функцией: правило про него живёт в одном месте на все пять путей
@@ -515,7 +515,7 @@ function SB.Logic.InitiateAoeEffect(spell, slotLevel)
         selfCount = 1
     end
 
-    SB.Net.SendAoeEffect(spell.id, effectID, radius, slotLevel, nil, nil, nil, epi)
+    SB.Net.SendAoeEffect(spell.id, effectID, radius, nil, nil, nil, epi)
     return selfCount
 end
 
@@ -592,7 +592,7 @@ function SB.Logic.ResolveAoeEffectCast(spellID, slotLevel)
         SB.Logic.AoeReportSound(ok)
     end
 
-    SB.Net.SendAoeEffect(spell.id, effectID, radius, slotLevel, roll, mod, total, epi)
+    SB.Net.SendAoeEffect(spell.id, effectID, radius, roll, mod, total, epi)
 
     SB.Logic.HoldTurnUntilResult(SB.Logic.TurnSkipFor(spell, spellID, landedOnSelf), true)
 end
@@ -728,7 +728,7 @@ function SB.Logic.ResolveAoeHeal(spellID, slotLevel)
     local mod, modParts = SB.Logic.GetModifierBreakdown("attack",
         { spell = spell, slotLevel = slotLevel })
     local hitBonus, hitParts = SB.Logic.GetSpellScaling(spell, "hit")
-    local dmgBonus  = SB.Logic.GetSpellScaling(spell, "damage", slotLevel)
+    local dmgBonus  = SB.Logic.GetSpellScaling(spell, "damage")
     local critBonus = SB.Logic.GetSpellScaling(spell, "crit")
     mod = mod + hitBonus
     for _, p in ipairs(hitParts) do table.insert(modParts, p) end
@@ -743,7 +743,7 @@ function SB.Logic.ResolveAoeHeal(spellID, slotLevel)
     -- одиночном лечении они под ним, но там успех известен сразу, а
     -- здесь он у каждого свой) — на непопадании число просто не
     -- применяется.
-    local baseHeal = SB.Logic.GetHealPower(spell, slotLevel)
+    local baseHeal = SB.Logic.GetHealPower(spell)
     -- Эффекты И профиль класса, одним ответом: залп лечит по тем же
     -- правилам, что одиночный каст (см. SB.Logic.GetHealBonus).
     local effHeal  = SB.Logic.GetHealBonus()
@@ -796,7 +796,7 @@ function SB.Logic.ResolveAoeHeal(spellID, slotLevel)
         SB.Logic.AoeReportSound(ok)
     end
 
-    SB.Net.SendAoeHeal(spellID, spell.buff, radius, slotLevel, roll, mod, total, amount, epi)
+    SB.Net.SendAoeHeal(spellID, spell.buff, radius, roll, mod, total, amount, epi)
 
     SB.Logic.HoldTurnUntilResult(SB.Logic.TurnSkipFor(spell, spellID, landedOnSelf), true)
 end

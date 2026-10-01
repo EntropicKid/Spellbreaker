@@ -1737,7 +1737,7 @@ local function SendREQ(spellID, targetLabel, mod)
     }, "NORMAL")
 end
 
-function SB.Net.SendCastRequest(spellID, slotLevel, targetLabel, mod)
+function SB.Net.SendCastRequest(spellID, targetLabel, mod)
     if not IsInGroup() or UnitIsGroupLeader("player") then
         SB.Events.Fire("GM_REQUEST_RECEIVED", UnitName("player"), spellID,
             tonumber(SB.Data.Spells[spellID] and SB.Data.Spells[spellID].level) or 0,
@@ -2149,7 +2149,7 @@ end
 ---
 --- ОТ ЛИЦА СУЩЕСТВА — НЕ СЧИТАЕТСЯ: Ведущий одалживает волку руки, а не
 --- свой навык (то же правило, что в SendBuff).
-function SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, slot, persuade, npcName, aoe)
+function SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, persuade, npcName, aoe)
     local sp = SB.Data.Spells[spellID]
     if not npcName and sp and sp.debuff and SB.Logic and SB.Logic.EncouragementFor then
         -- С ИМЕНЕМ ЦЕЛИ: бить можно и помеченного своим (двойное
@@ -2190,7 +2190,7 @@ end
 --- площадной удар с дебаффом разрешается у каждого задетого, и срок
 --- чар собирает он же (HandleAoeAttackReceived передаёт число дальше, в
 --- HandlePvpAttackReceived).
-function SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, radius, slot, epi)
+function SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, radius, epi)
     if not IsInGroup() then return end
 
     local sp = SB.Data.Spells[spellID]
@@ -2225,7 +2225,7 @@ end
 --- задетый у себя, и без присланного числа он подставлял бы СВОЙ навык
 --- вместо навыка заклинателя: конус холода держался бы дольше на том,
 --- кто вложился во «Внушение», то есть навык работал бы против хозяина.
-function SB.Net.SendAoeEffect(spellID, effectID, radius, slot, roll, mod, total, epi)
+function SB.Net.SendAoeEffect(spellID, effectID, radius, roll, mod, total, epi)
     if not IsInGroup() then return end
     local enc = (SB.Logic and SB.Logic.EncouragementFor)
         and SB.Logic.EncouragementFor(effectID) or 0
@@ -2257,7 +2257,7 @@ end
 ---        игровое API не читаются, и их пришлось возить отдельным
 ---        полем статуса. Поля больше нет: считает тот, у кого данные.
 ---        nil — пакет со старой сборки, там эффект ложится безусловно.
-function SB.Net.SendBuff(targetName, spellID, effectID, slot, npcName, roll, mod, total)
+function SB.Net.SendBuff(targetName, spellID, effectID, npcName, roll, mod, total)
     if not IsInGroup() then return end
 
     -- «ВООДУШЕВЛЕНИЕ» ПРИЦЕПЛЯЕТСЯ ЗДЕСЬ, А НЕ У КАЖДОГО ОТПРАВИТЕЛЯ.
@@ -2316,7 +2316,7 @@ end
 --- клиент жертвы: порог собран из её стойкости, добыча лежит в её сумке
 --- (см. SB.Logic.HandleStealReceived). Ровно то же разделение, что у
 --- одиночного эффекта, только у кражи оно вдвое очевиднее.
-function SB.Net.SendSteal(targetName, spellID, slotLevel, roll, mod, total)
+function SB.Net.SendSteal(targetName, spellID, roll, mod, total)
     if not IsInGroup() or not targetName or targetName == "" then return end
     SendToPlayer({
         action  = "STEAL",
@@ -2426,7 +2426,7 @@ function SB.Net.SendSacrifice(targetName, effectID, amount)
     }, targetName, "ALERT")
 end
 
-function SB.Net.SendDispel(targetName, spellID, schools, count, effectID, slot, friend)
+function SB.Net.SendDispel(targetName, spellID, schools, count, effectID, friend)
     if not IsInGroup() then return end
     SendToPlayer({
         action   = "DISPEL",
@@ -2445,7 +2445,7 @@ end
 --- (см. SB.Logic.ResolveAoeHeal).
 --- @param effectID string|nil  бафф заклинания: ложится тем, на ком
 ---        лечение сработало (Целительный ливень, Спокойствие)
-function SB.Net.SendAoeHeal(spellID, effectID, radius, slot, roll, mod, total, amount, epi)
+function SB.Net.SendAoeHeal(spellID, effectID, radius, roll, mod, total, amount, epi)
     if not IsInGroup() then return end
     SendToGroup(PackFriends(PackEpicenter({
         action   = "AOEHL",
@@ -3243,7 +3243,7 @@ SB.Events.On("SB_INIT", function()
     LoadPeerCache()
 
     SB.Events.On("CAST_REQUEST", function(spellID, slotLevel, targetLabel, mod)
-        SB.Net.SendCastRequest(spellID, slotLevel, targetLabel, mod)
+        SB.Net.SendCastRequest(spellID, targetLabel, mod)
     end)
 
     SB.Events.On("STATUS_CHANGED", function()

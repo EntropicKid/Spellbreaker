@@ -2771,7 +2771,7 @@ local function SendAside(ok, effectID, name, sourceID)
     if not ok or type(effectID) ~= "string" then return end
     if not name or name == "" or name == UnitName("player") then return end
     if not (SB.Net and SB.Net.SendBuff) then return end
-    SB.Net.SendBuff(name, sourceID, effectID, 0)
+    SB.Net.SendBuff(name, sourceID, effectID)
 end
 
 local function FireAction(when, spell, attacker, target)
