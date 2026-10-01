@@ -1092,7 +1092,7 @@ function SB.ResourceGrant.ShowFor(name, data)
     -- учитывать тип класса — некастеру не растим потолок по рангу.
     local fallbackMaxZeal = (SB.Data.NonCasterClasses and SB.Data.NonCasterClasses[data.class])
         and SB.Data.MaxClassResourceFor(data.mastery or "Неофит")
-        or (SB.Data.Config.MaxZeal[data.mastery or "Неофит"] or 1)
+        or (SB.Data.Config.ManaBase or 3)
 
     currentTarget = {
         -- npc НЕ ЗАДАЁМ: это и есть признак игроцкого режима. Оставь мы

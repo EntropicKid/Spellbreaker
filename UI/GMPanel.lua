@@ -1008,7 +1008,7 @@ function SB.UI.UpdateGMPlayers()
         myClass     = db.class    or "?"
         myMastery   = db.mastery  or "?"
         myZeal      = db.zeal     or 0
-        myMaxZeal   = SB.Data.Config.MaxZeal[db.mastery] or 1
+        myMaxZeal   = SB.Data.ManaForLevel()
         myHealth    = db.health    or 20
         myMaxHealth = db.maxHealth or 20
     end

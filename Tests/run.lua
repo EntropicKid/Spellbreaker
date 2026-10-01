@@ -2318,6 +2318,9 @@ do
             SB.Cooldowns.Start(SB.Cooldowns.TURN)
             stub.world.time = stub.world.time + 10
 
+            -- Полный запас перед каждым: проверяется маршрут, а не
+            -- остаток маны после предыдущих сотворений.
+            SpellbreakerCharDB.zeal = SB.PlayerModel.GetMaxZeal()
             SB.Logic.ConfirmCast(id, 1)
             stub.RunTimers()
 
@@ -2924,6 +2927,78 @@ _G.SpellbreakerCharDB.zeal = 3
 _G.SpellbreakerCharDB.classResource = 0
 
 -- ============================================================
+-- СДВОЕННЫЕ ЗАКЛИНАНИЯ: ЛЕЧЕНИЕ / УРОН В КАРТОЧКЕ
+--
+-- «Шок небес» и «Лик смерти» лечат союзника и бьют врага. Карточка
+-- обязана показать обе стороны и тип урона, а не одно «Лечение».
+-- ============================================================
+do
+    for _, id in ipairs({ "holy_shock", "death_coil" }) do
+        local sp = SB.Data.Spells[id]
+        local found
+        for _, l in ipairs(SB.Logic.GetSpellScalingLines(sp) or {}) do
+            if l:find("Лечение / урон", 1, true) then found = l end
+        end
+        checkTrue("«" .. sp.name .. "»: строка «Лечение / урон»", found ~= nil)
+        local dt = SB.Data.GetDamageType and SB.Data.GetDamageType(sp)
+        if found and dt then
+            checkTrue("«" .. sp.name .. "»: тип урона в строке",
+                      found:find(dt.name, 1, true) ~= nil)
+        end
+    end
+end
+
+-- ============================================================
+-- МАНА ОТ УРОВНЯ, «ИСТОК» — ПРОЦЕНТ
+--
+-- Мана: 3 на старте и +1 на уровнях 4, 7, …, 25 — от ранга не зависит.
+-- Исток: +20% максимума ресурса за текущее очко (с баффами), у кастеров
+-- и некастеров; ниже нуля не штрафует. Округление — до ближайшего.
+-- ============================================================
+do
+    local wasLevel = stub.world.level
+    local function manaAt(l) stub.world.level = l; return SB.Data.ManaForLevel() end
+    check("мана на 1-м уровне",  manaAt(1),  3)
+    check("на 3-м ещё 3",        manaAt(3),  3)
+    check("на 4-м — 4",          manaAt(4),  4)
+    check("на 7-м — 5",          manaAt(7),  5)
+    check("на 24-м — 10",        manaAt(24), 10)
+    check("на 25-м — 11",        manaAt(25), 11)
+    stub.world.level = wasLevel
+
+    check("очко Истока — +20%",          SB.Skills.SourceMultiplier(1), 1.2)
+    check("пять очков — вдвое",          SB.Skills.SourceMultiplier(5), 2)
+    check("минус не штрафует",           SB.Skills.SourceMultiplier(-3), 1)
+    check("3 маны и очко — 4 (3,6)",     SB.Skills.ApplySource(3, 1), 4)
+    check("3 маны и два очка — 4 (4,2)", SB.Skills.ApplySource(3, 2), 4)
+    check("11 маны и два очка — 15",     SB.Skills.ApplySource(11, 2), 15)
+    check("3 Ярости и пять очков — 6",   SB.Skills.ApplySource(3, 5), 6)
+
+    -- Бафф на Исток двигает максимум и у кастера, и у некастера.
+    ResetEffects()
+    SB.Data.Spells["t_src_buff"] = { id = "t_src_buff", name = "Проверочный исток",
+        class = "Эффект", level = 0,
+        effect = { kind = "buff", stats = { ["Исток"] = 5 } } }
+    AsClass("Маг", "MAGE", function()
+        local mult0 = SB.Skills.GetResourceMultiplier()
+        local raw = SB.PlayerModel.GetMaxZeal() / mult0
+        SB.ActiveEffects.Add("t_src_buff", 3, false)
+        checkTrue("бафф Истока растит ману",
+                  SB.PlayerModel.GetMaxZeal() >= math.floor(raw * 2 + 0.5) - 1)
+        ResetEffects()
+    end)
+    AsClass("Воин", "WARRIOR", function()
+        local before = SB.PlayerModel.GetMaxClassResource()
+        SB.ActiveEffects.Add("t_src_buff", 3, false)
+        checkTrue("и Ярость воина", SB.PlayerModel.GetMaxClassResource() > before)
+        ResetEffects()
+    end)
+    SB.Data.Spells["t_src_buff"] = nil
+    _G.SpellbreakerCharDB.zeal = 3
+    _G.SpellbreakerCharDB.classResource = 0
+end
+
+-- ============================================================
 -- ОПОРНАЯ ТОЧКА МАКСИМУМА НЕ ДОЛЖНА УСТАРЕВАТЬ
 --
 -- «Иногда бафф поднимает максимум, а текущее не растёт» — жалоба без
@@ -2945,16 +3020,20 @@ do
         -- Ранг повыше — и синхронизация на нём отработала, то есть
         -- опорная точка запомнила БОЛЬШОЙ потолок. Именно этим и опасно
         -- падение ранга: точка остаётся от прежнего мира.
-        SB.PlayerModel.SetMastery("Эксперт")
+        -- Мана идёт от уровня (SB.Data.ManaForLevel), поэтому потолок
+        -- двигаем уровнем, а событие — тем же одиноким PLAYER_MODEL_CHANGED.
+        local wasLevel = stub.world.level
+        stub.world.level = 25
         ResetEffects()                      -- шлёт ACTIVE_EFFECTS_CHANGED
         _G.SpellbreakerCharDB.zeal = SB.PlayerModel.GetMaxZeal()
         local highMax = SB.PlayerModel.GetMaxZeal()
 
         -- Ранг упал — это шлёт ТОЛЬКО PLAYER_MODEL_CHANGED, мимо прежних
         -- четырёх подписок.
-        SB.PlayerModel.SetMastery("Неофит")
+        stub.world.level = 1
+        SB.Events.Fire(SB.E.PLAYER_MODEL_CHANGED)
         local lowMax = SB.PlayerModel.GetMaxZeal()
-        checkTrue("падение ранга снизило потолок маны", lowMax < highMax)
+        checkTrue("падение уровня снизило потолок маны", lowMax < highMax)
         check("и текущее прижалось к нему", SB.PlayerModel.GetZeal(), lowMax)
 
         -- А теперь бафф на максимум. Прибавка обязана дойти до текущего.
@@ -2964,6 +3043,7 @@ do
         check("и текущее вместе с ним", SB.PlayerModel.GetZeal(), before + 2)
 
         ResetEffects()
+        stub.world.level = wasLevel
         _G.SpellbreakerCharDB.mastery = wasMastery
     end)
 
@@ -3325,11 +3405,10 @@ do
     -- того, в какой школе он силён.
     check("ранг героя — лучший из кастерских", PM.GetMastery(), "Эксперт")
 
-    -- И ЭТО ВИДНО ТАМ, РАДИ ЧЕГО ПРАВКА: запас и подготовка считаются
-    -- по эксперту, а не по неофиту.
-    checkTrue("запас ресурса — по эксперту",
-              PM.GetMaxZeal() > (SB.Data.Config.MaxZeal["Неофит"] or 0))
-    checkTrue("и лимит подготовки тоже",
+    -- И ЭТО ВИДНО ТАМ, РАДИ ЧЕГО ПРАВКА: подготовка считается по
+    -- эксперту, а не по неофиту. (Запас маны от ранга больше не зависит
+    -- вовсе — он идёт от уровня, см. SB.Data.ManaForLevel.)
+    checkTrue("лимит подготовки — по эксперту",
               PM.GetMaxPrepared() >
                   ((SB.Data.Config.MaxPrepared or {})["Неофит"] or 0))
 
@@ -15414,9 +15493,9 @@ do
     checkTrue("патчноут назван версией", note ~= nil)
     check("и это та же версия, что в .toc", note, toc)
 
-    -- И ЭТО ИМЕННО 3.2: релиз объявлен, и молча уехать с него назад
+    -- И ЭТО ИМЕННО 3.2.1: релиз объявлен, и молча уехать с него назад
     -- проверка не даст.
-    check("выпущенная версия", toc, "3.2")
+    check("выпущенная версия", toc, "3.2.1")
 end
 
 -- ============================================================
@@ -17149,7 +17228,7 @@ do
 
     -- Число прибито НАМЕРЕННО: поднимать версию положено осознанно, вместе
     -- с новой миграцией, и молча уехать она не должна.
-    check("схема поднялась до четырнадцатой", SB.SCHEMA_VERSION, 14)
+    check("схема поднялась до пятнадцатой", SB.SCHEMA_VERSION, 15)
 
     -- ── СВЕРХ ТРЁХ РЕЖЕТСЯ, И НАВЫК НИ ПРИ ЧЁМ ──────────────
     -- Ячейки больше не зависят от навыка: три у всех, и ужатая старая
@@ -18036,8 +18115,8 @@ do
     -- дало предыдущее.
     local EXPECT = { [0] = nil, [1] = 3, [2] = 3, [3] = 2, [4] = 2, [5] = 1 }
     for v = 0, 5 do
-        _G.SpellbreakerCharDB.skills = { ["Лидерство"] = v }
-        check("Лидерство " .. v .. " → период",
+        _G.SpellbreakerCharDB.skills = { ["Резонанс"] = v }
+        check("Резонанс " .. v .. " → период",
               SB.Skills.GetLeadershipRegenPeriod(), EXPECT[v])
     end
 
@@ -18045,26 +18124,26 @@ do
     --
     -- Бафф ускоряет, дебафф замедляет, но быстрее «каждый ход» не
     -- бывает, а ниже нуля навык молчит — ресурс не отнимается.
-    _G.SpellbreakerCharDB.skills = { ["Лидерство"] = 5 }
+    _G.SpellbreakerCharDB.skills = { ["Резонанс"] = 5 }
     SB.Data.Spells["t_lead_down"] = { id = "t_lead_down", name = "Проба давления",
         class = "Эффект", level = 0, isContainer = true,
-        effect = { kind = "debuff", stats = { ["Лидерство"] = -9 } } }
+        effect = { kind = "debuff", stats = { ["Резонанс"] = -9 } } }
     SB.Data.Spells["t_lead_mid"] = { id = "t_lead_mid", name = "Проба сомнения",
         class = "Эффект", level = 0, isContainer = true,
-        effect = { kind = "debuff", stats = { ["Лидерство"] = -2 } } }
+        effect = { kind = "debuff", stats = { ["Резонанс"] = -2 } } }
     SB.Data.Spells["t_lead_up"] = { id = "t_lead_up", name = "Проба вдохновения",
         class = "Эффект", level = 0, isContainer = true,
-        effect = { kind = "buff", stats = { ["Лидерство"] = 4 } } }
+        effect = { kind = "buff", stats = { ["Резонанс"] = 4 } } }
     SB.ActiveEffects.Add("t_lead_mid", 5, false)
     check("дебафф −2 на пятёрке: третья ступень", SB.Skills.GetLeadershipRegenPeriod(), 2)
     ResetEffects()
     SB.ActiveEffects.Add("t_lead_down", 5, false)
     check("утопленный навык молчит — и только", SB.Skills.GetLeadershipRegenPeriod(), nil)
     ResetEffects()
-    _G.SpellbreakerCharDB.skills = { ["Лидерство"] = 1 }
+    _G.SpellbreakerCharDB.skills = { ["Резонанс"] = 1 }
     SB.ActiveEffects.Add("t_lead_up", 5, false)
     check("бафф +4 на единице: каждый ход", SB.Skills.GetLeadershipRegenPeriod(), 1)
-    _G.SpellbreakerCharDB.skills = { ["Лидерство"] = 5 }
+    _G.SpellbreakerCharDB.skills = { ["Резонанс"] = 5 }
     check("и выше потолка не разгоняет", SB.Skills.GetLeadershipRegenPeriod(), 1)
     ResetEffects()
     _G.SpellbreakerCharDB.skills = {}
@@ -18126,7 +18205,7 @@ end
 -- ============================================================
 do
     check("«Рвение» под Характером",   SB.Skills.ParentOf("Рвение"), "Характер")
-    check("«Лидерство» под Духом",     SB.Skills.ParentOf("Лидерство"), "Дух")
+    check("«Резонанс» (бывшее Лидерство) под Духом", SB.Skills.ParentOf("Резонанс"), "Дух")
 
     -- По четыре навыка у каждого: обмен, а не переезд в одну сторону.
     for _, def in ipairs(SB.Data.Attributes) do
@@ -18150,25 +18229,41 @@ do
 
     local s = Run({ ["Дух"] = 2, ["Характер"] = 5 },
                   { ["Лидерство"] = 5, ["Рвение"] = 4 })
-    check("Лидерство обрезано по Духу", s["Лидерство"], 2)
+    check("Лидерство обрезано по Духу", s["Резонанс"], 2)
     check("а Рвение влезло в Характер", s["Рвение"], 4)
 
     -- Обмен двусторонний — обрезать могло любого из двух.
     s = Run({ ["Дух"] = 5, ["Характер"] = 1 },
             { ["Лидерство"] = 3, ["Рвение"] = 5 })
     check("теперь обрезано Рвение", s["Рвение"], 1)
-    check("а Лидерство цело",       s["Лидерство"], 3)
+    check("а Лидерство цело",       s["Резонанс"], 3)
 
     -- Что влезает — не трогаем вовсе.
     s = Run({ ["Дух"] = 5, ["Характер"] = 5 },
             { ["Лидерство"] = 5, ["Рвение"] = 5 })
-    check("при полных атрибутах ничего не режется", s["Лидерство"], 5)
+    check("при полных атрибутах ничего не режется", s["Резонанс"], 5)
     check("и второй тоже цел",                      s["Рвение"], 5)
 
     -- Соседи по таблице навыков не задеты.
     s = Run({ ["Дух"] = 1, ["Характер"] = 1 },
             { ["Лидерство"] = 4, ["Милосердие"] = 4 })
     check("чужой навык не тронут", s["Милосердие"], 4)
+
+    -- ── v15: «ЛИДЕРСТВО» СТАЛО «РЕЗОНАНСОМ» ────────────────
+    s = Run({ ["Дух"] = 5 }, { ["Лидерство"] = 3 })
+    check("очки переехали под новое имя", s["Резонанс"], 3)
+    check("старого ключа нет",            s["Лидерство"], nil)
+    -- Своё заклинание со старым ключом в скейлинге читается по-новому.
+    local sp = { scaling = { hit = { ["Лидерство"] = 1 } } }
+    SB.Data.RenameSpellSkills(sp)
+    check("скейлинг своего заклинания переведён", sp.scaling.hit["Резонанс"], 1)
+    -- И встроенная библиотека (AddSpell): воин с «Лидерством» в броске.
+    local found = false
+    for _, spell in pairs(SB.Data.Spells) do
+        local h = spell.scaling and spell.scaling.hit
+        if type(h) == "table" and h["Лидерство"] then found = true end
+    end
+    checkTrue("в библиотеке старого ключа не осталось", not found)
 end
 
 -- ============================================================
@@ -18388,7 +18483,7 @@ do
     local text = table.concat(said, "\n", 1, before)
     checkTrue("старому персонажу сказано, что вернулось", text:find("Сила", 1, true) ~= nil)
     check("новому — ни слова", #said, before)
-    check("версия проставлена", old.schemaVersion, 14)
+    check("версия проставлена", old.schemaVersion, SB.SCHEMA_VERSION)
 end
 
 -- ============================================================
@@ -19654,14 +19749,22 @@ do
     checkTrue("и защита существа от существа",
               ReadFile("Core/Logic/NpcCast.lua"):find("local defRoll = skipDef and 0 or SB.Logic.RollPlain()", 1, true) ~= nil)
 
-    -- ── ПОСОХ: РЕСУРС КАСТА, НЕ СКЛАДЫВАЕТСЯ ───────────────
+    -- ── ПОСОХ: +1 К «ИСТОКУ», НЕ СКЛАДЫВАЕТСЯ ──────────────
+    -- Очко Истока — +20% всего максимума (SB.Skills.ApplySource), у
+    -- кастера и некастера одинаково.
     Hands({ [16] = ROD, [17] = ROD })
+    local s0 = SB.Skills.GetEffective("Исток")
     local z0, c0 = PM.GetMaxZeal(), PM.GetMaxClassResource()
     Hands({ [16] = { 2, 10 } })
-    check("посох: +1 к мане",              PM.GetMaxZeal() - z0, 1)
-    check("но не к ресурсу некастера",      PM.GetMaxClassResource() - c0, 0)
+    check("посох: +1 к Истоку",            SB.Skills.GetEffective("Исток") - s0, 1)
+    check("и это +20% маны", PM.GetMaxZeal(),
+          SB.Skills.ApplySource(PM.GetMaxZeal(true), SB.Skills.GetEffective("Исток") - SB.Skills.MIN_SKILL))
+    checkTrue("мана выросла",               PM.GetMaxZeal() > z0)
     Hands({ [16] = { 2, 10 }, [17] = { 2, 10 } })
-    check("два посоха — всё равно +1",      PM.GetMaxZeal() - z0, 1)
+    check("два посоха — всё равно +1",      SB.Skills.GetEffective("Исток") - s0, 1)
+    check("и мана та же, что с одним",      PM.GetMaxZeal(),
+          (function() Hands({ [16] = { 2, 10 } }); local v = PM.GetMaxZeal()
+                      Hands({ [16] = { 2, 10 }, [17] = { 2, 10 } }); return v end)())
 
     -- ПОСОХ ДАЁТ МЕСТО, А НЕ МАНУ. Иначе «снял — надел» наливало бы по
     -- единице за пару: при 2/6 снять (2/5), надеть (3/6) — и до полного.
@@ -19701,6 +19804,14 @@ do
           PM.GetMaxPrepared() - p0, math.min(1, hard - p0))
     Hands({ [16] = ROD, [17] = { 4, 6 } })
     check("щит — не «предмет в левой руке»", PM.GetMaxPrepared(), p0)
+    do
+        Hands({ [16] = ROD, [17] = ROD })
+        local e0 = SB.Skills.GetEffective("Эрудиция")
+        Hands({ [16] = ROD, [17] = { 4, 0 } })
+        check("левая рука — это +1 к Эрудиции", SB.Skills.GetEffective("Эрудиция") - e0, 1)
+        Hands({ [16] = { 4, 0 }, [17] = { 4, 0 } })
+        check("и не складывается",              SB.Skills.GetEffective("Эрудиция") - e0, 1)
+    end
 
     -- ── ДРЕВКОВОЕ И АРБАЛЕТ: ДАЛЬНОСТЬ ПО ВИДУ ПРИЁМА ──────
     local melee  = { distance = L.MELEE_RANGE }
@@ -19718,11 +19829,13 @@ do
     local function Eff(k) return SB.Attributes.GetEffective(k) end
     Hands({ [16] = ROD, [17] = ROD })
     local base = {}
-    for _, k in ipairs({ "Рвение", "Скрытность", "Внушение", "Выносливость", "Ловкость" }) do
+    for _, k in ipairs({ "Резонанс", "Скрытность", "Внушение", "Выносливость", "Ловкость" }) do
         base[k] = Eff(k)
     end
     Hands({ [16] = { 2, 19 }, [17] = ROD })
-    check("жезл: +2 к Рвению",                 Eff("Рвение") - base["Рвение"], 2)
+    check("жезл: +1 к Резонансу",              Eff("Резонанс") - base["Резонанс"], 1)
+    Hands({ [16] = { 2, 19 }, [17] = { 2, 19 } })
+    check("два жезла не складываются",         Eff("Резонанс") - base["Резонанс"], 1)
     Hands({ [16] = { 2, 15 }, [17] = { 2, 15 } })
     check("два кинжала: +2 к Скрытности",       Eff("Скрытность") - base["Скрытность"], 2)
     check("а вложенное не тронуто",            SB.Skills.Get("Скрытность"), base["Скрытность"])

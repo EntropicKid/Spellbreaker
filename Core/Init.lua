@@ -360,7 +360,7 @@ initFrame:SetScript("OnEvent", function(self, event, loadedAddon)
     local mastery = SpellbreakerCharDB.mastery
 
     if SpellbreakerCharDB.zeal == nil then
-        SpellbreakerCharDB.zeal = cfg.MaxZeal[mastery] or 1
+        SpellbreakerCharDB.zeal = SB.Data.ManaForLevel()
     end
     if SpellbreakerCharDB.classResource == nil then
         SpellbreakerCharDB.classResource = SB.Data.MaxClassResourceFor(mastery)

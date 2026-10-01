@@ -605,15 +605,25 @@ function PM.GetZeal()
     return db().zeal or 0
 end
 
---- Максимум Маны: база по рангу + бонус навыка «Исток»
---- (+1 за очко сверх 1, см. SB.Skills.GetResourceBonus) + профиль
---- класса (см. SB.Data.ClassProfiles). Нижняя граница — 2: у Неофита
---- база всего 3, и Паладин с его −2 остался бы с одним заклинанием.
-function PM.GetMaxZeal()
-    local base = SB.Data.Config.MaxZeal[PM.GetMastery()] or 1
-    if SB.Skills and SB.Skills.GetResourceBonus then
-        base = base + SB.Skills.GetResourceBonus()
+--- Максимум Маны: база по уровню (SB.Data.ManaForLevel, от ранга не
+--- зависит) + эффекты, оружие, раса и класс — и всё это умножается на
+--- «Исток» (+20% за очко, см. SB.Skills.ApplySource). Нижняя граница —
+--- 2: база на старте всего 3, и Паладин с его −2 остался бы с одним
+--- заклинанием.
+--- Очки «Истока» для множителя. noWeapons — без прибавки от оружия
+--- (посох): нужно, чтобы отделить долю оружия в потолке (WeaponResource).
+local function SourcePoints(noWeapons)
+    if not (SB.Skills and SB.Skills.GetEffective) then return 0 end
+    local pts = SB.Skills.GetEffective("Исток") - (SB.Skills.MIN_SKILL or 0)
+    if noWeapons and SB.Skills.GetWeaponStatBonus then
+        pts = pts - (SB.Skills.GetWeaponStatBonus("Исток"))
     end
+    return pts
+end
+
+--- @param noWeapons boolean|nil  посчитать без оружия (см. WeaponResource)
+function PM.GetMaxZeal(noWeapons)
+    local base = SB.Data.ManaForLevel()
     -- Висящие баффы/дебаффы: адресный канал маны плюс общий канал
     -- «ресурс каста» (см. PM.CastPool и раздел о пулах ниже).
     if SB.ActiveEffects and SB.ActiveEffects.GetMod then
@@ -621,8 +631,8 @@ function PM.GetMaxZeal()
                     + (SB.ActiveEffects.GetMod("maxCastResource"))
     end
     -- Оружие — теми же двумя каналами, что и эффекты: адресным маны
-    -- (посох) и общим «ресурсом каста» (см. SB.Data.WeaponBonuses).
-    if SB.Skills and SB.Skills.GetWeaponBonus then
+    -- и общим «ресурсом каста» (см. SB.Data.WeaponBonuses).
+    if not noWeapons and SB.Skills and SB.Skills.GetWeaponBonus then
         base = base + (SB.Skills.GetWeaponBonus("maxMana"))
                     + (SB.Skills.GetWeaponBonus("maxCastResource"))
     end
@@ -631,6 +641,9 @@ function PM.GetMaxZeal()
     -- слагаемое GetClassProfile().resource — классовый сдвиг попадал
     -- в сумму дважды, и Маг с профильными +2 получал +4 к максимуму.
     base = base + SB.Data.GetSoftBonus("resource")
+    if SB.Skills and SB.Skills.ApplySource then
+        base = SB.Skills.ApplySource(base, SourcePoints(noWeapons))
+    end
     return math.max(2, base)
 end
 
@@ -670,7 +683,8 @@ end
 --- Максимум собственного ресурса некастера: база по рангу (до Эксперта
 --- включительно фиксированная, дальше +1 за ранг — см.
 --- Config.ClassResourceByMastery) + профиль класса.
-function PM.GetMaxClassResource()
+--- @param noWeapons boolean|nil  посчитать без оружия (см. WeaponResource)
+function PM.GetMaxClassResource(noWeapons)
     local base = SB.Data.MaxClassResourceFor(PM.GetMastery())
     -- Висящие баффы/дебаффы: адресный канал классового ресурса плюс
     -- общий «ресурс каста» (см. PM.CastPool).
@@ -679,13 +693,16 @@ function PM.GetMaxClassResource()
                     + (SB.ActiveEffects.GetMod("maxCastResource"))
     end
     -- Оружие — адресным каналом ресурса класса и общим «ресурсом каста».
-    -- Посоха здесь нет: он даёт ману, а не Ярость или Энергию.
-    if SB.Skills and SB.Skills.GetWeaponBonus then
+    if not noWeapons and SB.Skills and SB.Skills.GetWeaponBonus then
         base = base + (SB.Skills.GetWeaponBonus("maxResource"))
                     + (SB.Skills.GetWeaponBonus("maxCastResource"))
     end
     -- Раса + класс одним слагаемым (см. комментарий в PM.GetMaxZeal).
     base = base + SB.Data.GetSoftBonus("resource")
+    -- «Исток» — у некастера тоже (см. SB.Skills.ApplySource).
+    if SB.Skills and SB.Skills.ApplySource then
+        base = SB.Skills.ApplySource(base, SourcePoints(noWeapons))
+    end
     return math.max(1, base)
 end
 
@@ -1232,14 +1249,14 @@ local lastMaxHealth, lastMaxResource
 local lastWeaponResource
 
 local function WeaponResource()
-    if SB.Skills and SB.Skills.GetWeaponBonus then
-        -- Та же сумма, что у потолка текущего пула (см. GetMaxZeal и
-        -- GetMaxClassResource): у кастера — мана, у некастера — свой.
-        local own = PM.IsCaster() and "maxMana" or "maxResource"
-        return ((SB.Skills.GetWeaponBonus(own)) or 0)
-             + ((SB.Skills.GetWeaponBonus("maxCastResource")) or 0)
+    -- РАЗНИЦА «С ОРУЖИЕМ» И «БЕЗ», а не сумма каналов оружия. Посох даёт
+    -- не единицы, а очко «Истока» — то есть проценты от всего потолка, —
+    -- и сложить его долю по каналам нельзя. Разница ловит любую прибавку
+    -- оружия, какой бы дорогой она ни шла.
+    if PM.IsCaster() then
+        return PM.GetMaxZeal() - PM.GetMaxZeal(true)
     end
-    return 0
+    return PM.GetMaxClassResource() - PM.GetMaxClassResource(true)
 end
 
 --- Одна и та же арифметика для здоровья и для ресурса.
@@ -1859,7 +1876,7 @@ end
 -- (PM.FullReset выше): конец сцены, полное восстановление, починка
 -- доспеха и запасов.
 --
--- Передышку посреди боя заменил ручеёк от «Лидерства»: единица ресурса
+-- Передышку посреди боя заменил ручеёк от «Резонанса»: единица ресурса
 -- каста раз в 4/3/2/1 хода по вложенному навыку
 -- (см. SB.Skills.GetLeadershipRegenPeriod). Разница не в числах, а в
 -- том, что за неё не платят ходом.
