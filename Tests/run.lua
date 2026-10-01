@@ -21354,6 +21354,26 @@ do
     check("удержаний не осталось", SB.Skills.GetHoldLeft(), 0)
     AE.BreakOn("interrupted")
     checkTrue("без удержаний прерывание срывает", not has("t_hold_conc"))
+    -- Поток — та же концентрация: начатый поток вытесняет прежнюю,
+    -- а удержание спасает его от прерывания так же, как концентрацию.
+    do
+        local chan
+        for _, sp in pairs(SB.Data.Spells) do
+            if sp.channel and sp.channelEffect then chan = sp; break end
+        end
+        AE.Clear()
+        AE.Add("t_hold_gift", 5, false)
+        AE.Add("t_hold_conc", 5, true)
+        AE.Add(chan.channelEffect, SB.Data.GetChannelUses(chan), true)
+        checkTrue("поток вытесняет прежнюю концентрацию", not has("t_hold_conc"))
+        SB.Skills.RestoreHold()
+        if base > 0 then SB.Skills.SpendFromPool("hold", base) end
+        AE.BreakOn("interrupted")
+        checkTrue("удержание спасает поток от прерывания", has(chan.channelEffect))
+        check("потрачено ровно одно", SB.Skills.GetHoldLeft(), 0)
+        AE.BreakOn("interrupted")
+        checkTrue("без удержаний срывает и поток", not has(chan.channelEffect))
+    end
     check("к защите навык больше не прибавляет",
           SB.Skills.GetConcentrationDefenseBonus, nil)
 
@@ -22250,6 +22270,31 @@ do
     SB.Scenes.TryRestore(nil)
     SB.NPC.ResetState()
     _G.SpellbreakerNPCDB = savedDB
+    stub.world.isLeader, stub.world.inGroup = wasLeader, wasGroup
+end
+
+-- ============================================================
+-- ОЧЕРЕДЬ ПОСЛЕ /reload: вернувшийся просит, Ведущий отвечает раз
+-- ============================================================
+do
+    local wasLeader, wasGroup = stub.world.isLeader, stub.world.inGroup
+    local realReq, realSend = SB.Net.RequestTurnState, SB.Net.SendTurnState
+    local asked, sent = 0, 0
+    SB.Net.RequestTurnState = function() asked = asked + 1 end
+    SB.Net.SendTurnState = function() sent = sent + 1 end
+
+    stub.world.isLeader, stub.world.inGroup = false, true
+    stub.FireEvent("PLAYER_ENTERING_WORLD", false, true)
+    stub.RunTimers()
+    checkTrue("игрок после /reload просит очередь", asked >= 1)
+
+    stub.world.isLeader = true
+    sent = 0
+    SB.TurnOrder.ReplyState(); SB.TurnOrder.ReplyState(); SB.TurnOrder.ReplyState()
+    stub.RunTimers()
+    check("на пачку запросов — один ответ", sent, 1)
+
+    SB.Net.RequestTurnState, SB.Net.SendTurnState = realReq, realSend
     stub.world.isLeader, stub.world.inGroup = wasLeader, wasGroup
 end
 

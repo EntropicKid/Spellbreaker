@@ -917,6 +917,14 @@ end
 
 --- «Я походил» — от игрока Ведущему. Отправитель берётся из конверта, а
 --- не из тела: иначе можно было бы закрыть ход за другого.
+--- «Пришли мне очередь» — от вернувшегося после /reload или входа. Отвечает
+--- только Ведущий, полным состоянием (см. SB.TurnOrder.ReplyState).
+local function ParseTURNREQ(sender, t)
+    if sender == UnitName("player") then return end
+    if not SB.IsGameMaster() then return end
+    if SB.TurnOrder and SB.TurnOrder.ReplyState then SB.TurnOrder.ReplyState() end
+end
+
 local function ParseTURNACT(sender, t)
     if not SB.IsGameMaster() then return end
     if SB.TurnOrder and SB.TurnOrder.MarkActed then
@@ -1571,6 +1579,7 @@ Dispatch = function(sender, t)
     elseif action == "TURN"    then ParseTURN(sender, t)
     elseif action == "TURNM"   then ParseTURNM(sender, t)
     elseif action == "TURNACT" then ParseTURNACT(sender, t)
+    elseif action == "TURNREQ" then ParseTURNREQ(sender, t)
     elseif action == "CUSTOM"  then ParseCUSTOM(sender, t)
     elseif action == "AEFFECT" then ParseAEFFECT(sender, t)
     elseif action == "ADDEFF"  then ParseADDEFF(sender, t)
@@ -2491,6 +2500,12 @@ end
 --- групповые сообщения WoW порядка между собой не держит. Одним каналом
 --- и следом за строками порядок держится сам. Пакет крошечный; кроме
 --- Ведущего его никто не разбирает (см. ParseTURNACT).
+--- Попросить у Ведущего текущую очередь (см. ParseTURNREQ).
+function SB.Net.RequestTurnState()
+    if not IsInGroup() then return end
+    SendToGroup({ action = "TURNREQ" }, "NORMAL")
+end
+
 function SB.Net.SendTurnActed()
     if not IsInGroup() then return end
     SB.Net.AfterLogFlush(function()

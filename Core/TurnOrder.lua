@@ -1940,6 +1940,36 @@ end)
 -- состава не шлёт, и очередь его не замечает.
 local lateAnnounced = {}   -- кому уже объявили «ходит со следующего круга»
 
+-- ОТВЕТ НА ЗАПРОС ОЧЕРЕДИ. Вернувшийся после /reload или входа в игру
+-- живёт своим снимком, и всё, что ушло в группу, пока он грузился
+-- (отметки «походил», смена хода), он пропустил: его клиент мог бы
+-- считать, что ход ещё у него, или наоборот. Полное состояние у
+-- остальных приходит только на границе круга — поэтому он просит его
+-- сам, а Ведущий отвечает. Пачка запросов (зашли трое разом) — один
+-- ответ: состояние одно на всех.
+local replyDue = false
+function TO.ReplyState()
+    if not AssertGM() or replyDue then return end
+    replyDue = true
+    C_Timer.After(1, function()
+        replyDue = false
+        if AssertGM() then Broadcast() end
+    end)
+end
+
+-- Сам вернувшийся — просит, если он не Ведущий и в группе.
+do
+    local f = CreateFrame("Frame")
+    f:RegisterEvent("PLAYER_ENTERING_WORLD")
+    f:SetScript("OnEvent", function()
+        C_Timer.After(3, function()
+            if IsInGroup() and not AssertGM() and SB.Net and SB.Net.RequestTurnState then
+                SB.Net.RequestTurnState()
+            end
+        end)
+    end)
+end
+
 -- ВЕРНУВШИЙСЯ В ИГРУ — ПОХОДИВШИЙ И У СЕБЯ, СРАЗУ. Клиент при входе
 -- восстанавливает свой снимок очереди (см. SB_INIT выше), и если в нём
 -- стоял его ход, первые секунды — пока не пришёл пакет Ведущего — он мог
