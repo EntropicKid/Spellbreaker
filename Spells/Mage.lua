@@ -33,7 +33,7 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 30,
-	aoe = { radius = 5 },
+	aoe = { radius = 6 },
 	debuff = "eff_burn",
 	duration = 3,
 	scaling = {
@@ -514,7 +514,7 @@ Add({
 	},
 })
 Add({
-    id = "arcaneintellect",
+    id = "magicalsentry",
     name = "Чародейский интеллект",
     key = "Трансмутация",
     icon = "Interface\\Icons\\Spell_holy_magicalsentry",
@@ -524,9 +524,28 @@ Add({
     description = "Это заклинание делает существо умнее, что влияет на проверки требующие интеллектуальной или иной деятельности; от повышения интеллекта не прибавляется мана, но in случае соревования с другими волшебниками (например, при использовании рассеивания или контрзаклинания), они получают право дополнительного преимущества.",
     isCantrip = false,
     resistable = true,
-	duration = 20,
+	duration = 150,
     isConcentration = false,
 	distance = 2.5,
+	buff = "eff_owl_wisdom_arcaneintellect",
+	scaling = {
+		hit    = { ["Наука"] = 1 },
+	},
+})
+Add({
+    id = "arcaneintellect",
+    name = "Чародейская гениальность",
+    key = "Трансмутация",
+    icon = "Interface\\Icons\\Spell_holy_arcaneintellect",
+    level = 3,
+    class = "Маг",
+    caura = 98,
+    description = "Это заклинание делает существо умнее, что влияет на проверки требующие интеллектуальной или иной деятельности; от повышения интеллекта не прибавляется мана, но in случае соревования с другими волшебниками (например, при использовании рассеивания или контрзаклинания), они получают право дополнительного преимущества.",
+    isCantrip = false,
+    resistable = true,
+	duration = 150,
+    isConcentration = false,
+	aoe = { radius = 18 },
 	buff = "eff_owl_wisdom_arcaneintellect",
 	scaling = {
 		hit    = { ["Наука"] = 1 },
