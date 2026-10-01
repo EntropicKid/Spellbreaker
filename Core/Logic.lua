@@ -124,7 +124,7 @@ SB.Logic.ModifierSources = SB.Logic.ModifierSources or {}
 --- @param key    string    Уникальный ключ источника (для перезаписи/отладки)
 --- @param label  string    Человекочитаемое имя для тултипа
 --- @param fn     function  fn(ctx) -> число. ctx может содержать
----        { spell = ..., slotLevel = ..., versus = "<имя второй стороны>" }.
+---        { spell = ..., versus = "<имя второй стороны>" }.
 ---        versus читает только провокация (см. её источник ниже): всем
 ---        прочим безразлично, по кому идёт бросок.
 --- @param scope  string|nil "attack" | "defense" | "both" (по умолчанию "both")
@@ -405,60 +405,8 @@ local function TruncTowardZero(x)
     return math.ceil(x)
 end
 
--- ЗДЕСЬ БЫЛ МНОЖИТЕЛЬ СКЕЙЛИНГА ОТ КРУГА (GetDamageScaleMultiplier):
--- +15% к вкладу характеристик в урон за каждый круг заклинания. Рудимент
--- вливания ресурса: пока в заклинание можно было доплатить маной, он
--- делал доплату осмысленной. Вливания нет — и множитель только прятал
--- от игрока, сколько на самом деле даёт очко характеристики. Теперь
--- вклад — ровно «очки × шаг × коэффициент», без поправки на круг.
-
--- ============================================================
--- ЗДЕСЬ БЫЛО ВЛИВАНИЕ РЕСУРСА СВЕРХ КРУГА
---
--- Заклинание можно было применить «во второй круг» или «в третий»,
--- доплатив ресурсом: это растягивало срок эффекта, множило скейлинг
--- урона и добавляло снимаемых эффектов рассеиванию. Механики больше
--- нет — заклинание применяется в СВОЙ круг, и цена у него одна.
---
--- ── ПОЧЕМУ УБРАНО ────────────────────────────────────────────
---
--- Посчитали по библиотеке. Из 460 применимых заклинаний вливание
--- вообще что-то меняло у 211, и из этих 211 у 189 оно меняло ТОЛЬКО
--- СРОК эффекта. Урон — у тринадцати, лечение — у девяти. Плоские
--- каналы (DamagePerMana, HitPerResource) к тому времени уже стояли в
--- нуле, а множитель скейлинга на целых числах чаще всего усекался
--- обратно. То есть это была ОДНА РУЧКА — «дебафф провисит дольше», —
--- надетая на костюм ресурсной системы.
---
--- ── И ПОЧЕМУ ЭТО ВАЖНО ДЛЯ ВОЛИ ──────────────────────────────
---
--- Срыв Волей стоит столько очков, сколько кругов влил нападающий (см.
--- SB.ActiveEffects.WillCostOf). Правило звучало симметрично — «платишь
--- столько же, сколько он», — но симметрия была в фишках, а не в их
--- цене: маг покупал круг ЕДИНИЦЕЙ МАНЫ из дюжины и восполнял её
--- самоцветом, а защищающийся платил ОЧКОМ НАВЫКА, которое возвращает
--- только Долгий Отдых. Полиморф и Ледяная стрела с третьего круга —
--- пять маны — выносили полностью вложенную Волю за два каста.
---
--- Без вливания каждый контроль стоит своего круга, обычно первого или
--- второго, и пять очков Воли покрывают пять контролей за сцену, а не
--- два каста. Курс обмена выправился не подкруткой числа, а тем, что у
--- атакующего не стало расходника, которым он бьёт по чужому билду.
---
--- ЧТО ОСТАЛОСЬ от прежнего: сам КРУГ заклинания. Он по-прежнему решает
--- и цену в ресурсе, и множитель скейлинга, и цену срыва — просто он
--- теперь свойство заклинания, а не выбор игрока.
---
--- ЗДЕСЬ ЖЕ СТОЯЛИ SB.Logic.CanUpcast («даёт ли вливание хоть
--- что-нибудь») и UpcastSnapshot («что будет на этом круге»). Обе
--- существовали ради окна выбора круга и ушли вместе с ним.
--- ============================================================
-
-
 --- @param spell   table   Заклинание
 --- @param channel string  "hit" | "crit" | "damage"
---- @param slotLevel number|nil  не читается: остался в подписи ради
----        старых вызовов (вливания ресурса больше нет).
 --- @return number total, table parts  parts = { {key,label,value}, ... }
 --- @param statFn function|nil  чем мерить характеристику. По умолчанию —
 ---        характеристики ИГРОКА. Существо считает свой скейлинг тем же
@@ -484,29 +432,6 @@ function SB.Logic.GetSpellScaling(spell, channel, statFn)
 
     local perPoint = (SB.Data.Config.ScalingPerPoint or {})[channel] or 0
     local total, parts = 0, {}
-
-    -- Вложенный ресурс усиливает канал damage ЦЕЛИКОМ, а не каждый
-    -- коэффициент по отдельности. Иначе заклинание с двумя статами в
-    -- канале получало бы от маны вдвое больше, чем с одним, — то есть
-    -- выгода от вливания зависела бы от того, сколько строк автор
-    -- написал в таблице, а это оформление данных, а не решение
-    -- дизайнера. Таких заклинаний в библиотеке 13.
-    --
-    -- У ВСЕХ ЗАКЛИНАНИЙ ОДИНАКОВО. Раньше здесь стояла проверка
-    -- IsCasterSpell: кастер вкладывал ресурс в силу удара, некастер — в
-    -- точность (+HitPerResource к броску). Развилку убрали вместе с
-    -- HitPerResource (см. GetCastPower): пока она была, у половины
-    -- библиотеки вложенный ресурс на урон не влиял вовсе, и сравнить
-    -- классы по урону было нельзя в принципе.
-    --
-    -- Двойного бонуса, от которого защищала проверка, теперь не бывает:
-    -- HitPerResource = 0, то есть точность от вливания не растёт ни у
-    -- кого. Если будете возвращать её некастерам, верните и проверку —
-    -- иначе они снова получат оба бонуса сразу.
-    -- КРУГ БЕРЁМ У ЗАКЛИНАНИЯ, а не у вызывающего. Аргумент slotLevel
-    -- остался в подписи ради двух десятков вызовов, но больше не
-    -- читается: вливания нет, и «в какой круг применили» — это всегда
-    -- собственный круг заклинания (см. врезку о вливании выше).
 
     -- ── ДРОБИ СКЛАДЫВАЮТСЯ, А НЕ ТЕРЯЮТСЯ ПО ОДНОЙ ──────────
     --
@@ -631,39 +556,15 @@ function SB.Logic.GetCritThreshold(critBonus, rollMax, rollMin)
 end
 
 -- ============================================================
--- БАЗОВЫЙ УРОН И ВЛОЖЕННЫЙ РЕСУРС
+-- БАЗОВЫЙ УРОН
 --
--- Правило теперь ОДНО НА ВСЕХ, без развилки по классу заклинания:
--- вложенный ресурс усиливает СКЕЙЛИНГ канала damage, и считается это в
--- GetSpellScaling (без множителя: см. врезку на его месте). Эта функция возвращает
--- только базу — множитель применяется к скейлингу, иначе одна и та же
--- прибавка вошла бы в расчёт дважды.
---
--- Раньше развилка была: кастер вливал в силу, некастер — в точность
--- (+HitPerResource к броску). Убрана по двум причинам. Во-первых, у
--- половины библиотеки ресурс не влиял на урон вовсе, и сравнивать классы
--- между собой было нельзя: одни считались по одной формуле, другие по
--- другой. Во-вторых, точность у некастеров и так росла быстрее всех —
--- профили класса дают им +2..+8 к атаке, — а вложение добавляло сверху
--- ещё до +9, и исход размена решало «влил или не влил».
---
--- БАЗА — У ВСЕХ ЗАКЛИНАНИЙ, на любом круге, ровно как у лечения (см.
--- SB.Logic.GetHealPower). Раньше её получали только заговоры: на высоком
--- круге она будто бы размывала вклад характеристик. Но лечение держало
--- единицу на каждом круге, и выходило, что удар и исцеление одного круга
--- считаются по разным формулам. Теперь формула одна: база + скейлинг.
---
--- Считается от ПОЛНОГО объёма вложенного, а не от избытка сверх
--- стоимости: применить заклинание дешевле его круга всё равно нельзя, и
--- от избытка приёмы высокого порядка не получали бы от вливания ничего.
---
--- Цифры — в SB.Data.Config (BaseDamage / DamagePerMana /
--- HitPerResource), там же объяснение, почему
--- именно так.
+-- База — у всех заклинаний, на любом круге, ровно как у лечения (см.
+-- SB.Logic.GetHealPower): удар и исцеление считаются по одной формуле
+-- «база + скейлинг характеристик» (см. GetSpellScaling). Цифра — в
+-- SB.Data.Config.BaseDamage.
 --
 -- @param spell     table   Заклинание (нужен spell.level)
--- @param slotLevel number  Сколько ресурса вложено (0 = заговор/приём)
--- @return number damage, number hitBonus
+-- @return number damage
 -- ============================================================
 function SB.Logic.GetCastPower(spell)
     return tonumber(SB.Data.Config.BaseDamage) or 1
@@ -677,9 +578,9 @@ end
 --- потому что число нужно ЗАРАНЕЕ, ещё до броска: заявка везёт его
 --- Ведущему, чтобы тот увидел справедливую СЛ (см. SB.Logic.FairDC).
 --- @return number
-function SB.Logic.GetCastModifier(spell, slotLevel)
+function SB.Logic.GetCastModifier(spell)
     local mod = SB.Logic.GetModifierBreakdown("attack",
-        { spell = spell, slotLevel = slotLevel })
+        { spell = spell })
     return mod + (SB.Logic.GetSpellScaling(spell, "hit"))
 end
 
@@ -724,8 +625,7 @@ end
 --- разным формулам, ровно от чего уходили в GetCastPower.
 ---
 --- @param spell     table   Заклинание (нужен spell.level)
---- @param slotLevel number  Сколько ресурса вложено
---- @return number heal, number hitBonus
+--- @return number heal
 --- ============================================================
 function SB.Logic.GetHealPower(spell)
     local base = tonumber(SB.Data.Config.BaseHeal) or 1
@@ -936,35 +836,13 @@ end
 -- времени) висела 1200 ходов. Заодно это чинит поле «Длительность» в
 -- редакторе контейнеров: ГМ его заполнял, а расчёт его игнорировал.
 --
--- АПКАСТ РАСТЯГИВАЕТ ЭФФЕКТ. Считается не вся вложенная мана, а только
--- ИЗБЫТОК над собственным кругом заклинания:
---
---     множитель = 2 × (вложено − круг заклинания)
---
--- то есть 2 / 4 / 6 / 8 за один, два, три, четыре круга сверх. Раньше
--- здесь стояла степень двойки (2 / 4 / 8 / 16): заговор с дебаффом,
--- поднятый до 4-го круга, висел в ШЕСТНАДЦАТЬ раз дольше базы, и любой
--- контроль на максимальном апкасте переставал быть временным.
---
--- Заклинание 3-го круга, применённое 3-м кругом, держится базовое время;
--- поднятое до 4-го — вдвое дольше, до 5-го — вчетверо. Каст «в свой
--- круг» ничего не растягивает, поэтому заговор, применённый заговором,
--- работает ровно как раньше.
--- СРОК БОЛЬШЕ НИЧЕМ НЕ УМНОЖАЕТСЯ: вливание убрано, и «во сколько раз
--- растянуть» спрашивать не у чего (см. врезку о вливании выше).
---
 -- @param effectID  string  id заклинания-контейнера
 -- @param sourceSpell table|nil  заклинание, которое его наложило
--- @param slotLevel number|nil  не читается; остался ради вызывающих
 -- ============================================================
 
---- ЗДЕСЬ БЫЛА SB.Logic.GetUpcastMultiplier — во сколько раз вливание
---- растягивает срок. Вливания больше нет, и растягивать нечем
---- (см. врезку о нём выше по файлу).
-
 --- Итоговая длительность эффекта в ходах (или SB.ActiveEffects.INFINITE).
---- Отдельной функцией, потому что то же число показывает пикер круга
---- ДО каста — а расходиться расчёт и обещание не должны.
+--- Отдельной функцией, потому что то же число показывает карточка
+--- заклинания — а расходиться расчёт и обещание не должны.
 --- @param extraTurns number|nil  прибавка ЗАКЛИНАТЕЛЯ, приехавшая вместе
 ---        с эффектом («Воодушевление», см. SB.Logic.EncouragementFor).
 ---        Своя длительность о ней знать не может: навык чужой.
@@ -1017,7 +895,7 @@ function SB.Logic.GetEffectDuration(effectID, sourceSpell, extraTurns)
     -- ПРИБАВКА НЕ ПРИЕХАЛА — ЗНАЧИТ КАСТ СВОЙ, и навык читаем у себя.
     --
     -- Здесь, а не у пяти вызывающих: ровно этот же расчёт показывает
-    -- пикер круга ДО каста (см. UI/MainFrame.lua), и разойтись обещание
+    -- карточка заклинания (см. UI/Library.lua), и разойтись обещание
     -- с исходом не должно. Чужой бафф сюда с nil прийти не может —
     -- ApplyEffect для fromOther передаёт число всегда, даже ноль.
     if extraTurns == nil then
@@ -1053,8 +931,7 @@ function SB.Logic.GetEffectDuration(effectID, sourceSpell, extraTurns)
     --
     -- ОТ БАЗЫ, А НЕ ОТ УМНОЖЕННОГО, и прибавляется ПОСЛЕ умножения —
     -- ровно по той же причине, по которой это делалось с плоской
-    -- прибавкой: вложенный ресурс растягивает то, что заложено в
-    -- заклинание, а навык заклинателя к вливанию отношения не имеет.
+    -- прибавкой: продлевается то, что заложено в заклинание.
     -- Считай мы долю от умноженного, очко навыка стоило бы вчетверо
     -- больше на третьем круге, чем на нулевом.
     --
@@ -1089,9 +966,6 @@ function SB.Logic.GetEffectDuration(effectID, sourceSpell, extraTurns)
     local share = tonumber(SB.Data.Config and SB.Data.Config.EncouragementPerPoint) or 0.2
     local extra = (pts > 0) and math.floor(turns * share * pts) or 0
 
-    -- СРОК БОЛЬШЕ НЕ РАСТЯГИВАЕТСЯ. Здесь стоял множитель вливания —
-    -- ровно та единственная ручка, ради которой вливание и держалось
-    -- (см. врезку о нём выше по файлу).
     return math.max(1, turns + extra)
 end
 
@@ -1815,7 +1689,7 @@ end
 ---        (см. врезку «ПРОВОКАЦИЯ» в Core/ActiveEffects.lua), и потому
 ---        передаётся лишь там, где имя и так на руках, — новых полей в
 ---        пакетах это не стоит нигде.
-function SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, fromOther, extraTurns, source)
+function SB.Logic.ApplyEffect(effectID, sourceSpell, fromOther, extraTurns, source)
     if not effectID or not SB.ActiveEffects or not SB.ActiveEffects.Add then return end
     local effectSpell = SB.Data.Spells[effectID]
     if not effectSpell then return end
@@ -1870,10 +1744,10 @@ function SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, fromOther, extra
     -- КРУГ ЕДЕТ ВМЕСТЕ С ЭФФЕКТОМ. Вложение заклинателя уже здесь, в
     -- аргументе (и у своего каста, и у чужого пакета, и у площади), а
     -- нужно оно носителю: по нему считается цена срыва Волей
-    -- (см. SB.ActiveEffects.WillCostOf). Не передан — собственный круг
-    -- заклинания-источника, то есть «влил ровно столько, сколько стоит».
+    -- (см. SB.ActiveEffects.WillCostOf). Это всегда собственный круг
+    -- заклинания-источника из своей библиотеки.
     SB.ActiveEffects.Add(effectID, turns, isConc or false, source,
-        tonumber(slotLevel) or (sourceSpell and tonumber(sourceSpell.level)))
+        sourceSpell and tonumber(sourceSpell.level))
 end
 
 -- ============================================================
@@ -1913,16 +1787,15 @@ end
 -- ============================================================
 
 --- @param spell     table       заклинание
---- @param slotLevel number|nil  вложенный круг (растягивает срок)
 --- @param landed    boolean|nil исход, ЕСЛИ он известен этой ветке;
 ---        nil — не известен (ответ по сети, много целей, воля Ведущего)
 --- @return string|nil  что легло на заклинателя — сразу в TurnSkipFor
-function SB.Logic.ApplyOwnContainer(spell, slotLevel, landed)
+function SB.Logic.ApplyOwnContainer(spell, landed)
     local id = spell and spell.container
     if not id then return nil end
     if landed == false then return nil end
 
-    SB.Logic.ApplyEffect(id, spell, slotLevel)
+    SB.Logic.ApplyEffect(id, spell)
     -- Возвращаем id, а не true: вызывающий отдаёт его в TurnSkipFor, и
     -- «что наложено» с «что не тикать» так не могут разойтись в принципе.
     return id
@@ -2011,9 +1884,8 @@ end
 -- ============================================================
 
 --- @param spell table  заклинание с полем buff
---- @param slotLevel number|nil  вложенный ресурс (растягивает длительность)
 --- @return string|nil  имя цели, если эффект ушёл ей (для лога)
-function SB.Logic.ApplyBuffToTarget(spell, slotLevel)
+function SB.Logic.ApplyBuffToTarget(spell)
     if not spell or not spell.buff then return nil end
 
     local me = UnitName("player")
@@ -2047,15 +1919,15 @@ function SB.Logic.ApplyBuffToTarget(spell, slotLevel)
     -- оказывалось ничего.
     if staysOnMe or spell.aoe or pendingTargetName == me
        or (tonumber(spell.distance) or 0) <= 0 then
-        SB.Logic.ApplyEffect(spell.buff, spell, slotLevel)
+        SB.Logic.ApplyEffect(spell.buff, spell)
         return nil
     end
     return nil, true    -- ушёл цели Ведущего, локально не легло
 end
 
 --- Принимающая сторона: на нас навесили эффект.
---- slotLevel приходит по сети от заклинателя: длительность зависит от
---- того, сколько ресурса влил ОН, а нам это неоткуда узнать локально.
+--- Круг и длительность берутся из своей библиотеки по spellID — по
+--- сети они не едут.
 --- @param total number|nil  итог броска заклинателя. Есть он — ПОРОГ
 ---        БЕРЁМ У СЕБЯ и решаем сами; нет — эффект ложится безусловно
 ---        (старая сборка, приказ Ведущего, отдача щита, бафф союзнику —
@@ -2065,7 +1937,7 @@ end
 --- @param extraTurns number|nil  прибавка к сроку от «Воодушевления»
 ---        заклинателя. Считает её ОН и шлёт вместе с эффектом: своего
 ---        клиента чужой навык не касается (см. SB.Logic.EncouragementFor).
-function SB.Logic.HandleBuffReceived(casterName, spellID, effectID, slotLevel,
+function SB.Logic.HandleBuffReceived(casterName, spellID, effectID,
                                      roll, mod, total, sender, extraTurns)
     local sourceSpell = SB.Data.Spells[spellID]
     -- Недосягаемого вредоносный эффект не находит (помощь — находит).
@@ -2089,7 +1961,7 @@ function SB.Logic.HandleBuffReceived(casterName, spellID, effectID, slotLevel,
         -- casterName, а не sender: провокацию мог наложить и НПС от лица
         -- Ведущего, и цель приковано именно к существу, а не к тому, чей
         -- клиент прислал пакет.
-        SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, true, extraTurns,
+        SB.Logic.ApplyEffect(effectID, sourceSpell, true, extraTurns,
                              casterName)
         print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. who)
         return
@@ -2099,7 +1971,7 @@ function SB.Logic.HandleBuffReceived(casterName, spellID, effectID, slotLevel,
     -- присланный итог, и завышенный итог навязал бы эффект в обход броска.
     local tamperNote
     total, tamperNote = SB.Logic.VerifyIncomingCast(sender or casterName,
-        spellID, roll, mod, total, slotLevel)
+        spellID, roll, mod, total)
     if tamperNote then
         print(SB.Theme.MSG_BAD .. "[Spellbreaker]: " .. (sender or casterName or "?") ..
             " — цифры не сходятся: " .. tamperNote .. ".|r")
@@ -2119,7 +1991,7 @@ function SB.Logic.HandleBuffReceived(casterName, spellID, effectID, slotLevel,
     local ok = SB.Logic.IsGuaranteed(sourceSpell) or (total >= threshold)
 
     if ok then
-        SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, true, extraTurns,
+        SB.Logic.ApplyEffect(effectID, sourceSpell, true, extraTurns,
                              casterName)
         -- Дебафф с прерыванием прошёл порог — концентрация сорвана.
         if isDebuff then SB.Logic.ApplyInterruptToSelf(sourceSpell) end
@@ -2327,9 +2199,7 @@ end
 --     Крит: 14% (Меткость)
 --     Лечение: 2 (Дух)
 --
--- Числа — как при касте В СВОЙ КРУГ, без вливания сверху: это базовый
--- случай, а прибавку от вливания игрок и так видит прямо в окне выбора
--- круга (см. GainTag в UI/MainFrame.lua).
+-- Числа — те, что уйдут в резолв этого заклинания.
 --
 -- «Атака» — ПОЛНЫЙ модификатор броска (ранг, уровень, навыки, скейлинг,
 -- висящие баффы), то есть ровно то число, которое ляжет рядом с кубиком.
@@ -2398,7 +2268,7 @@ function SB.Logic.GetSpellScalingLines(spell)
     if SB.Logic.IsGuaranteed(spell) then
         Line("Атака", SB.Theme.MSG_GOOD .. "Автоуспех|r")
     else
-        local atk = SB.Logic.GetCastModifier(spell, slot)
+        local atk = SB.Logic.GetCastModifier(spell)
         Line("Атака", tostring(atk), ScalingSourceNames(spell, "hit"))
     end
 
@@ -2704,7 +2574,7 @@ end
 
 --- Наибольший урон, какой заклинание может нанести честно.
 --- @return number base, number bonus
-function SB.Logic.MaxPlausibleDamage(spell, slot)
+function SB.Logic.MaxPlausibleDamage(spell)
     local base = SB.Logic.GetCastPower(spell)
     local bonus = SB.Logic.GetSpellScaling(spell, "damage", CeilingStat())
     -- Запас на висящие эффекты канала damage — той же щедрой рукой.
@@ -2725,10 +2595,10 @@ end
 ---        того, кто эти цифры и назначил: зажимать их своим потолком
 ---        значило бы спорить с автором сцены.
 --- @return number base, number bonus, string|nil note
-function SB.Logic.VerifyIncomingDamage(spell, slot, baseDmg, dmgBonus, fromNpc)
+function SB.Logic.VerifyIncomingDamage(spell, baseDmg, dmgBonus, fromNpc)
     if not spell or fromNpc then return baseDmg, dmgBonus, nil end
 
-    local okBase, ceilBonus = SB.Logic.MaxPlausibleDamage(spell, slot)
+    local okBase, ceilBonus = SB.Logic.MaxPlausibleDamage(spell)
     local base  = tonumber(baseDmg)  or okBase
     local bonus = tonumber(dmgBonus) or 0
     local notes = nil
@@ -2758,11 +2628,10 @@ end
 --- @param fromNpc boolean|nil  бьёт существо: потолок модификатора не
 ---        применяется по той же причине, что и потолок урона
 ---        (см. SB.Logic.VerifyIncomingDamage).
-function SB.Logic.VerifyIncomingCast(attacker, spellID, roll, mod, total, slot, fromNpc)
+function SB.Logic.VerifyIncomingCast(attacker, spellID, roll, mod, total, fromNpc)
     roll  = tonumber(roll)  or 0
     mod   = tonumber(mod)   or 0
     total = tonumber(total) or 0
-    slot  = tonumber(slot)  or 0
 
     -- Бросок обязан лежать на кубике. Нижнюю грань не проверяем: у
     -- атакующего мог быть расовый пол (Орк бросает 6-100), и его
@@ -2860,15 +2729,6 @@ function SB.Logic.VerifyIncomingCast(attacker, spellID, roll, mod, total, slot, 
         if lvl > cap then
             return total, string.format("круг %d недоступен рангу «%s»", lvl, capName)
         end
-        if slot > cap then
-            return total, string.format("вложено %d при потолке %d", slot, cap)
-        end
-    end
-
-    -- Вложено больше, чем у него вообще бывает ресурса.
-    local maxRes = tonumber(st.maxZeal)
-    if maxRes and slot > maxRes then
-        return total, string.format("вложено %d при запасе %d", slot, maxRes)
     end
 
     return total, nil
@@ -3009,12 +2869,12 @@ end
 
 -- ============================================================
 -- ПОДТВЕРЖДЕНИЕ КАСТА
--- Списывает ресурсы и инициирует проверку броска.
--- slotLevel == 0 → заговор (ресурсы не тратятся).
+-- Списывает ресурсы и инициирует проверку броска. Цена — круг
+-- заклинания: N-й круг стоит N ресурса, заговор бесплатен.
 -- ============================================================
 --- @param spellID   string
---- @param slotLevel number   сколько ресурса вливаем (0 — заговор/приём)
---- @param opts      table|nil  { channelStep = true } — это ПРОДОЛЖЕНИЕ
+--- @param opts      table|nil  { free = true } — бесплатно (клик по
+---        иконке эффекта); { channelStep = true } — это ПРОДОЛЖЕНИЕ
 ---        потока по клику на держателе, а не новый каст: держатель
 ---        вешать заново не нужно (иначе счётчик применений возвращался
 ---        бы к полному на каждом продолжении, и поток не кончался бы
@@ -3034,7 +2894,7 @@ end
 -- сжигала применение впустую. Разойтись снова они уже не могут.
 --
 -- Здесь ТОЛЬКО запреты «нельзя действовать вообще». Проверки, зависящие
--- от круга вливания (ранг, хватает ли ресурса), остаются в ConfirmCast:
+-- от цены (ранг, хватает ли ресурса), остаются в ConfirmCast:
 -- у клика по иконке круга нет, продолжение потока всегда бесплатно.
 --
 -- Вторым значением отдаётся ПРИЧИНА отказа ("downed" | "turn" |
@@ -3216,7 +3076,7 @@ function SB.Logic.NoteTargetedBySpell(casterName)
     SB.UI.PrintMsg("lockedByIncomingSpell")
 end
 
-function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
+function SB.Logic.ConfirmCast(spellID, opts)
     local PM = SB.PlayerModel
     opts = opts or {}
 
@@ -3237,6 +3097,12 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
     -- Проверка подготовки
     local spell = SB.Data.Spells[spellID]
     if not spell then return end
+
+    -- ЦЕНА — КРУГ ЗАКЛИНАНИЯ: N-й круг стоит N ресурса, заговор бесплатен.
+    -- opts.free — бесплатное действие: продолжение потока и клик по
+    -- иконке эффекта (см. SB.ActiveEffects.Use).
+    local cost = (opts.free or opts.channelStep) and 0
+                 or math.max(0, tonumber(spell.level) or 0)
     -- ПОДГОТОВЛЕН — ИЛИ ЛЕЖИТ В СУМКЕ. Ячейки у предмета свои, и искать
     -- его среди подготовленных ЗАКЛИНАНИЙ бессмысленно: там его нет и
     -- быть не может (см. Core/Items.lua). Пока этой развилки не было,
@@ -3278,20 +3144,20 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
     end
 
     -- Списание ресурсов (только если не заговор)
-    if slotLevel > 0 then
+    if cost > 0 then
         -- Тот же потолок, что и у подготовки (PM.GetMaxPrepareOrder): в
         -- чужую школу нельзя влить больше, чем в ней можно выучить, иначе
         -- ограничение мультикласса обходилось бы апкастом — подготовил
         -- чужой заговор и поднял его до своего круга.
         local maxOrder = PM.GetMaxPrepareOrder(spell.class)
-        if slotLevel > maxOrder then
+        if cost > maxOrder then
             print(string.format(
                 "|cFFFF0000[Spellbreaker]: Ваш ранг (%s) не позволяет влить в это заклинание больше %d-го порядка!|r",
                 PM.GetMastery(), maxOrder))
             PM.SetLocked(wasLocked)
             return
         end
-        if not PM.SpendCastResource(slotLevel) then
+        if not PM.SpendCastResource(cost) then
             print(SB.Theme.MSG_BAD .. "[Spellbreaker]: Не хватает ресурса «" ..
                 PM.GetResourceName() .. "»!|r")
             PM.SetLocked(wasLocked)
@@ -3303,7 +3169,7 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
 
     -- Каст подтверждён (и списание, если требовалось, прошло успешно) —
     -- триггер для уникальных классовых механик (см. Core/ClassMechanics.lua).
-    SB.Events.Fire(SB.E.CAST_CONFIRMED, spellID, slotLevel)
+    SB.Events.Fire(SB.E.CAST_CONFIRMED, spellID)
 
     -- ЦЕНА ПРИМЕНЕНИЯ (spell.onCast) — ЗДЕСЬ, В ЕДИНСТВЕННОЙ ТОЧКЕ, ЧЕРЕЗ
     -- КОТОРУЮ ПРОХОДЯТ ВСЕ КАСТЫ.
@@ -3447,8 +3313,8 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
     -- порядком, что и «неподходящая цель» ниже: ресурс назад, ход не
     -- тратится, темп взводится (см. там же).
     local function RefuseNoGM()
-        if slotLevel > 0 then
-            PM.AdjustPool(PM.CastPool(), slotLevel)
+        if cost > 0 then
+            PM.AdjustPool(PM.CastPool(), cost)
             SB.Events.Fire("STATUS_CHANGED")
         end
         if SB.Cooldowns then SB.Cooldowns.Start(SB.Cooldowns.TURN) end
@@ -3467,8 +3333,8 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
             and "На себя"
             or (pendingTargetName ~= "" and pendingTargetName or "Неопознанная цель")
         SB.Events.Fire("CAST_PENDING", spellID)
-        SB.Events.Fire("CAST_REQUEST", spellID, slotLevel, targetLabel,
-            SB.Logic.GetCastModifier(spell, slotLevel))
+        SB.Events.Fire("CAST_REQUEST", spellID, targetLabel,
+            SB.Logic.GetCastModifier(spell))
         SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID))
         PM.SetLocked(wasLocked)
         return
@@ -3523,8 +3389,7 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
         -- здоровья просто не появляется».
         local dc = SB.Logic.IsGuaranteed(spell) and 0
                    or (SB.Data.Config.ConjureDC or 0)
-        SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel,
-            slotLevel > (spell.level or 0))
+        SB.Logic.ProcessRollAndCast(spellID, dc)
     elseif SB.Logic.CanDispelLocally(spell, aimed) then
         -- РАССЕИВАНИЕ — сам, минуя Ведущего: снимать эффекты умеет только
         -- тот клиент, на котором они висят. Но только когда есть КОГО
@@ -3534,14 +3399,14 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
         -- aimed уехал ВНУТРЬ проверки, а не остался условием рядом с ней:
         -- у склянки «на себя» — не отсутствие цели, а сама цель, и
         -- отбивать её здесь значило бы держать половину правила снаружи.
-        SB.Logic.ResolveDispel(spellID, slotLevel)
+        SB.Logic.ResolveDispel(spellID)
     elseif aimed and SB.Logic.CanDispelNpc and SB.Logic.CanDispelNpc(spell) then
         -- РАССЕИВАНИЕ С СУЩЕСТВА — сразу за рассеиванием с игрока, и это
         -- не косметика. Рассеивающее заклинание сплошь и рядом помечено
         -- ещё и isHeal (снятие яда лечит), а ветка лечения существа стоит
         -- ниже — окажись эта после неё, «Очищение» на отравленном волке
         -- лечило бы его вместо того, чтобы снять яд.
-        SB.Logic.ResolveNpcDispel(spellID, slotLevel)
+        SB.Logic.ResolveNpcDispel(spellID)
     elseif spell.aoe and spell.isHeal then
         -- ПЛОЩАДНОЕ лечение — цель не нужна: бросок один на всех, а порог
         -- каждый проверяет у себя, по своему уровню (см. ResolveAoeHeal).
@@ -3554,24 +3419,24 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
         --
         -- Стоит ПЕРВЫМ среди площадных: лечащее заклинание с полем aoe
         -- иначе проваливалось в одиночное лечение и лечило одного.
-        SB.Logic.ResolveAoeHeal(spellID, slotLevel)
+        SB.Logic.ResolveAoeHeal(spellID)
     elseif spell.aoe and spell.canCrit and IsInGroup() then
         -- ПЛОЩАДНАЯ атака — цель не нужна вовсе: бросок уходит всей
         -- группе, и каждый сам проверяет, попал ли он в радиус.
         -- Вне группы рассылать некуда, поэтому там заклинание идёт
         -- обычным путём (одиночная цель или заявка ГМу).
-        SB.Logic.InitiateAoeAttack(spellID, slotLevel)
+        SB.Logic.InitiateAoeAttack(spellID)
     elseif spell.aoe and IsInGroup() and not spell.isHeal
            and (spell.buff or spell.debuff) then
         -- ПЛОЩАДНОЙ бафф/дебафф БЕЗ урона — тоже минуя ГМа. Цель ему,
         -- как и площадной атаке, не нужна: бросок уходит группе, а порог
         -- каждый проверяет у себя (см. ResolveAoeEffectCast).
-        SB.Logic.ResolveAoeEffectCast(spellID, slotLevel)
+        SB.Logic.ResolveAoeEffectCast(spellID)
     elseif spell.canCrit and hasEnemyPlayerTarget and not dualHealsTarget then
         -- ПвП-заклинание, направленное на другого игрока — минуя ГМа.
         -- Двойное заклинание сюда не попадает, если цель помечена другом:
         -- оно уходит веткой лечения ниже (см. dualHealsTarget).
-        SB.Logic.InitiatePvpAttack(spellID, slotLevel)
+        SB.Logic.InitiatePvpAttack(spellID)
     elseif aimed and spell.canCrit and SB.Logic.CanHitNpc(spell) then
         -- УДАР ПО СУЩЕСТВУ — тем же разменом, что по игроку, только обе
         -- стороны считает атакующий: клиента, который бросил бы за НПС
@@ -3580,10 +3445,10 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
         -- СТОИТ ПОСЛЕ ПвП и до заявки Ведущему: пока существ не было,
         -- уронное заклинание по НПС уходило Ведущему целиком, и он
         -- отыгрывал и бросок, и урон руками.
-        SB.Logic.ResolveNpcAttack(spellID, slotLevel)
+        SB.Logic.ResolveNpcAttack(spellID)
     elseif aimed and SB.Logic.IsHealingCast(spell) and SB.Logic.CanHitNpc(spell) then
         -- Лечение существа — тем же порогом, что лечение игрока.
-        SB.Logic.ResolveNpcHeal(spellID, slotLevel)
+        SB.Logic.ResolveNpcHeal(spellID)
     elseif aimed and SB.Logic.CanAffectNpc and SB.Logic.CanAffectNpc(spell) then
         -- ЧИСТЫЙ ЭФФЕКТ НА СУЩЕСТВО — «Проклятие слабости» на волке.
         -- Стоит ПОСЛЕ удара и лечения: у заклинания с уроном дебафф
@@ -3592,12 +3457,12 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
         -- И ДО ветки GetTargetedEffect ниже, которая существо в цели
         -- отсекает: пока этой ветки не было, такое заклинание уходило
         -- заявкой Ведущему, и он навешивал эффект руками.
-        SB.Logic.ResolveNpcEffect(spellID, slotLevel)
+        SB.Logic.ResolveNpcEffect(spellID)
     elseif SB.Logic.IsHealingCast(spell) and hasValidHealTarget then
         -- Лечащее заклинание на игрока (или на себя) — минуя ГМа. Сюда же
         -- чистая починка доспеха: применяет её носитель, как и лечение
         -- (см. SB.Logic.GetSpellRepair).
-        SB.Logic.ResolveHeal(spellID, slotLevel)
+        SB.Logic.ResolveHeal(spellID)
     elseif SB.Logic.CanSteal(spell, aimed) then
         -- КРАЖА — состязание, у которого нет эффекта (см. ResolveSteal).
         --
@@ -3606,16 +3471,16 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
         -- добыча там побочна. Выше эффектной — потому что та отбирает
         -- себе всё с полем buff/debuff, а вор вполне может ещё и пугать
         -- жертву; кража в таком заклинании главнее.
-        SB.Logic.ResolveSteal(spellID, slotLevel)
+        SB.Logic.ResolveSteal(spellID)
     elseif SB.Logic.GetTargetedEffect(spell) then
         -- Бафф на союзника/себя или дебафф на другого игрока — бросок
         -- на закрепление эффекта, минуя ГМа (см. ResolveEffectCast).
         -- Нет цели или в цели НПС — сюда не попадаем, и заклинание идёт
         -- обычным ПвЕ-путём ниже.
-        SB.Logic.ResolveEffectCast(spellID, slotLevel)
+        SB.Logic.ResolveEffectCast(spellID)
     elseif spell.resistable == false then
         -- Без сопротивления → бросаем сразу локально
-        SB.Logic.ProcessRollAndCast(spellID, 0, slotLevel, slotLevel > (spell.level or 0))
+        SB.Logic.ProcessRollAndCast(spellID, 0)
     elseif not opts.toGM then
         -- ── НИ ОДНА ВЕТКА НЕ ПОДОШЛА, А ВЕДУЩЕГО НЕ ПРОСИЛИ ────
         --
@@ -3632,8 +3497,8 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
         -- тратится. Темп при этом запускаем — иначе отказ можно было бы
         -- щёлкать без конца, а он поднимает CAST_CONFIRMED и с ним
         -- классовые механики (их откатить нечем: событие уже ушло).
-        if slotLevel > 0 then
-            PM.AdjustPool(PM.CastPool(), slotLevel)
+        if cost > 0 then
+            PM.AdjustPool(PM.CastPool(), cost)
             SB.Events.Fire("STATUS_CHANGED")
         end
         if SB.Cooldowns then SB.Cooldowns.Start(SB.Cooldowns.TURN) end
@@ -3655,8 +3520,8 @@ function SB.Logic.ConfirmCast(spellID, slotLevel, opts)
         -- Модификатор считаем ЗДЕСЬ и везём с заявкой: у Ведущего нет
         -- ни наших характеристик, ни навыков, ни висящих эффектов, а
         -- справедливая СЛ считается именно от них (см. SB.Logic.FairDC).
-        SB.Events.Fire("CAST_REQUEST", spellID, slotLevel, targetLabel,
-            SB.Logic.GetCastModifier(spell, slotLevel))
+        SB.Events.Fire("CAST_REQUEST", spellID, targetLabel,
+            SB.Logic.GetCastModifier(spell))
 
         -- ЗАЯВКА — ЭТО УЖЕ ПОТРАЧЕННЫЙ ХОД.
         --
@@ -3682,26 +3547,19 @@ end
 -- Вызывается либо локально (resistable=false),
 -- либо по ответу ГМа по сети.
 -- ============================================================
---- @param totalScaling boolean|nil  Флаг «ГМ разрешил усиление» от старого
----        протокола. Сейчас не используется: усиление считается из
----        реально вложенного ресурса (см. GetCastPower) — параметр
----        оставлен, чтобы не ломать вызовы из Network.lua.
 --- @param turnSpent boolean|nil  ход уже потрачен НА ЗАЯВКЕ, и списывать
 ---        его второй раз нельзя. Ставят его сетевые вызовы — те, что
 ---        приходят ответом Ведущего; локальные (сотворение предмета,
 ---        каст без сопротивления) тратят ход здесь, потому что заявки у
 ---        них не было вовсе.
-function SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, totalScaling, turnSpent)
+function SB.Logic.ProcessRollAndCast(spellID, dc, turnSpent)
     local spell   = SB.Data.Spells[spellID]
-    -- slotLevel в контексте обязателен: от него зависит источник
-    -- "resource" (прибавка к попаданию за вложенный ресурс).
-    --
     -- versus — вторая сторона броска, и нужна она провокации: по своему
     -- провокатору бьют без штрафа (см. её источник в реестре). Берём
     -- ИМЯ ИЗ ТАРГЕТА, а не из заявки: заявка уходит Ведущему словами, а
     -- штраф считается здесь и сейчас.
     local mod, modParts = SB.Logic.GetModifierBreakdown("attack",
-        { spell = spell, slotLevel = slotLevel, versus = UnitName("target") })
+        { spell = spell, versus = UnitName("target") })
 
     -- Скейлинг от характеристик, объявленный самим заклинанием
     -- (spell.scaling / устаревшее spell.attributes) — см. GetSpellScaling.
@@ -3734,9 +3592,7 @@ function SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, totalScaling, turnS
     local critLo, critHi = SB.Logic.GetRollRange()
     local critThresh = SB.Logic.GetCritThreshold(critBonus, critHi, critLo)
 
-    -- Базовый урон от вложенного ресурса (см. GetCastPower). Прибавка к
-    -- попаданию из той же функции уже учтена выше — она приходит как
-    -- обычный источник реестра "resource".
+    -- Базовый урон (см. GetCastPower).
     local baseDmg = SB.Logic.GetCastPower(spell)
 
     mod = mod + hitBonus
@@ -3809,7 +3665,7 @@ function SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, totalScaling, turnS
  
     -- Активный эффект (контейнер) — вешается НА СЕБЯ. Исход этой ветке
     -- известен (мы сами его и посчитали), поэтому спрашиваем по нему.
-    local ownContainer = SB.Logic.ApplyOwnContainer(spell, slotLevel, succeeded)
+    local ownContainer = SB.Logic.ApplyOwnContainer(spell, succeeded)
     SB.Logic.GrantCreatedItems(spell, succeeded)
 
     -- Эффект на цель-союзника (или на себя, если цели нет) — см.
@@ -3825,12 +3681,12 @@ function SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, totalScaling, turnS
     local buffTargetNote = ""
     local aoeEffectID = (spell.aoe and IsInGroup()) and (spell.buff or spell.debuff) or nil
     if aoeEffectID and succeeded then
-        SB.Logic.InitiateAoeEffect(spell, slotLevel)
+        SB.Logic.InitiateAoeEffect(spell)
         buffTargetNote = string.format(" (всем %s в радиусе %g м)",
             SB.Logic.AoeEpicenterLabel(SB.Logic.GetAoeEpicenter(spell)),
             SB.Logic.GetAoeRadius(spell))
     elseif spell.buff and succeeded then
-        local onWhom, toScene = SB.Logic.ApplyBuffToTarget(spell, slotLevel)
+        local onWhom, toScene = SB.Logic.ApplyBuffToTarget(spell)
         -- Цель, которой аддон не ведёт (НПС, персонаж вне группы): эффект
         -- отыгрывает Ведущий, и врать «на себя» в логе нельзя.
         -- Стрелка вместо «эффект ->»: слово «эффект» здесь ничего не
@@ -3919,7 +3775,8 @@ function SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, totalScaling, turnS
     -- отличает аддон, — по наличию порядка. Поэтому у заговора не пишется
     -- ничего, а у заклинания остаётся «(2)»: в этой строке скобка после
     -- ссылки может значить только порядок.
-    local ordTxt = (slotLevel and slotLevel > 0) and (G .. " (" .. slotLevel .. ")") or ""
+    local ordN   = tonumber(spell.level) or 0
+    local ordTxt = (ordN > 0) and (G .. " (" .. ordN .. ")") or ""
     if SB.Logic.IsGuaranteed(spell) then
         -- Выплата — в эту же строку: «применяет [Простое лечебное зелье]: +2 ХП.»
         local pay = SB.Logic.TakeCastPayload(spellID)
@@ -3974,7 +3831,7 @@ function SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, totalScaling, turnS
         local ok, err = pcall(spell.onResolve, {
             spellID = spellID, spell = spell, roll = roll, mod = mod, total = total,
             dc = dcNum, succeeded = succeeded, isCrit = isCrit,
-            slotLevel = slotLevel, hitBonus = hitBonus, critBonus = critBonus,
+            level = spell.level, hitBonus = hitBonus, critBonus = critBonus,
             dmgBonus = dmgBonus, caster = UnitName("player"),
         })
         if not ok then
@@ -3987,7 +3844,7 @@ end
 -- ============================================================
 -- ПРИНУДИТЕЛЬНЫЙ РЕЗУЛЬТАТ (без броска d20, от ГМа)
 -- ============================================================
-function SB.Logic.ExecuteForcedOutcome(spellID, outcomeIndex, slotLevel)
+function SB.Logic.ExecuteForcedOutcome(spellID, outcomeIndex)
     local spell = SB.Data.Spells[spellID]
     if not spell then return end
 
@@ -4010,7 +3867,7 @@ function SB.Logic.ExecuteForcedOutcome(spellID, outcomeIndex, slotLevel)
     local resultStatus = colorCode .. (labels[outcomeIndex] or "Успех.") .. "|r"
     SB.Events.Fire("CAST_RESOLVED", spellID, succeeded, resultStatus, "Форсировано ГМом")
 
-    local t = (tonumber(slotLevel) or 0) == 0 and "способность" or ("заклинание (Порядок: " .. (tonumber(slotLevel) or 0) .. ")")
+    local t = (tonumber(spell.level) or 0) == 0 and "способность" or ("заклинание (Порядок: " .. (tonumber(spell.level) or 0) .. ")")
     local link = SB.UI.MakeSpellLink(spell)
     local G    = "|cFFFFD100" -- тёплое золото вместо белого по умолчанию — читается лучше
     local sysMsg = "|cFF9933FF[Spellbreaker]:|r " .. G .. UnitName("player") ..
@@ -4036,7 +3893,7 @@ function SB.Logic.ExecuteForcedOutcome(spellID, outcomeIndex, slotLevel)
     -- действовало на цель и не действовало на самого заклинателя.
     -- Возвращённое значение здесь не нужно: его брали, чтобы отдать
     -- в TurnSkipFor, а хода тут больше нет.
-    SB.Logic.ApplyOwnContainer(spell, slotLevel, succeeded)
+    SB.Logic.ApplyOwnContainer(spell, succeeded)
     SB.Logic.GrantCreatedItems(spell, succeeded)
 
     -- ХОД ЗДЕСЬ НЕ ТРАТИТСЯ ВОВСЕ, и SpendTurn отсюда убран.
@@ -4055,7 +3912,7 @@ function SB.Logic.ExecuteForcedOutcome(spellID, outcomeIndex, slotLevel)
     -- ничего не получал. Тем же вызовом, что и в ProcessRollAndCast, —
     -- доставка эффекта живёт в одном месте (см. ApplyBuffToTarget).
     if succeeded and spell.buff then
-        SB.Logic.ApplyBuffToTarget(spell, slotLevel)
+        SB.Logic.ApplyBuffToTarget(spell)
     end
     -- Сотворение вызвано ВЫШЕ, вместе с контейнером и по тому же исходу.
     -- Здесь стоял второй его вызов — безусловный, — и после того как
@@ -4083,21 +3940,20 @@ end
 local pendingPvpSpells = {}
 
 --- Атакующая сторона: считает свой бросок и шлёт его цели.
-function SB.Logic.InitiatePvpAttack(spellID, slotLevel)
+function SB.Logic.InitiatePvpAttack(spellID)
     local PM    = SB.PlayerModel
     local spell = SB.Data.Spells[spellID]
     if not spell or not UnitExists("target") then return end
 
     local targetName = UnitName("target")
     local mod, modParts = SB.Logic.GetModifierBreakdown("attack",
-        { spell = spell, slotLevel = slotLevel, versus = targetName })
+        { spell = spell, versus = targetName })
 
     -- ПвП-размен начался: с этого момента лидер больше не может
     -- объявить Короткий Отдых всей группе (см. PM.IsPvpEngaged).
     SB.PlayerModel.SetPvpEngaged(true)
 
-    -- Базовый урон от вложенного ресурса (см. GetCastPower). Прибавка к
-    -- попаданию из той же функции уже в mod — источник "resource".
+    -- Базовый урон (см. GetCastPower).
     local baseDmg = SB.Logic.GetCastPower(spell)
 
     -- Скейлинг от характеристик (см. GetSpellScaling).
@@ -4149,7 +4005,7 @@ function SB.Logic.InitiatePvpAttack(spellID, slotLevel)
     -- ИСХОД ЭТОЙ ВЕТКЕ НЕ ИЗВЕСТЕН: его считает защищающийся и присылает
     -- ответом позже (см. HandlePvpAttackResult). Ждать нечего — вешаем
     -- сразу, третьей строкой правила из ApplyOwnContainer.
-    local ownContainer = SB.Logic.ApplyOwnContainer(spell, slotLevel, nil)
+    local ownContainer = SB.Logic.ApplyOwnContainer(spell, nil)
     SB.Logic.GrantCreatedItems(spell, nil)
 
     -- Атака — потраченный ход, как и любой другой каст. Но тратится он
@@ -4457,7 +4313,7 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
     -- прямо в строке боя.
     local tamperNote
     atkTotal, tamperNote = SB.Logic.VerifyIncomingCast(
-        attackerName, spellID, atkRoll, atkMod, atkTotal, atkSlot, fromNpc)
+        attackerName, spellID, atkRoll, atkMod, atkTotal, fromNpc)
 
     -- ЧИСЛА УРОНА — ОТДЕЛЬНОЙ СВЕРКОЙ, и это не придирка к оформлению.
     -- Проверка выше смотрит на БРОСОК: попал ли вообще. А отнимается
@@ -4467,7 +4323,7 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
     -- сотней урона: арифметика в ней честная, а сотня лежит рядом.
     local dmgNote
     atkBaseDmg, atkDmgBonus, dmgNote = SB.Logic.VerifyIncomingDamage(
-        spell, atkSlot, atkBaseDmg, atkDmgBonus, fromNpc)
+        spell, atkBaseDmg, atkDmgBonus, fromNpc)
     if dmgNote then
         tamperNote = tamperNote and (tamperNote .. "; " .. dmgNote) or dmgNote
     end
@@ -4557,9 +4413,7 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
     -- «неуязвимый латник», ради которого пол и вводился, кончается сам,
     -- когда кончается запас.
     --
-    -- Базовый урон приходит ОТ АТАКУЮЩЕГО (SB.Logic.GetCastPower): он
-    -- зависит от его класса и от того, сколько маны он влил, а этого
-    -- нам локально не видно. Фолбэк на Config.BaseDamage — для пакетов
+    -- Базовый урон приходит ОТ АТАКУЮЩЕГО (SB.Logic.GetCastPower). Фолбэк на Config.BaseDamage — для пакетов
     -- со старых клиентов, которые поле baseDmg ещё не шлют.
     local dmg, rawDmg, reduction, resisted = 0, 0, 0, 0
     if landed then
@@ -4659,7 +4513,7 @@ function SB.Logic.HandlePvpAttackReceived(attackerName, spellID, atkRoll, atkMod
         --
         -- tonumber(...) or 0, а не голое atkPersuade: ноль в пакете не
         -- везут, и nil здесь значит «прибавки нет», а не «считай мою».
-        SB.Logic.ApplyEffect(spell.debuff, spell, atkSlot, nil,
+        SB.Logic.ApplyEffect(spell.debuff, spell, nil,
                              tonumber(atkPersuade) or 0, attackerName)
         debuffLanded = true
     end
@@ -5042,7 +4896,7 @@ end
 
 --- Запомнить, на кого легла наша частица. Не частица — молчим.
 --- @param targetName string  на ком она теперь
-function SB.Logic.NoteBeacon(spellID, targetName, slotLevel)
+function SB.Logic.NoteBeacon(spellID, targetName)
     local spell = SB.Data.Spells[spellID]
     local effectID = SB.Logic.BeaconOf(spell)
     if not effectID then return end
@@ -5129,7 +4983,7 @@ end
 -- канала damage.
 -- ============================================================
 
-function SB.Logic.ResolveHeal(spellID, slotLevel)
+function SB.Logic.ResolveHeal(spellID)
     local PM      = SB.PlayerModel
     local spell   = SB.Data.Spells[spellID]
     if not spell then return end
@@ -5150,16 +5004,11 @@ function SB.Logic.ResolveHeal(spellID, slotLevel)
     local dmgBonus           = SB.Logic.GetSpellScaling(spell, "damage")
     local critBonus          = SB.Logic.GetSpellScaling(spell, "crit")
 
-    -- Та же развилка, что у урона (см. GetCastPower): у лечения
-    -- кастерского класса вложенная мана поднимает объём исцеления, у
-    -- некастерского (Целебные туманы Монаха) — шанс, что оно подействует.
-    -- Прибавка к попаданию приходит как источник реестра "resource".
-    -- База — своя (см. SB.Logic.GetHealPower): у лечения она есть на
-    -- любом круге, а не только у заговоров.
+    -- База — своя (см. SB.Logic.GetHealPower), на любом круге.
     local baseHeal = SB.Logic.GetHealPower(spell)
 
     local mod, modParts = SB.Logic.GetModifierBreakdown("attack",
-        { spell = spell, slotLevel = slotLevel })
+        { spell = spell })
     mod = mod + hitBonus
     for _, p in ipairs(hitParts) do table.insert(modParts, p) end
     local roll, rollMin, rollMax = SB.Logic.Roll()
@@ -5237,7 +5086,7 @@ function SB.Logic.ResolveHeal(spellID, slotLevel)
     -- оставляет — иначе промах давал бы половину заклинания даром.
     local healBuff
     if success and spell.buff then
-        SB.Logic.ApplyBuffToTarget(spell, slotLevel)
+        SB.Logic.ApplyBuffToTarget(spell)
         -- Что легло НА МЕНЯ — только самолечение: эффект на союзника
         -- уезжает ему и моего хода не касается (см. TurnSkipFor).
         if healName == UnitName("player") then healBuff = spell.buff end
@@ -5399,12 +5248,8 @@ end
 ---
 --- СКОЛЬКО СНИМАЕТ — СТОЛЬКО, КАКОЙ КРУГ У ЗАКЛИНАНИЯ. «Рассеивание
 --- магии» жреца первого круга снимает один эффект, «Антимагия» мага
---- третьего — три. Прежде число росло от вливания сверх круга, и сила
---- рассеивания зависела от того, сколько маны не жалко, а не от того,
---- чем рассеивают. Вливать теперь некуда вовсе (см. врезку о вливании
---- выше по файлу).
+--- третьего — три.
 --- Заговор и склянка нулевого круга снимают один: меньше не бывает.
---- slotLevel не читается и остался в подписи ради вызывающих.
 function SB.Logic.GetDispelCount(spell)
     local base = tonumber(SB.Data.Config.DispelBase) or 1
     return math.max(base, tonumber(spell and spell.level) or 0)
@@ -5444,7 +5289,7 @@ end
 
 --- Снять с СЕБЯ по чужому (или своему) рассеиванию.
 --- @param friend boolean|nil  см. SB.ActiveEffects.Dispel
-function SB.Logic.HandleDispelReceived(casterName, spellID, schools, count, effectID, slotLevel, friend)
+function SB.Logic.HandleDispelReceived(casterName, spellID, schools, count, effectID, friend)
     if type(schools) ~= "table" then return end
     SB.Logic.NoteTargetedBySpell(casterName)
     local names = SB.ActiveEffects.Dispel(schools, count, friend)
@@ -5461,7 +5306,7 @@ function SB.Logic.HandleDispelReceived(casterName, spellID, schools, count, effe
         -- помеченным как моя концентрация — и, ложась, снимал мою
         -- настоящую (см. врезку в SB.Logic.ApplyEffect о чужих аурах).
         local fromOther = (casterName ~= nil) and (casterName ~= UnitName("player"))
-        SB.Logic.ApplyEffect(effectID, SB.Data.Spells[spellID], slotLevel,
+        SB.Logic.ApplyEffect(effectID, SB.Data.Spells[spellID],
                              fromOther, nil, casterName)
     end
     SB.Logic.AnnounceDispel(casterName, spellID, names, friend)
@@ -5495,7 +5340,7 @@ function SB.Logic.CanDispelLocally(spell, aimed)
     return UnitExists("target") and UnitIsPlayer("target")
 end
 
-function SB.Logic.ResolveDispel(spellID, slotLevel)
+function SB.Logic.ResolveDispel(spellID)
     local spell   = SB.Data.Spells[spellID]
     local schools = SB.Logic.GetDispelSchools(spell)
     if not schools then return end
@@ -5525,7 +5370,7 @@ function SB.Logic.ResolveDispel(spellID, slotLevel)
 
     if targetName == me then
         SB.Logic.HandleDispelReceived(me, spellID, schools, count,
-                                      spell.buff, slotLevel, friend)
+                                      spell.buff, friend)
     else
         SB.Net.SendDispel(targetName, spellID, schools, count,
                           spell.buff, friend)
@@ -5643,7 +5488,7 @@ end
 
 --- Бросок на наложение эффекта. Устроен как SB.Logic.ResolveHeal:
 --- те же модификаторы атаки, тот же порог, то же единое сообщение.
-function SB.Logic.ResolveEffectCast(spellID, slotLevel)
+function SB.Logic.ResolveEffectCast(spellID)
     local spell = SB.Data.Spells[spellID]
     if not spell then return end
     -- Цена каста («Кровавая ярость: +2 Ярость, 2 урона») — в строку
@@ -5662,7 +5507,7 @@ function SB.Logic.ResolveEffectCast(spellID, slotLevel)
 
     local hitBonus, hitParts = SB.Logic.GetSpellScaling(spell, "hit")
     local mod, modParts = SB.Logic.GetModifierBreakdown("attack",
-        { spell = spell, slotLevel = slotLevel })
+        { spell = spell })
     mod = mod + hitBonus
     for _, p in ipairs(hitParts) do table.insert(modParts, p) end
 
@@ -5713,7 +5558,7 @@ function SB.Logic.ResolveEffectCast(spellID, slotLevel)
                         roll, mod, total)
     elseif success then
         if onSelf then
-            SB.Logic.ApplyEffect(effectID, spell, slotLevel)
+            SB.Logic.ApplyEffect(effectID, spell)
         else
             -- ГАРАНТИРОВАННОМУ БРОСОК НЕ ШЛЁМ: его не с чем сверять,
             -- и цель применит эффект безусловно — как применяла всегда.
@@ -5783,7 +5628,7 @@ function SB.Logic.ResolveEffectCast(spellID, slotLevel)
         -- чужого клиента его не видно (см. SB.Logic.NoteBeacon).
         if finalSuccess then
             SB.Logic.NoteBeacon(spellID,
-                onSelf and UnitName("player") or targetName, slotLevel)
+                onSelf and UnitName("player") or targetName)
         end
 
         -- РП-отпись — по тем же правилам, что у остальных заклинаний:
@@ -5922,7 +5767,7 @@ function SB.Logic.CanSteal(spell, aimed)
 end
 
 --- Вор: бросок и отправка. Решение принимает цель.
-function SB.Logic.ResolveSteal(spellID, slotLevel)
+function SB.Logic.ResolveSteal(spellID)
     local spell = SB.Data.Spells[spellID]
     if not spell or not SB.Logic.GetStealKind(spell) then return end
     if not UnitExists("target") then return end
@@ -5932,7 +5777,7 @@ function SB.Logic.ResolveSteal(spellID, slotLevel)
 
     local hitBonus, hitParts = SB.Logic.GetSpellScaling(spell, "hit")
     local mod, modParts = SB.Logic.GetModifierBreakdown("attack",
-        { spell = spell, slotLevel = slotLevel })
+        { spell = spell })
     mod = mod + hitBonus
     for _, p in ipairs(hitParts) do table.insert(modParts, p) end
 
@@ -6015,7 +5860,7 @@ function SB.Logic.ResolveSteal(spellID, slotLevel)
 end
 
 --- Жертва: считает СВОЙ порог, сама лезет в СВОЮ сумку и отвечает вору.
-function SB.Logic.HandleStealReceived(casterName, spellID, slotLevel,
+function SB.Logic.HandleStealReceived(casterName, spellID,
                                       roll, mod, total, sender)
     local spell = SB.Data.Spells[spellID]
     if not spell or not SB.Logic.GetStealKind(spell) then return end
@@ -6028,7 +5873,7 @@ function SB.Logic.HandleStealReceived(casterName, spellID, slotLevel,
     -- завышенный итог иначе обчистил бы карман в обход броска.
     local tamperNote
     total, tamperNote = SB.Logic.VerifyIncomingCast(sender or casterName,
-        spellID, roll, mod, total, slotLevel)
+        spellID, roll, mod, total)
     if tamperNote then
         print(SB.Theme.MSG_BAD .. "[Spellbreaker]: " .. (sender or casterName or "?") ..
             " — цифры не сходятся: " .. tamperNote .. ".|r")

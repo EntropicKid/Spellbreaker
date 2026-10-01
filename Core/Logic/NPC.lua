@@ -41,7 +41,7 @@ end
 -- ============================================================
 -- УДАР
 -- ============================================================
-function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
+function SB.Logic.ResolveNpcAttack(spellID)
     local spell = SB.Data.Spells[spellID]
     local stats = TargetNpcStats()
     if not spell or not stats then return end
@@ -54,7 +54,7 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
     -- наложил, а существа провоцируют чаще всех (см. её источник в
     -- реестре модификаторов).
     local mod, modParts = SB.Logic.GetModifierBreakdown("attack",
-        { spell = spell, slotLevel = slotLevel, versus = UnitName("target") })
+        { spell = spell, versus = UnitName("target") })
     local hitBonus, hitParts = SB.Logic.GetSpellScaling(spell, "hit")
     local critBonus          = SB.Logic.GetSpellScaling(spell, "crit")
     local dmgBonus           = SB.Logic.GetSpellScaling(spell, "damage")
@@ -171,7 +171,7 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
     -- руках уже сейчас — в отличие от ПвП, где ответ придёт по сети, и
     -- от площади, где общего исхода нет вовсе. Правило одно на все пять
     -- путей и записано один раз: SB.Logic.ApplyOwnContainer.
-    local ownContainer = SB.Logic.ApplyOwnContainer(spell, slotLevel, landed)
+    local ownContainer = SB.Logic.ApplyOwnContainer(spell, landed)
     -- Добыча ударом («Похищение души») — по тому же исходу и тем же
     -- правилом, что контейнер. Раньше эта ветка сотворение не звала
     -- вовсе: до появления бьющего создателя звать было нечего.
@@ -277,7 +277,7 @@ end
 -- Порог тот же, что у лечения игрока: 60 + уровень цели. Разница ровно
 -- одна — уровень берётся из записи существа, а не у живого клиента.
 -- ============================================================
-function SB.Logic.ResolveNpcHeal(spellID, slotLevel)
+function SB.Logic.ResolveNpcHeal(spellID)
     local spell = SB.Data.Spells[spellID]
     local stats = TargetNpcStats()
     if not spell or not stats then return end
@@ -289,7 +289,7 @@ function SB.Logic.ResolveNpcHeal(spellID, slotLevel)
     local dmgBonus           = SB.Logic.GetSpellScaling(spell, "damage")
     local critBonus          = SB.Logic.GetSpellScaling(spell, "crit")
     local mod, modParts = SB.Logic.GetModifierBreakdown("attack",
-        { spell = spell, slotLevel = slotLevel })
+        { spell = spell })
     mod = mod + hitBonus
     for _, p in ipairs(hitParts) do table.insert(modParts, p) end
 
@@ -410,7 +410,7 @@ function SB.Logic.CanAffectNpc(spell)
     return (spell.debuff or spell.buff) ~= nil
 end
 
-function SB.Logic.ResolveNpcEffect(spellID, slotLevel)
+function SB.Logic.ResolveNpcEffect(spellID)
     local spell = SB.Data.Spells[spellID]
     local stats = TargetNpcStats()
     if not spell or not stats then return end
@@ -427,7 +427,7 @@ function SB.Logic.ResolveNpcEffect(spellID, slotLevel)
 
     local hitBonus, hitParts = SB.Logic.GetSpellScaling(spell, "hit")
     local mod, modParts = SB.Logic.GetModifierBreakdown("attack",
-        { spell = spell, slotLevel = slotLevel })
+        { spell = spell })
     mod = mod + hitBonus
     for _, p in ipairs(hitParts) do table.insert(modParts, p) end
 
@@ -501,7 +501,7 @@ function SB.Logic.CanDispelNpc(spell)
     return TargetNpcStats() ~= nil
 end
 
-function SB.Logic.ResolveNpcDispel(spellID, slotLevel)
+function SB.Logic.ResolveNpcDispel(spellID)
     local spell   = SB.Data.Spells[spellID]
     local stats   = TargetNpcStats()
     local schools = spell and SB.Logic.GetDispelSchools(spell)

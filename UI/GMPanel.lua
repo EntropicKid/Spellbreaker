@@ -743,9 +743,10 @@ function SB.UI.UpdateGMQueue()
 
         local spell   = SB.Data.Spells[req.spellID]
         local spName  = spell and spell.name or req.spellID
-        local lvlTxt  = (req.slotLevel == 0)
+        local reqLvl  = tonumber(spell and spell.level) or 0
+        local lvlTxt  = (reqLvl == 0)
             and (spell and SB.Logic.GetCantripLabel(spell.class):lower() or "заговор")
-            or ("Круг " .. req.slotLevel)
+            or ("Круг " .. reqLvl)
 
         -- ЦЕЛЬ — ЗА ИМЕНЕМ, А НЕ ЗА ЗАКЛИНАНИЕМ. Во второй строке она
         -- стояла третьей после имени заклинания и круга, и длинное имя
@@ -788,7 +789,7 @@ function SB.UI.UpdateGMQueue()
         -- SB.Logic.FairDC). Дальше Ведущий двигает её в обе стороны,
         -- уже понимая, от чего пляшет.
         local reqKey = tostring(req.caster) .. "|" .. tostring(req.spellID) ..
-                       "|" .. tostring(req.slotLevel) .. "|" .. tostring(req.ts)
+                       "|" .. tostring(req.ts)
         if row._reqKey ~= reqKey then
             row._reqKey = reqKey
             -- Клиент старой версии модификатор не пришлёт — оставляем
@@ -803,15 +804,13 @@ function SB.UI.UpdateGMQueue()
 
         -- Захватываем переменные для замыканий
         local capturedReq = req
-        local slotLvl     = tonumber(req.slotLevel) or 0
         local spellID     = req.spellID
 
         local function removeReq()
             local q = SpellbreakerAccountDB.requestQueue or {}
             for idx2, r2 in ipairs(q) do
                 if r2.caster == capturedReq.caster
-                   and r2.spellID == capturedReq.spellID
-                   and (r2.slotLevel or 0) == (capturedReq.slotLevel or 0) then
+                   and r2.spellID == capturedReq.spellID then
                     table.remove(q, idx2); break
                 end
             end
@@ -831,15 +830,15 @@ function SB.UI.UpdateGMQueue()
             removeReq(); SB.UI.UpdateGMQueue()
         end)
         row.forceSucc:SetScript("OnClick",  function()
-            SB.Net.SendForceOutcome(capturedReq.caster, spellID, 1, slotLvl)
+            SB.Net.SendForceOutcome(capturedReq.caster, spellID, 1)
             removeReq(); SB.UI.UpdateGMQueue()
         end)
         row.forceFail:SetScript("OnClick", function()
-            SB.Net.SendForceOutcome(capturedReq.caster, spellID, 2, slotLvl)
+            SB.Net.SendForceOutcome(capturedReq.caster, spellID, 2)
             removeReq(); SB.UI.UpdateGMQueue()
         end)
         row.forceCritS:SetScript("OnClick", function()
-            SB.Net.SendForceOutcome(capturedReq.caster, spellID, 3, slotLvl)
+            SB.Net.SendForceOutcome(capturedReq.caster, spellID, 3)
             removeReq(); SB.UI.UpdateGMQueue()
         end)
 
@@ -1578,14 +1577,13 @@ end
 -- ============================================================
 local MAX_REQUEST_QUEUE = 50  -- защита от переполнения
 
-function SB.UI.ShowGMRequest(caster, spellID, slotLevel, targetLabel, mod)
+function SB.UI.ShowGMRequest(caster, spellID, targetLabel, mod)
     if not SpellbreakerAccountDB.requestQueue then
         SpellbreakerAccountDB.requestQueue = {}
     end
     -- Дедупликация
     for _, r in ipairs(SpellbreakerAccountDB.requestQueue) do
-        if r.caster == caster and r.spellID == spellID
-           and (r.slotLevel or 0) == (tonumber(slotLevel) or 0) then
+        if r.caster == caster and r.spellID == spellID then
             return
         end
     end
@@ -1597,7 +1595,6 @@ function SB.UI.ShowGMRequest(caster, spellID, slotLevel, targetLabel, mod)
     table.insert(SpellbreakerAccountDB.requestQueue, {
         caster    = caster,
         spellID   = spellID,
-        slotLevel = tonumber(slotLevel) or 0,
         target    = targetLabel,
         -- Модификатор заклинателя: из него считается справедливая СЛ,
         -- которую Ведущий увидит в поле (см. SB.Logic.FairDC).

@@ -241,7 +241,7 @@ function SB.UI.ShowItemUseMenu(anchor, spell)
                 -- onSelf — НЕ ПОДСКАЗКА, А ОТМЕНА ЦЕЛИ. Кто бы ни был
                 -- сейчас в таргете — союзник в другом конце зала, волк,
                 -- враг, — к этому глотку он отношения не имеет.
-                SB.Logic.ConfirmCast(spell.id, spell.level or 0,
+                SB.Logic.ConfirmCast(spell.id,
                     { onSelf = true })
             end,
         },
@@ -255,7 +255,7 @@ function SB.UI.ShowItemUseMenu(anchor, spell)
             text = "Поделиться: " .. tname,
             notCheckable = true,
             func = function()
-                SB.Logic.ConfirmCast(spell.id, spell.level or 0)
+                SB.Logic.ConfirmCast(spell.id)
             end,
         }
     end

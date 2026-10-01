@@ -2405,9 +2405,9 @@ function SB.UI.ShowCastConfirm(spellID)
             if opt.passTurn then
                 SB.Logic.SpendTurnManually()
             elseif opt.toGM then
-                SB.Logic.ConfirmCast(spellID, spellLvl, { toGM = true })
+                SB.Logic.ConfirmCast(spellID, { toGM = true })
             else
-                SB.Logic.ConfirmCast(spellID, spellLvl)
+                SB.Logic.ConfirmCast(spellID)
             end
         end)
         b:Show()
@@ -2530,8 +2530,8 @@ SB.Events.On("SB_INIT", function()
     end)
  
     -- GM-запрос из сети
-    SB.Events.On("GM_REQUEST_RECEIVED", function(caster, spellID, slotLevel, targetLabel, mod)
-        SB.UI.ShowGMRequest(caster, spellID, slotLevel, targetLabel, mod)
+    SB.Events.On("GM_REQUEST_RECEIVED", function(caster, spellID, targetLabel, mod)
+        SB.UI.ShowGMRequest(caster, spellID, targetLabel, mod)
     end)
  
     -- Статус игроков обновился

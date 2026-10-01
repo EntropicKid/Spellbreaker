@@ -385,7 +385,7 @@ local AOE_PENDING_TTL = 15
 --- Площадная атака. Считает бросок ОДИН раз и рассылает его группе —
 --- дальше каждый получатель сам проверит дистанцию и разберётся с
 --- уроном у себя (см. HandleAoeAttackReceived).
-function SB.Logic.InitiateAoeAttack(spellID, slotLevel)
+function SB.Logic.InitiateAoeAttack(spellID)
     local spell = SB.Data.Spells[spellID]
     if not spell then return end
 
@@ -395,7 +395,7 @@ function SB.Logic.InitiateAoeAttack(spellID, slotLevel)
     -- него зависит.
     local epi = SB.Logic.GetAoeEpicenter(spell)
     local mod, modParts = SB.Logic.GetModifierBreakdown("attack",
-        { spell = spell, slotLevel = slotLevel })
+        { spell = spell })
 
     -- ПвП-размен начался: с этого момента лидер больше не может
     -- объявить Короткий Отдых всей группе (см. PM.IsPvpEngaged).
@@ -469,7 +469,7 @@ function SB.Logic.InitiateAoeAttack(spellID, slotLevel)
     -- ИСХОД ЭТОЙ ВЕТКЕ НЕ ИЗВЕСТЕН, и не бывает известен в принципе:
     -- целей много, каждая считает свой порог у себя, общего «попал» у
     -- залпа нет. Вешаем сразу.
-    local ownContainer = SB.Logic.ApplyOwnContainer(spell, slotLevel, nil)
+    local ownContainer = SB.Logic.ApplyOwnContainer(spell, nil)
 
     -- Второй шапки здесь больше нет: всё, что она говорила, вошло в
     -- единственную шапку залпа выше (см. OpenAoeReport).
@@ -501,7 +501,7 @@ end
 --- площадной дебафф (всем вокруг, кроме себя). Броска здесь нет —
 --- сам каст уже прошёл проверку выше по стеку.
 --- @return number  сколько эффектов наложено локально (0 или 1 — на себя)
-function SB.Logic.InitiateAoeEffect(spell, slotLevel)
+function SB.Logic.InitiateAoeEffect(spell)
     local effectID = spell.buff or spell.debuff
     if not effectID then return 0 end
 
@@ -511,7 +511,7 @@ function SB.Logic.InitiateAoeEffect(spell, slotLevel)
     -- Задевает себя — но только если сам стоишь в круге: у площади,
     -- гремящей в цели, заклинатель обычно снаружи (см. CasterInOwnAoe).
     if SB.Logic.AoeHitsSelf(spell) and SB.Logic.CasterInOwnAoe(epi, radius) then
-        SB.Logic.ApplyEffect(effectID, spell, slotLevel)
+        SB.Logic.ApplyEffect(effectID, spell)
         selfCount = 1
     end
 
@@ -533,7 +533,7 @@ end
 -- ============================================================
 
 
-function SB.Logic.ResolveAoeEffectCast(spellID, slotLevel)
+function SB.Logic.ResolveAoeEffectCast(spellID)
     local spell = SB.Data.Spells[spellID]
     if not spell then return end
     local effectID = spell.buff or spell.debuff
@@ -542,7 +542,7 @@ function SB.Logic.ResolveAoeEffectCast(spellID, slotLevel)
     local radius = SB.Logic.GetAoeRadius(spell)
     local epi    = SB.Logic.GetAoeEpicenter(spell)
     local mod, modParts = SB.Logic.GetModifierBreakdown("attack",
-        { spell = spell, slotLevel = slotLevel })
+        { spell = spell })
     local hitBonus, hitParts = SB.Logic.GetSpellScaling(spell, "hit")
     mod = mod + hitBonus
     for _, p in ipairs(hitParts) do table.insert(modParts, p) end
@@ -582,7 +582,7 @@ function SB.Logic.ResolveAoeEffectCast(spellID, slotLevel)
         -- (см. SB.Logic.IsGuaranteed): порог не берётся вовсе.
         local ok = SB.Logic.IsGuaranteed(spell) or (total >= threshold)
         if ok then
-            SB.Logic.ApplyEffect(effectID, spell, slotLevel)
+            SB.Logic.ApplyEffect(effectID, spell)
             landedOnSelf = effectID
         end
         SB.Logic.AoeReportAdd({ kind = "eff", name = UnitName("player"),
@@ -609,7 +609,7 @@ end
 ---        конус холода держался бы дольше на том, кто вложился во
 ---        «Внушение». Ноль в пакете не везут, поэтому nil здесь значит
 ---        «прибавки нет», а не «считай свою».
-function SB.Logic.HandleAoeEffectReceived(casterName, spellID, effectID, radius, slotLevel,
+function SB.Logic.HandleAoeEffectReceived(casterName, spellID, effectID, radius,
                                           roll, mod, total, epi, imFriend, enc)
     if casterName == UnitName("player") then return end
     if DownedIgnoresAoe() then return end
@@ -629,7 +629,7 @@ function SB.Logic.HandleAoeEffectReceived(casterName, spellID, effectID, radius,
         -- enc едет дальше: без него ApplyEffect подставит ноль, и
         -- навык заклинателя потеряется на безбросковой ветке залпа
         -- (см. SB.Logic.HandleBuffReceived).
-        SB.Logic.HandleBuffReceived(casterName, spellID, effectID, slotLevel,
+        SB.Logic.HandleBuffReceived(casterName, spellID, effectID,
                                     nil, nil, nil, nil, tonumber(enc) or 0)
         return
     end
@@ -637,7 +637,7 @@ function SB.Logic.HandleAoeEffectReceived(casterName, spellID, effectID, radius,
     -- Та же сверка, что и у ПвП-удара: порог берёт присланный итог, а
     -- значит завышенный итог навязал бы эффект в обход броска.
     local tamperNote
-    total, tamperNote = SB.Logic.VerifyIncomingCast(casterName, spellID, roll, mod, total, slotLevel)
+    total, tamperNote = SB.Logic.VerifyIncomingCast(casterName, spellID, roll, mod, total)
     if tamperNote then
         print(SB.Theme.MSG_BAD .. "[Spellbreaker]: " .. (casterName or "?") ..
             " — цифры площадного эффекта не сходятся: " .. tamperNote .. ".|r")
@@ -662,7 +662,7 @@ function SB.Logic.HandleAoeEffectReceived(casterName, spellID, effectID, radius,
         -- fromOther: залп чужой, концентрацию держит заклинатель.
         -- casterName — он же и провокатор, если залп провоцирует.
         -- enc — его же навык на срок (см. описание параметра выше).
-        SB.Logic.ApplyEffect(effectID, sourceSpell, slotLevel, true,
+        SB.Logic.ApplyEffect(effectID, sourceSpell, true,
                              tonumber(enc) or 0, casterName)
     end
 
@@ -717,7 +717,7 @@ function SB.Logic.HandleAoeHealResultReceived(name, spellID, threshold, ok, heal
     if ok then HealEmoteOnce(spellID) end
 end
 
-function SB.Logic.ResolveAoeHeal(spellID, slotLevel)
+function SB.Logic.ResolveAoeHeal(spellID)
     local PM    = SB.PlayerModel
     local spell = SB.Data.Spells[spellID]
     if not spell then return end
@@ -726,7 +726,7 @@ function SB.Logic.ResolveAoeHeal(spellID, slotLevel)
     local epi    = SB.Logic.GetAoeEpicenter(spell)
 
     local mod, modParts = SB.Logic.GetModifierBreakdown("attack",
-        { spell = spell, slotLevel = slotLevel })
+        { spell = spell })
     local hitBonus, hitParts = SB.Logic.GetSpellScaling(spell, "hit")
     local dmgBonus  = SB.Logic.GetSpellScaling(spell, "damage")
     local critBonus = SB.Logic.GetSpellScaling(spell, "crit")
@@ -785,7 +785,7 @@ function SB.Logic.ResolveAoeHeal(spellID, slotLevel)
             healed = PM.GetHealth() - before
             SB.Events.Fire(SB.E.STATUS_CHANGED)
             if spell.buff then
-                SB.Logic.ApplyEffect(spell.buff, spell, slotLevel)
+                SB.Logic.ApplyEffect(spell.buff, spell)
                 landedOnSelf = spell.buff
             end
             HealEmoteOnce(spellID)
@@ -804,8 +804,7 @@ end
 --- Получатель площадного лечения: проверяет радиус и свой порог, лечит
 --- себя и отчитывается заклинателю. Печатать свою строку не надо —
 --- она встанет в общий блок у него.
-function SB.Logic.HandleAoeHealReceived(casterName, spellID, effectID, radius,
-                                        slotLevel, roll, mod, total, amount, epi, imFriend)
+function SB.Logic.HandleAoeHealReceived(casterName, spellID, effectID, radius, roll, mod, total, amount, epi, imFriend)
     if casterName == UnitName("player") then return end
     -- Павшего площадь не поднимает: для этого есть направленное лечение
     -- (см. врезку «Павших площадь не задевает»).
@@ -818,7 +817,7 @@ function SB.Logic.HandleAoeHealReceived(casterName, spellID, effectID, radius,
     -- Та же сверка цифр, что у удара и площадного эффекта: присланный
     -- итог мог быть завышен, и лечение по нему легло бы в обход броска.
     local tamperNote
-    total, tamperNote = SB.Logic.VerifyIncomingCast(casterName, spellID, roll, mod, total, slotLevel)
+    total, tamperNote = SB.Logic.VerifyIncomingCast(casterName, spellID, roll, mod, total)
     if tamperNote then
         print(SB.Theme.MSG_BAD .. "[Spellbreaker]: " .. (casterName or "?") ..
             " — цифры площадного лечения не сходятся: " .. tamperNote .. ".|r")
@@ -843,7 +842,7 @@ function SB.Logic.HandleAoeHealReceived(casterName, spellID, effectID, radius,
             -- приезжает «Молитва о сострадании» жреца.
             -- И ЕГО ЖЕ ИМЯ: кто вылечил, тот и наложил — оно уже здесь,
             -- в аргументе, и по сети за ним ходить не надо.
-            SB.Logic.ApplyEffect(effectID, SB.Data.Spells[spellID], slotLevel, true,
+            SB.Logic.ApplyEffect(effectID, SB.Data.Spells[spellID], true,
                                  nil, casterName)
         end
     end

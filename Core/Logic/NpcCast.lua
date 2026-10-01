@@ -715,7 +715,7 @@ function SB.NpcCast.Confirm()
                     -- бы слот того, кто ей всего лишь управляет.
                     -- Имя существа — оно и провокатор: цель приковано к
                     -- тушке, а не к Ведущему, который ей управляет.
-                    SB.Logic.ApplyEffect(effectID, spell, spell.level, true,
+                    SB.Logic.ApplyEffect(effectID, spell, true,
                                          nil, pending.npcName)
                 end
                 Say(threshold, ok)

@@ -309,22 +309,22 @@ local function smoke(name, fn)
 end
 
 smoke("ПвЕ-бросок (ProcessRollAndCast)", function()
-    SB.Logic.ProcessRollAndCast("t_strike", 40, 1, false)
+    SB.Logic.ProcessRollAndCast("t_strike", 40)
 end)
 smoke("ПвП-удар (InitiatePvpAttack)", function()
-    SB.Logic.InitiatePvpAttack("t_strike", 1)
+    SB.Logic.InitiatePvpAttack("t_strike")
 end)
 smoke("площадная атака (InitiateAoeAttack)", function()
-    SB.Logic.InitiateAoeAttack("t_aoe", 1)
+    SB.Logic.InitiateAoeAttack("t_aoe")
 end)
 smoke("площадной эффект (ResolveAoeEffectCast)", function()
-    SB.Logic.ResolveAoeEffectCast("t_aoebuff", 1)
+    SB.Logic.ResolveAoeEffectCast("t_aoebuff")
 end)
 smoke("лечение (ResolveHeal)", function()
-    SB.Logic.ResolveHeal("t_heal", 1)
+    SB.Logic.ResolveHeal("t_heal")
 end)
 smoke("эффект на себя (ResolveEffectCast)", function()
-    SB.Logic.ResolveEffectCast("t_selfbuff", 1)
+    SB.Logic.ResolveEffectCast("t_selfbuff")
 end)
 smoke("ручные броски", function()
     SB.Cooldowns.Start(SB.Cooldowns.ROLL)
@@ -377,10 +377,10 @@ SB.Data.Spells["t_pain"] = { id = "t_pain", name = "Проверочная бо�
 -- кнопкой «Окончить ход» (пятый путь). Эффекты тикают в начале своего хода
 -- (см. «ТИК ЭФФЕКТОВ» в Core/TurnOrder.lua) — проверки на это ниже.
 local turnPaths = {
-    { "ПвЕ-бросок",   function() SB.Logic.ProcessRollAndCast("t_strike", 10, 1, false) end },
-    { "ПвП-удар",     function() SB.Logic.InitiatePvpAttack("t_strike", 1) end },
-    { "площадь",      function() SB.Logic.InitiateAoeAttack("t_aoe", 1) end },
-    { "лечение",      function() SB.Logic.ResolveHeal("t_heal", 1) end },
+    { "ПвЕ-бросок",   function() SB.Logic.ProcessRollAndCast("t_strike", 10) end },
+    { "ПвП-удар",     function() SB.Logic.InitiatePvpAttack("t_strike") end },
+    { "площадь",      function() SB.Logic.InitiateAoeAttack("t_aoe") end },
+    { "лечение",      function() SB.Logic.ResolveHeal("t_heal") end },
     { "окончание хода", function() SB.Logic.SpendTurnManually() end },
     -- Короткий Отдых был здесь седьмым путём. Механики больше нет.
     --
@@ -523,13 +523,13 @@ SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = 1,
 ResetEffects()
 SB.ActiveEffects.Add("t_pain", 3, false)
 stub.world.time = stub.world.time + 10
-SB.Logic.ExecuteForcedOutcome("t_strike", 1, 1)
+SB.Logic.ExecuteForcedOutcome("t_strike", 1)
 check("форсированный исход хода не тратит", UsesOf("t_pain"), 3)
 
 ResetEffects()
 SB.ActiveEffects.Add("t_pain", 3, false)
 stub.world.time = stub.world.time + 10
-SB.Logic.ProcessRollAndCast("t_strike", 10, 1, false, true)
+SB.Logic.ProcessRollAndCast("t_strike", 10, true)
 check("и присланный бросок — тоже", UsesOf("t_pain"), 3)
 
 -- А тот же бросок БЕЗ пометки (локальный каст, заявки не было) тикает
@@ -538,7 +538,7 @@ ResetEffects()
 SB.ActiveEffects.Add("t_pain", 3, false)
 stub.world.time = stub.world.time + 10
 _G.SpellbreakerCharDB.turnActionKey = nil
-SB.Logic.ProcessRollAndCast("t_strike", 10, 1, false)
+SB.Logic.ProcessRollAndCast("t_strike", 10)
 check("локальный бросок эффекты не тикает", UsesOf("t_pain"), 3)
 checkTrue("но действие хода тратит", not SB.TurnOrder.CanUseMainAction())
 
@@ -574,7 +574,7 @@ SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = 1,
 ResetEffects()
 SB.ActiveEffects.Add("t_pain", 3, false)   -- сами под Болью
 stub.world.time = stub.world.time + 10
-SB.Logic.ResolveEffectCast("t_paincast", 1)
+SB.Logic.ResolveEffectCast("t_paincast")
 -- Каст на другого тратит ход по ответу цели (см. HoldTurnUntilResult) —
 -- отпускаем, как это сделал бы ответ.
 SB.Logic.ReleaseHeldTurn()
@@ -586,7 +586,7 @@ SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = 2,
 ResetEffects()
 SB.ActiveEffects.Add("t_pain", 3, false)
 stub.world.time = stub.world.time + 10
-SB.Logic.ResolveEffectCast("t_painself", 1)
+SB.Logic.ResolveEffectCast("t_painself")
 check("свой только что обновлённый эффект не сгорает сразу", UsesOf("t_pain"), 3)
 
 -- Тот же класс: ПРОВАЛЕННЫЙ каст ничего на нас не положил, значит и
@@ -599,7 +599,7 @@ SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = 3,
 ResetEffects()
 SB.ActiveEffects.Add("t_pain", 3, false)
 stub.world.time = stub.world.time + 10
-SB.Logic.ProcessRollAndCast("t_formcast", 999, 1, false)   -- СЛ 999 — заведомо провал
+SB.Logic.ProcessRollAndCast("t_formcast", 999)   -- СЛ 999 — заведомо провал
 check("провал каста эффекты тоже не тикает", UsesOf("t_pain"), 3)
 
 -- ДОСРОЧНОЕ СНЯТИЕ ЭФФЕКТА ПО СОБЫТИЮ.
@@ -1390,7 +1390,7 @@ do
               last ~= nil and last.container == "eff_last_stand")
     ResetEffects()
     _G.SpellbreakerCharDB.activeEffects = {}
-    SB.Logic.ApplyEffect(last.container, last, last.level)
+    SB.Logic.ApplyEffect(last.container, last)
     local turns
     for _, e in ipairs(SB.ActiveEffects.GetAll()) do
         if e.spellID == "eff_last_stand" then turns = e.uses end
@@ -1628,13 +1628,6 @@ do
     if #early > 0 then print("[порядок] " .. table.concat(early, "; ")) end
     check("вызовов локальной функции до её объявления", #early, 0)
 
-    -- И САМ ВИНОВНИК — ОТДЕЛЬНОЙ СТРОКОЙ, чтобы проверка не молчала,
-    -- если общий обход однажды ослабнет.
-    local net = ReadFile("Core/Network.lua")
-    local def = net:find("local function SpellLevel", 1, true)
-    local use = net:find("SpellLevel(t.spellID)", 1, true)
-    checkTrue("SpellLevel объявлена выше своих парсеров",
-              def ~= nil and use ~= nil and def < use)
 end
 
 -- ============================================================
@@ -1932,7 +1925,7 @@ do
     -- базу — равенством, скейлинг — потолком. Назначенная пятёрка
     -- срезалась бы до потолка, урон уходил бы в ноль, и проверка мерила
     -- бы сверку вместо порядка. Берём ровно то, что сверка пропустит.
-    local okBase, ceilBonus = SB.Logic.MaxPlausibleDamage(SB.Data.Spells["t_bal_hit"], 1)
+    local okBase, ceilBonus = SB.Logic.MaxPlausibleDamage(SB.Data.Spells["t_bal_hit"])
     local power = okBase + ceilBonus
     checkTrue("сила пробного удара пробивает доспех", power > ABSORB)
 
@@ -2334,6 +2327,12 @@ do
             return realProcess(id, dc, ...)
         end
 
+        -- Цена — круг заклинания, и проверка ранга честная: камень душ
+        -- пятого круга требует ранга, который его открывает. Проверяется
+        -- маршрут, а не ранг — открываем все круги.
+        local realOrder = SB.PlayerModel.GetMaxPrepareOrder
+        SB.PlayerModel.GetMaxPrepareOrder = function() return 5 end
+
         local TOKEN = { ["Маг"] = "MAGE", ["Чернокнижник"] = "WARLOCK" }
         local wasToken = stub.world.classToken
 
@@ -2361,7 +2360,7 @@ do
             -- Полный запас перед каждым: проверяется маршрут, а не
             -- остаток маны после предыдущих сотворений.
             SpellbreakerCharDB.zeal = SB.PlayerModel.GetMaxZeal()
-            SB.Logic.ConfirmCast(id, 1)
+            SB.Logic.ConfirmCast(id)
             stub.RunTimers()
 
             check("«" .. sp.name .. "» не ушло заявкой", asked, nil)
@@ -2407,7 +2406,7 @@ do
         SpellbreakerCharDB.class = "Маг"
         SB.Cooldowns.Start(SB.Cooldowns.TURN)
         stub.world.time = stub.world.time + 10
-        SB.Logic.ConfirmCast("t_conj_auto", 0)
+        SB.Logic.ConfirmCast("t_conj_auto")
         stub.RunTimers()
         check("автосотворение мимо заявок", asked, nil)
         check("и без порога", usedDC, 0)
@@ -2440,7 +2439,7 @@ do
         -- вашей группе») — то есть проверка мерила бы отказ.
         local wasTarget = stub.world.units["target"]
         stub.world.units["target"] = nil
-        SB.Logic.ConfirmCast("t_conj_dual", 1)
+        SB.Logic.ConfirmCast("t_conj_dual")
         stub.RunTimers()
         stub.world.units["target"] = wasTarget
         -- МАРШРУТ, А НЕ ЧИСЛО. Проверяется, что развилка сотворения
@@ -2456,6 +2455,7 @@ do
         SpellbreakerCharDB.activeEffects = {}
 
         SB.Logic.ProcessRollAndCast = realProcess
+        SB.PlayerModel.GetMaxPrepareOrder = realOrder
         stub.world.classToken = wasToken
         SB.PlayerModel.SetHealth(wasHealth)
         -- Прямого сеттера у пула нет — только сдвиг на дельту
@@ -2785,7 +2785,7 @@ stub.world.inGroup = true
 _G.SpellbreakerCharDB.health = 10
 _G.SpellbreakerCharDB.moveDistance = 0
 stub.world.time = stub.world.time + 10
-SB.Logic.ConfirmCast("t_aoecost", 0)
+SB.Logic.ConfirmCast("t_aoecost")
 check("площадной каст платит цену применения", SB.PlayerModel.GetHealth(), 9)
 stub.world.inGroup = false
 _G.SpellbreakerCharDB.health = 10
@@ -2965,6 +2965,38 @@ end)
 ResetEffects()
 _G.SpellbreakerCharDB.zeal = 3
 _G.SpellbreakerCharDB.classResource = 0
+
+-- ============================================================
+-- ОДИН ПРИЗНАК КОНЦЕНТРАЦИИ; СТАРАЯ ПОМЕТКА «ДОЖИВАЕТ ХОД»
+--
+-- Держатель потока из старого сохранения мог прийти без isConc — после
+-- загрузки он концентрация, и прерывание его видит. Пометки expiring
+-- больше нет: такой эффект живёт ход и спадает на ближайшем тике.
+-- ============================================================
+do
+    local chan
+    for _, sp in pairs(SB.Data.Spells) do
+        if sp.channel and sp.channelEffect then chan = sp; break end
+    end
+    SB.ActiveEffects.Clear()
+    _G.SpellbreakerCharDB.activeEffects = {
+        { spellID = chan.channelEffect, uses = 3 },
+        { spellID = "t_pain", uses = 4, expiring = true },
+    }
+    SB.ActiveEffects.LoadFromDB()
+    local holder, pain
+    for _, e in ipairs(SB.ActiveEffects.GetAll()) do
+        if e.spellID == chan.channelEffect then holder = e end
+        if e.spellID == "t_pain" then pain = e end
+    end
+    checkTrue("старый держатель потока стал концентрацией", holder and holder.isConc == true)
+    check("доживавший эффект — на один ход", pain and pain.uses, 1)
+    check("и пометки больше нет",            pain and pain.expiring, nil)
+    SB.ActiveEffects.BreakOn("interrupted")
+    checkTrue("прерывание видит поток по одному признаку", UsesOf(chan.channelEffect) == nil)
+    SB.ActiveEffects.Clear()
+    _G.SpellbreakerCharDB.activeEffects = {}
+end
 
 -- ============================================================
 -- КРИТ НЕ ВЫШЕ ЧЕТВЕРТИ РЕАЛЬНЫХ ГРАНЕЙ
@@ -3325,10 +3357,10 @@ check("урон первого круга с базой",     SB.Logic.GetCastPo
 check("урон заговора с базой",          SB.Logic.GetCastPower(cantrip), 1)
 -- Заниженная база (клиент прежней версии) выправляется молча, без претензии.
 do
-    local b, _, note = SB.Logic.VerifyIncomingDamage(firstCircle, 1, 0, 0)
+    local b, _, note = SB.Logic.VerifyIncomingDamage(firstCircle, 0, 0)
     check("заниженная база выправляется", b, 1)
     check("и без претензии", note, nil)
-    local b2, _, note2 = SB.Logic.VerifyIncomingDamage(firstCircle, 1, 5, 0)
+    local b2, _, note2 = SB.Logic.VerifyIncomingDamage(firstCircle, 5, 0)
     check("завышенная — тоже", b2, 1)
     checkTrue("но с претензией", note2 ~= nil)
 end
@@ -4092,7 +4124,7 @@ do
 
     sent.SendAoeHeal = nil
     smoke("площадное лечение (ResolveAoeHeal)", function()
-        SB.Logic.ResolveAoeHeal("t_aoeheal", 1)
+        SB.Logic.ResolveAoeHeal("t_aoeheal")
     end)
     checkTrue("залп лечения ушёл в группу", sent.SendAoeHeal)
 
@@ -4110,7 +4142,7 @@ do
     SB.Cooldowns.Start(SB.Cooldowns.TURN)
     stub.world.time = stub.world.time + 10
     smoke("каст площадного лечения", function()
-        SB.Logic.ConfirmCast("t_aoeheal", 1)
+        SB.Logic.ConfirmCast("t_aoeheal")
     end)
     checkTrue("каст выбрал площадной путь", sent.SendAoeHeal)
     _G.SpellbreakerCharDB.configLocked = wasLockedH
@@ -4126,7 +4158,7 @@ do
     -- и проверки мерили бы не лечение, а фильтр.
     _G.SpellbreakerCharDB.health = 5
     sent.SendAoeHealResult = nil
-    SB.Logic.HandleAoeHealReceived("Ирина", "t_aoeheal", nil, 9, 1,
+    SB.Logic.HandleAoeHealReceived("Ирина", "t_aoeheal", nil, 9,
                                    100, 0, 100, 3, here, true)
     check("исцеление дошло до задетого", SB.PlayerModel.GetHealth(), 8)
     checkTrue("задетый отчитался заклинателю", sent.SendAoeHealResult)
@@ -4139,13 +4171,13 @@ do
         class = "Маг", level = 1, distance = 0, isHeal = true,
         resistable = true, aoe = { radius = 9 } }
     _G.SpellbreakerCharDB.health = 5
-    SB.Logic.HandleAoeHealReceived("Ирина", "t_aoeheal_res", nil, 9, 1,
+    SB.Logic.HandleAoeHealReceived("Ирина", "t_aoeheal_res", nil, 9,
                                    1, 0, 1, 3, here, true)
     check("низкий бросок не лечит", SB.PlayerModel.GetHealth(), 5)
 
     -- А «без сопротивления» лечит и с единицы на кубике: порог не берётся.
     _G.SpellbreakerCharDB.health = 5
-    SB.Logic.HandleAoeHealReceived("Ирина", "t_aoeheal", nil, 9, 1,
+    SB.Logic.HandleAoeHealReceived("Ирина", "t_aoeheal", nil, 9,
                                    1, 0, 1, 3, here, true)
     check("площадное лечение без сопротивления не смотрит на бросок",
           SB.PlayerModel.GetHealth(), 8)
@@ -4161,13 +4193,13 @@ do
     checkTrue("персонаж считается павшим", SB.PlayerModel.IsDowned())
 
     sent.SendAoeHealResult = nil
-    SB.Logic.HandleAoeHealReceived("Ирина", "t_aoeheal", nil, 9, 1,
+    SB.Logic.HandleAoeHealReceived("Ирина", "t_aoeheal", nil, 9,
                                    100, 0, 100, 3, here, true)
     check("павшего площадь не лечит", SB.PlayerModel.GetHealth(), 0)
     checkTrue("и ответа от него не идёт", not sent.SendAoeHealResult)
 
     sent.SendAoeEffectResult = nil
-    SB.Logic.HandleAoeEffectReceived("Ирина", "t_aoebuff", "t_eff", 9, 1,
+    SB.Logic.HandleAoeEffectReceived("Ирина", "t_aoebuff", "t_eff", 9,
                                      100, 0, 100, here, true)
     check("павшему площадной эффект не лёг", #SB.ActiveEffects.GetAll(), 0)
     checkTrue("и здесь ответа нет", not sent.SendAoeEffectResult)
@@ -4216,14 +4248,14 @@ do
 
     -- …а его лечение — доходит.
     _G.SpellbreakerCharDB.health = 5
-    SB.Logic.HandleAoeHealReceived("Ирина", "t_aoeheal", nil, 9, 1,
+    SB.Logic.HandleAoeHealReceived("Ирина", "t_aoeheal", nil, 9,
                                    100, 0, 100, 3, here, true)
     checkTrue("лечение своим доходит", SB.PlayerModel.GetHealth() > 5)
 
     -- НЕ назвал — всё зеркально.
     _G.SpellbreakerCharDB.health = 5
     sent.SendAoeHealResult = nil
-    SB.Logic.HandleAoeHealReceived("Ирина", "t_aoeheal", nil, 9, 1,
+    SB.Logic.HandleAoeHealReceived("Ирина", "t_aoeheal", nil, 9,
                                    100, 0, 100, 3, here, false)
     check("лечение чужим не достаётся", SB.PlayerModel.GetHealth(), 5)
     checkTrue("и ответа на него нет", not sent.SendAoeHealResult)
@@ -4236,10 +4268,10 @@ do
     -- Площадной ЭФФЕКТ: вред это или добро, решает сам эффект.
     SB.ActiveEffects.Clear()
     _G.SpellbreakerCharDB.activeEffects = {}
-    SB.Logic.HandleAoeEffectReceived("Ирина", "t_aoebuff", "t_eff", 9, 1,
+    SB.Logic.HandleAoeEffectReceived("Ирина", "t_aoebuff", "t_eff", 9,
                                      100, 0, 100, here, false)
     check("бафф чужим не ложится", #SB.ActiveEffects.GetAll(), 0)
-    SB.Logic.HandleAoeEffectReceived("Ирина", "t_aoebuff", "t_eff", 9, 1,
+    SB.Logic.HandleAoeEffectReceived("Ирина", "t_aoebuff", "t_eff", 9,
                                      100, 0, 100, here, true)
     check("бафф своим ложится", #SB.ActiveEffects.GetAll(), 1)
     SB.ActiveEffects.Clear()
@@ -4493,7 +4525,7 @@ do
     end
     SB.Cooldowns.Start(SB.Cooldowns.TURN)
     stub.world.time = stub.world.time + 10
-    smoke("каст рассеивания", function() SB.Logic.ConfirmCast("purify", 1) end)
+    smoke("каст рассеивания", function() SB.Logic.ConfirmCast("purify") end)
     checkTrue("рассеивание по цели не пошло к Ведущему", not requested)
     check("яд снят собственным кастом", #SB.ActiveEffects.GetAll(), 0)
 
@@ -4508,7 +4540,7 @@ do
     SB.Cooldowns.Start(SB.Cooldowns.TURN)
     stub.world.time = stub.world.time + 10
     local manaBefore = SB.PlayerModel.GetCastResource()
-    smoke("каст рассеивания без цели", function() SB.Logic.ConfirmCast("purify", 1) end)
+    smoke("каст рассеивания без цели", function() SB.Logic.ConfirmCast("purify") end)
     checkTrue("без цели «Применить» Ведущему не пишет", not requested)
     check("и ресурс вернулся", SB.PlayerModel.GetCastResource(), manaBefore)
 
@@ -4518,7 +4550,7 @@ do
     SB.Cooldowns.Start(SB.Cooldowns.TURN)
     stub.world.time = stub.world.time + 10
     smoke("заявка тем же заклинанием",
-          function() SB.Logic.ConfirmCast("purify", 1, { toGM = true }) end)
+          function() SB.Logic.ConfirmCast("purify", { toGM = true }) end)
     checkTrue("по кнопке заявка уходит", requested)
     check("и себя оно при этом не почистило", #SB.ActiveEffects.GetAll(), 1)
     stub.world.items = savedItemsD
@@ -4551,13 +4583,13 @@ do
 
     SB.Data.SetFriend("Ирина", true)
     captured = nil
-    SB.Logic.ResolveDispel("t_dispel_target", 0)
+    SB.Logic.ResolveDispel("t_dispel_target")
     checkTrue("другу рассеивание ушло по сети", captured ~= nil)
     check("другу — friend передан true", captured and captured[6], true)
 
     SB.Data.SetFriend("Ирина", false)
     captured = nil
-    SB.Logic.ResolveDispel("t_dispel_target", 0)
+    SB.Logic.ResolveDispel("t_dispel_target")
     checkTrue("недругу рассеивание тоже ушло", captured ~= nil)
     check("недругу — friend передан false", captured and captured[6], false)
 
@@ -5811,27 +5843,27 @@ do
     local sp = SB.Data.Spells["t_ac"]
 
     -- ── ЧЕСТНЫЙ УДАР ПРОХОДИТ НЕТРОНУТЫМ ───────────────────
-    local okBase, ceilBonus = SB.Logic.MaxPlausibleDamage(sp, 1)
-    local b, d, note = V(sp, 1, okBase, 0)
+    local okBase, ceilBonus = SB.Logic.MaxPlausibleDamage(sp)
+    local b, d, note = V(sp, okBase, 0)
     check("честная база не тронута", b, okBase)
     check("нулевой скейлинг не тронут", d, 0)
     checkTrue("и претензии нет", note == nil)
 
     -- Развитый маг под баффами — тоже честный: потолок нарочно щедрый,
     -- он отсекает порядок величины, а не единицу.
-    local _, d2, note2 = V(sp, 1, okBase, ceilBonus)
+    local _, d2, note2 = V(sp, okBase, ceilBonus)
     check("скейлинг ровно по потолку проходит", d2, ceilBonus)
     checkTrue("без претензии", note2 == nil)
 
     -- ── ПОДМЕНЁННАЯ БАЗА ЗАЖИМАЕТСЯ ────────────────────────
     -- База — чистая функция заклинания и круга, и оба едут в том же
     -- пакете: тут не потолок, а равенство.
-    local b3, _, note3 = V(sp, 1, okBase + 100, 0)
+    local b3, _, note3 = V(sp, okBase + 100, 0)
     check("база выправлена", b3, okBase)
     checkTrue("и претензия названа", note3 ~= nil)
 
     -- ── «+100 УРОНА» ЗАЖИМАЕТСЯ ────────────────────────────
-    local _, d4, note4 = V(sp, 1, okBase, 100)
+    local _, d4, note4 = V(sp, okBase, 100)
     check("скейлинг зажат до потолка", d4, ceilBonus)
     checkTrue("претензия названа", note4 ~= nil)
     checkTrue("сотня не прошла", d4 < 100)
@@ -5839,7 +5871,7 @@ do
     -- ── ОТРИЦАТЕЛЬНЫЙ СКЕЙЛИНГ ЗАКОНЕН ─────────────────────
     -- Характеристику могли увести ниже единицы дебаффом, и тогда
     -- заклинание бьёт слабее обычного. Пола здесь нет намеренно.
-    local _, d5, note5 = V(sp, 1, okBase, -4)
+    local _, d5, note5 = V(sp, okBase, -4)
     check("минус не выправляется", d5, -4)
     checkTrue("и претензии не вызывает", note5 == nil)
 
@@ -5851,11 +5883,11 @@ do
     SB.Data.PlayersStatus = {}
 
     -- Честный модификатор проходит.
-    local _, n1 = SB.Logic.VerifyIncomingCast("Мухлёвщик", "t_ac", 50, 10, 60, 1)
+    local _, n1 = SB.Logic.VerifyIncomingCast("Мухлёвщик", "t_ac", 50, 10, 60)
     checkTrue("честный модификатор проходит", n1 == nil)
 
     -- А сотня — нет, хотя сумма сходится.
-    local t2, n2 = SB.Logic.VerifyIncomingCast("Мухлёвщик", "t_ac", 50, 500, 550, 1)
+    local t2, n2 = SB.Logic.VerifyIncomingCast("Мухлёвщик", "t_ac", 50, 500, 550)
     checkTrue("накрученный модификатор пойман", n2 ~= nil)
     check("и итог пересчитан по потолку", t2, 50 + capMod)
 
@@ -5898,7 +5930,7 @@ do
                 if capMod - realMod < tightest then tightest = capMod - realMod end
 
                 local realDmg = SB.Logic.GetSpellScaling(spell, "damage")
-                local _, capDmg = SB.Logic.MaxPlausibleDamage(spell, slot)
+                local _, capDmg = SB.Logic.MaxPlausibleDamage(spell)
                 if realDmg > capDmg then overDamage[#overDamage + 1] = id end
             end
         end
@@ -5928,12 +5960,12 @@ do
     -- девяносто девять, ради того цифры и открыты. Пакет от лица
     -- существа принимается только от лидера, то есть от того, кто эти
     -- цифры и назначил.
-    local b6, d6, note6 = V(sp, 1, 500, 500, true)
+    local b6, d6, note6 = V(sp, 500, 500, true)
     check("база существа не тронута", b6, 500)
     check("и скейлинг тоже", d6, 500)
     checkTrue("претензии нет", note6 == nil)
 
-    local t7, n7 = SB.Logic.VerifyIncomingCast("Босс", "t_ac", 50, 500, 550, 1, true)
+    local t7, n7 = SB.Logic.VerifyIncomingCast("Босс", "t_ac", 50, 500, 550, true)
     checkTrue("модификатор существа не зажат", n7 == nil)
     check("итог оставлен как есть", t7, 550)
 
@@ -6248,7 +6280,7 @@ do
 
         SB.Items.ClearPrepared()
         SB.Items.Prepare("t_potion")
-        SB.Logic.ConfirmCast("t_potion", 0)
+        SB.Logic.ConfirmCast("t_potion")
         checkTrue("зелье из сумки не отбивается как неподготовленное",
                   said ~= "spellNotPrepared" and said ~= "itemNotInBag")
 
@@ -6261,7 +6293,7 @@ do
         _G.SpellbreakerCharDB.configLocked = false
         if SB.Cooldowns then SB.Cooldowns.Check = function() return true end end
         SB.Items.ClearPrepared()
-        SB.Logic.ConfirmCast("t_potion", 0)
+        SB.Logic.ConfirmCast("t_potion")
         check("а которого нет — отбивается по-своему", said, "itemNotInBag")
 
         SB.UI.PrintMsg = realMsg
@@ -6425,7 +6457,7 @@ do
         -- И доезжает до персонажа целиком, общим путём каста.
         SB.Items.ClearPrepared()
         SB.Items.Prepare("t_pot_self")
-        SB.Logic.ConfirmCast("t_pot_self", 0)
+        SB.Logic.ConfirmCast("t_pot_self")
         checkTrue("выпитое без цели легло на выпившего",
                   UsesOf("t_eff_self") ~= nil)
         check("и склянка при этом потрачена ровно одна",
@@ -6445,7 +6477,7 @@ do
         local realSendBuff = SB.Net.SendBuff
         SB.Net.SendBuff = function() sent = sent + 1 end
 
-        SB.Logic.ConfirmCast("t_pot_self", 0, { onSelf = true })
+        SB.Logic.ConfirmCast("t_pot_self", { onSelf = true })
         checkTrue("«на себя» при выбранном союзнике легло на себя",
                   UsesOf("t_eff_self") ~= nil)
         check("и союзнику ничего не ушло", sent, 0)
@@ -6455,7 +6487,7 @@ do
         -- просто потому, что доставка сломана целиком.
         ResetEffects()
         _G.SpellbreakerCharDB.configLocked = false
-        SB.Logic.ConfirmCast("t_pot_self", 0)
+        SB.Logic.ConfirmCast("t_pot_self")
         check("а «поделиться» доезжает до союзника", sent, 1)
         checkTrue("и на самого выпившего не ложится",
                   UsesOf("t_eff_self") == nil)
@@ -6499,7 +6531,7 @@ do
             resistable = false, stack = 1, isHeal = true, buff = "t_eff_self" }
         SB.Items.ClearPrepared()
         SB.Items.Prepare("t_pot_healself")
-        SB.Logic.ConfirmCast("t_pot_healself", 0)
+        SB.Logic.ConfirmCast("t_pot_healself")
         checkTrue("лечебное зелье без цели тоже ложится на выпившего",
                   UsesOf("t_eff_self") ~= nil)
 
@@ -6657,7 +6689,7 @@ do
         atk ~= nil and atk:find("(Дух)", 1, true) ~= nil)
     check("атака сходится с тем, что уйдёт в бросок",
         tonumber(atk:match("^(-?%d+)")),
-        SB.Logic.GetCastModifier(SB.Data.Spells["t_lines_atk"], 1))
+        SB.Logic.GetCastModifier(SB.Data.Spells["t_lines_atk"]))
 
     -- Крит — процентом, и только там, где он бывает.
     local crit = LineFor("t_lines_atk", "Крит")
@@ -7714,7 +7746,7 @@ do
     Fresh(1)
     checkTrue("бонусное действие доступно", SB.TurnOrder.CanUseBonus())
     local hp = PM.GetHealth()
-    SB.Logic.ConfirmCast("t_bonus_potion", 0, { onSelf = true })
+    SB.Logic.ConfirmCast("t_bonus_potion", { onSelf = true })
     checkTrue("зелье подействовало", PM.GetHealth() > hp)
     checkTrue("но ход не потрачен", not SB.TurnOrder.HasActed(me))
     checkTrue("а бонусное израсходовано", not SB.TurnOrder.CanUseBonus())
@@ -7725,18 +7757,18 @@ do
     -- выпивались бы залпом, и «бонусное действие» означало бы просто
     -- «бесплатно».
     _G.SpellbreakerCharDB.health = 1
-    SB.Logic.ConfirmCast("t_bonus_potion", 0, { onSelf = true })
+    SB.Logic.ConfirmCast("t_bonus_potion", { onSelf = true })
     checkTrue("второе зелье тратит действие хода", not SB.TurnOrder.CanUseMainAction())
     checkTrue("но ход не кончает", not SB.TurnOrder.HasActed(me))
 
     -- ── ОБЫЧНОЕ ДЕЙСТВИЕ ХОД ТРАТИТ ─────────────────────────
     Fresh(2)
-    SB.Logic.ConfirmCast("t_bonus_act", 0)
+    SB.Logic.ConfirmCast("t_bonus_act")
     checkTrue("способность тратит действие хода", not SB.TurnOrder.CanUseMainAction())
     checkTrue("ход после неё не кончается", not SB.TurnOrder.HasActed(me))
     -- Второе действие в том же ходу закрыто.
     PM.PrepareSpell("t_bonus_act")
-    SB.Logic.ConfirmCast("t_bonus_act", 0)
+    SB.Logic.ConfirmCast("t_bonus_act")
     checkTrue("второе действие в ходу закрыто", not SB.TurnOrder.HasActed(me))
 
     -- ── И ЗЕЛЬЕ ПОСЛЕ НЕЁ ВСЁ ЕЩЁ МОЖНО ─────────────────────
@@ -7762,7 +7794,7 @@ do
     -- зелий выпито выше.
     Fresh(7, 1)
     checkTrue("в первой сцене бонусное доступно", SB.TurnOrder.CanUseBonus())
-    SB.Logic.ConfirmCast("t_bonus_potion", 0, { onSelf = true })
+    SB.Logic.ConfirmCast("t_bonus_potion", { onSelf = true })
     checkTrue("зелье прошло бонусным — ход цел", not SB.TurnOrder.HasActed(me))
     checkTrue("а бонусное израсходовано", not SB.TurnOrder.CanUseBonus())
 
@@ -7777,7 +7809,7 @@ do
     _G.SpellbreakerCharDB.health = 1
     SB.Items.ClearPrepared()
     SB.Items.Prepare("t_bonus_potion")
-    SB.Logic.ConfirmCast("t_bonus_potion", 0, { onSelf = true })
+    SB.Logic.ConfirmCast("t_bonus_potion", { onSelf = true })
     checkTrue("и зелье в ней ход не тратит", not SB.TurnOrder.HasActed(me))
 
     -- ── ВНЕ ПОШАГОВОГО РЕЖИМА БОНУСНОГО НЕТ ─────────────────
@@ -8762,7 +8794,11 @@ do
             round = 0, index = 0, slots = {}, acted = {} })
         SB.Cooldowns.Start(SB.Cooldowns.TURN)
         stub.world.time = stub.world.time + 10
-        SB.Logic.ConfirmCast("inner_fire", 0)
+        -- Цена — круг, и ранг проверяется честно: открываем школу.
+        local realOrderIF = SB.PlayerModel.GetMaxPrepareOrder
+        SB.PlayerModel.GetMaxPrepareOrder = function() return 5 end
+        SB.Logic.ConfirmCast("inner_fire")
+        SB.PlayerModel.GetMaxPrepareOrder = realOrderIF
         stub.RunTimers()
         _G.SpellbreakerCharDB.configLocked = wasLockedIF
         -- ЗАРЯДЫ НА МЕСТЕ, И СПЕРВА — ЧТО ЭФФЕКТ ВООБЩЕ ЛЁГ. Без первой
@@ -8949,6 +8985,9 @@ do
             damageType = "physical" }
 
         SB.ActiveEffects.Add("eff_viper_sting", 4, false)
+        -- Запас полный: отнять у пустого нечего, и проверка мерила бы
+        -- остаток после чужих тестов, а не сам яд.
+        PM3.SetZeal(PM3.GetMaxZeal())
         local before = PM3.GetPool("mana")
         SB.Events.Fire(SB.E.CAST_CONFIRMED, "t_vs_shot", 1)
         check("выстрел яду не интересен", PM3.GetPool("mana"), before)
@@ -10444,7 +10483,7 @@ do
     local wasLockedR = _G.SpellbreakerCharDB.configLocked
     _G.SpellbreakerCharDB.configLocked = false
     sent.SendHealResult = nil
-    smoke("каст починки", function() SB.Logic.ConfirmCast("t_repair", 0) end)
+    smoke("каст починки", function() SB.Logic.ConfirmCast("t_repair") end)
     checkTrue("каст починки пошёл путём лечения", sent.SendHealResult)
     check("свой доспех починен кастом",
         SB.Skills.GetArmorPoints(), dented + 2 * perDR)
@@ -11065,7 +11104,7 @@ do
         sent.SendPvpAttack, sent.SendHealResult = nil, nil
         SB.Cooldowns.Start(SB.Cooldowns.TURN)
         stub.world.time = stub.world.time + 10
-        SB.Logic.ConfirmCast("t_dual", 1)
+        SB.Logic.ConfirmCast("t_dual")
     end
 
     SB.Data.SetFriend("Ирина", nil)
@@ -11206,7 +11245,7 @@ do
     local function AoeEffect(spellID)
         SB.ActiveEffects.Clear()
         _G.SpellbreakerCharDB.activeEffects = {}
-        SB.Logic.HandleAoeEffectReceived("Ирина", spellID, "t_eff", 9, 1,
+        SB.Logic.HandleAoeEffectReceived("Ирина", spellID, "t_eff", 9,
             1, 0, 1, epiHere, true)
         return #SB.ActiveEffects.GetAll()
     end
@@ -11530,7 +11569,7 @@ do
     _G.SpellbreakerCharDB.attributes["Сила"] = SB.Data.STAT_BASE
     SB.ActiveEffects.Clear()
     answers = {}
-    SB.Logic.HandleBuffReceived("Линдси", "t_bd", "t_bd_eff", 1, 85, 5, 90, "Линдси")
+    SB.Logic.HandleBuffReceived("Линдси", "t_bd", "t_bd_eff", 85, 5, 90, "Линдси")
     checkTrue("слабому дебафф лёг", hasEff("t_bd_eff"))
     check("и цель отчиталась заклинателю", #answers, 1)
     check("отчёт ушёл именно ему", answers[1] and answers[1].caster, "Линдси")
@@ -11540,7 +11579,7 @@ do
     _G.SpellbreakerCharDB.attributes["Сила"] = 5
     SB.ActiveEffects.Clear()
     answers = {}
-    SB.Logic.HandleBuffReceived("Линдси", "t_bd", "t_bd_eff", 1, 85, 5, 90, "Линдси")
+    SB.Logic.HandleBuffReceived("Линдси", "t_bd", "t_bd_eff", 85, 5, 90, "Линдси")
     checkTrue("сильному тот же бросок не зашёл", not hasEff("t_bd_eff"))
     checkTrue("и это тоже отчёт, а не молчание", answers[1] and answers[1].ok == false)
     checkTrue("порог у сильного выше", (answers[1] and answers[1].threshold or 0) > (weakThr or 0))
@@ -11559,12 +11598,12 @@ do
     SB.Skills.Set("Воля", SB.Data.STAT_BASE)
     SB.ActiveEffects.Clear()
     answers = {}
-    SB.Logic.HandleBuffReceived("Линдси", "t_bd", "t_bd_eff", 1, 85, 5, 90, "Линдси")
+    SB.Logic.HandleBuffReceived("Линдси", "t_bd", "t_bd_eff", 85, 5, 90, "Линдси")
     local lowWill = answers[1] and answers[1].threshold
     SB.Skills.Set("Воля", 4)
     SB.ActiveEffects.Clear()
     answers = {}
-    SB.Logic.HandleBuffReceived("Линдси", "t_bd", "t_bd_eff", 1, 85, 5, 90, "Линдси")
+    SB.Logic.HandleBuffReceived("Линдси", "t_bd", "t_bd_eff", 85, 5, 90, "Линдси")
     checkTrue("навык в поле resist поднимает порог",
               (answers[1] and answers[1].threshold or 0) > (lowWill or 0))
     SB.Skills.Set("Воля", savedWill)
@@ -11576,7 +11615,7 @@ do
     _G.SpellbreakerCharDB.attributes["Сила"] = 5
     SB.ActiveEffects.Clear()
     answers = {}
-    SB.Logic.HandleBuffReceived("Линдси", "t_bb", "t_bd_eff", 1, 85, 5, 90, "Линдси")
+    SB.Logic.HandleBuffReceived("Линдси", "t_bb", "t_bd_eff", 85, 5, 90, "Линдси")
     check("помощь союзника порога не набирает", answers[1] and answers[1].threshold, weakThr)
 
     -- ── ПЛОЩАДНОЙ ДЕБАФФ ОТБИВАЮТ ТОЙ ЖЕ СТОЙКОСТЬЮ ────────
@@ -11599,7 +11638,7 @@ do
             -- Эпицентр — на нас самих: иначе получатель отсеет залп по
             -- дистанции и вернёт nil, а обе замерки станут пустыми.
             SB.Logic.HandleAoeEffectReceived("Линдси", "t_aoe_res", "t_bd_eff",
-                9, 1, 85, 5, 90,
+                9, 85, 5, 90,
                 { name = stub.world.playerName, isSelf = false }, false)
             return caught[1] and caught[1].threshold
         end
@@ -11616,7 +11655,7 @@ do
     -- пути молча перестали бы работать у всех сразу.
     SB.ActiveEffects.Clear()
     answers = {}
-    SB.Logic.HandleBuffReceived("Линдси", "t_bd", "t_bd_eff", 1)
+    SB.Logic.HandleBuffReceived("Линдси", "t_bd", "t_bd_eff")
     checkTrue("без броска эффект лёг", hasEff("t_bd_eff"))
     check("и отвечать было нечем", #answers, 0)
 
@@ -11649,7 +11688,7 @@ do
     -- БРОСОК ОБЯЗАН ЕХАТЬ В ПАКЕТЕ: без него цель не с чем сверять
     -- собственный порог, и эффект ляжет на неё безусловно.
     sent = {}
-    SB.Logic.ResolveEffectCast("t_cs", 1)
+    SB.Logic.ResolveEffectCast("t_cs")
     check("пакет ушёл один", #sent, 1)
     check("и ушёл цели", sent[1] and sent[1].target, "Гаррет")
     checkTrue("бросок в пакете есть", type(sent[1] and sent[1].roll) == "number")
@@ -11662,7 +11701,7 @@ do
     local realRoll = SB.Logic.Roll
     SB.Logic.Roll = function() return 1 end
     sent = {}
-    SB.Logic.ResolveEffectCast("t_cs", 1)
+    SB.Logic.ResolveEffectCast("t_cs")
     check("единица тоже уехала цели", #sent, 1)
     SB.Logic.Roll = realRoll
     -- Ожидания от кастов выше спускаем: они держат ту же цель и то же
@@ -11676,7 +11715,7 @@ do
         said[#said + 1] = msg
     end)
     said, sent = {}, {}
-    SB.Logic.ResolveEffectCast("t_cs", 1)
+    SB.Logic.ResolveEffectCast("t_cs")
     check("до ответа в лог не написано ничего", #said, 0)
 
     SB.Logic.HandleBuffResultReceived("Гаррет", "t_cs", 84, false)
@@ -11692,7 +11731,7 @@ do
     -- ЦЕЛЬ МОЛЧИТ — СТРОКА ВСЁ РАВНО ВЫХОДИТ. У неё может не быть
     -- аддона, и молчание в чате игрок прочёл бы как потерянный ход.
     said, sent = {}, {}
-    SB.Logic.ResolveEffectCast("t_cs", 1)
+    SB.Logic.ResolveEffectCast("t_cs")
     check("и здесь тишина до срока", #said, 0)
     stub.RunTimers(SB.Logic.BUFF_AWAIT_SEC + 1)
     check("по истечении срока строка вышла", #said, 1)
@@ -12248,7 +12287,7 @@ do
 
     -- ── АТАКУЮЩИЙ: ХОД ДЕРЖИТСЯ ДО ИТОГА ────────────────────
     Fresh()
-    L.InitiatePvpAttack("t_strike", 1)
+    L.InitiatePvpAttack("t_strike")
     checkTrue("удар ушёл — ход ещё не потрачен", not TO.HasActed(me))
     checkTrue("но второго действия нет",         not TO.CanActLocal())
     L.HandlePvpResultReceived(stub.world.units["target"] and UnitName("target") or "?",
@@ -12258,7 +12297,7 @@ do
 
     -- Итога нет (цель вышла, нет аддона) — ход уходит по сроку.
     Fresh()
-    L.InitiatePvpAttack("t_strike", 1)
+    L.InitiatePvpAttack("t_strike")
     checkTrue("без ответа ход пока держится", not TO.HasActed(me))
     stub.RunTimers()
     checkTrue("срок вышел — действие потрачено", not TO.CanUseMainAction())
@@ -12266,7 +12305,7 @@ do
     -- Вне пошагового режима держать нечего.
     TO.ApplyRemoteState({ active = false })
     stub.world.time = stub.world.time + 10
-    L.InitiatePvpAttack("t_strike", 1)
+    L.InitiatePvpAttack("t_strike")
     checkTrue("в свободной игре замка нет", not TO.IsAwaitingResult())
 
     -- ── ЗАЩИЩАЮЩИЙСЯ: СТРОКА И ИТОГ — ОДНИМ ПАКЕТОМ ─────────
@@ -13705,12 +13744,12 @@ do
         SB.Logic.RollPlain = SB.Logic.Roll
 
         caught = nil
-        SB.Logic.ResolveNpcAttack("t_npc_jab", 1)
+        SB.Logic.ResolveNpcAttack("t_npc_jab")
         local defBare = tonumber(caught and caught:match("vs Защита:.-=(%d+)"))
 
         N.AddEffect("target", "t_npc_nimble", 5)
         caught = nil
-        SB.Logic.ResolveNpcAttack("t_npc_jab", 1)
+        SB.Logic.ResolveNpcAttack("t_npc_jab")
         local defNimble = tonumber(caught and caught:match("vs Защита:.-=(%d+)"))
         SB.Logic.Roll, SB.Logic.RollPlain = realRoll2, realPlain2
 
@@ -13850,7 +13889,7 @@ do
         end
 
         local base = select(1, HealWolf())
-        SB.Logic.ResolveNpcHeal("t_npc_mend", 1)
+        SB.Logic.ResolveNpcHeal("t_npc_mend")
         local plain = N.GetState("target").hp - base
 
         -- ПЛЮСОМ, А НЕ МИНУСОМ, и это не придирка к знаку. База лечения
@@ -13859,7 +13898,7 @@ do
         -- срез в единицу вместо настоящей величины канала.
         local b2 = select(1, HealWolf())
         N.AddEffect("target", "t_npc_balm", 5)
-        SB.Logic.ResolveNpcHeal("t_npc_mend", 1)
+        SB.Logic.ResolveNpcHeal("t_npc_mend")
         local balmed = N.GetState("target").hp - b2
 
         checkTrue("раненое существо лечится", plain > 0)
@@ -13870,7 +13909,7 @@ do
         -- дебафф обходился бы простым «полечи его ещё раз».
         local b3 = select(1, HealWolf())
         N.AddEffect("target", "t_npc_rot", 5)
-        SB.Logic.ResolveNpcHeal("t_npc_mend", 1)
+        SB.Logic.ResolveNpcHeal("t_npc_mend")
         check("гниение закрыло лечение", N.GetState("target").hp - b3, 0)
         N.ClearEffects("target")
 
@@ -13927,7 +13966,7 @@ do
                  maxResource = 4, faction = "ally" })
         N.AddEffect("target", "t_npc_poison", 3)
         N.AddEffect("target", "t_npc_hide", 3)
-        SB.Logic.ResolveNpcDispel("t_npc_purge", 1)
+        SB.Logic.ResolveNpcDispel("t_npc_purge")
         checkTrue("с союзного существа сняли вред",
                   not N.HasEffect("target", "t_npc_poison"))
         checkTrue("а пользу не тронули", N.HasEffect("target", "t_npc_hide"))
@@ -13943,7 +13982,7 @@ do
             name = "Благословение", class = "Эффект", level = 0,
             effect = { kind = "buff", school = "magic", mods = { defense = 4 } } }
         N.AddEffect("target", "t_npc_blessing", 3)
-        SB.Logic.ResolveNpcDispel("t_npc_purge", 1)
+        SB.Logic.ResolveNpcDispel("t_npc_purge")
         checkTrue("с врага сорвали пользу",
                   not N.HasEffect("target", "t_npc_blessing"))
         checkTrue("а вред ему оставили", N.HasEffect("target", "t_npc_slow"))
@@ -13960,7 +13999,7 @@ do
 
         local realRoll = SB.Logic.Roll
         SB.Logic.Roll = function() return 100, 1, 100 end   -- всегда максимум
-        SB.Logic.ResolveNpcAttack("t_npc_bolt", 1)
+        SB.Logic.ResolveNpcAttack("t_npc_bolt")
         SB.Logic.Roll = realRoll
         checkTrue("попадание навесило дебафф", N.HasEffect("target", "t_npc_slow"))
 
@@ -13980,7 +14019,7 @@ do
         local realPlain = SB.Logic.RollPlain
         SB.Logic.Roll = function() return 100, 1, 100 end
         SB.Logic.RollPlain = SB.Logic.Roll
-        SB.Logic.ResolveNpcAttack("t_npc_bolt", 1)
+        SB.Logic.ResolveNpcAttack("t_npc_bolt")
         SB.Logic.Roll, SB.Logic.RollPlain = realRoll, realPlain
         checkTrue("стойкость чары не отвела",
                   N.HasEffect("target", "t_npc_slow"))
@@ -14001,7 +14040,7 @@ do
         end
         local realThr = SB.Logic.GetCritThreshold
         SB.Logic.GetCritThreshold = function() return 1 end   -- любой бросок — крит
-        SB.Logic.ResolveNpcAttack("t_npc_bolt", 1)
+        SB.Logic.ResolveNpcAttack("t_npc_bolt")
         SB.Logic.GetCritThreshold = realThr
         SB.Events.Fire = realFireN
         local line = nil
@@ -15959,20 +15998,20 @@ do
         preparedSpells = { "t_pal3" },
         classRanks = { ["Жрец"] = 1, ["Паладин"] = 3 },
     }
-    local _, note = V("Ирина", "t_pal3", 50, 10, 60, 3)
+    local _, note = V("Ирина", "t_pal3", 50, 10, 60)
     checkTrue("паладинский третий круг по вещи — не претензия", note == nil)
 
     -- ── А ВОТ БЕЗ ВЕЩИ — ПРЕТЕНЗИЯ ─────────────────────────
     -- Ранги он прислал, паладина среди них нет: школа ему не открыта.
     SB.Data.PlayersStatus["Ирина"].classRanks = { ["Жрец"] = 1 }
-    local _, note2 = V("Ирина", "t_pal3", 50, 10, 60, 3)
+    local _, note2 = V("Ирина", "t_pal3", 50, 10, 60)
     checkTrue("закрытая школа — претензия", note2 ~= nil)
 
     -- ── СТАРЫЙ КЛИЕНТ РАНГОВ НЕ ШЛЁТ ───────────────────────
     -- Тогда проверяем только по потолку реалма: явную нелепицу поймаем,
     -- а честного за чужую сборку не обвиним.
     SB.Data.PlayersStatus["Ирина"].classRanks = nil
-    local _, note3 = V("Ирина", "t_pal3", 50, 10, 60, 3)
+    local _, note3 = V("Ирина", "t_pal3", 50, 10, 60)
     checkTrue("без рангов третий круг претензии не вызывает", note3 == nil)
 
     -- ── СПИСОК ПОДГОТОВЛЕННЫХ: ПУСТО ≠ НЕИЗВЕСТНО ──────────
@@ -15980,18 +16019,18 @@ do
     -- (он устаревает за минуты). Заводи она его ПУСТЫМ — каждый удар
     -- такого игрока объявлялся бы мухлежом до первого свежего статуса.
     SB.Data.PlayersStatus["Ирина"].preparedSpells = nil
-    local _, note4 = V("Ирина", "t_pal3", 50, 10, 60, 3)
+    local _, note4 = V("Ирина", "t_pal3", 50, 10, 60)
     checkTrue("неизвестный список подготовленных — не претензия", note4 == nil)
 
     SB.Data.PlayersStatus["Ирина"].preparedSpells = {}
-    local _, note5 = V("Ирина", "t_pal3", 50, 10, 60, 3)
+    local _, note5 = V("Ирина", "t_pal3", 50, 10, 60)
     checkTrue("а пустой — претензия", note5 ~= nil)
 
     -- ── ЧТО ПРОВЕРКА ЛОВИТ ВСЕГДА ──────────────────────────
     -- Эти три не зависят ни от какого статуса: они про саму арифметику.
-    local _, bad1 = V("Ирина", "t_pal3", 500, 0, 500, 0)
+    local _, bad1 = V("Ирина", "t_pal3", 500, 0, 500)
     checkTrue("бросок вне кубика пойман", bad1 ~= nil)
-    local _, bad2 = V("Ирина", "t_pal3", 50, 10, 999, 0)
+    local _, bad2 = V("Ирина", "t_pal3", 50, 10, 999)
     checkTrue("несходящийся итог пойман", bad2 ~= nil)
 
     -- И упаковка рангов переживает дорогу туда-обратно.
@@ -16045,7 +16084,7 @@ do
         SB.Data.Spells["t_mine"] = { id = "t_mine", name = "Своё",
             class = mine, level = 1, canCrit = true, distance = 30 }
         got.preparedSpells = { "t_mine" }
-        local _, n = V("Ирина", "t_mine", 50, 10, 60, 1)
+        local _, n = V("Ирина", "t_mine", 50, 10, 60)
         checkTrue("удар по доехавшим рангам чист", n == nil)
 
         -- ── УДАРОМ НЕЛЬЗЯ ПРИКРЫТЬСЯ ЧУЖИМ ИМЕНЕМ ──────────
@@ -16368,7 +16407,7 @@ do
     checkTrue("и присланного круга никто не читает",
               net:find("t.slot", 1, true) == nil and net:find("t.slotLevel", 1, true) == nil)
     checkTrue("а круг берётся из своей библиотеки",
-              net:find("local function SpellLevel(spellID)", 1, true) ~= nil)
+              ReadFile("Core/Logic.lua"):find("sourceSpell and tonumber(sourceSpell.level)", 1, true) ~= nil)
 
     -- И ПО ДЕЛУ: цена срыва считается по кругу ЗАКЛИНАНИЯ-ИСТОЧНИКА,
     -- а не по тому, что прислали. Один и тот же эффект от разных
@@ -16388,10 +16427,10 @@ do
 
     ResetEffects()
     -- Четвёртым аргументом — nil: ровно то, что теперь приходит по сети.
-    SB.Logic.ApplyEffect("t_ns_eff", SB.Data.Spells["t_ns_cheap"], nil, true, 0, "Зольц")
+    SB.Logic.ApplyEffect("t_ns_eff", SB.Data.Spells["t_ns_cheap"], true, 0, "Зольц")
     check("от заклинания первого круга — одно очко", AE.WillCostOf("t_ns_eff"), 1)
     ResetEffects()
-    SB.Logic.ApplyEffect("t_ns_eff", SB.Data.Spells["t_ns_dear"], nil, true, 0, "Зольц")
+    SB.Logic.ApplyEffect("t_ns_eff", SB.Data.Spells["t_ns_dear"], true, 0, "Зольц")
     check("от третьего — три",                       AE.WillCostOf("t_ns_eff"), 3)
     ResetEffects()
 
@@ -17014,14 +17053,14 @@ do
 
     -- ── СВОЯ ЗАНИМАЕТ СЛОТ, ЧУЖАЯ — НЕТ ────────────────────
     AE.Clear()
-    L.ApplyEffect("eff_aspect_of_the_hawk", SB.Data.Spells["aspect_of_the_hawk"], 1)
+    L.ApplyEffect("eff_aspect_of_the_hawk", SB.Data.Spells["aspect_of_the_hawk"])
     local mine = AE.GetAll()
     check("свой «Дух ястреба» лёг", #mine, 1)
     check("и помечен концентрацией", mine[1].isConc, true)
 
     -- Чужая аура: fromOther = true. Держит её заклинатель, у себя.
     L.ApplyEffect("eff_hunters_mark_trueshot_aura",
-                  SB.Data.Spells["trueshot_aura"], 1, true)
+                  SB.Data.Spells["trueshot_aura"], true)
     local both = AE.GetAll()
     check("чужая аура легла РЯДОМ, а не вместо", #both, 2)
     local ownStill, alienConc
@@ -17036,7 +17075,7 @@ do
     --
     -- Правило «концентрация одна» никуда не делось: сломать его,
     -- починяя чужие ауры, было бы ровно тем же багом наизнанку.
-    L.ApplyEffect("eff_stealth", SB.Data.Spells["stealth"], 1)
+    L.ApplyEffect("eff_stealth", SB.Data.Spells["stealth"])
     local after = AE.GetAll()
     local hawkGone = true
     for _, eff in ipairs(after) do
@@ -17283,24 +17322,24 @@ do
     SB.ActiveEffects.Clear()
 
     check("исход отрицателен — не вешаем",
-          L.ApplyOwnContainer(swarm, 0, false), nil)
+          L.ApplyOwnContainer(swarm, false), nil)
     check("и на персонаже пусто", #SB.ActiveEffects.GetAll(), 0)
 
     check("исход положителен — вешаем",
-          L.ApplyOwnContainer(swarm, 0, true), "eff_demonic_swarm")
+          L.ApplyOwnContainer(swarm, true), "eff_demonic_swarm")
     check("и он на персонаже", #SB.ActiveEffects.GetAll(), 1)
 
     SB.ActiveEffects.Clear()
     check("исход неизвестен — вешаем сразу",
-          L.ApplyOwnContainer(swarm, 0, nil), "eff_demonic_swarm")
+          L.ApplyOwnContainer(swarm, nil), "eff_demonic_swarm")
     check("и он тоже на персонаже", #SB.ActiveEffects.GetAll(), 1)
     SB.ActiveEffects.Clear()
 
     -- Заклинанию без контейнера вешать нечего ни при каком исходе.
     local plain = SB.Data.Spells["heroic_strike"]
-    check("без контейнера — nil на успехе", L.ApplyOwnContainer(plain, 0, true), nil)
-    check("и на неизвестном исходе", L.ApplyOwnContainer(plain, 0, nil), nil)
-    check("и на пустом заклинании", L.ApplyOwnContainer(nil, 0, nil), nil)
+    check("без контейнера — nil на успехе", L.ApplyOwnContainer(plain, true), nil)
+    check("и на неизвестном исходе", L.ApplyOwnContainer(plain, nil), nil)
+    check("и на пустом заклинании", L.ApplyOwnContainer(nil, nil), nil)
 
     -- ── ПРАВИЛО ЖИВЁТ В ОДНОМ МЕСТЕ ────────────────────────
     --
@@ -17504,7 +17543,7 @@ do
 
     -- Заведомо слабый бросок: порог 60 плюс уровень, взять нечем.
     _G.SpellbreakerCharDB.preparedItems = { { id = "t_steal_a", n = 3 } }
-    L.HandleStealReceived("Линдси", "t_steal", 0, 5, 0, 5, "Линдси")
+    L.HandleStealReceived("Линдси", "t_steal", 5, 0, 5, "Линдси")
     checkTrue("жертва ответила вору", sent ~= nil)
     check("и ответ ушёл именно ему", sent and sent.caster, "Линдси")
     check("слабый бросок замечен", sent and sent.ok, false)
@@ -17512,7 +17551,7 @@ do
 
     -- Заведомо сильный: 200 перекрывает любой порог.
     sent = nil
-    L.HandleStealReceived("Линдси", "t_steal", 0, 200, 0, 200, "Линдси")
+    L.HandleStealReceived("Линдси", "t_steal", 200, 0, 200, "Линдси")
     check("сильный бросок прошёл", sent and sent.ok, true)
     check("и добыча названа в ответе", sent and sent.item, "t_steal_a")
     check("пачкой целиком", sent and sent.n, 3)
@@ -17520,7 +17559,7 @@ do
 
     -- Успех при пустом кармане: исход есть, добычи нет.
     sent = nil
-    L.HandleStealReceived("Линдси", "t_steal", 0, 200, 0, 200, "Линдси")
+    L.HandleStealReceived("Линдси", "t_steal", 200, 0, 200, "Линдси")
     check("успех остаётся успехом", sent and sent.ok, true)
     check("но брать было нечего", sent and sent.item, nil)
 
@@ -17535,13 +17574,13 @@ do
     _G.SpellbreakerCharDB.attributes = { ["Дух"] = 1 }
     _G.SpellbreakerCharDB.preparedItems = { { id = "t_steal_a", n = 1 } }
     sent = nil
-    L.HandleStealReceived("Линдси", "t_steal", 0, 60, 0, 60, "Линдси")
+    L.HandleStealReceived("Линдси", "t_steal", 60, 0, 60, "Линдси")
     local weakThreshold = sent and sent.threshold
 
     _G.SpellbreakerCharDB.attributes = { ["Дух"] = 5 }
     _G.SpellbreakerCharDB.preparedItems = { { id = "t_steal_a", n = 1 } }
     sent = nil
-    L.HandleStealReceived("Линдси", "t_steal", 0, 60, 0, 60, "Линдси")
+    L.HandleStealReceived("Линдси", "t_steal", 60, 0, 60, "Линдси")
     local strongThreshold = sent and sent.threshold
 
     checkTrue("развитый Дух поднимает порог кражи",
@@ -17932,11 +17971,11 @@ do
     local heal = L2:match("function SB%.Logic%.ResolveHeal.-\nend")
     checkTrue("ResolveHeal найден", heal ~= nil)
     checkTrue("лечение вешает свой эффект",
-              heal and heal:find("ApplyBuffToTarget(spell, slotLevel)", 1, true) ~= nil)
+              heal and heal:find("ApplyBuffToTarget(spell)", 1, true) ~= nil)
 
     local forced = L2:match("function SB%.Logic%.ExecuteForcedOutcome.-\nend")
     checkTrue("и форсированный Ведущим исход тоже",
-              forced and forced:find("ApplyBuffToTarget(spell, slotLevel)", 1, true) ~= nil)
+              forced and forced:find("ApplyBuffToTarget(spell)", 1, true) ~= nil)
 
     local npc = ReadFile("Core/Logic/NPC.lua"):match("function SB%.Logic%.ResolveNpcHeal.-\nend")
     checkTrue("и лечение существа тоже",
@@ -18826,7 +18865,7 @@ do
         duration = 3, container = "t_q_buff" }
     TO.Stop()
     stub.world.time = stub.world.time + 10
-    L.ResolveEffectCast("t_q_cast", 0)
+    L.ResolveEffectCast("t_q_cast")
     SB.Events.Fire = realFire
     local qline
     for _, m in ipairs(lines) do if m:find("Проба крика", 1, true) then qline = m end end
@@ -18903,7 +18942,7 @@ do
     _G.SpellbreakerCharDB.health = PM.GetMaxHealth() - 3
     stub.world.time = stub.world.time + 10
     Capture()
-    L.ConfirmCast("t_pay_potion", 0, { onSelf = true })
+    L.ConfirmCast("t_pay_potion", { onSelf = true })
     stub.RunTimers()
     SB.Events.Fire = realFire
     local cast, separate = nil, 0
@@ -19003,8 +19042,8 @@ do
     checkTrue("кнопка «Применить» есть",       body:find('"Применить"', 1, true) ~= nil)
     checkTrue("и кнопка заявки Ведущему тоже", body:find('"Заявка Ведущему"', 1, true) ~= nil)
     checkTrue("обе уходят одним ConfirmCast",
-              body:find("SB.Logic.ConfirmCast(spellID, spellLvl, { toGM = true })", 1, true) ~= nil
-              and body:find("SB.Logic.ConfirmCast(spellID, spellLvl)", 1, true) ~= nil)
+              body:find("SB.Logic.ConfirmCast(spellID, { toGM = true })", 1, true) ~= nil
+              and body:find("SB.Logic.ConfirmCast(spellID)", 1, true) ~= nil)
 
     -- ЧИСЕЛ ЗАКЛИНАНИЯ ОКНО НЕ ПЕРЕСКАЗЫВАЕТ: они в карточке, и второе
     -- место с теми же числами однажды разошлось бы с первым.
@@ -19148,7 +19187,7 @@ do
     _G.SpellbreakerCharDB.preparedSpells = { "t_act_cast", "t_act_buff" }
     _G.SpellbreakerCharDB.configLocked = false
     stub.world.time = stub.world.time + 10
-    L.ConfirmCast("t_act_cast", 0)
+    L.ConfirmCast("t_act_cast")
     checkTrue("эффект лёг и держится", Active("t_act_eff"))
 
     -- ── ПРОПУСК ХОДА НЕ СРЫВАЕТ ─────────────────────────────
@@ -19162,7 +19201,7 @@ do
     SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = 2,
         index = 1, slots = { { stub.world.playerName } }, acted = {} })
     stub.world.time = stub.world.time + 10
-    L.ConfirmCast("t_act_buff", 0)
+    L.ConfirmCast("t_act_buff")
     checkTrue("а бафф на себя — срывает", not Active("t_act_eff"))
 
     -- Карточка называет повод словами.
@@ -19515,18 +19554,18 @@ do
     -- ── ЗАПИСКА У ЗАКЛИНАТЕЛЯ ───────────────────────────────
     L.ClearBeacon()
     check("без каста записки нет", L.GetBeacon(), nil)
-    L.NoteBeacon("t_bc_cast", "Зуко", 3)
+    L.NoteBeacon("t_bc_cast", "Зуко")
     checkTrue("после каста есть", (L.GetBeacon() or {}).name == "Зуко")
     -- Не частица записку не ставит и чужую не трогает.
-    L.NoteBeacon("heroic_strike", "Ирина", 0)
+    L.NoteBeacon("heroic_strike", "Ирина")
     check("не частица записку не трогает", (L.GetBeacon() or {}).name, "Зуко")
     -- Одна частица за раз: новая тушит прежнюю.
-    L.NoteBeacon("t_bc_cast", "Ирина", 3)
+    L.NoteBeacon("t_bc_cast", "Ирина")
     check("новая частица перебивает прежнюю", (L.GetBeacon() or {}).name, "Ирина")
 
     -- ── ЗАПИСКА СТАРЕЕТ ПО ТЕМ ЖЕ ЧАСАМ, ЧТО ЭФФЕКТЫ ────────
     L.ClearBeacon()
-    L.NoteBeacon("t_bc_cast", "Зуко", 0)
+    L.NoteBeacon("t_bc_cast", "Зуко")
     local left = (L.GetBeacon() or {}).turns
     checkTrue("срок берётся у заклинания", (tonumber(left) or 0) > 0)
     for _ = 1, (tonumber(left) or 0) do AE.TickAll() end
@@ -19540,7 +19579,7 @@ do
     end
 
     L.ClearBeacon(); sent = nil
-    L.NoteBeacon("t_bc_cast", "Зуко", 3)
+    L.NoteBeacon("t_bc_cast", "Зуко")
     L.EchoBeacon("Ирина", 6)
     check("эхо ушло носителю",     (sent or {}).target, "Зуко")
     check("половиной вылеченного", (sent or {}).amount, 3)
@@ -19666,14 +19705,14 @@ do
     ResetEffects()
     AE.Add("t_src_conc", 5, true)          -- моя настоящая концентрация
     SB.Logic.HandleDispelReceived("Лайка", "t_src_dispel", { "poison" }, 1,
-                                  "t_src_eff", 1, true)
+                                  "t_src_eff", true)
     check("бонус чужого рассеивания подписан им", AE.SourceOf("t_src_eff"), "Лайка")
     checkTrue("и мою концентрацию он не сносит", AE.SourceOf("t_src_conc") ~= nil)
 
     -- СВОЁ рассеивание — своя концентрация, как и было.
     ResetEffects()
     SB.Logic.HandleDispelReceived(me, "t_src_dispel", { "poison" }, 1,
-                                  "t_src_eff", 1, true)
+                                  "t_src_eff", true)
     check("своё рассеивание подписано собой", AE.SourceOf("t_src_eff"), me)
 
     -- ── ОСТАЛЬНЫЕ ДОРОГИ ИМЯ ТОЖЕ НЕСУТ ─────────────────────
@@ -20354,7 +20393,7 @@ do
     checkTrue("пикер больше не спрашивает про вливание",
               mf:find("CanUpcast", 1, true) == nil)
     checkTrue("и круга в окне подтверждения не спрашивает",
-              mf:find("SB.Logic.ConfirmCast(spellID, spellLvl)", 1, true) ~= nil)
+              mf:find("SB.Logic.ConfirmCast(spellID)", 1, true) ~= nil)
 end
 
 -- ============================================================
@@ -20697,7 +20736,10 @@ do
         -- всего несколько — без долива восемь прогонов из десяти
         -- упёрлись бы в пустую ману, а не в проверяемое правило.
         SB.PlayerModel.SetZeal(SB.PlayerModel.GetMaxZeal())
-        SB.Logic.ConfirmCast("healthstone", 1)
+        local realOrderHS = SB.PlayerModel.GetMaxPrepareOrder
+        SB.PlayerModel.GetMaxPrepareOrder = function() return 5 end
+        SB.Logic.ConfirmCast("healthstone")
+        SB.PlayerModel.GetMaxPrepareOrder = realOrderHS
         stub.RunTimers()
         if SB.Items.CountOf("item_healthstone") > 0 then got = got + 1 end
     end
@@ -21363,7 +21405,7 @@ do
         class = "Маг", level = 1, distance = 20, debuff = "t_curse_eff" }
     SB.ActiveEffects.Add("t_hide_eff", 3, false)
     checkTrue("свой эффект делает недосягаемым", SB.ActiveEffects.IsUntouchable())
-    SB.Logic.HandleBuffReceived("Злодей", "t_curse", "t_curse_eff", 1)
+    SB.Logic.HandleBuffReceived("Злодей", "t_curse", "t_curse_eff")
     local cursed = false
     for _, e in ipairs(SB.ActiveEffects.GetAll()) do
         if e.spellID == "t_curse_eff" then cursed = true end

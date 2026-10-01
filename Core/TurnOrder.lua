@@ -312,9 +312,6 @@ local function NotifyTransitions()
             AE.TickTurnStart()
         end
     end
-    if not turnOpen and AE and AE.ExpireTurnEnd then
-        AE.ExpireTurnEnd()
-    end
     -- ДЕБАФФЫ — В КОНЦЕ ХОДА, тоже раз за круг и со своим ключом в
     -- сохранёнке (см. «ДЕБАФФЫ — В КОНЦЕ ХОДА» в Core/ActiveEffects.lua).
     if turnPassed and AE and AE.TickTurnEnd and SpellbreakerCharDB then

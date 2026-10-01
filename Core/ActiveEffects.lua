@@ -2080,9 +2080,6 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc, source, level)
             -- Повторное наложение — новый удар: сопротивление снова
             -- гасит его целиком (см. SB.Skills.ResistOncePerEffect).
             eff.rsd    = nil
-            -- Продлённый эффект больше не доживает последний ход
-            -- (см. «ТИК В НАЧАЛЕ ХОДА» у TurnStartOne).
-            eff.expiring = nil
             -- Наложен заново — посреди своего хода или нет, решает тик
             -- конца хода (см. «ДЕБАФФЫ — В КОНЦЕ ХОДА»).
             eff.addedSeq = tickSeq
@@ -3175,9 +3172,6 @@ end
 -- КОНЦЕ ХОДА» ниже). Бафф на N ходов, взятый в свой ход, действует до
 -- конца этого хода и ещё N−1 следующих.
 --
--- Пометка expiring («доживает ход») осталась только для старых
--- сохранений: ExpireTurnEnd снимает такие в конце хода.
---
 -- Вне пошагового режима всё по-старому: TickAll и DecrementOne.
 -- ============================================================
 
@@ -3228,40 +3222,6 @@ function SB.ActiveEffects.MarkStepped(spellID)
     end
 end
 
---- Снять эффекты, доживавшие этот ход. Зовётся в конце своего хода
---- (см. Core/TurnOrder.lua) и на выходе из пошагового режима.
---- @return number  сколько снято
-function SB.ActiveEffects.ExpireTurnEnd()
-    local doomed = {}
-    for _, eff in ipairs(effects) do
-        if eff.expiring then doomed[#doomed + 1] = eff.spellID end
-    end
-    if #doomed == 0 then return 0 end
-
-    batchDepth = batchDepth + 1
-    for _, id in ipairs(doomed) do
-        for i, eff in ipairs(effects) do
-            if eff.spellID == id then
-                table.remove(effects, i)
-                local ok, err = pcall(ApplyOnRemove, id)
-                if not ok then
-                    print("|cFFFF0000[Spellbreaker]|r эффект «" ..
-                        tostring(id) .. "»: " .. tostring(err))
-                end
-                break
-            end
-        end
-        FireChanged()
-    end
-    batchDepth = batchDepth - 1
-    C_Timer.After(0, Redraw)
-    if batchDirty then
-        batchDirty = false
-        FireChanged()
-    end
-    return #doomed
-end
-
 --- Тик начала своего хода. Та же обвязка, что у TickAll (одна пачка,
 --- одна строка в чат, событие TURN_TICK), но свой расчёт на эффект.
 --- Доживавшие с прошлого хода (конец хода не наступил — вылет, смена
@@ -3295,7 +3255,6 @@ local function IsDebuff(spellID)
 end
 
 function SB.ActiveEffects.TickTurnStart()
-    SB.ActiveEffects.ExpireTurnEnd()
     local skip = {}
     for _, eff in ipairs(effects) do
         if IsDebuff(eff.spellID) then skip[eff.spellID] = true end
@@ -3721,9 +3680,9 @@ function SB.ActiveEffects.BreakOn(trigger, cost)
         -- только ту, что сбивает контроль: для этого способность и
         -- заведена. Отказ — тем же приёмом, что у контроля:
         -- breakOn = { interrupted = false }.
-        -- Держатель потока — концентрация по определению, даже если
-        -- запись пришла без isConc (старое сохранение).
-        local concLike = eff.isConc or (sp and sp.isChannelHolder)
+        -- Признак концентрации — один, на висящей записи (isConc); у
+        -- держателя потока он стоит всегда (см. LoadFromDB для старых).
+        local concLike = eff.isConc
         if not hit and trigger == "interrupted" and concLike then
             local said
             if type(def) == "table" then said = def.interrupted end
@@ -3974,7 +3933,6 @@ function SaveEffects()
             lvl       = eff.lvl,
             -- Доживает последний ход: /reload посреди хода не должен
             -- дарить эффекту лишний круг.
-            expiring  = eff.expiring or nil,
             stepped   = eff.stepped or nil,
             -- Сколько сопротивление уже погасило этому наложению:
             -- /reload не должен возвращать бюджет.
@@ -3993,8 +3951,18 @@ function SB.ActiveEffects.LoadFromDB()
         if SB.Data.Spells[entry.spellID] then
             table.insert(effects, {
                 spellID   = entry.spellID,
-                uses      = entry.uses or 1,
-                isConc    = entry.isConc or false,
+                -- Старая пометка «доживает последний ход» (expiring) больше
+                -- не существует: такой эффект живёт один ход и спадает на
+                -- ближайшем тике.
+                uses      = entry.expiring and 1 or (entry.uses or 1),
+                -- ОДИН ПРИЗНАК КОНЦЕНТРАЦИИ — isConc на записи. Держатель
+                -- потока из старого сохранения мог прийти без него: поток
+                -- — концентрация по определению (castSpell + isConcentration
+                -- у держателя, см. Core/Database.lua).
+                isConc    = entry.isConc
+                            or (SB.Data.Spells[entry.spellID].castSpell ~= nil
+                                and SB.Data.Spells[entry.spellID].isConcentration == true)
+                            or false,
                 -- СТАРОЕ ПОЛЕ armorUsed ЧИТАЕТСЯ ТОЖЕ: сохранёнка
                 -- пережила разделение запасов, и терять на перезаходе
                 -- расход оберега незачем.
@@ -4003,7 +3971,6 @@ function SB.ActiveEffects.LoadFromDB()
                                 and { armor = tonumber(entry.armorUsed) } or nil),
                 src       = (type(entry.src) == "string") and entry.src or nil,
                 lvl       = tonumber(entry.lvl),
-                expiring  = entry.expiring == true or nil,
                 stepped   = entry.stepped == true or nil,
                 rsd       = tonumber(entry.rsd),
                 -- Часы клиента после перезахода начинаются заново, и
@@ -4061,14 +4028,14 @@ SB.Events.On("SB_INIT", function()
     SB.Events.On("ACTIVE_EFFECT_CAST", function(spellID)
         -- Держатель потока не кастуется сам — он ПЕРЕНАПРАВЛЯЕТ на
         -- исходное заклинание (поле castSpell, см. Core/Database.lua).
-        -- Круг всегда 0: продолжение потока бесплатно и вливать в него
-        -- ресурс нельзя, сила задана первым кастом.
+        -- Бесплатно: продолжение потока и клик по эффекту ресурса не
+        -- стоят, сила задана первым кастом.
         local sp     = SB.Data.Spells[spellID]
         local target = sp and sp.castSpell
         if target then
-            SB.Logic.ConfirmCast(target, 0, { channelStep = true })
+            SB.Logic.ConfirmCast(target, { channelStep = true })
         else
-            SB.Logic.ConfirmCast(spellID, 0)
+            SB.Logic.ConfirmCast(spellID, { free = true })
         end
     end)
  
