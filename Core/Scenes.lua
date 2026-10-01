@@ -45,6 +45,7 @@ local serverStart   = nil     -- момент запуска сервера в �
 local probeUntil    = 0       -- до какого GetTime() прячем вывод «.server info»
 local probeWaiters  = {}
 local probed        = false
+local inFlight      = false   -- запрос «.server info» уже ушёл
 local restoring     = true    -- до решения о восстановлении не сохраняем
 local saveDue       = false
 
@@ -117,6 +118,7 @@ local function IsInfoLine(msg)
 end
 
 local function Resolve(start)
+    inFlight = false
     local list = probeWaiters
     probeWaiters = {}
     for _, fn in ipairs(list) do pcall(fn, start) end
@@ -137,7 +139,8 @@ function SB.Scenes.ProbeServerStart(callback)
         return
     end
     if callback then probeWaiters[#probeWaiters + 1] = callback end
-    if #probeWaiters > 1 then return end   -- запрос уже ушёл
+    if inFlight then return end   -- запрос уже ушёл, ответ раздадут всем ждущим
+    inFlight = true
     probeUntil = Clock() + PROBE_TIMEOUT
     if SB.NPCCommands and SB.NPCCommands.Send then SB.NPCCommands.Send(".server info") end
     C_Timer.After(PROBE_TIMEOUT, function()
@@ -217,7 +220,12 @@ function SB.Scenes.TryRestore(start)
     if type(scene) ~= "table" or type(scene.npcs) ~= "table" or #scene.npcs == 0 then
         return "none"
     end
-    if not IsOwner() then return "owner" end
+    -- ВОССТАНАВЛИВАЕТ ТОЛЬКО ЛИДЕР (или игрок вне группы), не помощник.
+    -- Вернувшийся Ведущий, которого за время отсутствия сменили, бывает
+    -- помощником нового лидера — и его сохранение старше сцены, которую
+    -- вели без него. Сохранение при этом не выбрасываем: станет лидером
+    -- снова — пригодится при следующем входе.
+    if not (SB.IsGameMaster and SB.IsGameMaster()) or not IsOwner() then return "owner" end
 
     local same
     if start and scene.serverStart then
@@ -231,20 +239,28 @@ function SB.Scenes.TryRestore(start)
     end
 
     local n = SB.NPC.ImportScene and SB.NPC.ImportScene(scene.npcs) or 0
-    print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BODY ..
-        "сцена восстановлена: существ — " .. tostring(n) .. ".|r")
+    if (tonumber(n) or 0) > 0 then
+        print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BODY ..
+            "сцена восстановлена: существ — " .. tostring(n) .. ".|r")
+    end
     return "restored"
 end
 
 -- При входе в игру и после /reload: узнать запуск сервера, решить.
--- С задержкой: состав группы (а с ним и «владелец ли я») клиенту в
--- первые секунды ещё не известен.
+--
+-- С ЗАДЕРЖКОЙ, И В ГРУППЕ — ДОЛЬШЕ. В первые секунды клиенту ещё не
+-- известен состав группы (а с ним и «владелец ли я»). А в группе
+-- восстановление должно идти ПОСЛЕ пересборки сцены (см.
+-- SB.NPC.RequestResync: 1 с на пачку событий + 3 с на предложения):
+-- группа могла продолжать без Ведущего, и её живые состояния должны
+-- прийти раньше, чем сохранение заполнит пробелы.
+local RESTORE_DELAY_SOLO, RESTORE_DELAY_GROUP = 2, 6
 do
     local f = CreateFrame("Frame")
     f:RegisterEvent("PLAYER_ENTERING_WORLD")
     f:SetScript("OnEvent", function(self)
         self:UnregisterEvent("PLAYER_ENTERING_WORLD")
-        C_Timer.After(3, function()
+        C_Timer.After(IsInGroup() and RESTORE_DELAY_GROUP or RESTORE_DELAY_SOLO, function()
             local scene = Store().autoScene
             if not IsOwner() or type(scene) ~= "table" then
                 restoring = false
@@ -264,6 +280,6 @@ end
 
 --- Для проверок: вернуть модуль в состояние «только что загрузился».
 function SB.Scenes._ResetForTests(start)
-    serverStart, probed, restoring, saveDue = start, start ~= nil, true, false
+    serverStart, probed, restoring, saveDue, inFlight = start, start ~= nil, true, false, false
     probeWaiters, probeUntil = {}, 0
 end

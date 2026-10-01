@@ -22157,6 +22157,102 @@ do
     SB.Data.Spells["t_rs_pdot"], SB.Data.Spells["t_rs_pward"] = nil, nil
 end
 
+-- ============================================================
+-- СЦЕНА: НЕОЧЕВИДНЫЕ СЛУЧАИ
+-- ============================================================
+do
+    local wasLeader, wasGroup = stub.world.isLeader, stub.world.inGroup
+    stub.world.isLeader, stub.world.inGroup = true, false
+    local savedDB = _G.SpellbreakerNPCDB
+    local now = time()
+    local function stateOf(key)
+        local s
+        SB.NPC.EachState(function(k, v) if k == key then s = v end end)
+        return s
+    end
+    local lines = {}
+    local listen = true
+    SB.Events.On(SB.E.BROADCAST_LOG, function(m) if listen then lines[#lines + 1] = m end end)
+
+    -- 1. Пока Ведущего не было, существо удалили. После восстановления
+    --    оно замерло: не тикает и в лог не пишет.
+    _G.SpellbreakerNPCDB = { npcs = {}, autoScene = { savedAt = now - 30, serverStart = now - 5000,
+        npcs = { { key = "9300:1", hp = 10, maxHp = 10, effects = "eff_immolation:-1", seen = now - 30 } } } }
+    SB.NPC.ResetState()
+    SB.Scenes._ResetForTests(now - 5000)
+    check("восстановлена", SB.Scenes.TryRestore(now - 5000), "restored")
+    local before = #lines
+    SB.NPC.TickEffects(); SB.NPC.TickEffects()
+    check("невиданное существо не тикает", stateOf("9300:1").hp, 10)
+    check("и в лог про него ни строки", #lines, before)
+    -- Встретили (кто-то взял в цель) — время для него пошло.
+    SB.NPC.ReplyState("9300:1")
+    SB.NPC.TickEffects()
+    check("встреченное — тикает снова", stateOf("9300:1").hp, 9)
+
+    -- 2. Эхо своей же рассылки не «оттаивает» невиданное.
+    _G.SpellbreakerNPCDB.autoScene = { savedAt = now - 30, serverStart = now - 5000,
+        npcs = { { key = "9300:2", hp = 5, maxHp = 10, effects = "eff_immolation:3", seen = now - 30 } } }
+    SB.NPC.ResetState()
+    SB.Scenes._ResetForTests(now - 5000)
+    SB.Scenes.TryRestore(now - 5000)
+    SB.NPC.ApplyRemoteState("9300:2", 5, 10, 0, 0, "eff_immolation:3")
+    SB.NPC.TickEffects()
+    check("эхо рассылки не снимает заморозку", stateOf("9300:2").hp, 5)
+
+    -- 3. Группа продолжала без Ведущего: живое состояние, пришедшее
+    --    предложением, сохранение не перетирает.
+    _G.SpellbreakerNPCDB.autoScene = { savedAt = now - 30, serverStart = now - 5000,
+        npcs = { { key = "9300:3", hp = 9, maxHp = 10, seen = now - 30 },
+                 { key = "9300:4", hp = 4, maxHp = 10, seen = now - 30 } } }
+    SB.NPC.ResetState()
+    SB.NPC.ApplyRemoteState("9300:3", 2, 10, 0, 0, nil)   -- живое знание группы
+    SB.Scenes._ResetForTests(now - 5000)
+    SB.Scenes.TryRestore(now - 5000)
+    check("живое состояние группы сохранено", stateOf("9300:3").hp, 2)
+    check("а пробел заполнен из сохранения", stateOf("9300:4") and stateOf("9300:4").hp, 4)
+
+    -- 4. Сохранение старше суток по особи — не возвращается.
+    _G.SpellbreakerNPCDB.autoScene = { savedAt = now - 30, serverStart = now - 5000,
+        npcs = { { key = "9300:5", hp = 1, maxHp = 10, seen = now - 2 * 86400 } } }
+    SB.NPC.ResetState()
+    SB.Scenes._ResetForTests(now - 5000)
+    SB.Scenes.TryRestore(now - 5000)
+    check("не встречавшаяся сутки особь не возвращается", stateOf("9300:5"), nil)
+
+    -- 5. Вернулся помощником нового лидера — не восстанавливает и
+    --    сохранение не выбрасывает.
+    stub.world.inGroup, stub.world.isLeader = true, false
+    local realAssist = _G.UnitIsGroupAssistant
+    _G.UnitIsGroupAssistant = function() return true end
+    _G.SpellbreakerNPCDB.autoScene = { savedAt = now - 30, serverStart = now - 5000,
+        npcs = { { key = "9300:6", hp = 1, maxHp = 10, seen = now - 30 } } }
+    SB.NPC.ResetState()
+    SB.Scenes._ResetForTests(now - 5000)
+    check("помощник сцену не восстанавливает", SB.Scenes.TryRestore(now - 5000), "owner")
+    check("и ничего не трогает", SB.NPC.StateCount(), 0)
+    checkTrue("сохранение цело", _G.SpellbreakerNPCDB.autoScene ~= nil)
+    _G.UnitIsGroupAssistant = realAssist
+    stub.world.inGroup, stub.world.isLeader = false, true
+
+    -- 6. «.server info» уходит один раз, сколько бы ни спрашивали.
+    local realSend, sent = SB.NPCCommands.Send, 0
+    SB.NPCCommands.Send = function(c) if c == ".server info" then sent = sent + 1 end return true end
+    SB.Scenes._ResetForTests(nil)
+    SB.Scenes.ProbeServerStart()
+    SB.Scenes.ProbeServerStart(function() end)
+    SB.Scenes.ProbeServerStart(function() end)
+    check("запрос времени работы — один", sent, 1)
+    SB.NPCCommands.Send = realSend
+
+    listen = false
+    SB.Scenes._ResetForTests(nil)
+    SB.Scenes.TryRestore(nil)
+    SB.NPC.ResetState()
+    _G.SpellbreakerNPCDB = savedDB
+    stub.world.isLeader, stub.world.inGroup = wasLeader, wasGroup
+end
+
 -- ИТОГ
 -- ============================================================
 print("")

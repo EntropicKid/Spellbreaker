@@ -824,6 +824,9 @@ function SB.NPC.GetState(unit)
     if not key then return nil end
 
     local st = state[key]
+    -- Особь из восстановленной сцены встретилась живой — время для неё
+    -- снова идёт (см. «НЕВИДАННЫЕ ОСОБИ» у SB.NPC.ImportScene).
+    if st and st.unseen then st.unseen = nil end
     if not st then
         local stats = SB.NPC.StatsForUnit(unit)
         if not stats then return nil end
@@ -877,6 +880,10 @@ function SB.NPC.ApplyRemoteState(key, hp, maxHp, res, maxRes, packed, ward)
     state[key] = {
         npcID  = npcID,
         name   = (prev and prev.name) or (rec and rec.name),
+        -- Признак «не встречалась после восстановления» — свой, по сети
+        -- не ездит: эхо своей же рассылки не должно его снимать.
+        unseen = prev and prev.unseen or nil,
+        seen   = prev and prev.seen or nil,
         hp     = math.max(0, tonumber(hp)     or 0),
         maxHp  = math.max(1, tonumber(maxHp)  or 1),
         res    = math.max(0, tonumber(res)    or 0),
@@ -1056,6 +1063,7 @@ function SB.NPC.ApplyRemoteDelta(key, hpDelta, resDelta, wardDelta)
     -- которого Ведущий в цель не брал, — и удар не считается никому.
     local st = state[key] or StateFromKey(key)
     if not st then return end
+    st.unseen = nil   -- её бьют — значит, она есть
 
     st.hp  = math.max(0, math.min(st.maxHp,  st.hp  + (tonumber(hpDelta)  or 0)))
     st.res = math.max(0, math.min(st.maxRes, st.res + (tonumber(resDelta) or 0)))
@@ -1133,7 +1141,8 @@ end
 function SB.NPC.ReplyState(key)
     if not SB.NPC.IsOwner() then return end
     local st = state[key] or StateFromKey(key)
-    if st then Broadcast(key, st) end
+    -- Спрашивают — значит, кто-то взял её в цель: она есть.
+    if st then st.unseen = nil; Broadcast(key, st) end
 end
 
 --- Поделиться состоянием особи, ничего не меняя. Нужно, когда игрок
@@ -1620,22 +1629,48 @@ function SB.NPC.ExportScene()
             hp = st.hp, maxHp = st.maxHp, res = st.res, maxRes = st.maxRes,
             ward = st.ward, baseMaxHp = st.baseMaxHp, baseMaxRes = st.baseMaxRes,
             effects = SB.NPC.PackEffects and SB.NPC.PackEffects(st.effects) or nil,
+            -- Когда особь последний раз была в сцене: невиданная хранит
+            -- прежнее время, остальные — «сейчас».
+            seen = (st.unseen and st.seen) or (time and time()) or 0,
         }
     end
     table.sort(list, function(a, b) return a.key < b.key end)
     return list
 end
 
---- Загрузить особей из сохранения. Только владелец. Прежние существа
---- забываются у всей группы (тот же сброс, что у кнопки), загруженные
---- расходятся всем одним пакетом.
---- @return number  сколько особей загружено, или false — не владелец
+-- ============================================================
+-- НЕВИДАННЫЕ ОСОБИ
+--
+-- Восстановленная особь могла исчезнуть, пока Ведущего не было: её
+-- удалили (.npc delete), она ушла на респаун, сцену развернули. Если бы
+-- она сразу жила как обычная, эффекты на ней тикали бы и писали в лог
+-- «Существо: −1 ХП» про тушку, которой нет, — а бессрочные тикали бы
+-- вечно. Поэтому восстановленная особь ЗАМИРАЕТ (unseen): не тикает и
+-- не теряет сроков, пока её не встретят — Ведущий возьмёт в цель или
+-- наведёт, кто-то ударит или спросит её состояние. Встретилась — время
+-- для неё снова идёт с того места, где остановилось.
+--
+-- Не встреченная за сутки (UNSEEN_TTL) в следующее восстановление уже
+-- не попадёт: так удалённые тушки не копятся в сохранении вечно.
+-- ============================================================
+local UNSEEN_TTL = 86400
+
+--- Загрузить особей из сохранения. Только владелец.
+---
+--- СЛИЯНИЕ, А НЕ ЗАМЕНА. Пока Ведущий перезаходил, группа могла
+--- продолжить: её свежие состояния он к этому моменту уже получил
+--- предложениями при пересборке сцены (см. SB.NPC.RequestResync). Живое
+--- знание старше сохранения — поэтому загружаются только особи, которых
+--- владелец сейчас не знает, и рассылаются только они.
+--- @return number|false  сколько особей загружено; false — не владелец
 function SB.NPC.ImportScene(list)
     if not SB.NPC.IsOwner() then return false end
-    SB.NPC.ResetScene()
+    local now  = (time and time()) or 0
     local keys = {}
     for _, e in ipairs(type(list) == "table" and list or {}) do
-        if type(e) == "table" and type(e.key) == "string" and e.key ~= "" then
+        local fresh = not tonumber(e and e.seen) or (now - tonumber(e.seen)) <= UNSEEN_TTL
+        if type(e) == "table" and type(e.key) == "string" and e.key ~= ""
+           and not state[e.key] and fresh then
             local npcID = tonumber(e.npcID) or SB.NPC.NpcIDFromKey(e.key)
             local maxHp = math.max(1, tonumber(e.maxHp) or 1)
             local st = {
@@ -1649,6 +1684,8 @@ function SB.NPC.ImportScene(list)
                 baseMaxHp  = tonumber(e.baseMaxHp) or maxHp,
                 baseMaxRes = tonumber(e.baseMaxRes) or tonumber(e.maxRes) or 0,
                 effects = SB.NPC.UnpackEffects and SB.NPC.UnpackEffects(e.effects) or {},
+                unseen = true,
+                seen   = tonumber(e.seen) or now,
             }
             state[e.key] = st
             if SB.NPC.RestatEffects then SB.NPC.RestatEffects(st) end

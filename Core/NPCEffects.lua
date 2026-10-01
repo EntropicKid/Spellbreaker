@@ -721,6 +721,9 @@ function SB.NPC.TickEffects()
     SB.NPC.EachState(function(key, st)
         local list = ListOf(st)
         if #list == 0 then return end
+        -- Восстановленная и ещё не встреченная особь замерла: её могли
+        -- удалить, пока Ведущего не было (см. «НЕВИДАННЫЕ ОСОБИ» в Core/NPC.lua).
+        if st.unseen then return end
 
         -- ПАВШЕЕ СУЩЕСТВО НЕ ТИКАЕТ. Эффекты с него снимаются молча: гореть
         -- и кровоточить больше нечему, а тик по нулю здоровья писал бы
