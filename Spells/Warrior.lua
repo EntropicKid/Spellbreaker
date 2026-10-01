@@ -32,7 +32,7 @@ Add({
     name = "Подрезать сухожилия",
 	requirement = "melee",
     key = "Оружейный бой",
-    icon = "Interface\\Icons\\Spell_holy_ashestoashes",
+    icon = "Interface\\Icons\\Ability_shockwave",
     level = 1,
     class = "Воин",
     damageType = "physical",
@@ -186,7 +186,7 @@ Add({
     duration = 2,
     debuff = "eff_disarm",
 	scaling = {
-		hit    = { ["Искусность"] = 1, ["Мощь"] = 1 },
+		hit    = { ["Искусность"] = 1.5 },
 	},
 })
 
