@@ -895,7 +895,12 @@ do
         local d = sp.dispel
         if type(d) == "string" then d = { d } end
         if type(d) == "table" then
-            for _, key in ipairs(d) do CheckSchool("dispel", sp.name or id, key) end
+            for _, key in ipairs(d) do
+                -- Гнездо (SB.Data.DispelNests) — законное имя рядом со школами.
+                if not (SB.Data.DispelNests and SB.Data.DispelNests[key]) then
+                    CheckSchool("dispel", sp.name or id, key)
+                end
+            end
         elseif sp.dispel ~= nil then
             badSchools[#badSchools + 1] =
                 ("dispel у «%s»: не строка и не список"):format(sp.name or id)
@@ -2957,6 +2962,104 @@ end)
 ResetEffects()
 _G.SpellbreakerCharDB.zeal = 3
 _G.SpellbreakerCharDB.classResource = 0
+
+-- ============================================================
+-- КРИТ НЕ ВЫШЕ ЧЕТВЕРТИ РЕАЛЬНЫХ ГРАНЕЙ
+--
+-- Пол кубика срезает нижние грани, и прежние 25 граней из 81 давали 31%:
+-- карточка честно показывала больше обещанного потолка.
+-- ============================================================
+do
+    local L = SB.Logic
+    check("на кубике 1-100 потолок — 25 граней",
+          L.GetCritThreshold(999, 100, 1), 76)
+    check("на кубике 20-100 — четверть от 81 грани",
+          L.GetCritThreshold(999, 100, 20), 100 - math.floor(81 * 25 / 100) + 1)
+    local realRange = L.GetRollRange
+    L.GetRollRange = function() return 20, 100 end
+    checkTrue("карточка не показывает больше 25%",
+              L.GetCritChance({ scaling = { crit = { ["Сила"] = 99 } } }) <= 25)
+    L.GetRollRange = realRange
+end
+
+-- ============================================================
+-- НОВЫЕ МЕХАНИКИ ЗАКЛИНАНИЙ: ОСЛЕПЛЕНИЕ, ЧУДО, ЖЕРТВА, ПРОРИЦАНИЕ
+-- ============================================================
+do
+    local AE, PM = SB.ActiveEffects, SB.PlayerModel
+
+    -- «Исцелить недуг» снимает ослепление любой школы, и только его.
+    ResetEffects()
+    AE.Add("eff_blinded_smoke_bomb", 3, false)
+    AE.Add("eff_blinded_dust_darkness", 3, false)
+    AE.Add("t_pain", 3, false)
+    local set = SB.Logic.GetDispelSchools(SB.Data.Spells["cure_blind"])
+    checkTrue("недуг: гнездо ослеплений в списке", set and set["Ослепление"])
+    AE.Dispel(set, 5, true)
+    check("снята дымовая завеса (без школы)", UsesOf("eff_blinded_smoke_bomb"), nil)
+    check("и пылевой морок (магия)",          UsesOf("eff_blinded_dust_darkness"), nil)
+    check("а боль не тронута",                UsesOf("t_pain"), 3)
+    ResetEffects()
+
+    -- «Ревностный защитник»: смертельный удар оставляет на 5 ХП, один раз.
+    SB.Data.Spells["t_cheat"] = { id = "t_cheat", name = "Проверочное чудо",
+        class = "Эффект", level = 0,
+        effect = { kind = "buff", cheatDeath = { heal = 5, chance = 100 } } }
+    PM.SetHealth(3)
+    AE.Add("t_cheat", -1, false)
+    PM.GrantHealth(-10)
+    check("смертельный удар оставил 5 ХП", PM.GetHealth(), 5)
+    check("и чудо израсходовано",          UsesOf("t_cheat"), nil)
+    PM.GrantHealth(-10)
+    check("второй раз чуда нет",           PM.GetHealth(), 0)
+    PM.SetHealth(3)
+    AE.Add("t_cheat", -1, false)
+    PM.GrantHealth(-10, "self")
+    check("своя цена чудом не спасается",  PM.GetHealth(), 0)
+    ResetEffects()
+    PM.SetHealth(PM.GetMaxHealth())
+    checkTrue("у защитника настоящее чудо",
+              SB.Data.Spells["eff_ardent_defender"].effect.cheatDeath ~= nil)
+
+    -- «Длань жертвенности»: 30% удара уходит паладину пакетом.
+    local sent
+    local realSend = SB.Net.SendSacrifice
+    SB.Net.SendSacrifice = function(name, id, n) sent = { name = name, n = n } end
+    SB.Data.PlayersStatus["Паладин"] = { health = 20, maxHealth = 20 }
+    AE.Add("eff_sealofsacrifice", 2, false, "Паладин")
+    local hp0 = PM.GetHealth()
+    PM.GrantHealth(-10)
+    check("носителю — 70%",       hp0 - PM.GetHealth(), 7)
+    check("паладину — 30%",       sent and sent.n, 3)
+    check("именно ему",           sent and sent.name, "Паладин")
+    -- Потолок — здоровье паладина.
+    SB.Data.PlayersStatus["Паладин"].maxHealth = 4
+    sent = nil
+    PM.SetHealth(PM.GetMaxHealth())
+    PM.GrantHealth(-10)
+    check("сверх его запаса не переносится", sent and sent.n, 1)
+    check("и клятва исполнена",              UsesOf("eff_sealofsacrifice"), nil)
+    SB.Net.SendSacrifice = realSend
+    ResetEffects()
+    PM.SetHealth(PM.GetMaxHealth())
+
+    -- «Необнаружимость» не пускает прорицание.
+    AE.Add("eff_undetectable", 5, false)
+    AE.Add("eff_detect_invisibility", 3, false)
+    check("разоблачение не легло", UsesOf("eff_detect_invisibility"), nil)
+    AE.Add("eff_detect_thougts", 3, false)
+    check("и чтение мыслей тоже",  UsesOf("eff_detect_thougts"), nil)
+    ResetEffects()
+
+    -- Падение пёрышком — серверная аура медленного падения.
+    check("пёрышко мага — аура 130",   SB.Data.Spells["eff_mage_featherfall"].caura, 130)
+    check("пёрышко шамана — аура 130", SB.Data.Spells["eff_shaman_featherfall"].caura, 130)
+
+    -- Канал здоровья лечит ценой своей крови.
+    local hf = SB.Data.Spells["health_funnel"]
+    checkTrue("канал здоровья — лечение потоком",
+              hf.isHeal and hf.channel and hf.onCast and hf.onCast.damage > 0)
+end
 
 -- ============================================================
 -- СДВОЕННЫЕ ЗАКЛИНАНИЯ: ЛЕЧЕНИЕ / УРОН В КАРТОЧКЕ
@@ -15461,7 +15564,8 @@ do
     -- Тринадцать, а не шестнадцать: «Подрезать сухожилия», «Контузящий
     -- выстрел» и «Подрезать крылья» переехали в «Замедление» — они
     -- отнимают метры, а не голову (см. проверку выше).
-    check("контрольных эффектов помечено", ctrl, 13)
+    -- Пятнадцать: ещё два эффекта Ведущий пометил контролем сам.
+    check("контрольных эффектов помечено", ctrl, 15)
     checkTrue("оглушение сбивает", SB.Data.ConcentrationBreakers["Оглушение"])
     checkTrue("страх сбивает",     SB.Data.ConcentrationBreakers["Страх"])
     check("а замедление — нет",    SB.Data.ConcentrationBreakers["Замедление"], nil)
@@ -19118,7 +19222,8 @@ do
     local disp = table.concat(L.GetSpellScalingLines(cure), "\n")
     checkTrue("рассеивание называет число",
               disp:find(tostring(L.GetDispelCount(cure, cure.level)), 1, true) ~= nil)
-    checkTrue("и школы, которые снимает",   disp:find("Магия", 1, true) ~= nil)
+    -- «Исцелить недуг» снимает не школу, а гнездо ослеплений.
+    checkTrue("и что именно снимает",       disp:find("Ослепление", 1, true) ~= nil)
 end
 
 -- ============================================================

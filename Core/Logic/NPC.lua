@@ -64,9 +64,9 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
     mod = mod + hitBonus
     for _, p in ipairs(hitParts) do table.insert(modParts, p) end
 
-    local roll, _, rollMax = SB.Logic.Roll()
+    local roll, rollMin, rollMax = SB.Logic.Roll()
     local total  = roll + mod
-    local isCrit = roll >= SB.Logic.GetCritThreshold(critBonus, rollMax)
+    local isCrit = roll >= SB.Logic.GetCritThreshold(critBonus, rollMax, rollMin)
 
     -- ── Бросок защиты существа ────────────────────────────
     -- «Без сопротивления» действует и здесь: заклинание, которому нельзя
@@ -293,9 +293,9 @@ function SB.Logic.ResolveNpcHeal(spellID, slotLevel)
     mod = mod + hitBonus
     for _, p in ipairs(hitParts) do table.insert(modParts, p) end
 
-    local roll, _, rollMax = SB.Logic.Roll()
+    local roll, rollMin, rollMax = SB.Logic.Roll()
     local total  = roll + mod
-    local isCrit = roll >= SB.Logic.GetCritThreshold(critBonus, rollMax)
+    local isCrit = roll >= SB.Logic.GetCritThreshold(critBonus, rollMax, rollMin)
 
     -- Та же база, что у лечения игрока (см. SB.Logic.BaseThresholdFor).
     local threshold = SB.Logic.BaseThresholdFor(stats.level)

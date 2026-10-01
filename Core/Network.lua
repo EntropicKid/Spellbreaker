@@ -848,6 +848,23 @@ end
 --- Peer-to-peer, как лечение и баффы: очищать союзника вправе кто
 --- угодно. Что именно ушло, знает только получатель — он же и пишет
 --- строку в лог (см. SB.Logic.HandleDispelReceived).
+--- Перенесённый урон («Длань жертвенности», см.
+--- SB.ActiveEffects.RedirectDamage): его снимает у себя поручитель.
+--- Только из своей группы и в разумных пределах — пакет снимает здоровье.
+local function ParseSACDMG(sender, t)
+    if t.target ~= UnitName("player") then return end
+    if not (UnitInParty(sender) or UnitInRaid(sender)) then return end
+    local n = math.floor(tonumber(t.amount) or 0)
+    if n <= 0 then return end
+    n = math.min(n, 50)
+    local sp = t.effectID and SB.Data.Spells[t.effectID]
+    SB.PlayerModel.GrantHealth(-n)
+    print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BODY ..
+        "вы приняли " .. n .. " урона за " .. tostring(sender) ..
+        " («" .. ((sp and sp.name) or "Длань") .. "»).|r")
+    SB.Events.Fire("STATUS_CHANGED")
+end
+
 local function ParseDISPEL(t)
     if t.target ~= UnitName("player") then return end
     if not SB.Logic or not SB.Logic.HandleDispelReceived then return end
@@ -857,7 +874,10 @@ local function ParseDISPEL(t)
     local schools = {}
     if type(t.schools) == "table" then
         for key, v in pairs(t.schools) do
-            if v == true and SB.Data.EffectSchools[key] then schools[key] = true end
+            if v == true and (SB.Data.EffectSchools[key]
+                              or (SB.Data.DispelNests and SB.Data.DispelNests[key])) then
+                schools[key] = true
+            end
         end
     end
     if next(schools) == nil then return end
@@ -1567,6 +1587,7 @@ Dispatch = function(sender, t)
     elseif action == "AOEHL"   then ParseAOEHL(t)
     elseif action == "AOEHLR"  then ParseAOEHLR(t)
     elseif action == "DISPEL"  then ParseDISPEL(t)
+    elseif action == "SACDMG"  then ParseSACDMG(sender, t)
     elseif action == "NPCST"   then ParseNPCST(sender, t)
     elseif action == "NPCSTB"  then ParseNPCSTB(sender, t)
     elseif action == "NPCDLT"  then ParseNPCDLT(sender, t)
@@ -2394,6 +2415,17 @@ end
 --- @param friend boolean  считает ли ЗАКЛИНАТЕЛЬ цель своим другом —
 ---        список друзей есть только у него, получателю его не видно
 ---        (см. врезку «РАССЕИВАНИЕ» в Core/Logic.lua)
+--- Перенести урон поручителю (см. ParseSACDMG).
+function SB.Net.SendSacrifice(targetName, effectID, amount)
+    if not IsInGroup() then return end
+    SendToPlayer({
+        action   = "SACDMG",
+        target   = targetName,
+        effectID = effectID,
+        amount   = amount,
+    }, targetName, "ALERT")
+end
+
 function SB.Net.SendDispel(targetName, spellID, schools, count, effectID, slot, friend)
     if not IsInGroup() then return end
     SendToPlayer({

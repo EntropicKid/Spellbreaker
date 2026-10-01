@@ -1140,7 +1140,33 @@ end
 --- поломка, которую в сцене никто не заметит.
 function PM.GrantHealth(delta, cause)
     local before = PM.GetHealth()
-    local newHP  = math.max(0, before + (tonumber(delta) or 0))
+    delta = tonumber(delta) or 0
+    local external = delta < 0 and cause ~= "self"
+
+    -- ПЕРЕНОС УРОНА («Длань жертвенности»): часть удара уходит
+    -- поручителю (см. SB.ActiveEffects.RedirectDamage).
+    if external and SB.ActiveEffects and SB.ActiveEffects.RedirectDamage then
+        delta = -SB.ActiveEffects.RedirectDamage(-delta)
+    end
+
+    local newHP  = math.max(0, before + delta)
+
+    -- ОБМАНУТЬ СМЕРТЬ («Ревностный защитник»): смертельный удар извне
+    -- оставляет на краю (см. SB.ActiveEffects.TryCheatDeath).
+    if external and newHP <= 0 and before > 0
+       and SB.ActiveEffects and SB.ActiveEffects.TryCheatDeath then
+        local heal, name = SB.ActiveEffects.TryCheatDeath()
+        if name and SB.E.BROADCAST_LOG then
+            SB.Events.Fire(SB.E.BROADCAST_LOG,
+                SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. SB.Theme.MSG_BODY ..
+                (UnitName("player") or "?") .. ": «" .. name .. "» — " ..
+                (heal and ("удар не убил, осталось " .. math.min(heal, PM.GetMaxHealth()) .. " ХП")
+                       or "чуда не случилось") .. ".|r",
+                SB.LogRank and SB.LogRank.RESULT)
+        end
+        if heal then newHP = math.min(heal, PM.GetMaxHealth()) end
+    end
+
     db().health = newHP
     SB.Events.Fire(SB.E.PLAYER_MODEL_CHANGED)
 

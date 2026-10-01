@@ -532,8 +532,17 @@ AddEffect({
     id   = "eff_sealofsacrifice",
     name = "Длань жертвенности",
     icon = "Interface\\Icons\\Spell_holy_sealofsacrifice",
-    description = "Клятва связала двоих: чужая боль уходит к паладину. Защищённому легко, поручителю тяжело.",
-    effect = { kind = "buff", school = "magic", family = "Длань паладина", mods = { armor = 35, defense = 10 } },
+    description = "Клятва связала двоих: 30% урона защищённого уходит паладину. Когда перенесено столько, сколько у паладина здоровья, клятва исполнена.",
+    effect = { kind = "buff", school = "magic", family = "Длань паладина", redirect = { pct = 30 } },
+})
+
+AddEffect({
+    -- Ревностный защитник (Паладин, круг 3).
+    id   = "eff_ardent_defender",
+    name = "Ревностный защитник",
+    icon = "Interface\\Icons\\Spell_holy_ardentdefender",
+    description = "Свет бережёт заступника для одного-единственного чуда. Смертельный удар с вероятностью 75% оставит его на ногах с 5 ХП. Расходуется при первом же смертельном ударе.",
+    effect = { kind = "buff", cheatDeath = { heal = 5, chance = 75 } },
 })
 
 AddEffect({
@@ -804,8 +813,12 @@ AddEffect({
     id   = "eff_mage_featherfall",
     name = "Падение перышком",
     icon = "Interface\\Icons\\Spell_magic_featherfall",
-    description = "Вес почти исчез: падение стало медленным и безопасным.",
-    effect = { kind = "buff", school = "magic", mods = { defense = 12 } },
+    description = "Вес почти исчез: падение медленное и безопасное. Удары и атаки это не смягчает.",
+    -- НАСТОЯЩЕЕ МЕДЛЕННОЕ ПАДЕНИЕ: пока эффект висит, сервер держит на
+    -- носителе ауру «Медленного падения» (spell 130) — персонаж и в игре
+    -- падает плавно и не разбивается (см. SB.ActiveEffects.SyncCauras).
+    caura = 130,
+    effect = { kind = "buff", school = "magic" },
 })
 
 AddEffect({
@@ -838,7 +851,7 @@ AddEffect({
     name = "Тёмное зрение",
     icon = "Interface\\Icons\\Inv_12_trinket_raid_voidspire_int1_voiddragoneye",
     description = "Полная темнота стала серой и различимой. Цвета в ней пропали.",
-    effect = { kind = "buff", school = "magic", stats = { ["Интуиция"] = 1, ["Скрытность"] = 1 } },
+    effect = { kind = "buff", school = "magic", stats = { ["Анализ"] = 2, ["Интуиция"] = 1 } },
 })
 
 AddEffect({
@@ -853,8 +866,26 @@ AddEffect({
     id   = "eff_detect_thougts",
     name = "Обнаружение мыслей",
     icon = "Interface\\Icons\\Spell_arcane_focusedpower",
-    description = "Поверхностные мысли рядом слышны как обрывки разговора в соседней комнате.",
-    effect = { kind = "buff", school = "magic", stats = { ["Анализ"] = 1, ["Интуиция"] = 2 } },
+    description = "Поверхностные мысли открыты магу: ложь и замысел видны раньше, чем сказаны или сделаны.",
+    effect = { kind = "debuff", family = "Прорицание", resist = "Интеллект", school = "magic", stats = { ["Внушение"] = -3, ["Скрытность"] = -2 }, mods = { defense = -5 } },
+})
+
+AddEffect({
+    -- Обнаружить невидимое (Чернокнижник, круг 2).
+    id   = "eff_detect_invisibility",
+    name = "Видим демоническому глазу",
+    icon = "Interface\\Icons\\Sha_ability_rogue_bloodyeye_nightborne",
+    description = "Магическая маскировка тает под взглядом чернокнижника. Кусты и удачный грим по-прежнему работают; могущественные чары и демоны сопротивляются.",
+    effect = { kind = "debuff", family = "Прорицание", resist = "Дух", stats = { ["Скрытность"] = -6 } },
+})
+
+AddEffect({
+    -- Ритуал призыва (Чернокнижник, круг 3).
+    id   = "eff_ritual_exhaustion",
+    name = "Истощение ритуалом",
+    icon = "Interface\\Icons\\Achievement_dungeon_outland_dungeonmaster",
+    description = "Грань между планами разорвана собственной душой. Сил меньше, руки дрожат, повторить обряд нельзя. Проходит только после долгого отдыха.",
+    effect = { kind = "debuff", mods = { maxCastResource = -1, attack = -10 } },
 })
 
 AddEffect({
@@ -869,16 +900,16 @@ AddEffect({
     id   = "eff_undetectable",
     name = "Необнаружимость",
     icon = "Interface\\Icons\\Inv12_apextalent_mage_touchofthearchmage",
-    description = "Аура, голос и место цели скрыты от любого прорицания. Обычным глазам она видна как всегда.",
-    effect = { kind = "buff", school = "magic", mods = { defense = 25 }, stats = { ["Скрытность"] = 2 } },
+    description = "Аура, голос и место цели скрыты от любого прорицания: обнаружение и чтение мыслей её не берут. Обычным глазам она видна как всегда.",
+    effect = { kind = "buff", school = "magic", suppress = { "Прорицание" } },
 })
 
 AddEffect({
     id   = "eff_image",
     name = "Образ",
     icon = "Interface\\Icons\\Inv_112_raidtrinkets_netheroverlaymatrix",
-    description = "Иллюзия говорит, пахнет и греет. Отличить её от настоящего можно только на ощупь.",
-    effect = { kind = "buff", school = "magic", stats = { ["Внушение"] = 2 } },
+    description = "Иллюзия говорит, пахнет, греет и отвлекает удары на себя. Настоящая рана выдаёт обман — образ рассеивается.",
+    effect = { kind = "buff", school = "magic", mods = { defense = 20 }, stats = { ["Внушение"] = 2 }, breakOn = { damaged = true } },
 })
 
 -- ==========================================================
@@ -959,8 +990,12 @@ AddEffect({
     id   = "eff_shaman_featherfall",
     name = "Падение перышком",
     icon = "Interface\\Icons\\Inv_icon_feather06e",
-    description = "Падение стало медленным, будто вес почти исчез.",
-    effect = { kind = "buff", school = "magic", mods = { defense = 12 } },
+    description = "Падение стало медленным, будто вес почти исчез. Удары и атаки это не смягчает.",
+    -- НАСТОЯЩЕЕ МЕДЛЕННОЕ ПАДЕНИЕ: пока эффект висит, сервер держит на
+    -- носителе ауру «Медленного падения» (spell 130) — персонаж и в игре
+    -- падает плавно и не разбивается (см. SB.ActiveEffects.SyncCauras).
+    caura = 130,
+    effect = { kind = "buff", school = "magic" },
 })
 
 AddEffect({
@@ -1310,8 +1345,20 @@ AddEffect({
     id   = "eff_druid_prophetic_dream",
     name = "Вещий сон",
     icon = "Interface\\Icons\\spell_arcane_teleportmoonglade",
-    description = "Друид держит чужой сон в руках и может показать в нём что угодно.",
-    effect = { kind = "buff", school = "magic", stats = { ["Внушение"] = 2, ["Интуиция"] = 1 } },
+    description = "Друид в трансе: видит окружение, но тело не двигается. Он держит чужой сон в руках и может показать в нём что угодно. Рана обрывает транс.",
+    effect = { kind = "buff", school = "magic", stats = { ["Внушение"] = 2, ["Интуиция"] = 1 }, mods = { movePct = -200 }, breakOn = { damaged = true } },
+})
+
+AddEffect({
+    -- Кошмар из Вещего сна (Друид, круг 3). Выдаёт Ведущий тому, кому
+    -- друид сделал сон кошмаром: цель не отдохнула, и первый бросок
+    -- после пробуждения — с помехой.
+    id   = "eff_druid_nightmare",
+    name = "Кошмар",
+    icon = "Interface\\Icons\\Spell_shadow_nightmare",
+    description = "Сон не принёс отдыха. Первое действие после пробуждения — с помехой; потом кошмар отпускает.",
+    effect = { kind = "debuff", school = "magic", mods = { attack = -20 },
+               onAction = { when = "cast", consume = true } },
 })
 
 AddEffect({
@@ -3702,8 +3749,8 @@ AddEffect({
     id   = "eff_call_pet",
     name = "Призыв питомца",
     icon = "Interface\\Icons\\Spell_shadow_shadowward",
-    description = "Зверь призван и держится подле владельца, слушаясь его приказов. Учитывается мастером.",
-    effect = { kind = "buff" },
+    description = "Зверь рядом: отвлекает врага, прикрывает хозяина и держит след. Один питомец за раз.",
+    effect = { kind = "buff", family = "Питомец", mods = { attack = 5, defense = 5 }, stats = { ["Выживание"] = 1 } },
 })
 
 AddEffect({

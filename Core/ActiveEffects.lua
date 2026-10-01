@@ -3523,6 +3523,24 @@ end
 --- @param friend boolean|nil  true/nil — цель другом, снимаем дебаффы;
 ---        false — цель чужая, снимаем баффы
 --- @return table  имена снятых эффектов, по порядку снятия
+--- Снимается ли эффект рассеиванием с этим множеством школ/семейств.
+--- Одна проверка на игрока и на существо (см. SB.NPC.DispelEffects).
+function SB.ActiveEffects.MatchesDispel(spellID, set)
+    if type(set) ~= "table" then return false end
+    local school = SB.ActiveEffects.GetSchool(spellID)
+    local info   = school and SB.Data.EffectSchools[school]
+    -- Школа, объявленная неснимаемой (кровотечение), не берётся
+    -- ничем — даже если заклинание почему-то её запросило.
+    if school and set[school] and not (info and info.undispellable) then
+        return true
+    end
+    -- ГНЕЗДО — из объявленных снимаемыми (SB.Data.DispelNests).
+    for key, nest in pairs(SB.Data.DispelNests or {}) do
+        if set[key] and SB.Data.InNest(spellID, nest) then return true end
+    end
+    return false
+end
+
 function SB.ActiveEffects.Dispel(schools, count, friend)
     count = math.floor(tonumber(count) or 0)
     if type(schools) ~= "table" or count <= 0 then return {} end
@@ -3534,12 +3552,7 @@ function SB.ActiveEffects.Dispel(schools, count, friend)
     local doomed, names = {}, {}
     for _, eff in ipairs(effects) do
         if #doomed >= count then break end
-        local school = SB.ActiveEffects.GetSchool(eff.spellID)
-        local info   = school and SB.Data.EffectSchools[school]
-        -- Школа, объявленная неснимаемой (кровотечение), не берётся
-        -- ничем — даже если заклинание почему-то её запросило.
-        if school and schools[school]
-           and not (info and info.undispellable)
+        if SB.ActiveEffects.MatchesDispel(eff.spellID, schools)
            and SB.ActiveEffects.GetKind(eff.spellID) == wantKind then
             local sp = SB.Data.Spells[eff.spellID]
             doomed[#doomed + 1] = eff.spellID
@@ -3805,6 +3818,98 @@ end)
 SB.Events.On(SB.E.CAST_CONFIRMED, function()
     SB.ActiveEffects.BreakOn("action")
 end)
+
+-- ============================================================
+-- ОБМАНУТЬ СМЕРТЬ (effect.cheatDeath)
+--
+--   effect = { kind = "buff", cheatDeath = { heal = 5, chance = 75 } }
+--
+-- Удар извне, который опустил бы здоровье до нуля, вместо этого
+-- оставляет носителя с heal ХП — с шансом chance% (ровный кубик 1-100,
+-- как у onAction.chance). Эффект расходуется при любом исходе: чудо
+-- случается один раз, сработало оно или нет («Ревностный защитник»).
+--
+-- ТОЛЬКО УДАР ИЗВНЕ. Своя цена — Жизнеотвод, Канал здоровья, усталость
+-- от бега — убивает честно: обмануть смерть, которую сам себе выбрал,
+-- было бы бесплатной кровью для чернокнижника.
+-- ============================================================
+
+--- @return number|nil heal  сколько ХП оставить (nil — чуда не было)
+--- @return string|nil name   имя сработавшего эффекта (nil — нечему)
+function SB.ActiveEffects.TryCheatDeath()
+    for _, eff in ipairs(effects) do
+        local sp = SB.Data.Spells[eff.spellID]
+        local cd = sp and type(sp.effect) == "table" and sp.effect.cheatDeath
+        if type(cd) == "table" then
+            local name = (sp and sp.name) or eff.spellID
+            local need = math.max(0, math.min(100, tonumber(cd.chance) or 100))
+            local ok   = SB.Logic.RollPlain() <= need
+            SB.ActiveEffects.Remove(eff.spellID, true)
+            if ok then
+                return math.max(1, math.floor(tonumber(cd.heal) or 1)), name
+            end
+            return nil, name
+        end
+    end
+    return nil, nil
+end
+
+-- ============================================================
+-- ПЕРЕНОС УРОНА (effect.redirect) — «Длань жертвенности»
+--
+--   effect = { kind = "buff", redirect = { pct = 30 } }
+--
+-- Доля урона извне, пришедшего носителю, уходит тому, кто наложил
+-- эффект (eff.src): носитель получает остаток, наложившему уезжает пакет
+-- SACDMG, и его клиент снимает это здоровье у себя.
+--
+-- ПОТОЛОК — ПОЛНЫЙ ЗАПАС ЗДОРОВЬЯ ПОРУЧИТЕЛЯ (из его сетевого статуса):
+-- перенесено столько — клятва исполнена, эффект спадает. Статуса нет —
+-- потолка тоже нет, эффект спадёт по сроку.
+--
+-- Наложил сам на себя — переносить некому, эффект ничего не делает.
+-- ============================================================
+
+--- @param amount number  входящий урон (положительное число)
+--- @return number  сколько урона остаётся носителю
+function SB.ActiveEffects.RedirectDamage(amount)
+    amount = tonumber(amount) or 0
+    if amount <= 0 then return amount end
+    local me = UnitName("player")
+    for _, eff in ipairs(effects) do
+        local sp = SB.Data.Spells[eff.spellID]
+        local rd = sp and type(sp.effect) == "table" and sp.effect.redirect
+        if type(rd) == "table" and eff.src and eff.src ~= me then
+            local pct   = math.max(0, math.min(100, tonumber(rd.pct) or 0))
+            local share = math.floor(amount * pct / 100 + 0.5)
+            if share <= 0 then return amount end
+
+            local st  = SB.Data.PlayersStatus and SB.Data.PlayersStatus[eff.src]
+            local cap = st and tonumber(st.maxHealth)
+            local done = (eff.redirected or 0) + share
+            local spent = false
+            if cap and done >= cap then
+                share = math.max(0, share - (done - cap))
+                spent = true
+            end
+            eff.redirected = (eff.redirected or 0) + share
+
+            if share > 0 and SB.Net and SB.Net.SendSacrifice then
+                SB.Net.SendSacrifice(eff.src, eff.spellID, share)
+            end
+            if share > 0 and SB.E.BROADCAST_LOG then
+                SB.Events.Fire(SB.E.BROADCAST_LOG,
+                    SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. SB.Theme.MSG_BODY ..
+                    me .. ": " .. share .. " урона уходит к " .. eff.src ..
+                    " («" .. ((sp and sp.name) or eff.spellID) .. "»).|r",
+                    SB.LogRank and SB.LogRank.RESULT)
+            end
+            if spent then SB.ActiveEffects.Remove(eff.spellID) end
+            return amount - share
+        end
+    end
+    return amount
+end
 
 function SB.ActiveEffects.Clear()
     effects = {}

@@ -462,7 +462,7 @@ Add({
     canCrit = false,
 	duration = 4800,
     isConcentration = false,
-	distance = -1,
+	distance = 0,
     container = "eff_druid_prophetic_dream",
 	scaling = {
 		hit    = { ["Исток"] = 1.5, ["Интуиция"] = 1 },
