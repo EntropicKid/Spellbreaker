@@ -1892,8 +1892,9 @@ do
     -- базу — равенством, скейлинг — потолком. Назначенная пятёрка
     -- срезалась бы до потолка, урон уходил бы в ноль, и проверка мерила
     -- бы сверку вместо порядка. Берём ровно то, что сверка пропустит.
-    local _, ceilBonus = SB.Logic.MaxPlausibleDamage(SB.Data.Spells["t_bal_hit"], 1)
-    checkTrue("сила пробного удара пробивает доспех", ceilBonus > ABSORB)
+    local okBase, ceilBonus = SB.Logic.MaxPlausibleDamage(SB.Data.Spells["t_bal_hit"], 1)
+    local power = okBase + ceilBonus
+    checkTrue("сила пробного удара пробивает доспех", power > ABSORB)
 
     local PM = SB.PlayerModel
     local function hit(isCrit)
@@ -1901,27 +1902,25 @@ do
         local before = PM.GetHealth()
         -- Порядок хвоста: (dmgBonus, baseDmg, slot).
         --
-        -- СИЛА УДАРА НАБИРАЕТСЯ СКЕЙЛИНГОМ, а не базой: базу
-        -- защищающийся пересчитывает сам (VerifyIncomingDamage), и у
-        -- заклинания выше нулевого круга она равна нулю. Прислать
-        -- пятёрку базой значило бы получить в ответ претензию о подлоге
-        -- и обнулённый урон — то есть проверка мерила бы сверку, а не
-        -- порядок защиты и крита.
+        -- СИЛА УДАРА НАБИРАЕТСЯ СКЕЙЛИНГОМ, а база — ровно своя: её
+        -- защищающийся пересчитывает сам (VerifyIncomingDamage), и
+        -- завышенная получила бы претензию о подлоге — проверка мерила бы
+        -- сверку, а не порядок защиты и крита.
         SB.Logic.HandlePvpAttackReceived("Ирина", "t_bal_hit",
-            90, 900, 999, isCrit, ceilBonus, 0, 1)
+            90, 900, 999, isCrit, ceilBonus, okBase, 1)
         return before - PM.GetHealth()
     end
 
     local plain = hit(false)
     local crit  = hit(true)
-    check("обычный удар: сила минус доспех", plain, ceilBonus - ABSORB)
+    check("обычный удар: сила минус доспех", plain, power - ABSORB)
     -- ВОТ РАДИ ЧЕГО ВСЁ. При старом порядке было бы
     -- (сила×2 − доспех), то есть на целый доспех больше.
     check("крит удваивает ПРОШЕДШЕЕ, а не прилетевшее",
-          crit, (ceilBonus - ABSORB) * 2)
+          crit, (power - ABSORB) * 2)
     checkTrue("крит ровно вдвое опаснее обычного", crit == plain * 2)
     checkTrue("и это не то же самое, что удвоить до защиты",
-              crit ~= ceilBonus * 2 - ABSORB)
+              crit ~= power * 2 - ABSORB)
 
     SB.Skills.MitigateDamage = realMit
 
@@ -3092,14 +3091,23 @@ stub.world.inGroup = false
 -- ============================================================
 -- ЛЕЧЕНИЕ: БАЗА НА ЛЮБОМ КРУГЕ И КРИТ
 --
--- База у урона намеренно только на заговорах (см. GetCastPower), у
--- лечения — на всех кругах: удавшийся бросок, восстановивший «0 ХП»,
--- читается как поломка аддона.
+-- База — на всех кругах, и у урона, и у лечения: одна формула
+-- «база + скейлинг» (см. GetCastPower и GetHealPower).
 -- ============================================================
 local firstCircle = { id = "x", level = 1 }
 local cantrip     = { id = "x", level = 0 }
 
-check("урон первого круга без базы",   SB.Logic.GetCastPower(firstCircle, 0), 0)
+check("урон первого круга с базой",     SB.Logic.GetCastPower(firstCircle, 0), 1)
+check("урон заговора с базой",          SB.Logic.GetCastPower(cantrip, 0), 1)
+-- Заниженная база (клиент прежней версии) выправляется молча, без претензии.
+do
+    local b, _, note = SB.Logic.VerifyIncomingDamage(firstCircle, 1, 0, 0)
+    check("заниженная база выправляется", b, 1)
+    check("и без претензии", note, nil)
+    local b2, _, note2 = SB.Logic.VerifyIncomingDamage(firstCircle, 1, 5, 0)
+    check("завышенная — тоже", b2, 1)
+    checkTrue("но с претензией", note2 ~= nil)
+end
 check("исцеление первого круга с базой", SB.Logic.GetHealPower(firstCircle, 0), 1)
 check("исцеление заговора с базой",      SB.Logic.GetHealPower(cantrip, 0), 1)
 
