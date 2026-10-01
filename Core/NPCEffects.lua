@@ -236,7 +236,7 @@ function SB.NPC.RestatEffects(st, unit)
 
     -- Считаем ПРЯМО ПО СПИСКУ этого состояния, а не через EffectMod(unit):
     -- пересчёт зовётся и для особей, которых сейчас нет в цели.
-    local hpMod, resMod = 0, 0
+    local hpMod, resMod, srcPts = 0, 0, 0
     local AE   = SB.ActiveEffects
     local pool = PoolOf(st)
     if AE and AE.GetEffectDef then
@@ -253,7 +253,7 @@ function SB.NPC.RestatEffects(st, unit)
             --
             -- ШАГ БЕРЁМ ТОТ ЖЕ, что у игрока: очко Живучести — единица
             -- здоровья (SB.Skills.GetVitalityBonus), очко Истока —
-            -- единица ресурса каста (GetResourceBonus). Своя шкала здесь
+            -- +20% максимума ресурса (SB.Skills.ApplySource). Своя шкала здесь
             -- означала бы, что один и тот же бафф даёт игроку и волку
             -- разное.
             --
@@ -265,7 +265,7 @@ function SB.NPC.RestatEffects(st, unit)
             if stats then
                 hpMod  = hpMod  + (stats["Живучесть"] or 0)
                                   * ((SB.Skills and SB.Skills.VITALITY_PER_POINT) or 2)
-                resMod = resMod + (stats["Исток"]     or 0)
+                srcPts = srcPts + (stats["Исток"]     or 0)
             end
 
             if mods then
@@ -287,7 +287,11 @@ function SB.NPC.RestatEffects(st, unit)
     local lostRes = math.max(0, st.maxRes - st.res)
 
     st.maxHp  = math.max(1, st.baseMaxHp  + hpMod)
-    st.maxRes = math.max(0, st.baseMaxRes + resMod)
+    local maxRes = st.baseMaxRes + resMod
+    if srcPts ~= 0 and SB.Skills and SB.Skills.ApplySource then
+        maxRes = SB.Skills.ApplySource(maxRes, srcPts)
+    end
+    st.maxRes = math.max(0, maxRes)
     st.hp     = math.max(0, math.min(st.maxHp,  st.maxHp  - lostHp))
     st.res    = math.max(0, math.min(st.maxRes, st.maxRes - lostRes))
 end

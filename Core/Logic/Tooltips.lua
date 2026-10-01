@@ -74,8 +74,12 @@ SB.Data.Tooltips["resource_caster"] = {
     lines = {
         "Плата за заклинание: N-й круг стоит N маны, заговор бесплатен.",
         function()
-            return "Максимум по рангу: " .. RankValues(SB.Data.Config.MaxZeal) ..
-                " (" .. RankNames() .. "). Возвращает только Долгий Отдых."
+            local cfg = SB.Data.Config
+            local at = {}
+            for _, l in ipairs(cfg.ManaLevels or {}) do at[#at + 1] = tostring(l) end
+            return "Максимум: " .. (cfg.ManaBase or 3) .. " на старте и +1 на уровнях " ..
+                table.concat(at, ", ") .. "; «Исток» — +" .. (cfg.SourcePctPerPoint or 20) ..
+                "% за очко. Возвращает только Долгий Отдых."
         end,
     },
 }

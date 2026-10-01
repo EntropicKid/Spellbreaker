@@ -1114,7 +1114,7 @@ local function ParseSTATUS(sender, t)
     existing.maxZeal        = t.maxZeal or
         ((SB.Data.NonCasterClasses and SB.Data.NonCasterClasses[t.class])
             and SB.Data.MaxClassResourceFor(t.mastery)
-            or (SB.Data.Config.MaxZeal[t.mastery] or 1))
+            or (SB.Data.Config.ManaBase or 3))
     -- Отсутствующее поле не затираем нулём и вообще не выдумываем: было
     -- известно старое значение — оно и остаётся. Пакет без здоровья
     -- значит «не сказали», а не «умер» (см. BuildStatusPayload).

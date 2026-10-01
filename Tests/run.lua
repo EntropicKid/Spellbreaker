@@ -2318,6 +2318,9 @@ do
             SB.Cooldowns.Start(SB.Cooldowns.TURN)
             stub.world.time = stub.world.time + 10
 
+            -- Полный запас перед каждым: проверяется маршрут, а не
+            -- остаток маны после предыдущих сотворений.
+            SpellbreakerCharDB.zeal = SB.PlayerModel.GetMaxZeal()
             SB.Logic.ConfirmCast(id, 1)
             stub.RunTimers()
 
@@ -2924,6 +2927,56 @@ _G.SpellbreakerCharDB.zeal = 3
 _G.SpellbreakerCharDB.classResource = 0
 
 -- ============================================================
+-- МАНА ОТ УРОВНЯ, «ИСТОК» — ПРОЦЕНТ
+--
+-- Мана: 3 на старте и +1 на уровнях 4, 7, …, 25 — от ранга не зависит.
+-- Исток: +20% максимума ресурса за текущее очко (с баффами), у кастеров
+-- и некастеров; ниже нуля не штрафует. Округление — до ближайшего.
+-- ============================================================
+do
+    local wasLevel = stub.world.level
+    local function manaAt(l) stub.world.level = l; return SB.Data.ManaForLevel() end
+    check("мана на 1-м уровне",  manaAt(1),  3)
+    check("на 3-м ещё 3",        manaAt(3),  3)
+    check("на 4-м — 4",          manaAt(4),  4)
+    check("на 7-м — 5",          manaAt(7),  5)
+    check("на 24-м — 10",        manaAt(24), 10)
+    check("на 25-м — 11",        manaAt(25), 11)
+    stub.world.level = wasLevel
+
+    check("очко Истока — +20%",          SB.Skills.SourceMultiplier(1), 1.2)
+    check("пять очков — вдвое",          SB.Skills.SourceMultiplier(5), 2)
+    check("минус не штрафует",           SB.Skills.SourceMultiplier(-3), 1)
+    check("3 маны и очко — 4 (3,6)",     SB.Skills.ApplySource(3, 1), 4)
+    check("3 маны и два очка — 4 (4,2)", SB.Skills.ApplySource(3, 2), 4)
+    check("11 маны и два очка — 15",     SB.Skills.ApplySource(11, 2), 15)
+    check("3 Ярости и пять очков — 6",   SB.Skills.ApplySource(3, 5), 6)
+
+    -- Бафф на Исток двигает максимум и у кастера, и у некастера.
+    ResetEffects()
+    SB.Data.Spells["t_src_buff"] = { id = "t_src_buff", name = "Проверочный исток",
+        class = "Эффект", level = 0,
+        effect = { kind = "buff", stats = { ["Исток"] = 5 } } }
+    AsClass("Маг", "MAGE", function()
+        local mult0 = SB.Skills.GetResourceMultiplier()
+        local raw = SB.PlayerModel.GetMaxZeal() / mult0
+        SB.ActiveEffects.Add("t_src_buff", 3, false)
+        checkTrue("бафф Истока растит ману",
+                  SB.PlayerModel.GetMaxZeal() >= math.floor(raw * 2 + 0.5) - 1)
+        ResetEffects()
+    end)
+    AsClass("Воин", "WARRIOR", function()
+        local before = SB.PlayerModel.GetMaxClassResource()
+        SB.ActiveEffects.Add("t_src_buff", 3, false)
+        checkTrue("и Ярость воина", SB.PlayerModel.GetMaxClassResource() > before)
+        ResetEffects()
+    end)
+    SB.Data.Spells["t_src_buff"] = nil
+    _G.SpellbreakerCharDB.zeal = 3
+    _G.SpellbreakerCharDB.classResource = 0
+end
+
+-- ============================================================
 -- ОПОРНАЯ ТОЧКА МАКСИМУМА НЕ ДОЛЖНА УСТАРЕВАТЬ
 --
 -- «Иногда бафф поднимает максимум, а текущее не растёт» — жалоба без
@@ -2945,16 +2998,20 @@ do
         -- Ранг повыше — и синхронизация на нём отработала, то есть
         -- опорная точка запомнила БОЛЬШОЙ потолок. Именно этим и опасно
         -- падение ранга: точка остаётся от прежнего мира.
-        SB.PlayerModel.SetMastery("Эксперт")
+        -- Мана идёт от уровня (SB.Data.ManaForLevel), поэтому потолок
+        -- двигаем уровнем, а событие — тем же одиноким PLAYER_MODEL_CHANGED.
+        local wasLevel = stub.world.level
+        stub.world.level = 25
         ResetEffects()                      -- шлёт ACTIVE_EFFECTS_CHANGED
         _G.SpellbreakerCharDB.zeal = SB.PlayerModel.GetMaxZeal()
         local highMax = SB.PlayerModel.GetMaxZeal()
 
         -- Ранг упал — это шлёт ТОЛЬКО PLAYER_MODEL_CHANGED, мимо прежних
         -- четырёх подписок.
-        SB.PlayerModel.SetMastery("Неофит")
+        stub.world.level = 1
+        SB.Events.Fire(SB.E.PLAYER_MODEL_CHANGED)
         local lowMax = SB.PlayerModel.GetMaxZeal()
-        checkTrue("падение ранга снизило потолок маны", lowMax < highMax)
+        checkTrue("падение уровня снизило потолок маны", lowMax < highMax)
         check("и текущее прижалось к нему", SB.PlayerModel.GetZeal(), lowMax)
 
         -- А теперь бафф на максимум. Прибавка обязана дойти до текущего.
@@ -2964,6 +3021,7 @@ do
         check("и текущее вместе с ним", SB.PlayerModel.GetZeal(), before + 2)
 
         ResetEffects()
+        stub.world.level = wasLevel
         _G.SpellbreakerCharDB.mastery = wasMastery
     end)
 
@@ -3325,11 +3383,10 @@ do
     -- того, в какой школе он силён.
     check("ранг героя — лучший из кастерских", PM.GetMastery(), "Эксперт")
 
-    -- И ЭТО ВИДНО ТАМ, РАДИ ЧЕГО ПРАВКА: запас и подготовка считаются
-    -- по эксперту, а не по неофиту.
-    checkTrue("запас ресурса — по эксперту",
-              PM.GetMaxZeal() > (SB.Data.Config.MaxZeal["Неофит"] or 0))
-    checkTrue("и лимит подготовки тоже",
+    -- И ЭТО ВИДНО ТАМ, РАДИ ЧЕГО ПРАВКА: подготовка считается по
+    -- эксперту, а не по неофиту. (Запас маны от ранга больше не зависит
+    -- вовсе — он идёт от уровня, см. SB.Data.ManaForLevel.)
+    checkTrue("лимит подготовки — по эксперту",
               PM.GetMaxPrepared() >
                   ((SB.Data.Config.MaxPrepared or {})["Неофит"] or 0))
 

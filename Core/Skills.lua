@@ -213,7 +213,7 @@ function SB.Skills.GetUnspentPoints()
 end
 
 -- Часть навыков двигает производные величины игрока: "Живучесть" —
--- максимум здоровья, "Исток" — максимум ресурса каста. Полоски в шапке
+-- максимум здоровья, "Исток" — максимум ресурса (в процентах). Полоски в шапке
 -- перерисовываются по PLAYER_MODEL_CHANGED, поэтому его шлём всегда:
 -- распределение очков происходит редко, экономить тут нечего, а
 -- «забыли добавить новый навык в список исключений» — типовой баг.
@@ -411,12 +411,33 @@ function SB.Skills.GetEruditionPreparedBonus()
     return Over("Эрудиция")
 end
 
--- ── Исток: +1 максимума ресурса каста за вложенное очко ──────
--- Только кастерам: у некастеров ресурс принципиально фиксирован
--- (см. Config.MaxClassResource), и растить его навыком нельзя.
-function SB.Skills.GetResourceBonus()
-    if SB.PlayerModel and not SB.PlayerModel.IsCaster() then return 0 end
-    return Over("Исток")
+-- ── Исток: +20% максимума ресурса каста за текущее очко ──────
+-- У ВСЕХ: и мана кастера, и Ярость/Энергия некастера. Очки — текущие,
+-- с баффами и дебаффами (GetEffective); ниже нуля навык не штрафует.
+-- Процент — Config.SourcePctPerPoint.
+--- @param points number  очки Истока (отрицательные считаются нулём)
+--- @return number  множитель максимума, не меньше единицы
+function SB.Skills.SourceMultiplier(points)
+    local pct = tonumber(SB.Data.Config.SourcePctPerPoint) or 20
+    return 1 + math.max(0, tonumber(points) or 0) * pct / 100
+end
+
+--- Множитель своего Истока.
+function SB.Skills.GetResourceMultiplier()
+    return SB.Skills.SourceMultiplier(Over("Исток"))
+end
+
+--- Применить Исток к максимуму: умножить и округлить до ближайшего
+--- целого (половина — вверх). Округление вниз съедало бы первое очко
+--- целиком: 3 маны × 1,2 = 3,6 давали бы те же 3.
+--- @param total number  максимум до Истока
+--- @param points number|nil  очки Истока (по умолчанию свои)
+function SB.Skills.ApplySource(total, points)
+    total = tonumber(total) or 0
+    if total <= 0 then return total end
+    local mult = points ~= nil and SB.Skills.SourceMultiplier(points)
+                 or SB.Skills.GetResourceMultiplier()
+    return math.floor(total * mult + 0.5)
 end
 
 -- ============================================================
@@ -1817,7 +1838,7 @@ SB.Data.SkillDescriptions = {
 SB.Data.SkillEffects = {
     ["Живучесть"]      = "+2 к максимуму здоровья за каждое очко.",
     ["Атлетика"]       = "+1 м передвижения за ход за каждое очко.",
-    ["Исток"]          = "+1 к максимуму маны за каждое очко (у заклинателей).",
+    ["Исток"]          = "+20% к максимуму ресурса (маны, Ярости, Энергии…) за каждое очко. Ниже нуля не штрафует.",
     ["Эрудиция"]       = "+1 к лимиту подготовленных заклинаний за каждое очко. Потолок — 15.",
     ["Ношение брони"]  = "+1 брони за каждое очко на каждую надетую часть доспеха. " ..
                          "Броня гасит урон (10 брони за единицу), вернёт Долгий Отдых.",

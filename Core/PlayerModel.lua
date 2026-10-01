@@ -605,15 +605,13 @@ function PM.GetZeal()
     return db().zeal or 0
 end
 
---- Максимум Маны: база по рангу + бонус навыка «Исток»
---- (+1 за очко сверх 1, см. SB.Skills.GetResourceBonus) + профиль
---- класса (см. SB.Data.ClassProfiles). Нижняя граница — 2: у Неофита
---- база всего 3, и Паладин с его −2 остался бы с одним заклинанием.
+--- Максимум Маны: база по уровню (SB.Data.ManaForLevel, от ранга не
+--- зависит) + эффекты, оружие, раса и класс — и всё это умножается на
+--- «Исток» (+20% за очко, см. SB.Skills.ApplySource). Нижняя граница —
+--- 2: база на старте всего 3, и Паладин с его −2 остался бы с одним
+--- заклинанием.
 function PM.GetMaxZeal()
-    local base = SB.Data.Config.MaxZeal[PM.GetMastery()] or 1
-    if SB.Skills and SB.Skills.GetResourceBonus then
-        base = base + SB.Skills.GetResourceBonus()
-    end
+    local base = SB.Data.ManaForLevel()
     -- Висящие баффы/дебаффы: адресный канал маны плюс общий канал
     -- «ресурс каста» (см. PM.CastPool и раздел о пулах ниже).
     if SB.ActiveEffects and SB.ActiveEffects.GetMod then
@@ -631,6 +629,7 @@ function PM.GetMaxZeal()
     -- слагаемое GetClassProfile().resource — классовый сдвиг попадал
     -- в сумму дважды, и Маг с профильными +2 получал +4 к максимуму.
     base = base + SB.Data.GetSoftBonus("resource")
+    if SB.Skills and SB.Skills.ApplySource then base = SB.Skills.ApplySource(base) end
     return math.max(2, base)
 end
 
@@ -686,6 +685,8 @@ function PM.GetMaxClassResource()
     end
     -- Раса + класс одним слагаемым (см. комментарий в PM.GetMaxZeal).
     base = base + SB.Data.GetSoftBonus("resource")
+    -- «Исток» — у некастера тоже (см. SB.Skills.ApplySource).
+    if SB.Skills and SB.Skills.ApplySource then base = SB.Skills.ApplySource(base) end
     return math.max(1, base)
 end
 
