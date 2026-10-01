@@ -2382,11 +2382,8 @@ AddEffect({
 AddEffect({
     id   = "eff_aspect_of_the_cheetah",
     name = "Дух гепарда",
-    icon = "Interface\\Icons\\Spell_shadow_shadowward",
+    icon = "Interface\\Icons\\Ability_mount_whitetiger",
     description = "Тело движется раньше, чем разум успевает испугаться: удары проходят мимо, а дыхание не сбивается.",
-    -- «Выносливость» — атрибут, а не навык, и потому тянет за собой всё,
-    -- что под ним: и «Живучесть», и саму «Атлетику». Гепард — про бег,
-    -- который не кончается, а не только про скорость первого рывка.
     effect = { kind = "buff",
                mods = { movePct = 20 } },
 })
@@ -2609,10 +2606,10 @@ AddEffect({
     -- Замораживающая ловушка (Охотник, круг 2). Из гнезда eff_slowed_*.
     id   = "eff_slowed_freezing_trap",
     name = "Замораживающая ловушка",
-    icon = "Interface\\Icons\\Spell_nature_slow",
+    icon = "Interface\\Icons\\Ability_hunter_blackicetrap",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { family = "Замедление", kind = "debuff", resist = "Сила", mods = { defense = -18, attack = -5, movePct = -50 } },
+    effect = { family = "Замедление", kind = "debuff", resist = "Сила", mods = { resistFrost = -1, movePct = -50 } },
 })
 
 AddEffect({
@@ -2644,7 +2641,7 @@ AddEffect({
 AddEffect({
     id   = "eff_misdirection",
     name = "Ложный след",
-    icon = "Interface\\Icons\\Ability_stealth",
+    icon = "Interface\\Icons\\Ability_hunter_misdirection",
     description = "Пока тебя не видят, первый удар приходит оттуда, откуда его не ждут.",
 	isConcentration = true,
     effect = {
@@ -3522,7 +3519,7 @@ AddEffect({
     -- Подрезать сухожилия (Воин, круг 1). Из гнезда eff_slowed_*.
     id   = "eff_hamstring",
     name = "Подрезать сухожилия",
-    icon = "Interface\\Icons\\Spell_holy_ashestoashes",
+    icon = "Interface\\Icons\\Ability_shockwave",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
     -- СЕМЕЙСТВО «ЗАМЕДЛЕНИЕ», А НЕ «КОНТРОЛЬ»: приём отнимает метры, и
