@@ -808,8 +808,6 @@ local state = {}   -- [spawnKey] = { hp, maxHp, res, maxRes, npcID }
 -- глобальную переменную (то есть nil) — и молча теряла бы дельту ровно
 -- в том случае, ради которого функция и заведена.
 local StateFromKey
--- Тоже заранее: зовут и GetState, и StateFromKey (см. «СОХРАНЁННАЯ СЦЕНА»).
-local ClaimRestored
 
 --- Вправе ли этот клиент менять состояние существ.
 function SB.NPC.IsOwner()
@@ -826,10 +824,6 @@ function SB.NPC.GetState(unit)
     if not key then return nil end
 
     local st = state[key]
-    -- Особь из загруженной сцены нашлась живой под своим номером —
-    -- дальше она обычная, забирать её состояние другим больше нельзя.
-    if st and st.restored then st.restored = nil end
-    if not st then st = ClaimRestored(key, SB.NPC.UnitNpcID(unit)) end
     if not st then
         local stats = SB.NPC.StatsForUnit(unit)
         if not stats then return nil end
@@ -1111,8 +1105,6 @@ end
 function StateFromKey(key)
     local npcID = SB.NPC.NpcIDFromKey(key)
     if not npcID then return nil end
-    local claimed = ClaimRestored(key, npcID)
-    if claimed then return claimed end
 
     local stats = SB.NPC.Get(npcID)
     if not stats then
@@ -1604,42 +1596,18 @@ end
 -- обращении — ровно как нетронутые.
 -- ============================================================
 -- ============================================================
--- СОХРАНЁННАЯ СЦЕНА (см. Core/Scenes.lua)
+-- СЦЕНА: ВЫГРУЗКА И ЗАГРУЗКА (см. Core/Scenes.lua)
 --
--- Состояние существ живёт только в памяти: вылет Ведущего или
--- продолжение боя назавтра — и босс снова цел, а с него снято всё.
--- Здесь две двери: выгрузить всех особей в таблицу и загрузить их
--- обратно. Где хранить и как называть — забота Core/Scenes.lua.
+-- Состояние существ живёт только в памяти: вылет Ведущего или /reload —
+-- и босс снова цел, а с него снято всё. Здесь две двери: выгрузить
+-- всех особей в таблицу и загрузить их обратно. Когда сохранять и
+-- можно ли восстанавливать — забота Core/Scenes.lua.
 --
--- НОМЕР ОСОБИ НЕ ВЕЧЕН. Ключ «npcID:spawnUID» берётся из GUID, а
--- spawnUID сервер выдаёт заново после перезапуска и при каждом
--- респауне. Поэтому загруженная особь помечается restored и ждёт:
---   • встретилась живой под своим ключом — её и получила;
---   • под своим ключом так и не встретилась, а существо ТОГО ЖЕ ВИДА
---     под новым ключом — первое такое и забирает её состояние
---     (ClaimRestored). Босс, единственный своего вида, так переживает
---     перезапуск сервера; из десятка одинаковых стражников раненые
---     достанутся первым встреченным — число и раны сохранятся, кто
---     именно из них ранен — нет.
+-- Загружается ровно по ключу «npcID:spawnUID». Номер особи сервер
+-- выдаёт заново после перезапуска, поэтому сцена из прошлого запуска
+-- сервера не загружается вовсе (это решает Core/Scenes.lua), и угадывать
+-- «какая тушка была какой» не приходится.
 -- ============================================================
-function ClaimRestored(key, npcID)
-    npcID = tonumber(npcID)
-    if not npcID or not key then return nil end
-    local pick
-    for k, st in pairs(state) do
-        if st.restored and st.npcID == npcID and k ~= key
-           and (not pick or k < pick) then
-            pick = k
-        end
-    end
-    if not pick then return nil end
-    local st = state[pick]
-    state[pick] = nil
-    state[key] = st
-    st.restored = nil
-    return st
-end
-
 --- Все известные особи — для сохранения сцены. Копии, а не сами
 --- записи: сохранёнка не должна меняться вместе с живой сценой.
 --- @return table list  { { key, npcID, name, hp, maxHp, res, maxRes,
@@ -1681,7 +1649,6 @@ function SB.NPC.ImportScene(list)
                 baseMaxHp  = tonumber(e.baseMaxHp) or maxHp,
                 baseMaxRes = tonumber(e.baseMaxRes) or tonumber(e.maxRes) or 0,
                 effects = SB.NPC.UnpackEffects and SB.NPC.UnpackEffects(e.effects) or {},
-                restored = true,
             }
             state[e.key] = st
             if SB.NPC.RestatEffects then SB.NPC.RestatEffects(st) end

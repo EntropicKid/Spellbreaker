@@ -22019,47 +22019,61 @@ do
 end
 
 -- ============================================================
--- СОХРАНЁННАЯ СЦЕНА: существа и режим хода переживают сброс
+-- СЦЕНА: АВТОСОХРАНЕНИЕ, И ПОСЛЕ ПЕРЕЗАПУСКА СЕРВЕРА — НЕ ВОССТАНАВЛИВАЕТСЯ
 -- ============================================================
 do
+    check("время работы из «.server info»",
+        SB.Scenes.ParseUptime("Время работы сервера: 7 Hours 34 Minutes 46 Seconds."),
+        7 * 3600 + 34 * 60 + 46)
+    check("и английский оригинал с днями",
+        SB.Scenes.ParseUptime("Server uptime: 1 Day(s) 2 Hour(s) 3 Minute(s) 4 Second(s)"),
+        86400 + 2 * 3600 + 3 * 60 + 4)
+    check("чужая строка — не время работы", SB.Scenes.ParseUptime("Игроков в сети: 13"), nil)
+
     local wasLeader, wasGroup = stub.world.isLeader, stub.world.inGroup
     stub.world.isLeader, stub.world.inGroup = true, false
     local savedDB = _G.SpellbreakerNPCDB
     _G.SpellbreakerNPCDB = { npcs = {} }
     SB.NPC.ResetState()
-    SB.TurnOrder.Stop()
+    local now = time()
 
-    SB.TurnOrder.Start()
+    -- Сохраняется само, после изменения состояния.
+    SB.Scenes._ResetForTests(now - 1000)
+    SB.Scenes.TryRestore(now - 1000)          -- сохранения ещё нет: просто «решено»
     SB.NPC.ApplyRemoteState("9100:1", 7, 20, 2, 5, "eff_immolation:3")
-    SB.NPC.ApplyRemoteState("9100:2", 20, 20, 5, 5, nil)
-    local ok, n = SB.Scenes.Save("Проба")
-    checkTrue("сцена сохранена", ok)
-    check("в ней обе особи", n, 2)
+    stub.RunTimers()
+    local scene = _G.SpellbreakerNPCDB.autoScene
+    checkTrue("сцена сохранилась сама", scene ~= nil and #scene.npcs == 1)
+    check("с моментом запуска сервера", scene and scene.serverStart, now - 1000)
 
-    SB.TurnOrder.Stop()
-    SB.NPC.ResetScene()
-    check("после сброса существ нет", SB.NPC.StateCount(), 0)
-
-    ok, n = SB.Scenes.Load("Проба")
-    checkTrue("сцена загружена", ok)
-    check("загружено две особи", n, 2)
-    checkTrue("пошаговый режим вернулся", SB.TurnOrder.IsActive())
+    -- /reload: тот же запуск сервера — сцена вернулась.
+    SB.NPC.ResetState()
+    SB.Scenes._ResetForTests(now - 1000)
+    check("тот же запуск — восстановлена", SB.Scenes.TryRestore(now - 990), "restored")
     local st1
     SB.NPC.EachState(function(k, s) if k == "9100:1" then st1 = s end end)
-    check("раненая осталась раненой — без лишнего тика", st1 and st1.hp, 7)
+    check("раненая осталась раненой", st1 and st1.hp, 7)
     check("и эффект на ней", st1 and st1.effects[1] and st1.effects[1].spellID, "eff_immolation")
 
-    -- Сервер перезапускался: у особей новые номера. Первое же существо
-    -- того же вида забирает сохранённое состояние.
-    SB.NPC.ReplyState("9100:77")
-    local moved
-    SB.NPC.EachState(function(k, s) if k == "9100:77" then moved = s end end)
-    checkTrue("особь под новым номером получила сохранённое", moved ~= nil and moved.restored == nil)
+    -- Сервер перезапускался — сцена не восстанавливается и забывается.
+    SB.NPC.ResetState()
+    SB.Scenes._ResetForTests(now - 50)
+    check("другой запуск — не восстановлена", SB.Scenes.TryRestore(now - 50), "restarted")
+    check("и существ не появилось", SB.NPC.StateCount(), 0)
+    check("сохранение выброшено", _G.SpellbreakerNPCDB.autoScene, nil)
 
-    checkTrue("сцену можно удалить", SB.Scenes.Delete("Проба"))
-    check("и её больше нет", #SB.Scenes.List(), 0)
+    -- Сервер не ответил: свежая сцена возвращается, старая — нет.
+    _G.SpellbreakerNPCDB.autoScene = { savedAt = now - 60,
+        npcs = { { key = "9100:2", hp = 3, maxHp = 9 } } }
+    SB.Scenes._ResetForTests(nil)
+    check("без ответа сервера свежая — восстановлена", SB.Scenes.TryRestore(nil), "restored")
+    _G.SpellbreakerNPCDB.autoScene = { savedAt = now - 86400,
+        npcs = { { key = "9100:2", hp = 3, maxHp = 9 } } }
+    SB.Scenes._ResetForTests(nil)
+    check("без ответа сервера вчерашняя — нет", SB.Scenes.TryRestore(nil), "stale")
 
-    SB.TurnOrder.Stop()
+    SB.Scenes._ResetForTests(nil)
+    SB.Scenes.TryRestore(nil)
     SB.NPC.ResetState()
     _G.SpellbreakerNPCDB = savedDB
     stub.world.isLeader, stub.world.inGroup = wasLeader, wasGroup
