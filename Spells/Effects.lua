@@ -3662,7 +3662,7 @@ AddEffect({
     icon = "Interface\\Icons\\Inv_weapon_rifle_01",
     description = "Прямо в яблочко!",
     effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение",
-               onRemove = { effect = "eff_stun_immunity", duration = 3 }, mods = { attack = -40, defense = -40 } },
+               onRemove = { effect = "eff_stun_immunity", duration = 3 }, mods = { attack = -50, defense = -50, movePct = -200 } },
 })
 
 AddEffect({
