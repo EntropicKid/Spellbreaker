@@ -1262,7 +1262,6 @@ local function RegisterChannelHolder(spell)
         key         = "Effect",
         level       = 0,
         resistable  = false,
-        isCantrip   = false,
         isContainer = true,
         -- Ради этого поля всё и затевалось: пассивный эффект на ЛКМ не
         -- реагирует вовсе (см. Core/ActiveEffects.lua), а держатель — это

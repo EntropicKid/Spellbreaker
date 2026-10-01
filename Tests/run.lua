@@ -2400,7 +2400,7 @@ do
         -- меньше единицы не бывает.
         SB.Data.Spells["t_conj_auto"] = { id = "t_conj_auto",
             name = "Проба автосотворения", class = "Маг", level = 0,
-            isCantrip = true, resistable = false,
+            resistable = false,
             creates = "item_mana_gem" }
         asked, resolved, usedDC = nil, nil, nil
         SpellbreakerCharDB.preparedSpells = { "t_conj_auto" }
@@ -2427,7 +2427,7 @@ do
         -- бы не появилось, а порога 60 не было бы вовсе.
         SB.Data.Spells["t_conj_dual"] = { id = "t_conj_dual",
             name = "Проба двойного", class = "Маг", level = 1,
-            isCantrip = false, resistable = true, distance = 0,
+            resistable = true, distance = 0,
             container = "eff_pain", creates = "item_mana_water" }
         SpellbreakerCharDB.preparedItems  = {}
         SpellbreakerCharDB.preparedSpells = { "t_conj_dual" }
@@ -17492,7 +17492,7 @@ do
     -- Её стойкость вор не видит, её сумку — тем более.
     SB.Data.Spells["t_steal"] = {
         id = "t_steal", name = "Проба кражи", class = "Разбойник", level = 0,
-        isCantrip = true, resistable = true, canCrit = false, distance = 2.5,
+        resistable = true, canCrit = false, distance = 2.5,
         steal = "item", resist = "Дух",
     }
 
@@ -17648,16 +17648,13 @@ end
 -- ============================================================
 -- «ЖИЗНЕОТВОД» ОПУСТИЛСЯ ДО НУЛЕВОГО КРУГА
 --
--- Круг и заговор — РАЗНЫЕ признаки, и путать их нельзя: круг говорит,
--- с какого ранга заклинание доступно, а isCantrip — тратит ли оно
--- ресурс. В библиотеке десять заклинаний нулевого круга не заговоры и
--- шесть заговоров выше нулевого, так что связи между полями нет.
+-- Заговор — это просто нулевой круг: отдельного признака нет, он
+-- вычисляется из круга.
 -- ============================================================
 do
     local tap = SB.Data.Spells["burningspirit"]
     checkTrue("«Жизнеотвод» на месте", tap ~= nil)
     check("круг нулевой", tap.level, 0)
-    check("но заговором не стал", tap.isCantrip, false)
     -- Сделка не должна была превратиться в бросок: заклинание как было
     -- без сопротивления, так и осталось.
     check("сделка по-прежнему без броска", tap.resistable, false)
@@ -18439,7 +18436,6 @@ do
     checkTrue("«Отблеск Света» на месте", fol ~= nil)
     check("паладинский",      fol.class, "Паладин")
     check("нулевого круга",   fol.level, 0)
-    check("и это заговор",    fol.isCantrip, true)
     check("лечащий",          fol.isHeal, true)
     -- Дескриптор «Свет» скейлится от «Религии» у всех заклинаний
     -- паладина — проверка на это стоит отдельно, здесь держим строй.

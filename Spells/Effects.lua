@@ -163,7 +163,6 @@ local function AddEffect(t)
     t.key         = "Effect"
     t.level       = 0
     t.resistable  = false
-    t.isCantrip   = false
     t.isContainer = true
     -- isPassive по умолчанию: эффект не «применяют», он просто действует,
     -- пока висит. ЛКМ по иконке ничего не делает, снять — ПКМ. Тем
