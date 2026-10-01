@@ -2609,7 +2609,7 @@ AddEffect({
     icon = "Interface\\Icons\\Ability_hunter_blackicetrap",
     description = "Мир вокруг ускорился. Каждое движение приходит на мгновение позже, чем нужно.",
     -- −6 м, то есть половина базового хода: замедление должно замедлять.
-    effect = { family = "Замедление", kind = "debuff", resist = "Сила", mods = { resistFrost = -1, movePct = -50 } },
+    effect = { family = "Замедление", kind = "debuff", resist = "Сила", mods = { attack = -100, movePct = -200 }, breakOn = { damaged = true } },
 })
 
 AddEffect({
@@ -3727,6 +3727,23 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_fire_selfdestruct",
     description = "Цель наступит на ловушку, оставленную охотником, оказавшись подожженой в последствии.",
     effect = { kind = "debuff", resist = "Выносливость", tick = { damage = 2 } },
+})
+
+AddEffect({
+    id   = "eff_snake_trap",
+    name = "Змеиная ловушка",
+    damageType = "nature",
+    icon = "Interface\\Icons\\Ability_hunter_snaketrap",
+    description = "Цель покусало множество ядовитых змей, что вызвало сильное отравление организма в последствии.",
+    effect = { kind = "debuff", resist = "Выносливость", tick = { damage = 2 } },
+})
+
+AddEffect({
+    id   = "eff_tar_trap",
+    name = "Токсичная смола",
+    icon = "Interface\\Icons\\Ability_hunter_stickytarbombtrap",
+    description = "Цель оказалась покрытой легковоспламеняемой токсичной смолой, ослабляющей иммунитет.",
+    effect = { kind = "debuff", resist = "Выносливость", mods = { movePct = -35, resistFire = -1, resistNature = -1 } },
 })
 
 AddEffect({
