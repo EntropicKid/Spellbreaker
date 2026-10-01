@@ -270,7 +270,8 @@ Add({
     isCantrip = false,
     resistable = true,
     canCrit = true,
-	duration = 2,
+	duration = 1,
+	debuff = "eff_burn",
     channel = 2,
 	distance = 20,
 	scaling = {
@@ -467,7 +468,7 @@ Add({
     caura = 735,
     description = "Маг искажает течение времени вокруг противника. Его скорость передвижения и применения способностей уменьшается, а частота атак становится ниже.",
     isCantrip = false,
-    resistable = true,
+    resistable = false,
 	duration = 2,
     isConcentration = false,
 	distance = 30,
