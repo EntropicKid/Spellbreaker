@@ -305,100 +305,9 @@ function SB.UI.RefreshGMSettings()
     end
 end
 
--- ============================================================
--- РЕАЛТАЙМ-СИМУЛЯЦИЯ ЭФФЕКТОВ
---
--- Каждые шесть секунд списывает ход всем активным эффектам в группе.
--- Это НЕ настройка, а обратная сторона пошагового режима: время либо
--- идёт само, либо стоит и двигается ходами. Поэтому отдельной галочки
--- больше нет — тик включён ровно тогда, когда пошаговый режим выключен
--- (см. SyncRealtimeToTurnMode ниже и Core/TurnOrder.lua).
---
--- Работает только у Ведущего: рычаг темпа сцены должен быть один. Два
--- клиента с таймером тикали бы эффекты вдвое быстрее.
--- ============================================================
-local realtimeTimer = nil
-
-local function StopRealtimeTimer()
-    if realtimeTimer then
-        local AceTimerLib = LibStub and LibStub("AceTimer-3.0", true)
-        if AceTimerLib then AceTimerLib:CancelTimer(realtimeTimer) end
-        realtimeTimer = nil
-    end
-end
-
-local function RealtimeTick()
-    if not (SpellbreakerAccountDB and SpellbreakerAccountDB.realtimeEffects) then return false end
-    -- TickAll, а не ручной цикл: пачка вместо пакета на каждый эффект,
-    -- одна строка в чат вместо строки на эффект и защита эффектов друг
-    -- от друга (см. Core/ActiveEffects.lua).
-    -- Свои эффекты Ведущего тикают по своим часам, как у всех (см. «СВОИ
-    -- ЧАСЫ» в Core/ActiveEffects.lua); отсюда — только общий такт.
-    if SB.ActiveEffects then
-        if SB.ActiveEffects.RealtimeHeartbeat then
-            SB.ActiveEffects.RealtimeHeartbeat()
-        else
-            SB.ActiveEffects.TickAll()
-        end
-    end
-    -- И СУЩЕСТВАМ СЦЕНЫ — тем же тиком, что игрокам: время идёт одно на
-    -- всех. Пошаговый парный вызов стоит в TO.NewRound; включены они
-    -- взаимоисключающе (см. SyncRealtimeToTurnMode ниже), так что
-    -- двойного тика не бывает по построению.
-    if SB.NPC and SB.NPC.TickEffects then
-        SB.NPC.TickEffects()
-    end
-    if IsInGroup() and SB.Net and SB.Net.SendRealtimeDecrement then
-        SB.Net.SendRealtimeDecrement()
-    end
-    return true
-end
-
-local function StartRealtimeTimer()
-    StopRealtimeTimer()
-    local AceTimerLib = LibStub and LibStub("AceTimer-3.0", true)
-    if not AceTimerLib then
-        -- Запасной путь на клиенте без AceTimer: обычный повтор C_Timer.
-        local function tick()
-            if not RealtimeTick() then return end
-            C_Timer.After(6, tick)
-        end
-        C_Timer.After(6, tick)
-        return
-    end
-    realtimeTimer = AceTimerLib:ScheduleRepeatingTimer(function()
-        if not RealtimeTick() then StopRealtimeTimer() end
-    end, 6)
-end
-
---- Привести тик эффектов в соответствие с пошаговым режимом. Зовётся
---- отовсюду, где меняется одно из двух: сам режим, состав группы, право
---- Ведущего.
-local function SyncRealtimeToTurnMode()
-    -- ВРЕМЯ ИДЁТ У ВСЕХ, А ТАКТ ДАЁТ ОДИН. Флаг «время идёт само» — это
-    -- просто «пошаговый выключен», и он одинаков у Ведущего и у игроков:
-    -- по нему свои часы эффектов (см. «СВОИ ЧАСЫ» в Core/ActiveEffects.lua)
-    -- решают, тикать ли. Шестисекундный таймер такта — только у Ведущего.
-    --
-    -- Раньше флаг здесь был «Ведущий И свободный ход», а функция зовётся
-    -- у всех (панель строится у каждого) — на любом событии состава
-    -- игрок сам себе гасил время. Лидер вышел из игры — у группы
-    -- эффекты застыли; лидер вернулся — режим у него не менялся, пакет
-    -- RTSYNC не уходил, и время у остальных так и стояло.
-    local running = not (SB.TurnOrder and SB.TurnOrder.IsActive())
-    local enabled = SB.UI.IsGameMaster() and running
-    local was     = SpellbreakerAccountDB and SpellbreakerAccountDB.realtimeEffects or false
-    if SpellbreakerAccountDB then SpellbreakerAccountDB.realtimeEffects = running end
-
-    if enabled then StartRealtimeTimer() else StopRealtimeTimer() end
-
-    -- Группе сообщаем только о СМЕНЕ и только от Ведущего: пакет
-    -- информационный, а принимают его всё равно лишь от лидера.
-    if was ~= running and IsInGroup() and SB.UI.IsGameMaster()
-       and SB.Net and SB.Net.SendRealtimeSync then
-        SB.Net.SendRealtimeSync(running)
-    end
-end
+-- Реалтайм-такт эффектов (таймер Ведущего и флаг «время идёт само»)
+-- живёт в Core/TurnOrder.lua (TO.SyncRealtime): это логика режима, а не
+-- интерфейс, и панель строится у каждого игрока.
 
 local function RebuildNameToUnit()
     table.wipe(nameToUnit)
@@ -682,8 +591,7 @@ function SB.UI.BuildGMPanel()
     -- только пока в сети те, кто в ней стоит), а вот реалтайм-тик
     -- обязан завестись сразу — он и есть «обычное течение времени».
     SB.Events.On("SB_INIT", function()
-        SyncRealtimeToTurnMode()
-        RefreshGMAccess()
+                RefreshGMAccess()
         SB.UI.RefreshGMSettings()
     end)
 
@@ -695,10 +603,7 @@ function SB.UI.BuildGMPanel()
     rosterWatch:RegisterEvent("PARTY_LEADER_CHANGED")
     rosterWatch:SetScript("OnEvent", function()
         RefreshGMAccess()
-        -- Перестал быть Ведущим — таймер гаснет тут же: иначе бывший
-        -- лидер продолжал бы списывать ходы эффектам всей группы.
-        SyncRealtimeToTurnMode()
-        SB.UI.RefreshGMSettings()
+                SB.UI.RefreshGMSettings()
     end)
     gmFrame:HookScript("OnShow", function()
         RefreshGMAccess()
@@ -709,10 +614,7 @@ function SB.UI.BuildGMPanel()
     -- пакетом TURN): перерисовываем вкладку и список игроков, где стоят
     -- номера инициативы.
     SB.Events.On(SB.E.TURN_ORDER_CHANGED, function()
-        -- Пошаговый режим включили/выключили — вместе с ним переключается
-        -- и течение времени для эффектов.
-        SyncRealtimeToTurnMode()
-        SB.UI.RefreshGMSettings()
+                SB.UI.RefreshGMSettings()
         if playersPanel and playersPanel:IsShown() then
             SB.UI.UpdateGMPlayers()
         end

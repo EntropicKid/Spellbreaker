@@ -745,6 +745,9 @@ check("сломанный эффект не съел чужой тик", UsesOf(
 -- ============================================================
 SB.TurnOrder.ApplyRemoteState({ active = false, mode = "all", round = 0,
     index = 0, slots = {}, acted = {} })
+-- Проверяются запреты клика, а не свободный режим: там срок считают
+-- свои часы, и клик применение не списывает вовсе (см. Use).
+_G.SpellbreakerAccountDB.realtimeEffects = false
 ResetEffects()
 SB.ActiveEffects.Add("t_pain", 3, false)
 
@@ -9444,11 +9447,27 @@ end
 -- поэтому проверка — по тексту.
 -- ============================================================
 do
-    local gm = ReadFile("UI/GMPanel.lua")
-    checkTrue("флаг времени пишется по режиму, а не по праву Ведущего",
-        gm:find("SpellbreakerAccountDB.realtimeEffects = running", 1, true) ~= nil)
-    checkTrue("старой записи «только у Ведущего» нет",
-        gm:find("SpellbreakerAccountDB.realtimeEffects = enabled", 1, true) == nil)
+    -- Не Ведущий, в группе, свободный ход: событие состава не гасит время.
+    local wasGroup, wasLeader = stub.world.inGroup, stub.world.isLeader
+    stub.world.inGroup, stub.world.isLeader = true, false
+    SB.TurnOrder.ApplyRemoteState({ active = false, mode = "all", round = 0,
+        index = 0, slots = {}, acted = {} })
+    _G.SpellbreakerAccountDB.realtimeEffects = false
+    stub.FireEvent("GROUP_ROSTER_UPDATE")
+    checkTrue("не Ведущий: время идёт в свободном ходу",
+              _G.SpellbreakerAccountDB.realtimeEffects == true)
+    stub.FireEvent("PARTY_LEADER_CHANGED")
+    checkTrue("и смена лидера его не гасит",
+              _G.SpellbreakerAccountDB.realtimeEffects == true)
+    SB.TurnOrder.ApplyRemoteState({ active = true, mode = "all", round = 1,
+        index = 1, slots = { { stub.world.playerName } }, acted = {} })
+    checkTrue("пошаговый — время стоит",
+              _G.SpellbreakerAccountDB.realtimeEffects == false)
+    SB.TurnOrder.ApplyRemoteState({ active = false, mode = "all", round = 0,
+        index = 0, slots = {}, acted = {} })
+    checkTrue("логика такта — в ядре, а не в панели",
+              ReadFile("UI/GMPanel.lua"):find("realtimeEffects =", 1, true) == nil)
+    stub.world.inGroup, stub.world.isLeader = wasGroup, wasLeader
 end
 
 -- ============================================================
@@ -13864,7 +13883,7 @@ do
         checkTrue("тик существ вызывается из начала круга",
                   ReadFile("Core/TurnOrder.lua"):find("SB.NPC.TickEffects", 1, true) ~= nil)
         checkTrue("и из шестисекундного таймера",
-                  ReadFile("UI/GMPanel.lua"):find("SB.NPC.TickEffects", 1, true) ~= nil)
+                  ReadFile("Core/TurnOrder.lua"):find("SB.NPC.TickEffects", 1, true) ~= nil)
 
         -- ── КУДА УХОДИТ ЗАКЛИНАНИЕ ─────────────────────────
         -- Развилка выбора пути ошибается тихо: заклинание просто уходит
