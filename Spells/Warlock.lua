@@ -161,7 +161,7 @@ Add({
 	distance = 10,
     container = "eff_summon_imp",
 	scaling = {
-		hit    = { ["Религия"] = 1.5, ["Лидерство"] = 0.5 },
+		hit    = { ["Религия"] = 1.5, ["Резонанс"] = 0.5 },
 	},
 })
 Add({
@@ -178,7 +178,7 @@ Add({
     isConcentration = false,
 	container = "eff_demonic_armor",
 	scaling = {
-		hit    = { ["Религия"] = 1, ["Лидерство"] = 0.5 },
+		hit    = { ["Религия"] = 1, ["Резонанс"] = 0.5 },
 	},
 })
 Add({
@@ -197,7 +197,7 @@ Add({
     duration = 3,
     onCast = { damage = 2 },
 	scaling = {
-		hit    = { ["Религия"] = 1.5, ["Лидерство"] = 0.5 },
+		hit    = { ["Религия"] = 1.5, ["Резонанс"] = 0.5 },
 		crit   = { ["Религия"] = 1 },
 		damage = { ["Выносливость"] = 1 },
 	},
@@ -217,7 +217,7 @@ Add({
 	distance = 2.5,
     buff = "eff_demon_breath",
 	scaling = {
-		hit    = { ["Религия"] = 1, ["Лидерство"] = 0.5 },
+		hit    = { ["Религия"] = 1, ["Резонанс"] = 0.5 },
 	},
 })
 Add({
@@ -234,7 +234,7 @@ Add({
 	distance = 2.5,
     creates = "item_healthstone",
 	scaling = {
-		hit    = { ["Религия"] = 1.5, ["Лидерство"] = 0.5 },
+		hit    = { ["Религия"] = 1.5, ["Резонанс"] = 0.5 },
 	},
 })
 Add({
@@ -252,7 +252,7 @@ Add({
 	distance = 2.5,
 	buff = "eff_shield_dark_amulet",
 	scaling = {
-		hit    = { ["Религия"] = 1, ["Лидерство"] = 0.5 },
+		hit    = { ["Религия"] = 1, ["Резонанс"] = 0.5 },
 	},
 })
 Add({
@@ -270,7 +270,7 @@ Add({
 	distance = 10,
     container = "eff_summon_sayaada",
 	scaling = {
-		hit    = { ["Религия"] = 2, ["Лидерство"] = 1 },
+		hit    = { ["Религия"] = 2, ["Резонанс"] = 1 },
 	},
 })
 Add({
@@ -288,7 +288,7 @@ Add({
 	distance = 10,
     container = "eff_summon_voidwalker",
 	scaling = {
-		hit    = { ["Религия"] = 1.5, ["Лидерство"] = 0.5 },
+		hit    = { ["Религия"] = 1.5, ["Резонанс"] = 0.5 },
 	},
 })
 Add({
@@ -306,7 +306,7 @@ Add({
 	distance = 10,
     container = "eff_eye_of_kilrogg",
 	scaling = {
-		hit    = { ["Религия"] = 1.5, ["Лидерство"] = 0.5 },
+		hit    = { ["Религия"] = 1.5, ["Резонанс"] = 0.5 },
 	},
 })
 Add({
@@ -325,7 +325,7 @@ Add({
 	distance = 30,
     debuff = "eff_banishment",
 	scaling = {
-		hit    = { ["Религия"] = 1.5, ["Лидерство"] = 1 },
+		hit    = { ["Религия"] = 1.5, ["Резонанс"] = 1 },
 	},
 })
 Add({
@@ -343,7 +343,7 @@ Add({
     debuff = "eff_detect_invisibility",
     aoe = { radius = 18 },
 	scaling = {
-		hit    = { ["Религия"] = 1.5, ["Лидерство"] = 0.5 },
+		hit    = { ["Религия"] = 1.5, ["Резонанс"] = 0.5 },
 	},
 })
 Add({
@@ -359,7 +359,7 @@ Add({
     isConcentration = false,
     creates = "item_soulstone",
 	scaling = {
-		hit    = { ["Религия"] = 2, ["Лидерство"] = 1 },
+		hit    = { ["Религия"] = 2, ["Резонанс"] = 1 },
 	},
 })
 Add({
@@ -377,7 +377,7 @@ Add({
     duration = -1,
     container = "eff_ritual_exhaustion",
 	scaling = {
-		hit    = { ["Религия"] = 1.5, ["Лидерство"] = 1 },
+		hit    = { ["Религия"] = 1.5, ["Резонанс"] = 1 },
 	},
 })
 Add({
@@ -393,7 +393,7 @@ Add({
     isConcentration = false,
     creates = "item_magic_stone",
 	scaling = {
-		hit    = { ["Религия"] = 1.5, ["Лидерство"] = 1 },
+		hit    = { ["Религия"] = 1.5, ["Резонанс"] = 1 },
 	},
 })
 Add({
@@ -412,7 +412,7 @@ Add({
 	distance = 30,
     debuff = "eff_enslave_demon",
 	scaling = {
-		hit    = { ["Религия"] = 1.5, ["Лидерство"] = 1 },
+		hit    = { ["Религия"] = 1.5, ["Резонанс"] = 1 },
 	},
 })
 Add({
@@ -430,7 +430,7 @@ Add({
 	distance = 10,
     container = "eff_summon_felhunter",
 	scaling = {
-		hit    = { ["Религия"] = 1.5, ["Лидерство"] = 1 },
+		hit    = { ["Религия"] = 1.5, ["Резонанс"] = 1 },
 	},
 })
 Add({
@@ -448,7 +448,7 @@ Add({
 	distance = 10,
     container = "eff_summon_felmaunt",
 	scaling = {
-		hit    = { ["Религия"] = 2, ["Лидерство"] = 1 },
+		hit    = { ["Религия"] = 2, ["Резонанс"] = 1 },
 	},
 })
 Add({
@@ -467,7 +467,7 @@ Add({
 	distance = 30,
     debuff = "eff_planar_chain",
 	scaling = {
-		hit    = { ["Религия"] = 1.5, ["Лидерство"] = 1 },
+		hit    = { ["Религия"] = 1.5, ["Резонанс"] = 1 },
 	},
 })
 Add({

@@ -549,7 +549,7 @@ Add({
     duration = 3,
     buff = "eff_bloodlust_bestial_wrath",
     scaling = {
-    	hit    = { ["Выживание"] = 1, ["Лидерство"] = 0.5 },
+    	hit    = { ["Выживание"] = 1, ["Резонанс"] = 0.5 },
     },
 })
 
@@ -568,7 +568,7 @@ Add({
     buff = "eff_hunters_mark_trueshot_aura",
     aoe = { radius = 18 },
     scaling = {
-    	hit    = { ["Лидерство"] = 1, ["Точность"] = 0.5 },
+    	hit    = { ["Резонанс"] = 1, ["Точность"] = 0.5 },
     },
 })
 
