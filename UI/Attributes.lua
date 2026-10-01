@@ -558,6 +558,19 @@ local function BuildSkillRow(parent, attrKey, skillName, yOff)
             GameTooltip:AddLine(desc, 0.8, 0.8, 0.8, true)
         end
 
+        -- КОГДА УМЕСТНО В ОТЫГРЫШЕ (SB.Data.SkillRoleplay) — для навыков,
+        -- чья механика работает сама, без броска.
+        local rp = SB.Data.SkillRoleplay and SB.Data.SkillRoleplay[skillName]
+        if rp then
+            GameTooltip:AddLine(" ")
+            if rp.fit then
+                GameTooltip:AddLine("|cFF66DD66Уместно:|r " .. rp.fit, 0.8, 0.8, 0.8, true)
+            end
+            if rp.unfit then
+                GameTooltip:AddLine("|cFFDD6666Неуместно:|r " .. rp.unfit, 0.8, 0.8, 0.8, true)
+            end
+        end
+
         -- Пассивный эффект навыка (если есть) — из общего реестра
         -- SB.Data.SkillEffects, так что новый эффект появится в
         -- подсказке сам, без правок UI.

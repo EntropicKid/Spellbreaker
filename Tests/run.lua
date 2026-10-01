@@ -17228,7 +17228,7 @@ do
 
     -- Число прибито НАМЕРЕННО: поднимать версию положено осознанно, вместе
     -- с новой миграцией, и молча уехать она не должна.
-    check("схема поднялась до четырнадцатой", SB.SCHEMA_VERSION, 14)
+    check("схема поднялась до пятнадцатой", SB.SCHEMA_VERSION, 15)
 
     -- ── СВЕРХ ТРЁХ РЕЖЕТСЯ, И НАВЫК НИ ПРИ ЧЁМ ──────────────
     -- Ячейки больше не зависят от навыка: три у всех, и ужатая старая
@@ -18115,8 +18115,8 @@ do
     -- дало предыдущее.
     local EXPECT = { [0] = nil, [1] = 3, [2] = 3, [3] = 2, [4] = 2, [5] = 1 }
     for v = 0, 5 do
-        _G.SpellbreakerCharDB.skills = { ["Лидерство"] = v }
-        check("Лидерство " .. v .. " → период",
+        _G.SpellbreakerCharDB.skills = { ["Резонанс"] = v }
+        check("Резонанс " .. v .. " → период",
               SB.Skills.GetLeadershipRegenPeriod(), EXPECT[v])
     end
 
@@ -18124,26 +18124,26 @@ do
     --
     -- Бафф ускоряет, дебафф замедляет, но быстрее «каждый ход» не
     -- бывает, а ниже нуля навык молчит — ресурс не отнимается.
-    _G.SpellbreakerCharDB.skills = { ["Лидерство"] = 5 }
+    _G.SpellbreakerCharDB.skills = { ["Резонанс"] = 5 }
     SB.Data.Spells["t_lead_down"] = { id = "t_lead_down", name = "Проба давления",
         class = "Эффект", level = 0, isContainer = true,
-        effect = { kind = "debuff", stats = { ["Лидерство"] = -9 } } }
+        effect = { kind = "debuff", stats = { ["Резонанс"] = -9 } } }
     SB.Data.Spells["t_lead_mid"] = { id = "t_lead_mid", name = "Проба сомнения",
         class = "Эффект", level = 0, isContainer = true,
-        effect = { kind = "debuff", stats = { ["Лидерство"] = -2 } } }
+        effect = { kind = "debuff", stats = { ["Резонанс"] = -2 } } }
     SB.Data.Spells["t_lead_up"] = { id = "t_lead_up", name = "Проба вдохновения",
         class = "Эффект", level = 0, isContainer = true,
-        effect = { kind = "buff", stats = { ["Лидерство"] = 4 } } }
+        effect = { kind = "buff", stats = { ["Резонанс"] = 4 } } }
     SB.ActiveEffects.Add("t_lead_mid", 5, false)
     check("дебафф −2 на пятёрке: третья ступень", SB.Skills.GetLeadershipRegenPeriod(), 2)
     ResetEffects()
     SB.ActiveEffects.Add("t_lead_down", 5, false)
     check("утопленный навык молчит — и только", SB.Skills.GetLeadershipRegenPeriod(), nil)
     ResetEffects()
-    _G.SpellbreakerCharDB.skills = { ["Лидерство"] = 1 }
+    _G.SpellbreakerCharDB.skills = { ["Резонанс"] = 1 }
     SB.ActiveEffects.Add("t_lead_up", 5, false)
     check("бафф +4 на единице: каждый ход", SB.Skills.GetLeadershipRegenPeriod(), 1)
-    _G.SpellbreakerCharDB.skills = { ["Лидерство"] = 5 }
+    _G.SpellbreakerCharDB.skills = { ["Резонанс"] = 5 }
     check("и выше потолка не разгоняет", SB.Skills.GetLeadershipRegenPeriod(), 1)
     ResetEffects()
     _G.SpellbreakerCharDB.skills = {}
@@ -18205,7 +18205,7 @@ end
 -- ============================================================
 do
     check("«Рвение» под Характером",   SB.Skills.ParentOf("Рвение"), "Характер")
-    check("«Лидерство» под Духом",     SB.Skills.ParentOf("Лидерство"), "Дух")
+    check("«Резонанс» (бывшее Лидерство) под Духом", SB.Skills.ParentOf("Резонанс"), "Дух")
 
     -- По четыре навыка у каждого: обмен, а не переезд в одну сторону.
     for _, def in ipairs(SB.Data.Attributes) do
@@ -18229,25 +18229,44 @@ do
 
     local s = Run({ ["Дух"] = 2, ["Характер"] = 5 },
                   { ["Лидерство"] = 5, ["Рвение"] = 4 })
-    check("Лидерство обрезано по Духу", s["Лидерство"], 2)
+    check("Лидерство обрезано по Духу", s["Резонанс"], 2)
     check("а Рвение влезло в Характер", s["Рвение"], 4)
 
     -- Обмен двусторонний — обрезать могло любого из двух.
     s = Run({ ["Дух"] = 5, ["Характер"] = 1 },
             { ["Лидерство"] = 3, ["Рвение"] = 5 })
     check("теперь обрезано Рвение", s["Рвение"], 1)
-    check("а Лидерство цело",       s["Лидерство"], 3)
+    check("а Лидерство цело",       s["Резонанс"], 3)
 
     -- Что влезает — не трогаем вовсе.
     s = Run({ ["Дух"] = 5, ["Характер"] = 5 },
             { ["Лидерство"] = 5, ["Рвение"] = 5 })
-    check("при полных атрибутах ничего не режется", s["Лидерство"], 5)
+    check("при полных атрибутах ничего не режется", s["Резонанс"], 5)
     check("и второй тоже цел",                      s["Рвение"], 5)
 
     -- Соседи по таблице навыков не задеты.
     s = Run({ ["Дух"] = 1, ["Характер"] = 1 },
             { ["Лидерство"] = 4, ["Милосердие"] = 4 })
     check("чужой навык не тронут", s["Милосердие"], 4)
+
+    -- ── v15: «ЛИДЕРСТВО» СТАЛО «РЕЗОНАНСОМ» ────────────────
+    s = Run({ ["Дух"] = 5 }, { ["Лидерство"] = 3 })
+    check("очки переехали под новое имя", s["Резонанс"], 3)
+    check("старого ключа нет",            s["Лидерство"], nil)
+    -- Своё заклинание со старым ключом в скейлинге читается по-новому.
+    local sp = { scaling = { hit = { ["Лидерство"] = 1 } } }
+    SB.Data.RenameSpellSkills(sp)
+    check("скейлинг своего заклинания переведён", sp.scaling.hit["Резонанс"], 1)
+    -- И встроенная библиотека (AddSpell): воин с «Лидерством» в броске.
+    local found = false
+    for _, spell in pairs(SB.Data.Spells) do
+        local h = spell.scaling and spell.scaling.hit
+        if type(h) == "table" and h["Лидерство"] then found = true end
+    end
+    checkTrue("в библиотеке старого ключа не осталось", not found)
+    checkTrue("у навыка есть подсказка отыгрыша",
+              SB.Data.SkillRoleplay["Резонанс"].fit ~= nil
+              and SB.Data.SkillRoleplay["Резонанс"].unfit ~= nil)
 end
 
 -- ============================================================
@@ -18467,7 +18486,7 @@ do
     local text = table.concat(said, "\n", 1, before)
     checkTrue("старому персонажу сказано, что вернулось", text:find("Сила", 1, true) ~= nil)
     check("новому — ни слова", #said, before)
-    check("версия проставлена", old.schemaVersion, 14)
+    check("версия проставлена", old.schemaVersion, SB.SCHEMA_VERSION)
 end
 
 -- ============================================================
@@ -19813,13 +19832,13 @@ do
     local function Eff(k) return SB.Attributes.GetEffective(k) end
     Hands({ [16] = ROD, [17] = ROD })
     local base = {}
-    for _, k in ipairs({ "Лидерство", "Скрытность", "Внушение", "Выносливость", "Ловкость" }) do
+    for _, k in ipairs({ "Резонанс", "Скрытность", "Внушение", "Выносливость", "Ловкость" }) do
         base[k] = Eff(k)
     end
     Hands({ [16] = { 2, 19 }, [17] = ROD })
-    check("жезл: +1 к Лидерству",              Eff("Лидерство") - base["Лидерство"], 1)
+    check("жезл: +1 к Резонансу",              Eff("Резонанс") - base["Резонанс"], 1)
     Hands({ [16] = { 2, 19 }, [17] = { 2, 19 } })
-    check("два жезла не складываются",         Eff("Лидерство") - base["Лидерство"], 1)
+    check("два жезла не складываются",         Eff("Резонанс") - base["Резонанс"], 1)
     Hands({ [16] = { 2, 15 }, [17] = { 2, 15 } })
     check("два кинжала: +2 к Скрытности",       Eff("Скрытность") - base["Скрытность"], 2)
     check("а вложенное не тронуто",            SB.Skills.Get("Скрытность"), base["Скрытность"])
