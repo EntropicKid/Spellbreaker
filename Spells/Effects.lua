@@ -866,14 +866,6 @@ AddEffect({
 })
 
 AddEffect({
-    id   = "eff_mana_burst",
-    name = "Чародейская вспышка",
-    icon = "Interface\\Icons\\Ability_argus_soulburst",
-    description = "Вокруг мага пространство идёт волнами. Чужая магия рядом становится нестабильной.",
-    effect = { kind = "buff", school = "magic", mods = { attack = 25, damage = 1 } },
-})
-
-AddEffect({
     id   = "eff_undetectable",
     name = "Необнаружимость",
     icon = "Interface\\Icons\\Inv12_apextalent_mage_touchofthearchmage",
@@ -1237,7 +1229,7 @@ AddEffect({
     name = "Легкий шаг",
     icon = "Interface\\Icons\\Ability_rogue_sprint_blue",
     description = "Ни грязь, ни снег, ни песок не держат — и следов за собой не остаётся.",
-    effect = { kind = "buff", suppress = { "Замедление" }, stats = { ["Скрытность"] = 1 } },
+    effect = { kind = "buff", suppress = { "Замедление" } },
 })
 
 AddEffect({
@@ -1256,12 +1248,8 @@ AddEffect({
     effect = {
         kind   = "buff",
         school = "magic",
-        mods   = { armor = 10, damage = 1 },
-        -- «НЕЗАМЕДЛИТЕЛЬНЫМ ОТВЕТОМ, КОГДА КТО-ТО ПОПЫТАЕТСЯ ПОРАЗИТЬ
-        -- ДРУИДА КЛИНКОМ». Клинком — поэтому melee: сад шипов на коже
-        -- не достаёт до лучника за двадцать метров.
         onAction = { when = "damaged", melee = true,
-                     toAttacker = { damage = 1, damageType = "physical" },
+                     toAttacker = { damage = 1, damageType = "physical" } },
     },
 })
 
@@ -1334,7 +1322,7 @@ AddEffect({
     name = "Жизнецвет",
     icon = "Interface\\Icons\\Inv_misc_herb_felblossom",
     description = "Природа смотрит на одного и не отводит взгляда: раны закрываются, пока цветёт.",
-    effect = { kind = "buff", school = "magic", mods = { heal = 1 }, tick = { healTaken = 1 } },
+    effect = { kind = "buff", school = "magic", mods = { heal = 1, healTaken = 1 } },
 })
 
 -- ==========================================================
@@ -1419,7 +1407,7 @@ AddEffect({
     name = "Проклятие косноязычия",
     icon = "Interface\\Icons\\Spell_shadow_curseoftounges",
     description = "Язык не слушается. Слова силы выходят искажёнными и рассыпаются, не сработав.",
-    effect = { family = "Проклятие", kind = "debuff", resist = "Дух", school = "curse", mods = { damageMagic = -2 } },
+    effect = { family = "Проклятие", kind = "debuff", resist = "Дух", school = "curse", mods = { damageMagic = -1 } },
 })
 
 AddEffect({
@@ -1474,14 +1462,6 @@ AddEffect({
 })
 
 AddEffect({
-    id   = "eff_warlock_shadow_of_warrior",
-    name = "Тень Воина",
-    icon = "Interface\\Icons\\Spell_shadow_soulleech_3",
-    description = "От цели идёт жуткая аура. Рядом с ней трудно собраться, и руки дрожат сами.",
-    effect = { kind = "buff", school = "magic", mods = { defense = 25 }, stats = { ["Запугивание"] = 2 } },
-})
-
-AddEffect({
     id   = "eff_summon_sayaada",
     name = "Сайаад",
     icon = "Interface\\Icons\\Ability_warlock_randomizesuccubusincubus",
@@ -1529,14 +1509,6 @@ AddEffect({
 -- РЫЦАРЬ СМЕРТИ: каналы
 -- ==========================================================
 
-AddEffect({
-    id   = "eff_remorseless_winter",
-    name = "Беспощадная зима",
-    icon = "Interface\\Icons\\Ability_deathknight_remorselesswinters2",
-    description = "Метель кружит вокруг рыцаря и не стихает, пока он её держит. Живым в ней холодно, ему — привычно.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 20, attack = 25 } },
-})
-
 -- ==========================================================
 -- ПАЛАДИН: приговор
 -- ==========================================================
@@ -1570,7 +1542,7 @@ AddEffect({
     damageType = "nature",
     icon = "Interface\\Icons\\INV_Potion_19",
     description = "В голове разорвалось что-то чужое. Мысли не собираются, руки не слушаются.",
-    effect = { kind = "debuff", resist = "Выносливость", school = "poison", tick = { damage = 1, resource = -1 } },
+    effect = { kind = "debuff", resist = "Выносливость", school = "poison", mods = { movePct = -40 }, tick = { damage = 1 } },
 })
 
 AddEffect({
@@ -1633,13 +1605,6 @@ AddEffect({
                onRemove = { effect = "eff_stun_immunity", duration = 3 }, mods = { attack = -70, defense = -15, movePct = -75 } },
 })
 
-AddEffect({
-    id   = "eff_shield_slam",
-    name = "Удар щитом",
-    icon = "Interface\\Icons\\Ability_warrior_shieldbash",
-    description = "Цель лишена равновесия и возможности нормально защищаться после удара об щит.",
-    effect = { kind = "debuff", resist = "Выносливость", mods = { defense = -12 }, stats = { ["Акробатика"] = -2 } },
-})
 AddEffect({
     id   = "eff_shield_block",
     name = "Блок щитом",
@@ -1914,7 +1879,7 @@ AddEffect({
     name = "Зимний горн",
     icon = "Interface\\Icons\\INV_Misc_Horn_02",
     description = "Крик выбивает из головы сомнения. Мышцы наливаются силой, рука перестаёт дрожать.",
-    effect = { kind = "buff", school = "magic", mods = { attack = 12, maxHealth = 1 } },
+    effect = { kind = "buff", school = "magic", mods = { attack = 10 } },
 })
 
 AddEffect({
@@ -1978,12 +1943,7 @@ AddEffect({
     effect = {
         kind   = "buff",
         school = "magic",
-        mods   = { armor = 10, defense = 12 },
-        -- «КАЖДЫЙ ПРИНИМАЕТ НА СЕБЯ ОДИН УДАР И РАССЫПАЕТСЯ В ПЫЛЬ.
-        -- КОГДА КОСТИ КОНЧАЮТСЯ, ЩИТА БОЛЬШЕ НЕТ» — щит считает удары,
-        -- а не ходы. Заряды — это его же uses (см. врезку про consume),
-        -- поэтому длительность в 4 хода стала четырьмя костями.
-        onAction = { when = "damaged", consume = true },
+        tick = { armor = 15 },
     },
 })
 
@@ -2001,23 +1961,11 @@ AddEffect({
     -- Ледяная лихорадка (Рыцарь смерти, Лёд). Из гнезда eff_weakness_*.
     id   = "eff_weakness_frost_fever",
     name = "Озноб",
-    damageType = "frost",
     icon = "Interface\\Icons\\Spell_deathknight_frostfever",
     description = "Холод в крови: цель вязнет, бьёт слабее и беззащитна перед льдом. Уничтожение раскалывает лихорадку — она выплёскивается лишним тиком и спадает на ход раньше.",
-    -- «Неспособной ни к точному удару, ни к тяжёлому усилию»: холод
-    -- бьёт по телу, а не по чарам.
-    --
-    -- УЯЗВИМОСТЬ КО ЛЬДУ — сердце ветви: Ледяное касание, Уничтожение,
-    -- Вихрь ветров и Ярость змея бьют холодом, и каждый получает +1.
-    --
-    -- «РАСКОЛОТЬ ЛИХОРАДКУ». Повод живёт на цели и слушает только
-    -- Уничтожение: consume списывает ход, а списание хода — это тик
-    -- (см. SB.ActiveEffects.DecrementOne). Лишний урон сейчас в обмен на
-    -- более короткую болезнь — ровно размен ледяного рыцаря.
     effect = {
         kind  = "debuff", resist = "Выносливость", school = "disease",
-        mods = { damagePhysical = -1, resistFrost = -1, movePct = -30 },
-        tick = { damage = 1 },
+        mods = { resistFrost = -1, movePct = -30 },
         onAction = { when = "damaged", spell = "obliterate", consume = true },
     },
 })
@@ -2569,7 +2517,7 @@ AddEffect({
     name = "Тигриное неистовство",
     icon = "Interface\\Icons\\Ability_mount_jungletiger",
     description = "Когти и клыки бьют злее.",
-    effect = { kind = "buff", mods = { damagePhysical = 1 } },
+    effect = { kind = "buff", family = "Передвижение", mods = { movePct = 35 } },
 })
 
 AddEffect({
@@ -2682,7 +2630,7 @@ AddEffect({
 AddEffect({
     id   = "eff_owl_wisdom_beast_lore",
     name = "Знание жертвы",
-    icon = "Interface\\Icons\\Spell_nature_polymorph",
+    icon = "Interface\\Icons\\Ability_physical_taunt",
     description = "Мысль идёт ровнее и дальше обычного: связи между вещами видны без усилия.",
     effect = {
         kind = "buff",
@@ -3760,7 +3708,7 @@ AddEffect({
     name = "Оборонительная стойка",
     icon = "Interface\\Icons\\Ability_warrior_defensivestance",
     description = "Воин полагается на крепкий щит и броню, с которой сливается воедино для пущей крепости.",
-    effect = { kind = "buff", family = "Стойка", tick = { armor    = 15 }, mods = { damage = -1 }, },
+    effect = { kind = "buff", family = "Стойка", tick = { armor = 15 }, mods = { damage = -1 }, },
 })
 
 AddEffect({

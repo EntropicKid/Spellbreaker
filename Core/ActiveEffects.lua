@@ -15,6 +15,9 @@ local addonName, SB = ...
 SB.ActiveEffects = SB.ActiveEffects or {}
  
 local effects = {}
+-- Запись эффекта, чей тик сейчас выплачивается (см. ApplyTick): по ней
+-- сопротивление считается раз на наложение, а не на каждый тик.
+local tickingEff = nil
 local slots   = {}
 local container = nil  -- родитель, куда рендерим сетку (третья колонка MainFrame)
  
@@ -2074,6 +2077,9 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc, source, level)
         if eff.spellID == containerSpellID then
             eff.uses   = duration or 1
             eff.isConc = isConc or false
+            -- Повторное наложение — новый удар: сопротивление снова
+            -- гасит его целиком (см. SB.Skills.ResistOncePerEffect).
+            eff.rsd    = nil
             -- Продлённый эффект больше не доживает последний ход
             -- (см. «ТИК В НАЧАЛЕ ХОДА» у TurnStartOne).
             eff.expiring = nil
@@ -2455,8 +2461,10 @@ function SB.ActiveEffects.ApplyPayload(spellID, def, source)
     --
     -- А вот сопротивление школе — работает, и в этом весь его смысл:
     -- устойчивость к тьме, которая держит теневую стрелу, но не держит
-    -- теневую порчу, — это не устойчивость к тьме. Иммунитета при этом
-    -- не выходит: единица проходит всегда (см. SB.Skills.ApplyResistance).
+    -- теневую порчу, — это не устойчивость к тьме. Но гасит резист
+    -- НАЛОЖЕНИЕ, а не каждый тик: бюджет на весь срок эффекта (см.
+    -- SB.Skills.ResistOncePerEffect), иначе периодический урон по 1-2
+    -- за тик обнулялся бы любым сопротивлением.
     --
     -- ШКОЛА БЕРЁТСЯ У САМОГО ЭФФЕКТА (поле damageType контейнера), а не у
     -- заклинания, которое его повесило: один и тот же «Поджег» вешают три
@@ -2466,10 +2474,20 @@ function SB.ActiveEffects.ApplyPayload(spellID, def, source)
     -- бить разным: аура висит на носителе чарами без школы, а отвечает
     -- ударившему Светом (toAttacker = { damage = 1, damageType = "holy" }).
     -- Не назвала — школа контейнера, как было.
+    --
+    -- ОДИН РАЗ НА НАЛОЖЕНИЕ, А НЕ НА ТИК (см. SB.Skills.ResistOncePerEffect):
+    -- у настоящего тика эффекта счёт списанного лежит в его записи
+    -- (tickingEff). Прочие выплаты «через tick» — срабатывания onAction —
+    -- это отдельные удары и гасятся каждый целиком, как раньше.
     if source == "tick" and dmg > 0
        and SB.Skills and SB.Skills.ApplyResistance then
-        dmg = SB.Skills.ApplyResistance(dmg,
-            def.damageType or (sp and sp.damageType))
+        local school = def.damageType or (sp and sp.damageType)
+        if tickingEff and SB.Skills.ResistOncePerEffect then
+            dmg, tickingEff.rsd = SB.Skills.ResistOncePerEffect(dmg,
+                SB.Skills.GetResistance(school), tickingEff.rsd)
+        else
+            dmg = SB.Skills.ApplyResistance(dmg, school)
+        end
     end
     -- ВОЗМЕЗДИЕ — ЭТО УДАР, А НЕ ТИК (source == "strike"). Аура воздаяния,
     -- огненный щит и прочие ответы бьют в миг удара, а не капают, — и
@@ -2928,7 +2946,15 @@ end)
 --- Тик эффекта — блок effect.tick.
 function ApplyTick(spellID)
     local sp = SB.Data.Spells[spellID]
-    SB.ActiveEffects.ApplyPayload(spellID, sp and sp.effect and sp.effect.tick, "tick")
+    -- Запись эффекта — ради счёта сопротивления на наложение (см.
+    -- врезку в ApplyPayload).
+    for _, eff in ipairs(effects) do
+        if eff.spellID == spellID then tickingEff = eff; break end
+    end
+    local ok, err = pcall(SB.ActiveEffects.ApplyPayload, spellID,
+        sp and sp.effect and sp.effect.tick, "tick")
+    tickingEff = nil
+    if not ok then error(err, 0) end
 end
 
 --- Прощальный расчёт — блок effect.onRemove. Зовётся ИЗ ВСЕХ путей, где
@@ -3767,6 +3793,9 @@ function SaveEffects()
             -- дарить эффекту лишний круг.
             expiring  = eff.expiring or nil,
             stepped   = eff.stepped or nil,
+            -- Сколько сопротивление уже погасило этому наложению:
+            -- /reload не должен возвращать бюджет.
+            rsd       = eff.rsd,
         })
     end
     SpellbreakerCharDB.activeEffects = t
@@ -3793,6 +3822,7 @@ function SB.ActiveEffects.LoadFromDB()
                 lvl       = tonumber(entry.lvl),
                 expiring  = entry.expiring == true or nil,
                 stepped   = entry.stepped == true or nil,
+                rsd       = tonumber(entry.rsd),
                 -- Часы клиента после перезахода начинаются заново, и
                 -- старая отметка ничего не значит: отсчёт с загрузки.
                 phaseAt   = GetTime(),

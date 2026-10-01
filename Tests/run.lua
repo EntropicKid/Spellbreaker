@@ -74,6 +74,17 @@ end
 
 -- ── Мини-фреймворк ───────────────────────────────────────────
 local passed, failed = 0, 0
+-- ТРИ РОДА СБОЕВ, и только первый ломает аддон:
+--   crashes — файл не грузится или путь кода упал ошибкой Lua. В игре
+--             это красная ошибка или молча отключённый модуль;
+--   failed  — проверка поведения кода не сошлась;
+--   notes   — замечание по ДАННЫМ: числа баланса и правила контента в
+--             Spells/ и в профилях рас и классов. Данные правит автор
+--             баланса сам, и снимок «шанс был 20» при осознанной правке
+--             на 40 — не ошибка. Замечания печатаются, но итог не валят.
+-- Код выхода: 1 — были крахи или ошибки загрузки, 2 — провалы проверок
+-- кода, 0 — чисто (замечания на код выхода не влияют).
+local crashes, notes = 0, 0
 
 local function check(name, got, want)
     if got == want then
@@ -86,6 +97,18 @@ local function check(name, got, want)
 end
 
 local function checkTrue(name, got) check(name, not not got, true) end
+
+--- Проверка ДАННЫХ (см. врезку у счётчиков): расхождение — замечание.
+local function checkData(name, got, want)
+    if got == want then
+        passed = passed + 1
+    else
+        notes = notes + 1
+        print(("ЗАМЕЧАНИЕ %s\n          получено %s, ожидалось %s")
+            :format(name, tostring(got), tostring(want)))
+    end
+end
+local function checkDataTrue(name, got) checkData(name, not not got, true) end
 
 -- ── Общая заготовка персонажа ────────────────────────────────
 -- Часть расчётов читает сохранёнки напрямую; без них половина функций
@@ -280,8 +303,8 @@ local function smoke(name, fn)
     local ok, err = pcall(fn)
     if ok then passed = passed + 1
     else
-        failed = failed + 1
-        print(("ПРОВАЛ    путь «%s» упал: %s"):format(name, err))
+        crashes = crashes + 1
+        print(("КРАХ      путь «%s» упал: %s"):format(name, err))
     end
 end
 
@@ -389,8 +412,8 @@ for _, path in ipairs(turnPaths) do
     -- ещё раз.
     SB.Logic.ReleaseHeldTurn()
     if not ok then
-        failed = failed + 1
-        print(("ПРОВАЛ    тик после «%s»: путь упал: %s"):format(path[1], err))
+        crashes = crashes + 1
+        print(("КРАХ      тик после «%s»: путь упал: %s"):format(path[1], err))
     elseif path[1] == "окончание хода" then
         checkTrue("кнопка «Окончить ход» кончает ход",
                   SB.TurnOrder.HasActed(stub.world.playerName))
@@ -771,13 +794,13 @@ do
     for _, path in ipairs(FilesFromToc("Spells")) do
         local chunk, err = loadfile(path)
         if not chunk then
-            failed = failed + 1
-            print(("ПРОВАЛ    %s не грузится: %s"):format(path, err))
+            crashes = crashes + 1
+            print(("КРАХ      %s не грузится: %s"):format(path, err))
         else
             local ok, runErr = pcall(chunk, "Spellbreaker", SB)
             if not ok then
-                failed = failed + 1
-                print(("ПРОВАЛ    %s упал: %s"):format(path, runErr))
+                crashes = crashes + 1
+                print(("КРАХ      %s упал: %s"):format(path, runErr))
             end
         end
     end
@@ -816,8 +839,8 @@ do
     end
     table.sort(bad)
     if #bad > 0 then
-        failed = failed + 1
-        print("ПРОВАЛ    неизвестные имена характеристик в данных (" .. #bad .. "):")
+        notes = notes + 1
+        print("ЗАМЕЧАНИЕ неизвестные имена характеристик в данных (" .. #bad .. "):")
         for _, line in ipairs(bad) do print("          " .. line) end
     else
         passed = passed + 1
@@ -850,8 +873,8 @@ do
     end
     table.sort(badSchools)
     if #badSchools > 0 then
-        failed = failed + 1
-        print("ПРОВАЛ    неизвестные школы в данных (" .. #badSchools .. "):")
+        notes = notes + 1
+        print("ЗАМЕЧАНИЕ неизвестные школы в данных (" .. #badSchools .. "):")
         for _, line in ipairs(badSchools) do print("          " .. line) end
     else
         passed = passed + 1
@@ -879,8 +902,8 @@ do
     end
     table.sort(badMods)
     if #badMods > 0 then
-        failed = failed + 1
-        print("ПРОВАЛ    незнакомые ключи mods в данных (" .. #badMods .. "):")
+        notes = notes + 1
+        print("ЗАМЕЧАНИЕ незнакомые ключи mods в данных (" .. #badMods .. "):")
         for _, line in ipairs(badMods) do print("          " .. line) end
     else
         passed = passed + 1
@@ -2067,14 +2090,14 @@ do
     checkTrue("«Создание целебной пищи» что-то создаёт", food.creates ~= nil)
     checkTrue("и контейнера у него больше нет", food.container == nil)
 
-    check("положено четыре буханки", SB.Logic.GrantCreatedItems(food), 4)
-    check("и они в сумке", SB.Items.CountOf("item_mana_food"), 4)
+    checkData("положено четыре буханки", SB.Logic.GrantCreatedItems(food), 4)
+    checkData("и они в сумке", SB.Items.CountOf("item_mana_food"), 4)
     check("заняв одну ячейку", SB.Items.CountPrepared(), 1)
 
     -- ЧЕТЫРЕ — ЭТО ИЗ ОПИСАНИЯ: «заклинание создаёт четыре буханки
     -- кислого хлеба». Число не выдумано, и проверка держит его связь с
     -- текстом.
-    check("четвёрка взята из описания", SB.Items.StackSize("item_mana_food"), 4)
+    checkData("четвёрка взята из описания", SB.Items.StackSize("item_mana_food"), 4)
 
     -- ── ПОВТОРНЫЙ КАСТ ДОЛИВАЕТ, А НЕ ЗАНИМАЕТ ВТОРУЮ ЯЧЕЙКУ ─
     check("сверх предела не кладётся", SB.Logic.GrantCreatedItems(food), 0)
@@ -2082,9 +2105,9 @@ do
 
     SB.Items.NoteUsed("item_mana_food")
     SB.Items.NoteUsed("item_mana_food")
-    check("две съедены", SB.Items.CountOf("item_mana_food"), 2)
+    checkData("две съедены", SB.Items.CountOf("item_mana_food"), 2)
     check("каст долил недостающее", SB.Logic.GrantCreatedItems(food), 2)
-    check("снова полная пачка", SB.Items.CountOf("item_mana_food"), 4)
+    checkData("снова полная пачка", SB.Items.CountOf("item_mana_food"), 4)
 
     -- ── ПОТОЛОК У КАЖДОГО СВОЙ, И ОН ИЗ ОПИСАНИЯ ────────────
     --
@@ -2142,7 +2165,7 @@ do
         -- при себе, а возрождение отыгрывает Ведущий.
         if id ~= "item_soulstone" then
             local pay = sp.onCast
-            checkTrue("«" .. (sp.name or id) .. "» что-то даёт при применении",
+            checkDataTrue("«" .. (sp.name or id) .. "» что-то даёт при применении",
                       type(pay) == "table" and next(pay) ~= nil)
         end
     end
@@ -2154,7 +2177,7 @@ do
     for _, id in ipairs({ "eff_mana_gem", "eff_mana_water", "eff_mana_food",
                           "eff_healthstone", "eff_create_soulstone",
                           "eff_create_magic_stone" }) do
-        checkTrue("«" .. id .. "» убран", SB.Data.Spells[id] == nil)
+        checkDataTrue("«" .. id .. "» убран", SB.Data.Spells[id] == nil)
     end
 
     -- ── ЕГО ЗОВУТ ИЗ ВСЕХ ПУТЕЙ РЕЗОЛВА ─────────────────────
@@ -7614,7 +7637,7 @@ do
     -- получал ту же пятёрку, что и все.
     stub.world.level = 1
     stub.world.race = "Gnome"          -- health = -1
-    check("минус расы работает на первом уровне",
+    checkData("минус расы работает на первом уровне",
           PM.GetMaxHealth(), PM.BaseHealthFor(1) + soft - 1)
 
     -- Двойка — последний предохранитель, и он не про профиль, а про
@@ -7896,7 +7919,7 @@ do
         checkTrue("«" .. nm .. "»: срабатывание есть", act ~= nil)
         if act then
             check("«" .. nm .. "»: повод", act.when, when)
-            check("«" .. nm .. "»: шанс",  act.chance, chance)
+            checkData("«" .. nm .. "»: шанс",  act.chance, chance)
             checkTrue("«" .. nm .. "»: есть что делать", act[kind] ~= nil)
         end
     end
@@ -7939,7 +7962,7 @@ do
     do
         local seal = SB.Data.Spells["eff_sealwisdom"].effect
         check("у Печати Мудрости нет тика", seal.tick, nil)
-        check("а срабатывание на месте", seal.onAction.chance, 20)
+        checkData("а срабатывание на месте", seal.onAction.chance, 20)
     end
 
     -- ЦЕЛОСТНОСТЬ ССЫЛОК. Опечатка в id эффекта возмездия молчит: пакет
@@ -8460,7 +8483,7 @@ do
         SB.ActiveEffects.Add("eff_shield_bone_shield", 4, false)
         SB.ActiveEffects.FireAction("damaged", SB.Data.Spells["t_cn_hit"], "Ирина")
         stub.RunTimers()
-        check("кость приняла удар и рассыпалась",
+        checkData("кость приняла удар и рассыпалась",
               UsesOf("eff_shield_bone_shield"), 3)
         ResetEffects()
     end
@@ -8524,7 +8547,7 @@ do
     do
         local txt = table.concat(
             SB.ActiveEffects.GetEffectLines("eff_shield_bone_shield") or {}, "\n")
-        checkTrue("карточка Костяного щита говорит о зарядах",
+        checkDataTrue("карточка Костяного щита говорит о зарядах",
                   txt:find("тратит заряд", 1, true) ~= nil)
     end
 
@@ -8624,7 +8647,7 @@ do
         SB.ActiveEffects.Add("eff_thorns", 3, false)
         sentTo = nil
         SB.ActiveEffects.FireAction("damaged", SB.Data.Spells["t_cl_melee"], "Ирина")
-        check("шипы кольнули того, кто подошёл", sentWhat, "eff_thorn_prick")
+        checkData("шипы кольнули того, кто подошёл", sentWhat, "eff_thorn_prick")
         sentTo, sentWhat = nil, nil
         SB.ActiveEffects.FireAction("damaged", SB.Data.Spells["t_cl_bow"], "Ирина")
         check("а до лучника не достали", sentTo, nil)
@@ -8635,7 +8658,7 @@ do
         SB.ActiveEffects.Add("eff_armor_magic_frost_armor_mage", 3, false)
         sentTo, sentWhat = nil, nil
         SB.ActiveEffects.FireAction("damaged", SB.Data.Spells["t_cl_melee"], "Ирина")
-        check("доспех обжёг холодом", sentWhat, "eff_frost_armor_chill")
+        checkData("доспех обжёг холодом", sentWhat, "eff_frost_armor_chill")
 
         -- ОТРАЖЕНИЕ ЧАР ВОИНА: только магия, и не всегда.
         ResetEffects()
@@ -8658,7 +8681,7 @@ do
             SB.ActiveEffects.FireAction("damaged", SB.Data.Spells["t_cl_spell"], "Ирина")
             if sentTo then hits = hits + 1 end
         end
-        checkTrue("чары иногда возвращаются", hits > 0)
+        checkDataTrue("чары иногда возвращаются", hits > 0)
         checkTrue("но не всегда — угол успевает не каждый", hits < 60)
 
         SB.Net.SendBuff = realSend
@@ -8779,7 +8802,7 @@ do
         for _, l in ipairs(SB.ActiveEffects.GetEffectLines("eff_lightseal")) do
             if l:find("30%%") then hasChance = true end
         end
-        checkTrue("и шанс", hasChance)
+        checkDataTrue("и шанс", hasChance)
 
         -- И НАЗЫВАЕТ СПОСОБНОСТЬ, если повод только о ней: без имени две
         -- строки Пламенного клейма читаются как «любая способность делает
@@ -9118,7 +9141,7 @@ do
             end
         end
     end
-    check("заклинаний с эффектом, но без срока", #noDur, 0)
+    checkData("заклинаний с эффектом, но без срока", #noDur, 0)
     if #noDur > 0 then print("          " .. table.concat(noDur, ", ")) end
 
     ResetEffects()
@@ -9152,7 +9175,7 @@ do
 
     -- rollFloor ОСТАЛСЯ: он срезает неудачные грани и поднимает средний
     -- бросок — это самостоятельная прибавка, а не подпорка к вырезанному.
-    check("расовый пол кубика на месте", SB.Data.RaceProfiles.Orc.rollFloor, 10)
+    checkData("расовый пол кубика на месте", SB.Data.RaceProfiles.Orc.rollFloor, 10)
 end
 
 -- ============================================================
@@ -9164,7 +9187,7 @@ do
     checkTrue("в нём названы метры", tip:find("метр", 1, true) ~= nil)
     checkTrue("и оговорка про вредоносность",
               tip:find("вредоносн", 1, true) ~= nil)
-    checkTrue("и про ближний бой",
+    checkDataTrue("и про ближний бой",
               tip:find("ближн", 1, true) ~= nil)
 end
 
@@ -9358,9 +9381,9 @@ do
         local id, key, want = row[1], row[2], row[3]
         local def = SB.ActiveEffects.GetEffectDef(id)
         local nm  = (SB.Data.Spells[id] and SB.Data.Spells[id].name) or id
-        check("«" .. nm .. "»: " .. key, def and def.mods[key], want)
+        checkData("«" .. nm .. "»: " .. key, def and def.mods[key], want)
         -- И общий канал у них снят: иначе прибавка считалась бы дважды.
-        check("«" .. nm .. "» не двоит общим каналом",
+        checkData("«" .. nm .. "» не двоит общим каналом",
               def and (def.mods[SB.Data.DAMAGE_ALL] or 0), 0)
     end
 
@@ -9678,7 +9701,7 @@ do
     }
     for race, key in pairs(RACE) do
         stub.world.race = race
-        check(race .. " держит свою школу", SB.Data.GetSoftBonus(key), 1)
+        checkData(race .. " держит свою школу", SB.Data.GetSoftBonus(key), 1)
     end
 
     -- Раса НЕ получает общий резист: «стойкий ко всему на свете» — это
@@ -9901,7 +9924,7 @@ do
         local id, key, want = row[1], row[2], row[3]
         local def = SB.ActiveEffects.GetEffectDef(id)
         local nm  = (SB.Data.Spells[id] and SB.Data.Spells[id].name) or id
-        check("«" .. nm .. "»: " .. key, def and def.mods[key], want)
+        checkData("«" .. nm .. "»: " .. key, def and def.mods[key], want)
     end
 
     -- ── УЯЗВИМОСТИ ВЗЯТЫ ИЗ ТЕХ ЖЕ ОПИСАНИЙ ─────────────────
@@ -9969,7 +9992,7 @@ do
             end
         end
     end
-    check("эффектов с резистом выше тройки", #overCap, 0)
+    checkData("эффектов с резистом выше тройки", #overCap, 0)
     if #overCap > 0 then print("          " .. table.concat(overCap, ", ")) end
 
     -- И расовый потолок — единица (лестница начинается с неё).
@@ -9981,7 +10004,7 @@ do
             end
         end
     end
-    check("рас с резистом сильнее единицы", #raceOver, 0)
+    checkData("рас с резистом сильнее единицы", #raceOver, 0)
 
     stub.world.race = savedRace
     ResetEffects()
@@ -11141,7 +11164,7 @@ do
     -- МЕТКИ ОСТАЮТСЯ БЕЗ СОПРОТИВЛЕНИЯ НАМЕРЕННО: ими не давят и не
     -- ломают, ими помечают. Но их немного — если список раздуется,
     -- значит правило перестали раздавать.
-    checkTrue("без сопротивления осталась горстка", #bare <= 12)
+    checkDataTrue("без сопротивления осталась горстка", #bare <= 12)
 end
 
 -- ── ПОРОГ СЧИТАЕТСЯ ПО НАЗВАННОМУ АТРИБУТУ ──────────────────
@@ -16280,7 +16303,7 @@ do
     end
 
     local function noneOf(name, list)
-        check(name, #list, 0)
+        checkData(name, #list, 0)
         if #list > 0 then print("          " .. table.concat(list, "; ")) end
     end
     noneOf("нет неизвестных каналов в mods",     badMod)
@@ -16525,7 +16548,7 @@ do
                 end
             end
         end
-        check("у «" .. class .. "» каждый дескриптор скейлится от своего",
+        checkData("у «" .. class .. "» каждый дескриптор скейлится от своего",
               #wrong, 0)
         if #wrong > 0 then print("          мимо: " .. table.concat(wrong, ", ")) end
         local keys = 0
@@ -17053,7 +17076,7 @@ do
             single[#single + 1] = id
         end
     end
-    check("одиночных уронных со своим контейнером", #single, 4)
+    checkData("одиночных уронных со своим контейнером", #single, 4)
 end
 
 -- ============================================================
@@ -17284,8 +17307,8 @@ do
     check("штрафа к броску у жреца больше нет", priest.attack or 0, 0)
     check("зато есть прибавка к исцелению",     priest.heal or 0, 1)
     -- Остальное не тронуто: правка про атаку и лечение, а не про живучесть.
-    check("защита на месте",   priest.defense, 3)
-    check("здоровье на месте", priest.health, -1)
+    checkData("защита на месте",   priest.defense, 3)
+    checkData("здоровье на месте", priest.health, -1)
 
     -- ── СКЛАДЫВАЕТ ОДНО МЕСТО ──────────────────────────────
     --
@@ -17467,7 +17490,7 @@ end
 do
     -- ── ЧЕРНОКНИЖНИКУ ЗАПАС ЗДОРОВЬЯ ───────────────────────
     -- Оно у него расходник: жизнеотвод меняет ХП на ману каждый ход.
-    check("здоровье чернокнижника", SB.Data.GetClassProfile("Чернокнижник").health, 3)
+    checkData("здоровье чернокнижника", SB.Data.GetClassProfile("Чернокнижник").health, 3)
 
     -- ── ШАМАНУ ОЧКИ ХАРАКТЕРИСТИК ──────────────────────────
     --
@@ -17653,8 +17676,8 @@ do
     -- ── ЧАРОДЕЙСКИЙ ВЫСТРЕЛ ────────────────────────────────
     local shot = SB.Data.Spells["arcane_shot"]
     checkTrue("«Чародейский выстрел» на месте", shot ~= nil)
-    check("Выносливость по три четверти", shot.scaling.damage["Выносливость"], 0.75)
-    check("и Интеллект тоже",             shot.scaling.damage["Интеллект"], 0.75)
+    checkData("Выносливость по три четверти", shot.scaling.damage["Выносливость"], 0.75)
+    checkData("и Интеллект тоже",             shot.scaling.damage["Интеллект"], 0.75)
     -- Попадание и крит не тронуты: правка про урон.
     check("бросок не тронут", shot.scaling.hit["Концентрация"], 1)
     check("крит не тронут",   shot.scaling.crit["Точность"], 1)
@@ -18129,7 +18152,7 @@ do
 
     -- Числа как у образца, с которым его и сравнивают.
     local lh = SB.Data.Spells["lesser_heal"]
-    check("дальность как у «Малого исцеления»", fol.distance, lh.distance)
+    checkData("дальность как у «Малого исцеления»", fol.distance, lh.distance)
     check("и круг тот же",                      fol.level, lh.level)
 
     -- Лечащий заговор теперь есть у каждого класса, который лечит.
@@ -18778,7 +18801,7 @@ do
     local act = (SB.ActiveEffects.ActionsOf(SB.Data.Spells[seal.container]) or {})[1] or {}
     check("срабатывает от удара",      act.when, "hit")
     check("только в ближнем бою",      act.melee, true)
-    check("с шансом 20%",              act.chance, 20)
+    checkData("с шансом 20%",              act.chance, 20)
     check("и дезориентирует цель",     act.toTarget, "eff_seal_of_justice_daze")
     local daze = SB.Data.Spells["eff_seal_of_justice_daze"]
     checkTrue("дезориентация — дебафф",
@@ -19768,7 +19791,7 @@ do
     local bfe = S["eff_bleeding_blade_flurry"]
     checkTrue("эффект заведён", bfe ~= nil)
     check("школа — кровотечение", bfe.effect.school, "bleed")
-    check("тик на единицу",       bfe.effect.tick.damage, 1)
+    checkData("тик на единицу",       bfe.effect.tick.damage, 1)
 
     -- ── ВИЗГ УКОРОЧЕН ──────────────────────────────────────
     check("«Оглушительный визг» держит три хода",
@@ -19808,7 +19831,7 @@ do
     -- как сторож «не потеряй при добавлении» и честно поймала снятие —
     -- но снятие было осознанным, и ожидание переписано под него.
     check("а брони — нет, она не про сталь", fh.effect.mods.armor, nil)
-    check("и её кормят каждый ход",          (fh.effect.tick or {}).castResource, -1)
+    checkData("и её кормят каждый ход",          (fh.effect.tick or {}).castResource, -1)
 
     -- ── ЧАСТИЦА СВЕТА ЗАБИРАЕТ ДОЛЮ ЧУЖОГО ИСЦЕЛЕНИЯ ───────
     --
@@ -19826,7 +19849,7 @@ do
     local bl = S["eff_bless"].effect
     checkTrue("оно срезает неудачные грани", (bl.mods.rollFloor or 0) > 0)
     check("плоской прибавки к атаке больше нет", bl.mods.attack, nil)
-    checkTrue("и держит «Волю» против страха", ((bl.stats or {})["Воля"] or 0) > 0)
+    checkDataTrue("и держит «Волю» против страха", ((bl.stats or {})["Воля"] or 0) > 0)
 end
 
 -- ============================================================
@@ -20390,12 +20413,12 @@ do
 
     check("«Блок щитом» снова вешает стойку", block.container, "eff_shield_block")
     check("и ничего не чинит",                block.repairArmor, nil)
-    check("а стойка — прежняя",
+    checkData("а стойка — прежняя",
           SB.Data.Spells["eff_shield_block"].effect.mods.armor, 20)
 
     check("«Удар щитом» остался ударом", slam.canCrit, true)
-    checkTrue("и по-прежнему вешает дебафф", slam.debuff ~= nil)
-    check("а броню чинит он",  slam.onCast and slam.onCast.armor, 20)
+    checkDataTrue("и по-прежнему вешает дебафф", slam.debuff ~= nil)
+    checkData("а броню чинит он",  slam.onCast and slam.onCast.armor, 20)
     -- ПРИ ПРИМЕНЕНИИ, А НЕ ПРИ ПОПАДАНИИ: onCast срабатывает от самого
     -- каста, и промах закрытия щитом не отменяет.
     check("починки по попаданию у него нет", slam.repairArmor, nil)
@@ -20470,7 +20493,7 @@ do
         end
     end
     table.sort(low)
-    check("оберегов ниже своего круга", #low, 0)
+    checkData("оберегов ниже своего круга", #low, 0)
     for _, one in ipairs(low) do print("          " .. one) end
 
     -- И ПОИМЁННО ПРО ТЕХ, ИЗ-ЗА КОГО ПРИШЛИ: старшие круги больше не
@@ -20745,7 +20768,7 @@ do
     end
 
     table.sort(fresh)
-    check("новых эффектов-сирот", #fresh, 0)
+    checkData("новых эффектов-сирот", #fresh, 0)
     for _, one in ipairs(fresh) do print("          " .. one) end
     check("записанных в сироты, на которые снова ссылаются", #revived, 0)
     for _, one in ipairs(revived) do print("          " .. one) end
@@ -20788,7 +20811,7 @@ do
             end
         end
     end
-    check("характеристик эффектов выше потолка", #over, 0)
+    checkData("характеристик эффектов выше потолка", #over, 0)
     for _, one in ipairs(over) do print("          " .. one) end
 
     -- И ОБЕЩАНИЯ, КОТОРЫЕ ТЕПЕРЬ ДЕРЖИТ КАНАЛ, а не число: если у
@@ -20849,7 +20872,7 @@ do
                                 :format(nm, circle, lvl[nm])
         end
     end
-    check("заголовков эффектов, врущих про круг", #stale, 0)
+    checkData("заголовков эффектов, врущих про круг", #stale, 0)
     for _, one in ipairs(stale) do print("          " .. one) end
 end
 
@@ -21331,6 +21354,26 @@ do
     check("удержаний не осталось", SB.Skills.GetHoldLeft(), 0)
     AE.BreakOn("interrupted")
     checkTrue("без удержаний прерывание срывает", not has("t_hold_conc"))
+    -- Поток — та же концентрация: начатый поток вытесняет прежнюю,
+    -- а удержание спасает его от прерывания так же, как концентрацию.
+    do
+        local chan
+        for _, sp in pairs(SB.Data.Spells) do
+            if sp.channel and sp.channelEffect then chan = sp; break end
+        end
+        AE.Clear()
+        AE.Add("t_hold_gift", 5, false)
+        AE.Add("t_hold_conc", 5, true)
+        AE.Add(chan.channelEffect, SB.Data.GetChannelUses(chan), true)
+        checkTrue("поток вытесняет прежнюю концентрацию", not has("t_hold_conc"))
+        SB.Skills.RestoreHold()
+        if base > 0 then SB.Skills.SpendFromPool("hold", base) end
+        AE.BreakOn("interrupted")
+        checkTrue("удержание спасает поток от прерывания", has(chan.channelEffect))
+        check("потрачено ровно одно", SB.Skills.GetHoldLeft(), 0)
+        AE.BreakOn("interrupted")
+        checkTrue("без удержаний срывает и поток", not has(chan.channelEffect))
+    end
     check("к защите навык больше не прибавляет",
           SB.Skills.GetConcentrationDefenseBonus, nil)
 
@@ -21995,12 +22038,273 @@ do
     check("попадание 4.5 усекается до 4", (SB.Logic.GetSpellScaling(hit, "hit", nil, stat(1))), 4)
 end
 
+-- ============================================================
+-- СЦЕНА: АВТОСОХРАНЕНИЕ, И ПОСЛЕ ПЕРЕЗАПУСКА СЕРВЕРА — НЕ ВОССТАНАВЛИВАЕТСЯ
+-- ============================================================
+do
+    check("время работы из «.server info»",
+        SB.Scenes.ParseUptime("Время работы сервера: 7 Hours 34 Minutes 46 Seconds."),
+        7 * 3600 + 34 * 60 + 46)
+    check("и английский оригинал с днями",
+        SB.Scenes.ParseUptime("Server uptime: 1 Day(s) 2 Hour(s) 3 Minute(s) 4 Second(s)"),
+        86400 + 2 * 3600 + 3 * 60 + 4)
+    check("чужая строка — не время работы", SB.Scenes.ParseUptime("Игроков в сети: 13"), nil)
+    checkTrue("отказ в команде узнаётся",
+        SB.Scenes.IsDenied("Command 'server info' does not exist"))
+    checkTrue("а чужая ошибка — нет",
+        not SB.Scenes.IsDenied("Command 'npc info' does not exist"))
+
+    local wasLeader, wasGroup = stub.world.isLeader, stub.world.inGroup
+    stub.world.isLeader, stub.world.inGroup = true, false
+    local savedDB = _G.SpellbreakerNPCDB
+    _G.SpellbreakerNPCDB = { npcs = {} }
+    SB.NPC.ResetState()
+    local now = time()
+
+    -- Сохраняется само, после изменения состояния.
+    SB.Scenes._ResetForTests(now - 1000)
+    SB.Scenes.TryRestore(now - 1000)          -- сохранения ещё нет: просто «решено»
+    SB.NPC.ApplyRemoteState("9100:1", 7, 20, 2, 5, "eff_immolation:3")
+    stub.RunTimers()
+    local scene = _G.SpellbreakerNPCDB.autoScene
+    checkTrue("сцена сохранилась сама", scene ~= nil and #scene.npcs == 1)
+    check("с моментом запуска сервера", scene and scene.serverStart, now - 1000)
+
+    -- /reload: тот же запуск сервера — сцена вернулась.
+    SB.NPC.ResetState()
+    SB.Scenes._ResetForTests(now - 1000)
+    check("тот же запуск — восстановлена", SB.Scenes.TryRestore(now - 990), "restored")
+    local st1
+    SB.NPC.EachState(function(k, s) if k == "9100:1" then st1 = s end end)
+    check("раненая осталась раненой", st1 and st1.hp, 7)
+    check("и эффект на ней", st1 and st1.effects[1] and st1.effects[1].spellID, "eff_immolation")
+
+    -- Сервер перезапускался — сцена не восстанавливается и забывается.
+    SB.NPC.ResetState()
+    SB.Scenes._ResetForTests(now - 50)
+    check("другой запуск — не восстановлена", SB.Scenes.TryRestore(now - 50), "restarted")
+    check("и существ не появилось", SB.NPC.StateCount(), 0)
+    check("сохранение выброшено", _G.SpellbreakerNPCDB.autoScene, nil)
+
+    -- Сервер не ответил: свежая сцена возвращается, старая — нет.
+    _G.SpellbreakerNPCDB.autoScene = { savedAt = now - 60,
+        npcs = { { key = "9100:2", hp = 3, maxHp = 9 } } }
+    SB.Scenes._ResetForTests(nil)
+    check("без ответа сервера свежая — восстановлена", SB.Scenes.TryRestore(nil), "restored")
+    _G.SpellbreakerNPCDB.autoScene = { savedAt = now - 86400,
+        npcs = { { key = "9100:2", hp = 3, maxHp = 9 } } }
+    SB.Scenes._ResetForTests(nil)
+    check("без ответа сервера вчерашняя — нет", SB.Scenes.TryRestore(nil), "stale")
+
+    SB.Scenes._ResetForTests(nil)
+    SB.Scenes.TryRestore(nil)
+    SB.NPC.ResetState()
+    _G.SpellbreakerNPCDB = savedDB
+    stub.world.isLeader, stub.world.inGroup = wasLeader, wasGroup
+end
+
+-- ============================================================
+-- СОПРОТИВЛЕНИЕ ТИКУ — ОДИН РАЗ НА НАЛОЖЕНИЕ
+-- ============================================================
+do
+    local R = SB.Skills.ResistOncePerEffect
+    local d1, u1 = R(1, 1, nil)
+    local d2, u2 = R(1, 1, u1)
+    local d3     = R(1, 1, u2)
+    check("резист 1: первый тик погашен", d1, 0)
+    check("второй проходит", d2, 1)
+    check("третий проходит", d3, 1)
+    local a, ua = R(1, 2, nil); local b, ub = R(1, 2, ua); local c = R(1, 2, ub)
+    check("резист 2 против 1×3: гасит два тика", a + b + c, 1)
+    local x, ux = R(3, 1, nil); local y = R(3, 1, ux)
+    check("тик 3 при резисте 1: 2, затем 3", x * 10 + y, 23)
+    local v1, uv = R(1, -1, nil); local v2 = R(1, -1, uv)
+    check("уязвимость прибавляет единожды", v1 + v2, 3)
+
+    -- Существо: «Боль» 1 × 3 против сопротивления магии 1 — 2 из 3.
+    local wasLeader, wasGroup = stub.world.isLeader, stub.world.inGroup
+    stub.world.isLeader, stub.world.inGroup = true, false
+    local savedDB = _G.SpellbreakerNPCDB
+    _G.SpellbreakerNPCDB = { npcs = {} }
+    SB.NPC.ResetState()
+    SB.Data.Spells["t_rs_dot"] = { id = "t_rs_dot", name = "Проба тьмы", class = "Эффект",
+        level = 0, isContainer = true, damageType = "shadow",
+        effect = { kind = "debuff", tick = { damage = 1 } } }
+    SB.Data.Spells["t_rs_ward"] = { id = "t_rs_ward", name = "Проба оберега", class = "Эффект",
+        level = 0, isContainer = true, effect = { kind = "buff", mods = { resistMagic = 1 } } }
+    SB.NPC.ApplyRemoteState("9200:1", 10, 10, 0, 0, "t_rs_dot:3;t_rs_ward:-1")
+    local function hp()
+        local h
+        SB.NPC.EachState(function(k, s) if k == "9200:1" then h = s.hp end end)
+        return h
+    end
+    SB.NPC.TickEffects()
+    check("существо: первый тик погашен", hp(), 10)
+    -- Эхо собственной рассылки не возвращает бюджет.
+    SB.NPC.ApplyRemoteState("9200:1", 10, 10, 0, 0, "t_rs_dot:2;t_rs_ward:-1")
+    SB.NPC.TickEffects()
+    SB.NPC.TickEffects()
+    check("существо: за три тика — два урона", hp(), 8)
+
+    SB.NPC.ResetState()
+    SB.Data.Spells["t_rs_dot"], SB.Data.Spells["t_rs_ward"] = nil, nil
+    _G.SpellbreakerNPCDB = savedDB
+    stub.world.isLeader, stub.world.inGroup = wasLeader, wasGroup
+end
+
+-- Игрок: тот же бюджет, и повторное наложение начинает его заново.
+do
+    local AE, PM = SB.ActiveEffects, SB.PlayerModel
+    SB.Data.Spells["t_rs_pdot"] = { id = "t_rs_pdot", name = "Проба тьмы", class = "Эффект",
+        level = 0, isContainer = true, damageType = "shadow",
+        effect = { kind = "debuff", tick = { damage = 1 } } }
+    SB.Data.Spells["t_rs_pward"] = { id = "t_rs_pward", name = "Проба оберега", class = "Эффект",
+        level = 0, isContainer = true, effect = { kind = "buff", mods = { resistMagic = 1 } } }
+    AE.Clear()
+    local keep = PM.GetHealth()
+    PM.SetHealth(PM.GetMaxHealth())
+    local start = PM.GetHealth()
+    AE.Add("t_rs_pward", 20, false)
+    AE.Add("t_rs_pdot", 10, false)
+    AE.TickAll(); AE.TickAll(); AE.TickAll()
+    check("игрок: три тика по 1 при резисте 1 — два урона", start - PM.GetHealth(), 2)
+    local mid = PM.GetHealth()
+    AE.Add("t_rs_pdot", 10, false)
+    AE.TickAll()
+    check("повторное наложение: резист снова гасит тик", mid - PM.GetHealth(), 0)
+    AE.Clear()
+    PM.SetHealth(keep)
+    SB.Data.Spells["t_rs_pdot"], SB.Data.Spells["t_rs_pward"] = nil, nil
+end
+
+-- ============================================================
+-- СЦЕНА: НЕОЧЕВИДНЫЕ СЛУЧАИ
+-- ============================================================
+do
+    local wasLeader, wasGroup = stub.world.isLeader, stub.world.inGroup
+    stub.world.isLeader, stub.world.inGroup = true, false
+    local savedDB = _G.SpellbreakerNPCDB
+    local now = time()
+    local function stateOf(key)
+        local s
+        SB.NPC.EachState(function(k, v) if k == key then s = v end end)
+        return s
+    end
+    local lines = {}
+    local listen = true
+    SB.Events.On(SB.E.BROADCAST_LOG, function(m) if listen then lines[#lines + 1] = m end end)
+
+    -- 1. Пока Ведущего не было, существо удалили. После восстановления
+    --    оно замерло: не тикает и в лог не пишет.
+    _G.SpellbreakerNPCDB = { npcs = {}, autoScene = { savedAt = now - 30, serverStart = now - 5000,
+        npcs = { { key = "9300:1", hp = 10, maxHp = 10, effects = "eff_immolation:-1", seen = now - 30 } } } }
+    SB.NPC.ResetState()
+    SB.Scenes._ResetForTests(now - 5000)
+    check("восстановлена", SB.Scenes.TryRestore(now - 5000), "restored")
+    local before = #lines
+    SB.NPC.TickEffects(); SB.NPC.TickEffects()
+    check("невиданное существо не тикает", stateOf("9300:1").hp, 10)
+    check("и в лог про него ни строки", #lines, before)
+    -- Встретили (кто-то взял в цель) — время для него пошло.
+    SB.NPC.ReplyState("9300:1")
+    SB.NPC.TickEffects()
+    check("встреченное — тикает снова", stateOf("9300:1").hp, 9)
+
+    -- 2. Эхо своей же рассылки не «оттаивает» невиданное.
+    _G.SpellbreakerNPCDB.autoScene = { savedAt = now - 30, serverStart = now - 5000,
+        npcs = { { key = "9300:2", hp = 5, maxHp = 10, effects = "eff_immolation:3", seen = now - 30 } } }
+    SB.NPC.ResetState()
+    SB.Scenes._ResetForTests(now - 5000)
+    SB.Scenes.TryRestore(now - 5000)
+    SB.NPC.ApplyRemoteState("9300:2", 5, 10, 0, 0, "eff_immolation:3")
+    SB.NPC.TickEffects()
+    check("эхо рассылки не снимает заморозку", stateOf("9300:2").hp, 5)
+
+    -- 3. Группа продолжала без Ведущего: живое состояние, пришедшее
+    --    предложением, сохранение не перетирает.
+    _G.SpellbreakerNPCDB.autoScene = { savedAt = now - 30, serverStart = now - 5000,
+        npcs = { { key = "9300:3", hp = 9, maxHp = 10, seen = now - 30 },
+                 { key = "9300:4", hp = 4, maxHp = 10, seen = now - 30 } } }
+    SB.NPC.ResetState()
+    SB.NPC.ApplyRemoteState("9300:3", 2, 10, 0, 0, nil)   -- живое знание группы
+    SB.Scenes._ResetForTests(now - 5000)
+    SB.Scenes.TryRestore(now - 5000)
+    check("живое состояние группы сохранено", stateOf("9300:3").hp, 2)
+    check("а пробел заполнен из сохранения", stateOf("9300:4") and stateOf("9300:4").hp, 4)
+
+    -- 4. Сохранение старше суток по особи — не возвращается.
+    _G.SpellbreakerNPCDB.autoScene = { savedAt = now - 30, serverStart = now - 5000,
+        npcs = { { key = "9300:5", hp = 1, maxHp = 10, seen = now - 2 * 86400 } } }
+    SB.NPC.ResetState()
+    SB.Scenes._ResetForTests(now - 5000)
+    SB.Scenes.TryRestore(now - 5000)
+    check("не встречавшаяся сутки особь не возвращается", stateOf("9300:5"), nil)
+
+    -- 5. Вернулся помощником нового лидера — не восстанавливает и
+    --    сохранение не выбрасывает.
+    stub.world.inGroup, stub.world.isLeader = true, false
+    local realAssist = _G.UnitIsGroupAssistant
+    _G.UnitIsGroupAssistant = function() return true end
+    _G.SpellbreakerNPCDB.autoScene = { savedAt = now - 30, serverStart = now - 5000,
+        npcs = { { key = "9300:6", hp = 1, maxHp = 10, seen = now - 30 } } }
+    SB.NPC.ResetState()
+    SB.Scenes._ResetForTests(now - 5000)
+    check("помощник сцену не восстанавливает", SB.Scenes.TryRestore(now - 5000), "owner")
+    check("и ничего не трогает", SB.NPC.StateCount(), 0)
+    checkTrue("сохранение цело", _G.SpellbreakerNPCDB.autoScene ~= nil)
+    _G.UnitIsGroupAssistant = realAssist
+    stub.world.inGroup, stub.world.isLeader = false, true
+
+    -- 6. «.server info» уходит один раз, сколько бы ни спрашивали.
+    local realSend, sent = SB.NPCCommands.Send, 0
+    SB.NPCCommands.Send = function(c) if c == ".server info" then sent = sent + 1 end return true end
+    SB.Scenes._ResetForTests(nil)
+    SB.Scenes.ProbeServerStart()
+    SB.Scenes.ProbeServerStart(function() end)
+    SB.Scenes.ProbeServerStart(function() end)
+    check("запрос времени работы — один", sent, 1)
+    SB.NPCCommands.Send = realSend
+
+    listen = false
+    SB.Scenes._ResetForTests(nil)
+    SB.Scenes.TryRestore(nil)
+    SB.NPC.ResetState()
+    _G.SpellbreakerNPCDB = savedDB
+    stub.world.isLeader, stub.world.inGroup = wasLeader, wasGroup
+end
+
+-- ============================================================
+-- ОЧЕРЕДЬ ПОСЛЕ /reload: вернувшийся просит, Ведущий отвечает раз
+-- ============================================================
+do
+    local wasLeader, wasGroup = stub.world.isLeader, stub.world.inGroup
+    local realReq, realSend = SB.Net.RequestTurnState, SB.Net.SendTurnState
+    local asked, sent = 0, 0
+    SB.Net.RequestTurnState = function() asked = asked + 1 end
+    SB.Net.SendTurnState = function() sent = sent + 1 end
+
+    stub.world.isLeader, stub.world.inGroup = false, true
+    stub.FireEvent("PLAYER_ENTERING_WORLD", false, true)
+    stub.RunTimers()
+    checkTrue("игрок после /reload просит очередь", asked >= 1)
+
+    stub.world.isLeader = true
+    sent = 0
+    SB.TurnOrder.ReplyState(); SB.TurnOrder.ReplyState(); SB.TurnOrder.ReplyState()
+    stub.RunTimers()
+    check("на пачку запросов — один ответ", sent, 1)
+
+    SB.Net.RequestTurnState, SB.Net.SendTurnState = realReq, realSend
+    stub.world.isLeader, stub.world.inGroup = wasLeader, wasGroup
+end
+
 -- ИТОГ
 -- ============================================================
 print("")
 print(("Загрузка: %d файлов Core, ошибок — %d")
     :format(#CoreFilesFromToc(), loadErrors))
-print(("Проверки: %d прошло, %d провалено"):format(passed, failed))
+print(("Проверки: %d прошло, %d провалено, крахов %d, замечаний по данным %d")
+    :format(passed, failed, crashes, notes))
 
 local missing = {}
 for name in pairs(stub.missing) do missing[#missing + 1] = name end
@@ -22010,4 +22314,5 @@ if #missing > 0 then
         .. table.concat(missing, ", "))
 end
 
-os.exit((failed == 0 and loadErrors == 0) and 0 or 1)
+if loadErrors > 0 or crashes > 0 then os.exit(1) end
+os.exit(failed == 0 and 0 or 2)

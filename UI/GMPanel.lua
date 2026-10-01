@@ -550,6 +550,7 @@ function SB.UI.BuildGMPanel()
     turnStatus:SetTextColor(C.textDim[1], C.textDim[2], C.textDim[3])
     y = y - 26 - 8
 
+
     -- ── Порядок хода ─────────────────────────────────────────
     local orderHdr = SB.Theme.SectionHeader(settingsPanel, "Порядок хода", 0)
     orderHdr:SetPoint("TOPLEFT", settingsPanel, "TOPLEFT", 0, y)

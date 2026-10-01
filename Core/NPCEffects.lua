@@ -422,6 +422,8 @@ function AddToState(st, effectID, turns, source)
     end
     if found then
         found.uses = turns or 1
+        -- Новое наложение — сопротивление снова гасит его целиком.
+        found.rsd  = nil
         -- Провокацию перебивает тот, кто провоцировал последним — то же
         -- правило, что у игрока (см. SB.ActiveEffects.Add).
         found.src  = source or found.src
@@ -564,7 +566,7 @@ end
 ---        (см. врезку в SB.ActiveEffects.ApplyPayload).
 --- @return number hpDelta, number resDelta, number armor  броня — сырое
 ---         число блока; куда её деть, решает вызывающий (см. TickOne)
-local function ApplyPayload(st, def, sp, source)
+local function ApplyPayload(st, def, sp, source, entry)
     if type(def) ~= "table" then return 0, 0, 0 end
 
     local dmg  = tonumber(def.damage) or 0
@@ -583,9 +585,16 @@ local function ApplyPayload(st, def, sp, source)
     --
     -- ГАСИТ ДО НУЛЯ и принимает минус: отрицательный резист — это
     -- уязвимость, и тик она усиливает (см. SB.Skills.ApplyResistance).
+    --
+    -- ОДИН РАЗ НА НАЛОЖЕНИЕ (см. SB.Skills.ResistOncePerEffect): счёт
+    -- списанного лежит в самой записи эффекта (entry.rsd).
     if source == "tick" and dmg > 0 then
-        local resisted = math.min(SB.NPC.ResistanceOf(st, sp and sp.damageType), dmg)
-        dmg = dmg - resisted
+        local resist = SB.NPC.ResistanceOf(st, sp and sp.damageType)
+        if entry and SB.Skills and SB.Skills.ResistOncePerEffect then
+            dmg, entry.rsd = SB.Skills.ResistOncePerEffect(dmg, resist, entry.rsd)
+        else
+            dmg = dmg - math.min(resist, dmg)
+        end
     end
 
     -- ВХОДЯЩЕЕ ЛЕЧЕНИЕ ДВИГАЕТСЯ КАНАЛОМ healTaken так же, как у игрока
@@ -649,7 +658,7 @@ local function TickOne(st)
             if e.uses <= 0 then gone = true end
         end
 
-        local h, r, a = ApplyPayload(st, sp and sp.effect and sp.effect.tick, sp, "tick")
+        local h, r, a = ApplyPayload(st, sp and sp.effect and sp.effect.tick, sp, "tick", e)
         hp, res = hp + h, res + r
         Ward(a)
 
@@ -712,6 +721,9 @@ function SB.NPC.TickEffects()
     SB.NPC.EachState(function(key, st)
         local list = ListOf(st)
         if #list == 0 then return end
+        -- Восстановленная и ещё не встреченная особь замерла: её могли
+        -- удалить, пока Ведущего не было (см. «НЕВИДАННЫЕ ОСОБИ» в Core/NPC.lua).
+        if st.unseen then return end
 
         -- ПАВШЕЕ СУЩЕСТВО НЕ ТИКАЕТ. Эффекты с него снимаются молча: гореть
         -- и кровоточить больше нечему, а тик по нулю здоровья писал бы
@@ -841,6 +853,27 @@ function SB.NPC.PackEffects(list)
         out[#out + 1] = chunk
     end
     return table.concat(out, ";")
+end
+
+--- ПЕРЕНЕСТИ СЧЁТ СОПРОТИВЛЕНИЯ со старого списка на пришедший.
+---
+--- Счёт (rsd) по сети не ездит — лишние байты на каждый эффект каждой
+--- особи ради числа, которое нужно только тому, кто тикает. Но
+--- владелец получает свои же рассылки эхом, и без переноса каждое эхо
+--- обнуляло бы счёт: резист снова гасил бы тик целиком. Переносим по
+--- эффекту, если это то же наложение — срок не вырос.
+function SB.NPC.CarryResistUsed(oldList, newList)
+    if type(oldList) ~= "table" or type(newList) ~= "table" then return end
+    local prev = {}
+    for _, e in ipairs(oldList) do
+        if e.rsd then prev[e.spellID] = e end
+    end
+    for _, e in ipairs(newList) do
+        local o = prev[e.spellID]
+        if o and (tonumber(e.uses) or 0) <= (tonumber(o.uses) or 0) then
+            e.rsd = o.rsd
+        end
+    end
 end
 
 function SB.NPC.UnpackEffects(str)

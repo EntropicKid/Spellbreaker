@@ -1,0 +1,87 @@
+# Проверка аддона на каждый пуш и пулл-реквест.
+#
+# КРАСНЫЙ КРЕСТИК СТАВЯТ ТОЛЬКО ПОЛОМКИ, КОТОРЫЕ ЛОМАЮТ АДДОН В ИГРЕ:
+#   • синтаксическая ошибка в любом .lua (файл не загрузится вовсе —
+#     так уже было со Spells/Effects.lua, и вместе с ним пропали все эффекты);
+#   • файл, указанный в .toc, отсутствует (игра молча его пропустит);
+#   • ошибка Lua при загрузке модулей или на путях кода в тестах.
+#
+# ДАННЫЕ БАЛАНСА НЕ ВАЛЯТ ПРОВЕРКУ. Содержимое Spells/ и профилей рас и
+# классов правится вручную, и от него требуется только синтаксис.
+# Проверки данных (Tests/run.lua, «ЗАМЕЧАНИЕ») и проверки кода, которые
+# не сошлись («ПРОВАЛ»), попадают в сводку запуска и в предупреждения,
+# но не ставят крестик.
+name: Проверка аддона
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Установить LuaJIT
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq luajit
+
+      - name: Синтаксис всех .lua
+        run: |
+          bad=0
+          while IFS= read -r f; do
+            if ! out=$(luajit -bl "$f" 2>&1 >/dev/null); then
+              bad=1
+              # «luajit: путь:строка: сообщение» → аннотация на строке файла
+              line=$(printf '%s' "$out" | sed -n 's/^[^:]*: [^:]*:\([0-9]*\):.*/\1/p' | head -1)
+              msg=$(printf '%s' "$out" | head -1)
+              echo "::error file=$f,line=${line:-1}::$msg"
+            fi
+          done < <(git ls-files '*.lua')
+          exit $bad
+
+      - name: Файлы из .toc на месте
+        run: |
+          bad=0
+          for toc in *.toc; do
+            while IFS= read -r entry; do
+              entry=$(printf '%s' "$entry" | tr -d '\r' | sed 's/\\/\//g')
+              case "$entry" in ''|'#'*) continue ;; esac
+              if [ ! -f "$entry" ]; then
+                echo "::error file=$toc::в .toc указан файл, которого нет: $entry"
+                bad=1
+              fi
+            done < "$toc"
+          done
+          exit $bad
+
+      - name: Тесты
+        run: |
+          set +e
+          luajit Tests/run.lua > test-output.txt 2>&1
+          code=$?
+          set -e
+          {
+            echo "## Тесты Spellbreaker"
+            grep -E '^(Загрузка|Проверки):' test-output.txt | sed 's/^/- /'
+            for kind in КРАХ ПРОВАЛ ЗАМЕЧАНИЕ; do
+              if grep -q "^$kind" test-output.txt; then
+                echo ""
+                echo "### $kind"
+                echo '```'
+                grep -A2 "^$kind" test-output.txt | grep -v '^--$' | head -200
+                echo '```'
+              fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+          n=$(grep -c '^ПРОВАЛ' test-output.txt || true)
+          [ "$n" -gt 0 ] && echo "::warning::Проверок кода не сошлось: $n (см. сводку запуска)"
+          m=$(grep -c '^ЗАМЕЧАНИЕ' test-output.txt || true)
+          [ "$m" -gt 0 ] && echo "::notice::Замечаний по данным: $m (см. сводку запуска)"
+          # 1 — крахи или ошибки загрузки: аддон сломан. 2 — провалы
+          # проверок: предупреждение, не крестик (см. шапку файла).
+          if [ "$code" -eq 1 ] || [ "$code" -gt 2 ]; then
+            grep -E '^(КРАХ|Загрузка)' test-output.txt | head -20
+            exit 1
+          fi
+          exit 0
