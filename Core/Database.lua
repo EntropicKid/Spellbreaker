@@ -1432,7 +1432,9 @@ SB.Data.GearStatBonuses = {
 }
 
 SB.Data.WeaponBonuses = {
-    staff    = { label = "Посох",           channel = "maxMana",         value = 1,   stacks = false },
+    -- Посох — про запас: +1 к «Истоку», то есть +20% максимума ресурса
+    -- (см. SB.Skills.ApplySource). Два посоха — всё равно +1.
+    staff    = { label = "Посох",           stat    = "Исток",           value = 1,   stacks = false },
     shield   = { label = "Щит",             channel = "armor",           value = 15,  stacks = false },
     fist     = { label = "Кистевое оружие", channel = "rollFloor",       value = 5,   stacks = true  },
     unarmed  = { label = "Свободная рука",  channel = "rollFloor",       value = 5,   stacks = true  },

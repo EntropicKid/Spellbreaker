@@ -19711,14 +19711,22 @@ do
     checkTrue("и защита существа от существа",
               ReadFile("Core/Logic/NpcCast.lua"):find("local defRoll = skipDef and 0 or SB.Logic.RollPlain()", 1, true) ~= nil)
 
-    -- ── ПОСОХ: РЕСУРС КАСТА, НЕ СКЛАДЫВАЕТСЯ ───────────────
+    -- ── ПОСОХ: +1 К «ИСТОКУ», НЕ СКЛАДЫВАЕТСЯ ──────────────
+    -- Очко Истока — +20% всего максимума (SB.Skills.ApplySource), у
+    -- кастера и некастера одинаково.
     Hands({ [16] = ROD, [17] = ROD })
+    local s0 = SB.Skills.GetEffective("Исток")
     local z0, c0 = PM.GetMaxZeal(), PM.GetMaxClassResource()
     Hands({ [16] = { 2, 10 } })
-    check("посох: +1 к мане",              PM.GetMaxZeal() - z0, 1)
-    check("но не к ресурсу некастера",      PM.GetMaxClassResource() - c0, 0)
+    check("посох: +1 к Истоку",            SB.Skills.GetEffective("Исток") - s0, 1)
+    check("и это +20% маны", PM.GetMaxZeal(),
+          SB.Skills.ApplySource(PM.GetMaxZeal(true), SB.Skills.GetEffective("Исток") - SB.Skills.MIN_SKILL))
+    checkTrue("мана выросла",               PM.GetMaxZeal() > z0)
     Hands({ [16] = { 2, 10 }, [17] = { 2, 10 } })
-    check("два посоха — всё равно +1",      PM.GetMaxZeal() - z0, 1)
+    check("два посоха — всё равно +1",      SB.Skills.GetEffective("Исток") - s0, 1)
+    check("и мана та же, что с одним",      PM.GetMaxZeal(),
+          (function() Hands({ [16] = { 2, 10 } }); local v = PM.GetMaxZeal()
+                      Hands({ [16] = { 2, 10 }, [17] = { 2, 10 } }); return v end)())
 
     -- ПОСОХ ДАЁТ МЕСТО, А НЕ МАНУ. Иначе «снял — надел» наливало бы по
     -- единице за пару: при 2/6 снять (2/5), надеть (3/6) — и до полного.
