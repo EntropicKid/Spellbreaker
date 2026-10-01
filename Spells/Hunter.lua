@@ -43,7 +43,7 @@ Add({
     distance = 2.5,
 	scaling = {
 		hit    = { ["Выживание"] = 0.7 },
-		crit   = { ["Точность"] = 0.7 },
+		crit   = { ["Искусность"] = 0.7 },
 		damage = { ["Выносливость"] = 0.7 },
 	},
 })
@@ -266,6 +266,7 @@ Add({
 	scaling = {
 		hit    = { ["Выживание"] = 3 },
 		crit   = { ["Искусность"] = 3 },
+		damage = { ["Выносливость"] = 0.7 },
 	},
 })
 
@@ -410,14 +411,17 @@ Add({
     level = 2,
     class = "Охотник",
     description = "Наконечник смазан вытяжкой, которая бьёт не по телу, а по способности сосредоточиться. Заклинатель теряет нить сотворяемого заклинания, а собранная сила рассеивается впустую. На тех, кто не колдует, яд действует лишь как жгучая боль.",
+	canCrit = true,
     isCantrip = false,
     resistable = true,
     distance = 30,
     duration = 4,
     debuff = "eff_viper_sting",
-    scaling = {
-    	hit    = { ["Концентрация"] = 1, ["Выживание"] = 0.5 },
-    },
+	scaling = {
+		hit    = { ["Концентрация"] = 1 },
+		crit   = { ["Точность"] = 1 },
+		damage = { ["Выносливость"] = 1.2 },
+	},
 })
 
 Add({
@@ -457,8 +461,49 @@ Add({
 	duration = 2,
 	debuff = "eff_explosive_trap",
     scaling = {
-    	hit    = { ["Искусность"] = 1 },
+    	hit    = { ["Выживание"] = 1 },
+		crit   = { ["Искусность"] = 1 }
     	damage = { ["Выносливость"] = 1.05 },
+    },
+})
+
+Add({
+    id = "snake_trap",
+    name = "Змеиная ловушка",
+    key = "Ловушки",
+    icon = "Interface\\Icons\\Ability_hunter_snaketrap",
+    level = 2,
+    class = "Охотник",
+    description = "Охотник вкапывает заряд с нажимной пластиной и присыпает его так, что найти его можно только зная, где искать. Срабатывает под первым, кто наступит, и достаёт всех, кто рядом. Своих ловушка не различает — место надо запоминать.",
+    isCantrip = false,
+    resistable = true,
+    canCrit = true,
+    distance = 20,
+    aoe = { radius = 6 },
+	duration = 4,
+	debuff = "eff_snake_trap",
+    scaling = {
+    	hit    = { ["Выживание"] = 1 },
+    },
+})
+
+Add({
+    id = "tar_trap",
+    name = "Смоляная бомба-липучка",
+    key = "Ловушки",
+    icon = "Interface\\Icons\\Ability_hunter_stickytarbombtrap",
+    level = 1,
+    class = "Охотник",
+    description = "Охотник вкапывает заряд с нажимной пластиной и присыпает его так, что найти его можно только зная, где искать. Срабатывает под первым, кто наступит, и достаёт всех, кто рядом. Своих ловушка не различает — место надо запоминать.",
+    isCantrip = false,
+    resistable = true,
+    canCrit = true,
+    distance = 20,
+    aoe = { radius = 6 },
+	duration = 3,
+	debuff = "eff_tar_trap",
+    scaling = {
+    	hit    = { ["Выживание"] = 1.5 },
     },
 })
 
