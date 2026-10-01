@@ -536,9 +536,9 @@ function SB.NPC.DispelEffects(unit, schools, count, friend)
     for i = #list, 1, -1 do
         if removed >= (count or 0) then break end
         local id     = list[i].spellID
-        local school = AE.GetSchool(id)
         local isDeb  = (AE.GetKind(id) == "debuff")
-        if school and schools and schools[school] and (isDeb == wantDebuff) then
+        local hit    = AE.MatchesDispel and AE.MatchesDispel(id, schools)
+        if hit and (isDeb == wantDebuff) then
             table.remove(list, i)
             removed = removed + 1
         end

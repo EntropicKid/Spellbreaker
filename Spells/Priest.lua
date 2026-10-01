@@ -216,7 +216,7 @@ Add({
     isCantrip = false,
 	resistable = true,
 	distance = 2.5,
-	dispel = { "magic" },
+	dispel = { "Ослепление" },
 	scaling = {
 		hit    = { ["Религия"] = 1, ["Рвение"] = 0.5 },
 	},

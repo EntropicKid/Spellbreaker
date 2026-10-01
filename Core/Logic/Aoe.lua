@@ -411,9 +411,9 @@ function SB.Logic.InitiateAoeAttack(spellID, slotLevel)
     mod = mod + hitBonus
     for _, p in ipairs(hitParts) do table.insert(modParts, p) end
 
-    local roll, _, rollMax = SB.Logic.Roll()
+    local roll, rollMin, rollMax = SB.Logic.Roll()
     local total  = roll + mod
-    local isCrit = roll >= SB.Logic.GetCritThreshold(critBonus, rollMax)
+    local isCrit = roll >= SB.Logic.GetCritThreshold(critBonus, rollMax, rollMin)
 
     -- Бросок атаки ОДИН на всю площадь, а бросок защиты у каждого свой:
     -- это и делает площадное заклинание площадным, а не пачкой отдельных
@@ -733,9 +733,9 @@ function SB.Logic.ResolveAoeHeal(spellID, slotLevel)
     mod = mod + hitBonus
     for _, p in ipairs(hitParts) do table.insert(modParts, p) end
 
-    local roll, _, rollMax = SB.Logic.Roll()
+    local roll, rollMin, rollMax = SB.Logic.Roll()
     local total  = roll + mod
-    local isCrit = roll >= SB.Logic.GetCritThreshold(critBonus, rollMax)
+    local isCrit = roll >= SB.Logic.GetCritThreshold(critBonus, rollMax, rollMin)
 
     -- Объём — ровно по той же формуле, что у одиночного лечения: своя
     -- база на каждом круге, вложенная мана, скейлинг характеристик и

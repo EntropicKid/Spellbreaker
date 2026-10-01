@@ -611,8 +611,10 @@ end
 --- «никогда» у новичков. Подробности — Config.CritBand.
 --- @param critBonus number  расширение полосы от скейлинга канала crit
 --- @param rollMax   number|nil  верхняя грань кубика (по умолчанию 100)
-function SB.Logic.GetCritThreshold(critBonus, rollMax)
+--- @param rollMin number|nil  нижняя грань кубика (по умолчанию 1)
+function SB.Logic.GetCritThreshold(critBonus, rollMax, rollMin)
     rollMax = tonumber(rollMax) or 100
+    rollMin = tonumber(rollMin) or 1
     -- Активные эффекты тоже расширяют (или сужают) полосу крита —
     -- канал "crit" в их mods, см. Core/ActiveEffects.lua.
     local fromEffects = (SB.ActiveEffects and SB.ActiveEffects.GetMod)
@@ -632,7 +634,14 @@ function SB.Logic.GetCritThreshold(critBonus, rollMax)
     -- то, что убирали (см. Config.CritBand). Пустая полоса даёт порог
     -- rollMax + 1, который не берёт ни один бросок, — и это честный
     -- ответ «не критует».
-    band = math.max(0, math.min(band, math.floor(rollMax * capPct / 100)))
+    --
+    -- ПОТОЛОК — ОТ ЧИСЛА ГРАНЕЙ, А НЕ ОТ ВЕРХНЕЙ. Пол кубика (раса,
+    -- кистевое оружие, благословение) срезает нижние грани, и те же 25
+    -- граней из 81 — это уже 31%: карточка честно показывала больше
+    -- обещанного потолка, а сам крит был выше него. Теперь полоса — не
+    -- больше четверти реальных граней.
+    local faces = math.max(1, rollMax - rollMin + 1)
+    band = math.max(0, math.min(band, math.floor(faces * capPct / 100)))
     return rollMax - band + 1
 end
 
@@ -1788,7 +1797,10 @@ end
 function SB.Logic.ApplyInterruptToSelf(spell)
     if not SB.Logic.Interrupts(spell) then return end
     if SB.ActiveEffects and SB.ActiveEffects.BreakOn then
-        SB.ActiveEffects.BreakOn("interrupted")
+        -- Цена — по порядку прерывания, из своей библиотеки (см.
+        -- SB.ActiveEffects.HoldCost): пинок — одно удержание, зуботычина — два.
+        SB.ActiveEffects.BreakOn("interrupted",
+            SB.ActiveEffects.HoldCost and SB.ActiveEffects.HoldCost(spell.level) or 1)
     end
 end
 
@@ -2377,7 +2389,7 @@ function SB.Logic.GetCritChance(spell)
     local faces    = hi - lo + 1
     if faces <= 0 then return 0 end
     local critBonus = SB.Logic.GetSpellScaling(spell, "crit")
-    local threshold = math.max(lo, SB.Logic.GetCritThreshold(critBonus, hi))
+    local threshold = math.max(lo, SB.Logic.GetCritThreshold(critBonus, hi, lo))
     return (hi - threshold + 1) / faces * 100
 end
 
@@ -3741,7 +3753,10 @@ function SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, totalScaling, turnS
             table.insert(dmgParts, { label = "Чары оружия", value = oh })
         end
     end
-    local critThresh = SB.Logic.GetCritThreshold(critBonus, rollMax)
+    -- Грани — свои, а не сотня: порог считается до броска, и кинжал
+    -- (потолок 105) или пол кубика обязаны в нём уже стоять.
+    local critLo, critHi = SB.Logic.GetRollRange()
+    local critThresh = SB.Logic.GetCritThreshold(critBonus, critHi, critLo)
 
     -- Базовый урон от вложенного ресурса (см. GetCastPower). Прибавка к
     -- попаданию из той же функции уже учтена выше — она приходит как
@@ -3758,7 +3773,7 @@ function SB.Logic.ProcessRollAndCast(spellID, dc, slotLevel, totalScaling, turnS
     -- пол кубика двигала одна раса, копия была безобидной; теперь его
     -- двигают и эффекты, и второй бросок мимо общей функции однажды
     -- уехал бы от первого.
-    local roll, _, rollMax = SB.Logic.Roll()
+    local roll, rollMin, rollMax = SB.Logic.Roll()
     local total   = roll + mod
     local dcNum   = tonumber(dc) or 0
     local success = total >= dcNum
@@ -4122,10 +4137,10 @@ function SB.Logic.InitiatePvpAttack(spellID, slotLevel)
     mod = mod + hitBonus
     for _, p in ipairs(hitParts) do table.insert(modParts, p) end
 
-    local roll, _, rollMax = SB.Logic.Roll()
+    local roll, rollMin, rollMax = SB.Logic.Roll()
     local total  = roll + mod
     -- Крит — по чистому кубику, как и в ПвЕ (см. GetCritThreshold).
-    local isCrit = roll >= SB.Logic.GetCritThreshold(critBonus, rollMax)
+    local isCrit = roll >= SB.Logic.GetCritThreshold(critBonus, rollMax, rollMin)
 
     -- atkTotal запоминаем, чтобы по ответу защищающегося отличить
     -- ПРОМАХ от попадания, которое полностью съела броня: в обоих
@@ -5171,13 +5186,13 @@ function SB.Logic.ResolveHeal(spellID, slotLevel)
         { spell = spell, slotLevel = slotLevel })
     mod = mod + hitBonus
     for _, p in ipairs(hitParts) do table.insert(modParts, p) end
-    local roll, _, rollMax = SB.Logic.Roll()
+    local roll, rollMin, rollMax = SB.Logic.Roll()
     local total     = roll + mod
     -- Крит — по ЧИСТОМУ кубику, ровно как в бою (см. GetCritThreshold):
     -- иначе у развитого лекаря критом становился бы каждый второй успех,
     -- а у начинающего — никогда. Канал "crit" (и скейлинг заклинания, и
     -- висящие баффы) работает здесь так же, как на ударах.
-    local isCrit    = roll >= SB.Logic.GetCritThreshold(critBonus, rollMax)
+    local isCrit    = roll >= SB.Logic.GetCritThreshold(critBonus, rollMax, rollMin)
     -- Округляем: healLevel может быть дробным на реалме с растянутой
     -- прогрессией (см. ToReferenceLevel выше) — без floor порог/лог
     -- показывали бы игроку что-то вроде "против порога 82.5".
@@ -5396,6 +5411,10 @@ function SB.Logic.GetDispelSchools(spell)
         -- кто пишет заклинания.
         local info = SB.Data.EffectSchools[s]
         if info and not info.undispellable then set[s] = true; any = true end
+        -- Или семейство эффекта (см. SB.Data.IsEffectFamily).
+        if not info and SB.Data.IsEffectFamily and SB.Data.IsEffectFamily(s) then
+            set[s] = true; any = true
+        end
     end
     return any and set or nil
 end

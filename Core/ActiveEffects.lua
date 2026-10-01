@@ -2105,7 +2105,9 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc, source, level)
             -- каст щита не давал ничего (см. врезку о запасе выше).
             eff.used = nil
             Redraw(); FireChanged()
-            if breaksConc then SB.ActiveEffects.BreakOn("controlled") end
+            if breaksConc then
+                SB.ActiveEffects.BreakOn("controlled", SB.ActiveEffects.HoldCost(eff.lvl))
+            end
             return
         end
     end
@@ -2169,7 +2171,13 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc, source, level)
     -- ЗДЕСЬ, А НЕ У КАЖДОГО ПУТИ ДОСТАВКИ: эффект приходит своим кастом,
     -- баффом по сети, залпом по площади, способностью существа и выдачей
     -- Ведущего — пять дорог, и все они кончаются этой функцией.
-    if breaksConc then SB.ActiveEffects.BreakOn("controlled") end
+    if breaksConc then
+        local lvl
+        for _, e in ipairs(effects) do
+            if e.spellID == containerSpellID then lvl = e.lvl; break end
+        end
+        SB.ActiveEffects.BreakOn("controlled", SB.ActiveEffects.HoldCost(lvl))
+    end
 end
  
 -- Объявлены здесь, а определены ниже, рядом с самой нагрузкой: Use и
@@ -3523,6 +3531,24 @@ end
 --- @param friend boolean|nil  true/nil — цель другом, снимаем дебаффы;
 ---        false — цель чужая, снимаем баффы
 --- @return table  имена снятых эффектов, по порядку снятия
+--- Снимается ли эффект рассеиванием с этим множеством школ/семейств.
+--- Одна проверка на игрока и на существо (см. SB.NPC.DispelEffects).
+function SB.ActiveEffects.MatchesDispel(spellID, set)
+    if type(set) ~= "table" then return false end
+    local school = SB.ActiveEffects.GetSchool(spellID)
+    local info   = school and SB.Data.EffectSchools[school]
+    -- Школа, объявленная неснимаемой (кровотечение), не берётся
+    -- ничем — даже если заклинание почему-то её запросило.
+    if school and set[school] and not (info and info.undispellable) then
+        return true
+    end
+    -- ИЛИ СЕМЕЙСТВО: dispel = { "Ослепление" } снимает всё, что
+    -- объявлено этим family, какой бы школы оно ни было.
+    local sp     = SB.Data.Spells[spellID]
+    local family = sp and type(sp.effect) == "table" and sp.effect.family
+    return type(family) == "string" and set[family] == true
+end
+
 function SB.ActiveEffects.Dispel(schools, count, friend)
     count = math.floor(tonumber(count) or 0)
     if type(schools) ~= "table" or count <= 0 then return {} end
@@ -3534,12 +3560,7 @@ function SB.ActiveEffects.Dispel(schools, count, friend)
     local doomed, names = {}, {}
     for _, eff in ipairs(effects) do
         if #doomed >= count then break end
-        local school = SB.ActiveEffects.GetSchool(eff.spellID)
-        local info   = school and SB.Data.EffectSchools[school]
-        -- Школа, объявленная неснимаемой (кровотечение), не берётся
-        -- ничем — даже если заклинание почему-то её запросило.
-        if school and schools[school]
-           and not (info and info.undispellable)
+        if SB.ActiveEffects.MatchesDispel(eff.spellID, schools)
            and SB.ActiveEffects.GetKind(eff.spellID) == wantKind then
             local sp = SB.Data.Spells[eff.spellID]
             doomed[#doomed + 1] = eff.spellID
@@ -3624,7 +3645,28 @@ local BREAK_REASON = {
 
 --- Снять эффекты, которые ждали именно этого события.
 --- @param trigger string  "damaged" | "dealt" | "healed" | "action"
-function SB.ActiveEffects.BreakOn(trigger)
+-- ============================================================
+-- ЦЕНА УДЕРЖАНИЯ — ПО ПОРЯДКУ СБИВАЮЩЕГО
+--
+-- Удар порядка N стоит N+1 удержаний Концентрации: пинок (заговор) —
+-- одно, зуботычина или оглушение первого порядка — два, и так далее.
+-- Порядок узнаёт САМ ПОЛУЧАТЕЛЬ, ничего лишнего по сети не едет — тем
+-- же путём, что цена срыва Волей (см. WillCostOf): у контроля это круг,
+-- записанный в висящем эффекте (eff.lvl), у прерывания — круг
+-- попавшего заклинания из своей библиотеки.
+--
+-- НЕ ХВАТАЕТ — НЕ ТРАТИТСЯ НИЧЕГО. Одно удержание против зуботычины
+-- (нужно два) остаётся на месте, а концентрация или поток срываются.
+-- ============================================================
+--- @param level number|nil  порядок сбивающего (nil — 0)
+--- @return number  сколько удержаний нужно, не меньше одного
+function SB.ActiveEffects.HoldCost(level)
+    return math.max(0, math.floor(tonumber(level) or 0)) + 1
+end
+
+--- @param cost number|nil  удержаний на спасение (см. HoldCost), по
+---        умолчанию одно
+function SB.ActiveEffects.BreakOn(trigger, cost)
     if breaking or #effects == 0 then return end
 
     -- Сначала собираем список, потом снимаем: Remove правит таблицу, по
@@ -3717,7 +3759,8 @@ function SB.ActiveEffects.BreakOn(trigger)
     -- рядом с ней — та же сосредоточенность, и платить за них дважды за
     -- один удар было бы странно. Явный breakOn автора удержание не
     -- спасает: там автор решил про свой эффект, а не про концентрацию.
-    if next(concHit) and SB.Skills and SB.Skills.SpendHold and SB.Skills.SpendHold() then
+    cost = math.max(1, math.floor(tonumber(cost) or 1))
+    if next(concHit) and SB.Skills and SB.Skills.SpendHolds and SB.Skills.SpendHolds(cost) then
         local kept, names = {}, {}
         for _, id in ipairs(doomed) do
             if concHit[id] then
@@ -3805,6 +3848,98 @@ end)
 SB.Events.On(SB.E.CAST_CONFIRMED, function()
     SB.ActiveEffects.BreakOn("action")
 end)
+
+-- ============================================================
+-- ОБМАНУТЬ СМЕРТЬ (effect.cheatDeath)
+--
+--   effect = { kind = "buff", cheatDeath = { heal = 5, chance = 75 } }
+--
+-- Удар извне, который опустил бы здоровье до нуля, вместо этого
+-- оставляет носителя с heal ХП — с шансом chance% (ровный кубик 1-100,
+-- как у onAction.chance). Эффект расходуется при любом исходе: чудо
+-- случается один раз, сработало оно или нет («Ревностный защитник»).
+--
+-- ТОЛЬКО УДАР ИЗВНЕ. Своя цена — Жизнеотвод, Канал здоровья, усталость
+-- от бега — убивает честно: обмануть смерть, которую сам себе выбрал,
+-- было бы бесплатной кровью для чернокнижника.
+-- ============================================================
+
+--- @return number|nil heal  сколько ХП оставить (nil — чуда не было)
+--- @return string|nil name   имя сработавшего эффекта (nil — нечему)
+function SB.ActiveEffects.TryCheatDeath()
+    for _, eff in ipairs(effects) do
+        local sp = SB.Data.Spells[eff.spellID]
+        local cd = sp and type(sp.effect) == "table" and sp.effect.cheatDeath
+        if type(cd) == "table" then
+            local name = (sp and sp.name) or eff.spellID
+            local need = math.max(0, math.min(100, tonumber(cd.chance) or 100))
+            local ok   = SB.Logic.RollPlain() <= need
+            SB.ActiveEffects.Remove(eff.spellID, true)
+            if ok then
+                return math.max(1, math.floor(tonumber(cd.heal) or 1)), name
+            end
+            return nil, name
+        end
+    end
+    return nil, nil
+end
+
+-- ============================================================
+-- ПЕРЕНОС УРОНА (effect.redirect) — «Длань жертвенности»
+--
+--   effect = { kind = "buff", redirect = { pct = 30 } }
+--
+-- Доля урона извне, пришедшего носителю, уходит тому, кто наложил
+-- эффект (eff.src): носитель получает остаток, наложившему уезжает пакет
+-- SACDMG, и его клиент снимает это здоровье у себя.
+--
+-- ПОТОЛОК — ПОЛНЫЙ ЗАПАС ЗДОРОВЬЯ ПОРУЧИТЕЛЯ (из его сетевого статуса):
+-- перенесено столько — клятва исполнена, эффект спадает. Статуса нет —
+-- потолка тоже нет, эффект спадёт по сроку.
+--
+-- Наложил сам на себя — переносить некому, эффект ничего не делает.
+-- ============================================================
+
+--- @param amount number  входящий урон (положительное число)
+--- @return number  сколько урона остаётся носителю
+function SB.ActiveEffects.RedirectDamage(amount)
+    amount = tonumber(amount) or 0
+    if amount <= 0 then return amount end
+    local me = UnitName("player")
+    for _, eff in ipairs(effects) do
+        local sp = SB.Data.Spells[eff.spellID]
+        local rd = sp and type(sp.effect) == "table" and sp.effect.redirect
+        if type(rd) == "table" and eff.src and eff.src ~= me then
+            local pct   = math.max(0, math.min(100, tonumber(rd.pct) or 0))
+            local share = math.floor(amount * pct / 100 + 0.5)
+            if share <= 0 then return amount end
+
+            local st  = SB.Data.PlayersStatus and SB.Data.PlayersStatus[eff.src]
+            local cap = st and tonumber(st.maxHealth)
+            local done = (eff.redirected or 0) + share
+            local spent = false
+            if cap and done >= cap then
+                share = math.max(0, share - (done - cap))
+                spent = true
+            end
+            eff.redirected = (eff.redirected or 0) + share
+
+            if share > 0 and SB.Net and SB.Net.SendSacrifice then
+                SB.Net.SendSacrifice(eff.src, eff.spellID, share)
+            end
+            if share > 0 and SB.E.BROADCAST_LOG then
+                SB.Events.Fire(SB.E.BROADCAST_LOG,
+                    SB.Theme.MSG_TAG .. "[Spellbreaker]:|r " .. SB.Theme.MSG_BODY ..
+                    me .. ": " .. share .. " урона уходит к " .. eff.src ..
+                    " («" .. ((sp and sp.name) or eff.spellID) .. "»).|r",
+                    SB.LogRank and SB.LogRank.RESULT)
+            end
+            if spent then SB.ActiveEffects.Remove(eff.spellID) end
+            return amount - share
+        end
+    end
+    return amount
+end
 
 function SB.ActiveEffects.Clear()
     effects = {}
