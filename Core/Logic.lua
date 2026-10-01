@@ -1797,7 +1797,10 @@ end
 function SB.Logic.ApplyInterruptToSelf(spell)
     if not SB.Logic.Interrupts(spell) then return end
     if SB.ActiveEffects and SB.ActiveEffects.BreakOn then
-        SB.ActiveEffects.BreakOn("interrupted")
+        -- Цена — по порядку прерывания, из своей библиотеки (см.
+        -- SB.ActiveEffects.HoldCost): пинок — одно удержание, зуботычина — два.
+        SB.ActiveEffects.BreakOn("interrupted",
+            SB.ActiveEffects.HoldCost and SB.ActiveEffects.HoldCost(spell.level) or 1)
     end
 end
 

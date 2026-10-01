@@ -2105,7 +2105,9 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc, source, level)
             -- каст щита не давал ничего (см. врезку о запасе выше).
             eff.used = nil
             Redraw(); FireChanged()
-            if breaksConc then SB.ActiveEffects.BreakOn("controlled") end
+            if breaksConc then
+                SB.ActiveEffects.BreakOn("controlled", SB.ActiveEffects.HoldCost(eff.lvl))
+            end
             return
         end
     end
@@ -2169,7 +2171,13 @@ function SB.ActiveEffects.Add(containerSpellID, duration, isConc, source, level)
     -- ЗДЕСЬ, А НЕ У КАЖДОГО ПУТИ ДОСТАВКИ: эффект приходит своим кастом,
     -- баффом по сети, залпом по площади, способностью существа и выдачей
     -- Ведущего — пять дорог, и все они кончаются этой функцией.
-    if breaksConc then SB.ActiveEffects.BreakOn("controlled") end
+    if breaksConc then
+        local lvl
+        for _, e in ipairs(effects) do
+            if e.spellID == containerSpellID then lvl = e.lvl; break end
+        end
+        SB.ActiveEffects.BreakOn("controlled", SB.ActiveEffects.HoldCost(lvl))
+    end
 end
  
 -- Объявлены здесь, а определены ниже, рядом с самой нагрузкой: Use и
@@ -3637,7 +3645,28 @@ local BREAK_REASON = {
 
 --- Снять эффекты, которые ждали именно этого события.
 --- @param trigger string  "damaged" | "dealt" | "healed" | "action"
-function SB.ActiveEffects.BreakOn(trigger)
+-- ============================================================
+-- ЦЕНА УДЕРЖАНИЯ — ПО ПОРЯДКУ СБИВАЮЩЕГО
+--
+-- Удар порядка N стоит N+1 удержаний Концентрации: пинок (заговор) —
+-- одно, зуботычина или оглушение первого порядка — два, и так далее.
+-- Порядок узнаёт САМ ПОЛУЧАТЕЛЬ, ничего лишнего по сети не едет — тем
+-- же путём, что цена срыва Волей (см. WillCostOf): у контроля это круг,
+-- записанный в висящем эффекте (eff.lvl), у прерывания — круг
+-- попавшего заклинания из своей библиотеки.
+--
+-- НЕ ХВАТАЕТ — НЕ ТРАТИТСЯ НИЧЕГО. Одно удержание против зуботычины
+-- (нужно два) остаётся на месте, а концентрация или поток срываются.
+-- ============================================================
+--- @param level number|nil  порядок сбивающего (nil — 0)
+--- @return number  сколько удержаний нужно, не меньше одного
+function SB.ActiveEffects.HoldCost(level)
+    return math.max(0, math.floor(tonumber(level) or 0)) + 1
+end
+
+--- @param cost number|nil  удержаний на спасение (см. HoldCost), по
+---        умолчанию одно
+function SB.ActiveEffects.BreakOn(trigger, cost)
     if breaking or #effects == 0 then return end
 
     -- Сначала собираем список, потом снимаем: Remove правит таблицу, по
@@ -3730,7 +3759,8 @@ function SB.ActiveEffects.BreakOn(trigger)
     -- рядом с ней — та же сосредоточенность, и платить за них дважды за
     -- один удар было бы странно. Явный breakOn автора удержание не
     -- спасает: там автор решил про свой эффект, а не про концентрацию.
-    if next(concHit) and SB.Skills and SB.Skills.SpendHold and SB.Skills.SpendHold() then
+    cost = math.max(1, math.floor(tonumber(cost) or 1))
+    if next(concHit) and SB.Skills and SB.Skills.SpendHolds and SB.Skills.SpendHolds(cost) then
         local kept, names = {}, {}
         for _, id in ipairs(doomed) do
             if concHit[id] then

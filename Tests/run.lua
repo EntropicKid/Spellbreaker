@@ -21670,6 +21670,58 @@ do
         AE.BreakOn("interrupted")
         checkTrue("без удержаний срывает и поток", not has(chan.channelEffect))
     end
+    -- ЦЕНА — ПО ПОРЯДКУ УДАРА: порядок N стоит N+1 удержаний; не хватает —
+    -- срывается, а удержания остаются.
+    do
+        SB.Data.Spells["t_hold_two"] = { id = "t_hold_two", name = "Проба двух удержаний",
+            class = "Эффект", level = 0, isContainer = true,
+            effect = { kind = "buff", stats = { ["Концентрация"] = 2 } } }
+        local function Fresh()
+            AE.Clear()
+            AE.Add("t_hold_two", 5, false)
+            AE.Add("t_hold_conc", 5, true)
+            SB.Skills.RestoreHold()
+            if base > 0 then SB.Skills.SpendFromPool("hold", base) end
+        end
+        check("цена: заговор — одно",   AE.HoldCost(0), 1)
+        check("цена: 1-й порядок — два", AE.HoldCost(1), 2)
+        check("цена: без порядка — одно", AE.HoldCost(nil), 1)
+
+        -- Пинок (порядок 0) — одно удержание из двух.
+        Fresh()
+        SB.Logic.ApplyInterruptToSelf({ interrupt = true, level = 0 })
+        checkTrue("пинок: концентрация цела", has("t_hold_conc"))
+        check("пинок: потрачено одно",        SB.Skills.GetHoldLeft(), 1)
+
+        -- Зуботычина (порядок 1) — два удержания.
+        Fresh()
+        SB.Logic.ApplyInterruptToSelf({ interrupt = true, level = 1 })
+        checkTrue("зуботычина: концентрация цела", has("t_hold_conc"))
+        check("зуботычина: потрачено два",         SB.Skills.GetHoldLeft(), 0)
+
+        -- Одно удержание против зуботычины: срыв, удержание остаётся.
+        Fresh()
+        SB.Skills.SpendFromPool("hold", 1)
+        check("осталось одно", SB.Skills.GetHoldLeft(), 1)
+        SB.Logic.ApplyInterruptToSelf({ interrupt = true, level = 1 })
+        checkTrue("не хватило — концентрация сорвана", not has("t_hold_conc"))
+        check("а удержание на месте",                  SB.Skills.GetHoldLeft(), 1)
+
+        -- Контроль: цена по кругу, с которым он лёг.
+        SB.Data.Spells["t_hold_stun"] = { id = "t_hold_stun", name = "Проба оглушения",
+            class = "Эффект", level = 0,
+            effect = { kind = "debuff", family = "Оглушение" } }
+        Fresh()
+        AE.Add("t_hold_stun", 1, false, "Враг", 1)
+        checkTrue("оглушение 1-го порядка: концентрация цела", has("t_hold_conc"))
+        check("и стоило два удержания",                       SB.Skills.GetHoldLeft(), 0)
+        Fresh()
+        SB.Skills.SpendFromPool("hold", 1)
+        AE.Add("t_hold_stun", 1, false, "Враг", 2)
+        checkTrue("оглушение 2-го порядка при одном удержании срывает", not has("t_hold_conc"))
+        check("удержание не потрачено",                                 SB.Skills.GetHoldLeft(), 1)
+        SB.Data.Spells["t_hold_two"], SB.Data.Spells["t_hold_stun"] = nil, nil
+    end
     check("к защите навык больше не прибавляет",
           SB.Skills.GetConcentrationDefenseBonus, nil)
 
