@@ -2967,6 +2967,28 @@ _G.SpellbreakerCharDB.zeal = 3
 _G.SpellbreakerCharDB.classResource = 0
 
 -- ============================================================
+-- САМОБАФУ resistable НЕ НУЖЕН
+--
+-- Эффект только на себя (container без цели, урона, лечения, рассеивания)
+-- всегда ложится без броска (SB.Logic.IsGuaranteed), и поле resistable
+-- у него ничего не значило. Его нет в данных, а автоуспех — по правилу.
+-- ============================================================
+do
+    local withField, notGuaranteed = {}, {}
+    for id, sp in pairs(SB.Data.Spells) do
+        if ShippedSpells[id] and sp.container and not sp.isContainer
+           and not sp.buff and not sp.debuff and not sp.aoe and not sp.canCrit
+           and not sp.isHeal and not sp.dispel and not sp.steal and not sp.creates
+           and not sp.repairArmor then
+            if sp.resistable ~= nil then withField[#withField + 1] = sp.name or id end
+            if not SB.Logic.IsGuaranteed(sp) then notGuaranteed[#notGuaranteed + 1] = sp.name or id end
+        end
+    end
+    checkData("у самобафов нет поля resistable", #withField, 0)
+    check("самобаф всегда автоуспех", #notGuaranteed, 0)
+end
+
+-- ============================================================
 -- ОДИН ПРИЗНАК КОНЦЕНТРАЦИИ; СТАРАЯ ПОМЕТКА «ДОЖИВАЕТ ХОД»
 --
 -- Держатель потока из старого сохранения мог прийти без isConc — после
