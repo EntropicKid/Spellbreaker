@@ -21,7 +21,9 @@ if not LDB or not icon then
 end
 
 -- ВАЖНО: путь к иконке должен быть через двойные слеши.
-local ICON_TEXTURE = "Interface\\Icons\\Ability_Mage_Arcanebarrage"
+-- Своя иконка (Assets/MinimapIcon.tga, 64×64): дух ветра без рамки —
+-- круглую рамку кнопке рисует сама LibDBIcon.
+local ICON_TEXTURE = "Interface\\AddOns\\Spellbreaker\\Assets\\MinimapIcon"
 
 local hoverCard
 local hideTimer

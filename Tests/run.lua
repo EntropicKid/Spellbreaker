@@ -3820,9 +3820,24 @@ do
 
     SB.ActiveEffects.Add("eff_reach", 3, false)
     check("эффект удлиняет", SB.Logic.GetSpellRange(SB.Data.Spells["t_far"]), 24)
-    check("и ближний бой тоже", SB.Logic.GetSpellRange(SB.Data.Spells["t_near"]), 7.5)
+    -- Ближний бой эффекты не удлиняют: это умеет только древковое
+    -- оружие (канал meleeRange). «Видеть невидимое» +5 м превращало
+    -- удар мечом в удар с семи метров.
+    check("ближний бой эффект не удлиняет", SB.Logic.GetSpellRange(SB.Data.Spells["t_near"]), 1.5)
+    checkTrue("«Видеть невидимое» по-прежнему двигает дальний бой",
+        ((SB.Data.Spells["eff_see_invisible"].effect.mods or {}).range or 0) > 0)
     check("«на себя» не двигается", SB.Logic.GetSpellRange(SB.Data.Spells["t_self"]), 0)
     SB.ActiveEffects.Clear()
+
+    -- Древковое — единственное, что удлиняет ближний бой.
+    do
+        local realBonus = SB.Skills.GetWeaponBonus
+        SB.Skills.GetWeaponBonus = function(ch) return (ch == "meleeRange") and 1.5 or 0 end
+        check("древковое удлиняет ближний бой",
+            SB.Logic.GetSpellRange(SB.Data.Spells["t_near"]), 3)
+        check("а дальний не трогает", SB.Logic.GetSpellRange(SB.Data.Spells["t_far"]), 18)
+        SB.Skills.GetWeaponBonus = realBonus
+    end
 
     SB.ActiveEffects.Add("eff_short", 3, false)
     check("сокращение упирается в ближний бой",
@@ -9197,6 +9212,23 @@ do
               tip:find("вредоносн", 1, true) ~= nil)
     checkDataTrue("и про ближний бой",
               tip:find("ближн", 1, true) ~= nil)
+end
+
+-- ============================================================
+-- ВРЕМЯ НЕ ГАСНЕТ У ИГРОКОВ ОТ СОБЫТИЙ СОСТАВА
+--
+-- SyncRealtimeToTurnMode зовётся у всех (панель строится у каждого) на
+-- любое событие состава. Флаг «время идёт» обязан быть «пошаговый
+-- выключен», а не «я Ведущий и пошаговый выключен»: иначе лидер вышел из
+-- игры — и у группы застыли эффекты. Интерфейс прогон не грузит,
+-- поэтому проверка — по тексту.
+-- ============================================================
+do
+    local gm = ReadFile("UI/GMPanel.lua")
+    checkTrue("флаг времени пишется по режиму, а не по праву Ведущего",
+        gm:find("SpellbreakerAccountDB.realtimeEffects = running", 1, true) ~= nil)
+    checkTrue("старой записи «только у Ведущего» нет",
+        gm:find("SpellbreakerAccountDB.realtimeEffects = enabled", 1, true) == nil)
 end
 
 -- ============================================================
