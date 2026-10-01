@@ -432,7 +432,7 @@ AddEffect({
     -- раньше: каждый попавший выпад может зарядить следующий приём
     -- широкой полосой крита.
     effect = { kind = "buff", family = "Стойка",
-               mods = { damageFrost = 1, defense = -8 },
+               mods = { damageFrost = 1, healTaken = -1 },
                onAction = { when = "hit", melee = true,
                             effect = "eff_dk_killing_machine", turns = 2 } },
 })
@@ -1889,16 +1889,10 @@ AddEffect({
     damageType = "shadow",
     icon = "Interface\\Icons\\Spell_deathvortex",
     description = "Кровь не сворачивается: раны открыты для стали и почти не закрываются от лечения. Каждый ход чума отнимает немного жизни.",
-    -- БОЛЕЗНЬ КРОВИ ОТКРЫВАЕТ ЦЕЛЬ СТАЛИ. Удар смерти и Рунический удар
-    -- физические, и минус к сопротивлению — это +1 к каждому из них; а
-    -- раз Удар смерти пьёт ДОШЕДШИЙ урон, чума кормит и вампиризм.
-    -- «Раны перестают закрываться» — буквально, каналом healTaken.
-    -- Прежний «Мощь −2» снят: третья строка поверх двух тяжёлых делала
-    -- заразу первого круга сильнее проклятий третьего.
     effect = {
         kind = "debuff", resist = "Выносливость", school = "disease",
         tick = { damage = 1 },
-        mods = { resistPhysical = -1, healTaken = -1 },
+        mods = { damage = -1 },
     },
 })
 
@@ -1909,14 +1903,10 @@ AddEffect({
     damageType = "shadow",
     icon = "Interface\\Icons\\Ability_creature_disease_02",
     description = "Гниющая плоть беззащитна перед тьмой. Удар Плети разрывает гнойники — чума выплёскивается лишним тиком и спадает на ход раньше.",
-    -- УЯЗВИМОСТЬ К ТЬМЕ: вся Нечестивость — Лик смерти, Жнец души,
-    -- Взрыв трупа, Апокалипсис — бьёт тьмой. Разрыв гнойников тем же
-    -- поводом, что и раскол лихорадки (см. eff_weakness_frost_fever).
     effect = {
         kind = "debuff", resist = "Выносливость", school = "disease",
         tick = { damage = 1 },
-        mods = { resistShadow = -1 },
-        onAction = { when = "damaged", spell = "scourge_strike", consume = true },
+        mods = { healTaken = -2 },
     },
 })
 
@@ -1966,7 +1956,6 @@ AddEffect({
     effect = {
         kind  = "debuff", resist = "Выносливость", school = "disease",
         mods = { resistFrost = -1, movePct = -30 },
-        onAction = { when = "damaged", spell = "obliterate", consume = true },
     },
 })
 
@@ -2346,7 +2335,6 @@ AddEffect({
     effect = {
         kind  = "buff",
         school = "magic",
-        mods = { healTaken = 1 },
         tick = { heal = 2 },
     },
 })
@@ -2775,7 +2763,7 @@ AddEffect({
     -- Размытый образ (Маг, круг 3). Из гнезда eff_evasion_*.
     id   = "eff_evasion_blurred_image",
     name = "Размытый образ",
-    icon = "Interface\\Icons\\Spell_shadow_shadowward",
+    icon = "Interface\\Icons\\Spell_nature_invisibilty",
     description = "Тело движется раньше, чем разум успевает испугаться: удары проходят мимо.",
     effect = { kind = "buff", school = "magic", mods = { defense = 25 } },
 })
