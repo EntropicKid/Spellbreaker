@@ -663,8 +663,13 @@ function SB.SpellBar.RefreshState()
 
     for _, btn in ipairs(buttons) do
         if btn:IsShown() then
-            local ok = SB.UI.CanCastNowQuiet
-                and SB.UI.CanCastNowQuiet(SpellOf(btn), dist, turnOk) or true
+            -- НЕ «A and f() or true»: ответ false в такой записи превращался
+            -- в true, и иконки не гасли никогда — ни по дистанции, ни по
+            -- очереди, хотя спрашивали то же правило, что и окно.
+            local ok = true
+            if SB.UI.CanCastNowQuiet then
+                ok = SB.UI.CanCastNowQuiet(SpellOf(btn), dist, turnOk) and true or false
+            end
             if ok ~= btn._ok then
                 btn._ok = ok
                 btn.icon:SetDesaturated(not ok)

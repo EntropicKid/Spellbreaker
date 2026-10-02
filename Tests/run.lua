@@ -2967,6 +2967,56 @@ _G.SpellbreakerCharDB.zeal = 3
 _G.SpellbreakerCharDB.classResource = 0
 
 -- ============================================================
+-- ОТКАЗ КАСТА НИЧЕГО НЕ СТОИТ
+--
+-- «Удар чумы» без цели: «Неподходящая цель» — и раньше шесть секунд
+-- темпа, хотя ничего не применено. Маршрут теперь решается ДО замка,
+-- списания, CAST_CONFIRMED, цены применения и темпа.
+-- ============================================================
+do
+    local PM = SB.PlayerModel
+    SB.Data.Spells["t_needtarget"] = { id = "t_needtarget", name = "Проба удара по цели",
+        class = "Маг", level = 1, canCrit = true, distance = 20,
+        resistable = true, onCast = { damage = 1 } }
+    local wasPrep   = _G.SpellbreakerCharDB.preparedSpells
+    local wasTarget = stub.world.units["target"]
+    local wasGroup  = stub.world.inGroup
+    local realOrder = PM.GetMaxPrepareOrder
+    PM.GetMaxPrepareOrder = function() return 5 end
+    _G.SpellbreakerCharDB.preparedSpells = { "t_needtarget" }
+    stub.world.units["target"] = nil
+    stub.world.inGroup = false
+    SB.TurnOrder.ApplyRemoteState({ active = false, mode = "all", round = 0,
+        index = 0, slots = {}, acted = {} })
+    stub.world.time = stub.world.time + 10
+    PM.SetZeal(PM.GetMaxZeal())
+    PM.SetHealth(PM.GetMaxHealth())
+    local zeal0, hp0 = PM.GetZeal(), PM.GetHealth()
+    local confirmed = false
+    local function onConfirm() confirmed = true end
+    SB.Events.On(SB.E.CAST_CONFIRMED, onConfirm)
+
+    SB.Logic.ConfirmCast("t_needtarget")
+
+    SB.Events.Off(SB.E.CAST_CONFIRMED, onConfirm)
+    check("отказ не запускает темп",  SB.Cooldowns.Remaining(SB.Cooldowns.TURN), 0)
+    check("и не тратит ресурс",       PM.GetZeal(), zeal0)
+    check("и не берёт цену применения", PM.GetHealth(), hp0)
+    checkTrue("и не поднимает CAST_CONFIRMED", not confirmed)
+
+    PM.GetMaxPrepareOrder = realOrder
+    _G.SpellbreakerCharDB.preparedSpells = wasPrep
+    stub.world.units["target"] = wasTarget
+    stub.world.inGroup = wasGroup
+    SB.Data.Spells["t_needtarget"] = nil
+
+    -- Компактная панель гасит иконки по тому же правилу, что и окно.
+    -- Запись «A and f() or true» превращала ответ «нельзя» в «можно».
+    checkTrue("панель не теряет ответ «нельзя»",
+              not ReadFile("UI/SpellBar.lua"):find("CanCastNowQuiet(SpellOf(btn), dist, turnOk) or true", 1, true))
+end
+
+-- ============================================================
 -- САМОБАФУ resistable НЕ НУЖЕН
 --
 -- Эффект только на себя (container без цели, урона, лечения, рассеивания)
