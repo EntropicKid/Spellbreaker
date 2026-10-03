@@ -2945,7 +2945,9 @@ function SB.Logic.CanCastNow(spell, onSelf, bonus)
     -- СНАРЯЖЕНИЕ. Выстрел без лука — не выстрел (см. врезку о
     -- SB.Data.KeyRequirements в Core/Database.lua). Проверка своя, до
     -- любых проверок цели: не хватает не цели, а руки.
-    local need = SB.Data.GetEquipRequirement and SB.Data.GetEquipRequirement(spell)
+    -- Привязанные к заклинаниям сервера проверяют клиент и сервер, а не мы
+    -- (см. SB.Data.GetEquipRequirementToEnforce).
+    local need = SB.Data.GetEquipRequirementToEnforce and SB.Data.GetEquipRequirementToEnforce(spell)
     local req  = need and SB.Data.EquipRequirements[need]
     if req and not req.check() then
         print(SB.Theme.MSG_BAD .. "[Spellbreaker]: " .. req.deny .. "|r")

@@ -7173,6 +7173,24 @@ do
     check("выстрел без лука отбит", ok, false)
     check("и причина названа",      why, "equip")
 
+    -- Привязанное к заклинанию сервера оружие не проверяет: его проверяют
+    -- клиент и сервер. Вид требования при этом остаётся — по нему чары на
+    -- оружии узнают, что удар клинком (IsWeaponStrike).
+    SB.Data.Spells["t_shot_bound"] = { id = "t_shot_bound", name = "Привязанный выстрел",
+        class = "Охотник", key = "Стрельба", level = 1, distance = 30, wowSpell = 56641 }
+    stub.world.knownSpells[56641] = true
+    SB.Data.Spells["t_shot_bound"].isContainer = false
+    check("у привязанного вид требования остаётся",
+        SB.Data.GetEquipRequirement(SB.Data.Spells["t_shot_bound"]), "ranged")
+    check("но аддон его не проверяет",
+        SB.Data.GetEquipRequirementToEnforce(SB.Data.Spells["t_shot_bound"]), nil)
+    check("непривязанное проверяется, как прежде",
+        SB.Data.GetEquipRequirementToEnforce(SB.Data.Spells["t_shot"]), "ranged")
+    local okB, whyB = SB.Logic.CanCastNow(SB.Data.Spells["t_shot_bound"])
+    checkTrue("без лука привязанный не отбит аддоном", whyB ~= "equip")
+    SB.Data.Spells["t_shot_bound"] = nil
+    stub.world.knownSpells[56641] = nil
+
     -- 16 — правая рука, класс 2 (оружие), подкласс 2 (лук).
     stub.world.equipped[16] = { 2, 2 }
     SB.Skills.ResetEquipCache()

@@ -1513,6 +1513,24 @@ function SB.Data.GetEquipRequirement(spell)
     return SB.Data.KeyRequirements[spell.key]
 end
 
+--- Что аддон обязан проверить САМ перед кастом (или nil).
+---
+--- У заклинания, привязанного к настоящему заклинанию сервера (wowSpell),
+--- оружие и щит проверяют клиент (кнопка гаснет, каст не начинается) и
+--- сервер: требование лежит в данных заклинания (spell_equipped_items и
+--- метка «нужно оружие в руке»), а не в аддоне. Спрашивать то же второй
+--- раз значило бы расходиться с ними при первой же правке данных.
+--- Требование без привязки проверяет аддон, как прежде.
+---
+--- ТОЛЬКО ПРОВЕРКА. Вид требования по-прежнему отвечает на вопрос «бьёт ли
+--- это оружием ближнего боя» (чары на оружии, см. IsWeaponStrike), и для
+--- этого у привязанных заклинаний он остаётся в данных.
+--- @return string|nil  ключ из SB.Data.EquipRequirements
+function SB.Data.GetEquipRequirementToEnforce(spell)
+    if SB.WowSpells and SB.WowSpells.IdOf(spell) then return nil end
+    return SB.Data.GetEquipRequirement(spell)
+end
+
 -- ============================================================
 -- СЕМЕЙСТВА ЭФФЕКТОВ (family)
 --

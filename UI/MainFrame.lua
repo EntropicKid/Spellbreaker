@@ -1979,7 +1979,7 @@ function SB.UI.UpdateSpellCards()
                     local sp = GetSpellData(self._spellID)
                     GameTooltip:SetOwner(self, "ANCHOR_TOP")
                     SB.Theme.StyleTooltip(GameTooltip)
-                    local need = SB.Data.GetEquipRequirement and SB.Data.GetEquipRequirement(sp)
+                    local need = SB.Data.GetEquipRequirementToEnforce and SB.Data.GetEquipRequirementToEnforce(sp)
                     local req  = need and SB.Data.EquipRequirements[need]
                     if req and not req.check() then
                         GameTooltip:SetText("Нечем", 1, 0.3, 0.3)
@@ -2160,7 +2160,7 @@ local function CanCastNow(spell, dist, turnOk)
     -- лук» из чата ПОСЛЕ выбора круга поздно. Ответ кэширован до смены
     -- экипировки, так что спрашивать его на каждую карточку не дорого
     -- (см. EquipState в Core/Skills.lua).
-    local need = spell and SB.Data.GetEquipRequirement and SB.Data.GetEquipRequirement(spell)
+    local need = spell and SB.Data.GetEquipRequirementToEnforce and SB.Data.GetEquipRequirementToEnforce(spell)
     local req  = need and SB.Data.EquipRequirements[need]
     if req and not req.check() then return false end
     return CanReachTargetWith(spell, dist)
