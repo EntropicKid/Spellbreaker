@@ -8,7 +8,7 @@ local addonName, SB = ...
 SB.Logic = SB.Logic or {}
 
 -- ============================================================
--- КОМАНДА СЕРВЕРУ (.caura) — ШЁПОТОМ СЕБЕ, А НЕ /СКАЗАТЬ
+-- КОМАНДА СЕРВЕРУ (аура «павший») — ШЁПОТОМ СЕБЕ, А НЕ /СКАЗАТЬ
 --
 -- С 8.2.5 клиент пропускает /сказать и /крик вне подземелий только в
 -- ответ на действие игрока (клик, клавиша). Аура «павший» переключается
@@ -3381,12 +3381,6 @@ function SB.Logic.ConfirmCast(spellID, opts)
     local wasLocked = PM.IsLocked()
     PM.SetLocked(true)
 
-    -- Аура (команда серверному эмулятору). Игнорируется, если ГМ включил
-    -- чекбокс «Игнорировать .caura» в библиотеке.
-    if spell.caura and not (SpellbreakerAccountDB and SpellbreakerAccountDB.ignoreCaura) then
-        SB.Logic.ServerCommand(".caura toggle " .. spell.caura)
-    end
-
     -- Списание ресурсов (только если не заговор)
     if cost > 0 then
         -- Тот же потолок, что и у подготовки (PM.GetMaxPrepareOrder): в
@@ -3827,8 +3821,6 @@ function SB.Logic.ExecuteForcedOutcome(spellID, outcomeIndex)
     if not spell then return end
 
     SB.PlayerModel.SetLocked(true)
-    if spell.caura and not (SpellbreakerAccountDB and SpellbreakerAccountDB.ignoreCaura)
-       then SB.Logic.ServerCommand(".caura toggle " .. spell.caura) end
 
     -- Единственная отпись игрока используется на исходах 1 (успех) и
     -- 3 (крит. успех) — на провале (2) отписи нет вообще.
@@ -4218,9 +4210,9 @@ end
 -- висит на HEALTH_CHANGED — туда сходятся все пути изменения здоровья
 -- (PM.SetHealth, PM.GrantHealth, PM.Heal).
 --
--- ГАЛОЧКА «ИГНОРИРОВАТЬ .caura» ЕЁ НЕ ОТКЛЮЧАЕТ. Галочка — про ауры
--- заклинаний (визуальные эффекты по желанию Ведущего), а «павший» — это
--- знак состояния персонажа, по которому сцена видит, кто лежит.
+-- ЕДИНСТВЕННАЯ .caura АДДОНА. Ауры заклинаний убраны (визуал теперь у
+-- заклинаний сервера), а «павший» — знак состояния персонажа, по которому
+-- сцена видит, кто лежит. Отключается только своей галочкой.
 --
 -- Флаг — чтобы следующий удар по уже лежащему не слал команду заново:
 -- .caura toggle ПЕРЕКЛЮЧАЕТ ауру, и второй раз просто снял бы её. Флаг

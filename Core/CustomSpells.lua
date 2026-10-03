@@ -72,10 +72,9 @@ local function ValidateIncomingSpell(sp)
     end
     sp.icon = icon
 
-    if sp.caura then
-        local cauraStr = tostring(sp.caura)
-        sp.caura = cauraStr:match("^%d%d?%d?%d?$") and tonumber(cauraStr) or nil
-    end
+    -- .caura у заклинаний больше не используется (визуал — у заклинаний
+    -- сервера); у старых сохранённых своих заклинаний поле просто снимаем.
+    sp.caura = nil
 
     sp.level    = tonumber(sp.level) or 0
     sp.distance = tonumber(sp.distance) or 0
@@ -333,7 +332,7 @@ local fDist, fDistIdx = nil, 1
 local fClassIdx, fLevelVal = 1, 0
 local fIconPath = "Interface\\Icons\\INV_Misc_QuestionMark"
 -- Концентрация и длительность перенесены в основной спелл (#4)
-local fDuration, fIsConc, fCaura
+local fDuration, fIsConc
 
 -- Container fields
 local fContBtn, fContDelBtn
@@ -664,25 +663,12 @@ local function BuildCreateFrame()
     fDist:SetPoint("TOPLEFT", createFrame, "TOPLEFT", ColX(3), y)
     y = y - 24 - 8
 
-    Cap("Длительность, ходов", 1); Cap(".caura", 2)
+    Cap("Длительность, ходов", 1)
     y = y - 13
     local durW, durEB = SB.Theme.Input(createFrame, "0", CW3, 22)
     durW:SetPoint("TOPLEFT", createFrame, "TOPLEFT", ColX(1), y)
     durEB:SetJustifyH("CENTER")
     fDuration = durEB
-
-    -- .caura — только число, до четырёх знаков.
-    local cauraW, cauraEB = SB.Theme.Input(createFrame, "0000", CW3, 22)
-    cauraW:SetPoint("TOPLEFT", createFrame, "TOPLEFT", ColX(2), y)
-    cauraEB:SetJustifyH("CENTER")
-    fCaura = cauraEB
-    cauraEB:SetScript("OnTextChanged", function(self)
-        local t = self:GetText():gsub("[^0-9]", "")
-        if #t > 4 then t = t:sub(1, 4) end
-        if t ~= self:GetText() then
-            self:SetText(t); self:SetCursorPosition(#t)
-        end
-    end)
 
     -- Галочки — в третью колонку, одна над другой: строка выходит той
     -- же высоты, что поля рядом, и лишнего ряда под них не нужно.
@@ -1041,7 +1027,6 @@ function SB.CustomSpells.OpenCreate()
     -- #4: сброс duration/concentration
     if fDuration then fDuration:SetText("0") end
     if fIsConc   then fIsConc:SetChecked(false) end
-    if fCaura    then fCaura:SetText("") end
     fContID = nil
     if fContBtn    then fContBtn:Show(); fContBtn:SetText("Создать эффект") end
     if fContDelBtn then fContDelBtn:Hide() end
@@ -1091,7 +1076,6 @@ function SB.CustomSpells.OpenEdit(spellID)
     -- #4: загрузить duration/concentration основного заклинания
     if fDuration then fDuration:SetText(tostring(sp.duration or 0)) end
     if fIsConc   then fIsConc:SetChecked(sp.isConcentration or false) end
-    if fCaura    then fCaura:SetText(tostring(sp.caura or "")) end
 
     -- Distance
     fDistIdx = 1
@@ -1132,8 +1116,6 @@ function SB.CustomSpells.SaveForm(silent)
     -- #4: duration/concentration из полей основного заклинания
     local durVal  = tonumber(FormGetText(fDuration)) or 0
     local concVal = fIsConc and fIsConc:GetChecked() or false
-    local cauraRaw = fCaura and FormGetText(fCaura):match("^%s*(.-)%s*$") or ""
-    local cauraVal = (cauraRaw ~= "") and tonumber(cauraRaw) or nil
 
     local id = currentEditID or GenerateID()
     local sp = {
@@ -1149,7 +1131,6 @@ function SB.CustomSpells.SaveForm(silent)
         container       = fContID,
         duration        = (durVal > 0) and durVal or (fContID and (fContDur or 1) or nil),
         isConcentration = concVal or (fContID and (fContIsConc or false) or nil),
-        caura           = cauraVal,
         resistable      = true,
         isCustom        = true,
 		createdBy       = UnitName("player"),

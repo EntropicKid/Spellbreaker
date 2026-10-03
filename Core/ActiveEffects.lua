@@ -4058,59 +4058,32 @@ SB.Events.On("SB_INIT", function()
 end)
 
 -- ============================================================
--- ВИЗУАЛЬНЫЕ АУРЫ ЭФФЕКТОВ (.caura)
+-- ВИЗУАЛЬНЫЕ АУРЫ ЭФФЕКТОВ (.caura) — УБРАНЫ
 --
--- У эффекта может стоять caura = N (см. AddEffect в Spells/Effects.lua).
--- Пока такой эффект висит на персонаже, на нём видна серверная аура N:
--- появился эффект — «.caura toggle N», спал — ещё раз «.caura toggle N».
+-- Визуал теперь у настоящих заклинаний сервера (spell_x_spell_visual), и
+-- аддон больше не переключает ауры командой .caura. Осталась только аура
+-- «павший» (Config.DeathCaura, см. Core/Logic.lua).
 --
--- ИМЕННО toggle. «.caura N» вешает ауру на того, кто в цели, а взять себя
--- в цель аддон не вправе (TargetUnit защищён). toggle же всегда
--- действует на пишущего, кто бы ни стоял в цели.
---
--- ПЕРЕКЛЮЧАТЕЛЬ ТРЕБУЕТ ПАМЯТИ. Одна лишняя команда — и аура висит без
--- эффекта или пропадает при эффекте. Поэтому шлём не «на каждое
--- наложение», а по РАЗНИЦЕ: какие ауры должны гореть (по висящим
--- эффектам) против тех, что мы уже включили. Включённые хранятся в
--- сохранёнке персонажа: после /reload эффекты восстанавливаются из неё
--- же, и разница выходит нулевой — лишнего переключения не будет.
---
--- Два эффекта с одной аурой — одна аура: она гаснет, когда спадёт
--- последний. Галочка «Игнорировать .caura заклинаний» гасит и эти ауры.
+-- Прежняя версия помнила включённые ею ауры эффектов в сохранёнке
+-- персонажа (effectCauras). Если там что-то осталось — эти ауры сейчас
+-- горят на персонаже, и без уборки висели бы вечно: гасим их один раз
+-- (тот же toggle) и забываем таблицу.
 -- ============================================================
-local function EffectCaura(spellID)
-    local sp = SB.Data.Spells[spellID]
-    if not (sp and sp.isContainer) then return nil end
-    local n = tonumber(sp.caura)
-    if n and n > 0 then return math.floor(n) end
-    return nil
-end
-SB.ActiveEffects.EffectCaura = EffectCaura
-
-function SB.ActiveEffects.SyncCauras()
+function SB.ActiveEffects.ClearLegacyCauras()
     if not SpellbreakerCharDB then return end
     local on = SpellbreakerCharDB.effectCauras
-    if type(on) ~= "table" then on = {} end
-
-    local want = {}
-    if not (SpellbreakerAccountDB and SpellbreakerAccountDB.ignoreCaura) then
-        for _, eff in ipairs(effects) do
-            local n = EffectCaura(eff.spellID)
-            if n then want[n] = true end
-        end
+    SpellbreakerCharDB.effectCauras = nil
+    if type(on) ~= "table" then return end
+    local list = {}
+    for n in pairs(on) do
+        if tonumber(n) then list[#list + 1] = tonumber(n) end
     end
-
-    local flip = {}
-    for n in pairs(want) do if not on[n] then flip[#flip + 1] = n end end
-    for n in pairs(on)   do if not want[n] then flip[#flip + 1] = n end end
-    table.sort(flip)
-    for _, n in ipairs(flip) do
+    table.sort(list)
+    for _, n in ipairs(list) do
         if SB.Logic and SB.Logic.ServerCommand then
             SB.Logic.ServerCommand(".caura toggle " .. n)
         end
-        on[n] = (not on[n]) or nil
     end
-    SpellbreakerCharDB.effectCauras = on
 end
 
-SB.Events.On("ACTIVE_EFFECTS_CHANGED", function() SB.ActiveEffects.SyncCauras() end)
+SB.Events.On("ACTIVE_EFFECTS_CHANGED", function() SB.ActiveEffects.ClearLegacyCauras() end)

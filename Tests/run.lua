@@ -22249,8 +22249,6 @@ do
     _G.SendChatMessage = function(msg, chan, lang, target)
         sent[#sent + 1] = { msg = msg, chan = chan, target = target }
     end
-    local savedIgnore = SpellbreakerAccountDB and SpellbreakerAccountDB.ignoreCaura
-    if SpellbreakerAccountDB then SpellbreakerAccountDB.ignoreCaura = nil end
     local hp = PM.GetHealth()
 
     PM.SetHealth(1)
@@ -22264,12 +22262,11 @@ do
     check("себе", caura and caura.target, UnitName("player"))
 
     _G.SendChatMessage = realSend
-    if SpellbreakerAccountDB then SpellbreakerAccountDB.ignoreCaura = savedIgnore end
     PM.SetHealth(hp)
 end
 
 -- ============================================================
--- ГАЛОЧКИ АУРЫ «ПАВШИЙ»: своя отключает, общая — нет
+-- ГАЛОЧКА АУРЫ «ПАВШИЙ» ОТКЛЮЧАЕТ ЕЁ
 -- ============================================================
 do
     local PM = SB.PlayerModel
@@ -22279,19 +22276,19 @@ do
         if type(msg) == "string" and msg:find(".caura toggle", 1, true) then sent = sent + 1 end
     end
     local db = SpellbreakerAccountDB
-    local savedIgnore, savedDeath = db.ignoreCaura, db.ignoreDeathCaura
+    local savedDeath = db.ignoreDeathCaura
     local hp = PM.GetHealth()
 
-    db.ignoreCaura, db.ignoreDeathCaura = true, false
+    db.ignoreDeathCaura = false
     PM.SetHealth(5); PM.SetHealth(0)
-    check("галочка аур заклинаний павшего не глушит", sent, 1)
+    check("павший — команда ушла", sent, 1)
 
-    db.ignoreCaura, db.ignoreDeathCaura = false, true
+    db.ignoreDeathCaura = true
     PM.SetHealth(5); PM.SetHealth(0)
     check("«Игнорировать анимацию смерти» — не шлём", sent, 1)
 
     _G.SendChatMessage = realSend
-    db.ignoreCaura, db.ignoreDeathCaura = savedIgnore, savedDeath
+    db.ignoreDeathCaura = savedDeath
     PM.SetHealth(hp)
 end
 
@@ -22450,49 +22447,35 @@ do
 end
 
 -- ============================================================
--- ВИЗУАЛЬНАЯ АУРА ЭФФЕКТА: .caura toggle при появлении и при спадании
+-- .caura ЗАКЛИНАНИЙ И ЭФФЕКТОВ УБРАНЫ; ОСТАВШИЕСЯ ОТ ПРЕЖНЕЙ ВЕРСИИ — ГАСНУТ
 -- ============================================================
 do
     local AE = SB.ActiveEffects
     SB.Data.Spells["t_caura_a"] = { id = "t_caura_a", name = "Проба ауры А",
         class = "Эффект", level = 0, isContainer = true, caura = 7,
         effect = { kind = "buff" } }
-    SB.Data.Spells["t_caura_b"] = { id = "t_caura_b", name = "Проба ауры Б",
-        class = "Эффект", level = 0, isContainer = true, caura = 7,
-        effect = { kind = "buff" } }
     local realCmd, cmds = SB.Logic.ServerCommand, {}
     SB.Logic.ServerCommand = function(c) cmds[#cmds + 1] = c; return true end
-    local savedIgnore = SpellbreakerAccountDB.ignoreCaura
-    SpellbreakerAccountDB.ignoreCaura = false
     AE.Clear()
-    SpellbreakerCharDB.effectCauras = {}
     cmds = {}
 
+    -- эффект с caura больше ничего не шлёт
     AE.Add("t_caura_a", 3, false)
-    check("появился — одна команда", #cmds, 1)
-    check("и это toggle", cmds[1], ".caura toggle 7")
-    AE.Add("t_caura_b", 3, false)
-    check("второй эффект с той же аурой — без команды", #cmds, 1)
     AE.Remove("t_caura_a")
-    check("спал один из двух — аура ещё горит", #cmds, 1)
-    AE.Remove("t_caura_b")
-    check("спал последний — второй toggle", #cmds, 2)
-    check("тот же toggle", cmds[2], ".caura toggle 7")
+    check("эффект с caura — без команд", #cmds, 0)
 
-    -- Как после /reload: эффект восстановлен, аура уже включена — тишина.
-    AE.Add("t_caura_a", 3, false)
-    local n = #cmds
-    AE.SyncCauras()
-    check("повторная сверка ничего не шлёт", #cmds, n)
-    SpellbreakerAccountDB.ignoreCaura = true
-    AE.SyncCauras()
-    check("галочка «Игнорировать .caura» гасит ауру", #cmds, n + 1)
+    -- прежняя версия успела включить ауры 7 и 12 — один раз гасим и забываем
+    SpellbreakerCharDB.effectCauras = { [12] = true, [7] = true }
+    AE.ClearLegacyCauras()
+    check("две старые ауры — две команды", #cmds, 2)
+    check("по порядку", cmds[1], ".caura toggle 7")
+    check("таблица забыта", SpellbreakerCharDB.effectCauras, nil)
+    AE.ClearLegacyCauras()
+    check("второй раз — тишина", #cmds, 2)
 
     AE.Clear()
-    SpellbreakerCharDB.effectCauras = {}
-    SpellbreakerAccountDB.ignoreCaura = savedIgnore
     SB.Logic.ServerCommand = realCmd
-    SB.Data.Spells["t_caura_a"], SB.Data.Spells["t_caura_b"] = nil, nil
+    SB.Data.Spells["t_caura_a"] = nil
 end
 
 -- ============================================================
