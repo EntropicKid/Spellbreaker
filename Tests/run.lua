@@ -22756,6 +22756,65 @@ do
     stub.world.isLeader, stub.world.inGroup = wasLeader, wasGroup
 end
 
+-- ЗАКЛИНАНИЯ СЕРВЕРА: изучено ли, подготовка, каст с панели, «Применить»
+-- ============================================================
+do
+    local W, PM = SB.WowSpells, SB.PlayerModel
+    SB.Data.Spells["t_wow"] = { id = "t_wow", name = "Проба привязки", class = "Маг", level = 0,
+        wowSpell = 133, description = "" }
+    SB.Data.Spells["t_plain"] = { id = "t_plain", name = "Без привязки", class = "Маг", level = 0, description = "" }
+    stub.world.knownSpells = {}
+
+    check("ID привязки", W.IdOf("t_wow"), 133)
+    checkTrue("без привязки — доступно", W.IsKnown("t_plain"))
+    checkTrue("не изучено — недоступно", not W.IsKnown("t_wow"))
+    local locked, _, why = SB.Data.IsSpellLockedForPlayer(SB.Data.Spells["t_wow"])
+    checkTrue("не изученное — серое", locked)
+    check("причина серости", why, "not_learned")
+    local wasLocked = PM.IsLocked()
+    PM.SetLocked(false)
+    check("не изученное не готовится", PM.PrepareSpell("t_wow"), "not_learned")
+
+    stub.world.knownSpells[133] = true
+    checkTrue("изучено", W.IsKnown("t_wow"))
+    checkTrue("изученное — не серое", not SB.Data.IsSpellLockedForPlayer(SB.Data.Spells["t_wow"]))
+    check("заклинание по ID сервера", W.SpellForWow(133) and W.SpellForWow(133).id, "t_wow")
+
+    -- каст с панели: событие сервера → та же механика, что у кнопки
+    local realConfirm, casts = SB.Logic.ConfirmCast, {}
+    SB.Logic.ConfirmCast = function(id, opts) casts[#casts + 1] = id end
+    stub.FireEvent("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-guid", 133)
+    check("каст с панели запускает механику", casts[1], "t_wow")
+    stub.FireEvent("UNIT_SPELLCAST_SUCCEEDED", "party1", "Cast-guid", 133)
+    stub.FireEvent("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-guid", 999999)
+    check("чужой каст и непривязанное — мимо", #casts, 1)
+    SB.Logic.ConfirmCast = realConfirm
+
+    -- «Применить»: вне боя — защищённая кнопка с заклинанием сервера, в бою — нельзя
+    local btn = CreateFrame("Button")
+    checkTrue("вне боя кнопка ставится", W.AttachCast(btn, SB.Data.Spells["t_wow"]))
+    local SpellbreakerCastButton = W.CastButton()
+    check("кастует то самое заклинание", SpellbreakerCastButton:GetAttribute("spell"), 133)
+    check("тип — заклинание", SpellbreakerCastButton:GetAttribute("type"), "spell")
+    checkTrue("кнопка видна", SpellbreakerCastButton:IsShown())
+    W.DetachCast()
+    checkTrue("снята", not SpellbreakerCastButton:IsShown())
+    checkTrue("без привязки не ставится", not W.AttachCast(btn, SB.Data.Spells["t_plain"]))
+    stub.world.inCombat = true
+    checkTrue("в бою не ставится", not W.AttachCast(btn, SB.Data.Spells["t_wow"]))
+    stub.world.inCombat = false
+
+    -- проверка перед кастом: не подготовлено — кнопка ничего не кастует
+    W.AttachCast(btn, SB.Data.Spells["t_wow"])
+    SpellbreakerCastButton:GetScript("PreClick")(SpellbreakerCastButton)
+    check("не подготовлено — каста нет", SpellbreakerCastButton:GetAttribute("type"), nil)
+    W.DetachCast()
+
+    PM.SetLocked(wasLocked)
+    stub.world.knownSpells = {}
+    SB.Data.Spells["t_wow"], SB.Data.Spells["t_plain"] = nil, nil
+end
+
 -- ИТОГ
 -- ============================================================
 print("")

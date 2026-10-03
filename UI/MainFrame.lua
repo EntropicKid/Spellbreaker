@@ -2210,6 +2210,9 @@ function SB.UI.PrepareSpell(spell)
     elseif result == "class_hidden" then
         SB.UI.PrintMsg("classHiddenOnRealm")
         return
+    elseif result == "not_learned" then
+        SB.UI.PrintMsg("spellNotLearned")
+        return
     elseif result == "order_too_high" then
         local PM       = SB.PlayerModel
         local maxOrder = PM.GetMaxPrepareOrder(spell.class)
@@ -2320,6 +2323,14 @@ function SB.UI.ShowCastConfirm(spellID)
     slotFrame._slotBtns = slotFrame._slotBtns or {}
     for _, b in ipairs(slotFrame._slotBtns) do b:Hide() end
     if slotFrame._hintFS then slotFrame._hintFS:Hide() end
+    -- Защищённая кнопка каста стоит поверх ПЕРВОЙ кнопки окна — от прошлого
+    -- заклинания её надо снять, иначе «Применить» скастовал бы прежнее.
+    local WS = SB.WowSpells
+    if WS then WS.DetachCast() end
+    if not slotFrame._detachHooked and WS then
+        slotFrame:HookScript("OnHide", function() WS.DetachCast() end)
+        slotFrame._detachHooked = true
+    end
 
     local PM       = SB.PlayerModel
     local spellLvl = spell.level or 0
@@ -2335,7 +2346,12 @@ function SB.UI.ShowCastConfirm(spellID)
     slotOpenedBlocked = exhausted and true or false
 
     local options, hint = {}, nil
-    if exhausted then
+    local wowID = WS and WS.IdOf(spell)
+    if wowID and not WS.IsKnown(spell) then
+        -- Привязанное к заклинанию сервера, но не изученное: применить
+        -- нечем — настоящего заклинания у персонажа нет.
+        hint = "Не изучено: найдите свиток или наставника."
+    elseif exhausted then
         options[1] = { label = "Окончить ход", passTurn = true }
         hint = "Предел передвижения выбран — действовать нельзя."
     elseif spellLvl > maxOrder then
@@ -2406,11 +2422,22 @@ function SB.UI.ShowCastConfirm(spellID)
                 SB.Logic.SpendTurnManually()
             elseif opt.toGM then
                 SB.Logic.ConfirmCast(spellID, { toGM = true })
+            elseif wowID then
+                -- Сюда клик доходит, только если защищённую кнопку каста
+                -- поставить не удалось — идёт бой WoW. Механика привязанного
+                -- заклинания запускается кастом сервера (Core/WowSpells.lua).
+                SB.UI.PrintMsg("castFromBarInCombat")
             else
                 SB.Logic.ConfirmCast(spellID)
             end
         end)
         b:Show()
+        -- «ПРИМЕНИТЬ» У ПРИВЯЗАННОГО — НАСТОЯЩИЙ КАСТ: поверх кнопки встаёт
+        -- защищённая кнопка заклинания сервера. Механику проведёт событие
+        -- каста, как у каста с панели, — путь один, засчитается один раз.
+        if opt.cast and wowID then
+            WS.AttachCast(b, spell, function() slotFrame:Hide() end)
+        end
     end
 
     local contentH = #options * (SLOT_BTN_H + SLOT_GAP)

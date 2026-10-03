@@ -1536,7 +1536,7 @@ end
 
 --- Добавляет заклинание в список подготовленных.
 --- Возвращает true при успехе или строку с ошибкой:
---- "locked" | "class_hidden" | "order_too_high" | "full" | "duplicate"
+--- "locked" | "class_hidden" | "not_learned" | "order_too_high" | "full" | "duplicate"
 --- @param spellID  string
 --- ПРЕДМЕТ СЮДА НЕ ХОДИТ. У него свои три ячейки и своя сумка
 --- (см. Core/Items.lua): попади он в ячейки заклинаний — и игрок начал
@@ -1560,6 +1560,13 @@ function PM.PrepareSpell(spellID)
     -- здесь закрывает обход независимо от того, откуда пришёл spellID.
     if spell and spell.class and SB.Data.IsClassHiddenForPlayer(spell.class) then
         return "class_hidden"
+    end
+
+    -- ПРИВЯЗАННОЕ К ЗАКЛИНАНИЮ СЕРВЕРА ГОТОВИТСЯ, ТОЛЬКО ЕСЛИ ИЗУЧЕНО.
+    -- Изучают у наставника или из свитка, и знает об этом сервер, а не
+    -- сохранёнка (см. Core/WowSpells.lua). Без привязки — как прежде.
+    if spell and SB.WowSpells and not SB.WowSpells.IsKnown(spell) then
+        return "not_learned"
     end
 
     -- Круга выше реалмового потолка на сервере не существует вовсе, и в

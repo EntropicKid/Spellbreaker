@@ -58,6 +58,19 @@ function stub.FireEvent(event, ...)
 end
 
 function frameMethods.RegisterEvent(self, ev) self._events[ev] = true end
+-- Атрибуты защищённых кнопок (SecureActionButtonTemplate) — запоминаются,
+-- чтобы проверить, какое заклинание кнопка скастует.
+-- rawget: неописанное поле рамки заглушка отдаёт как пустую функцию (см. frameMeta).
+function frameMethods.SetAttribute(self, k, v)
+    local a = rawget(self, "_attrs") or {}
+    a[k] = v
+    rawset(self, "_attrs", a)
+end
+function frameMethods.GetAttribute(self, k) local a = rawget(self, "_attrs"); return a and a[k] end
+function frameMethods.GetFrameLevel(self) return rawget(self, "_level") or 1 end
+function frameMethods.SetFrameLevel(self, v) rawset(self, "_level", v) end
+function frameMethods.GetFrameStrata(self) return rawget(self, "_strata") or "MEDIUM" end
+function frameMethods.SetFrameStrata(self, v) rawset(self, "_strata", v) end
 function frameMethods.RegisterUnitEvent(self, ev) self._events[ev] = true end
 function frameMethods.UnregisterEvent(self, ev) self._events[ev] = nil end
 function frameMethods.UnregisterAllEvents(self) self._events = {} end
@@ -109,6 +122,7 @@ stub.NewFrame = NewFrame
 -- ── Состояние «мира» ─────────────────────────────────────────
 -- Меняется прямо из проверок: stub.world.playerName = "Тест" и т.д.
 stub.world = {
+    knownSpells = {},
     playerName = "Ведущий",
     level      = 25,
     realm      = "Aviana - Origins",
@@ -328,7 +342,10 @@ function G.SendChatMessage(msg, channel)
     table.insert(stub.chat, { msg = msg, channel = channel })
 end
 function G.hooksecurefunc() end
-function G.InCombatLockdown() return false end
+function G.InCombatLockdown() return stub.world.inCombat == true end
+-- Изученные заклинания сервера: stub.world.knownSpells[ID] = true.
+function G.IsPlayerSpell(id) return stub.world.knownSpells[id] == true end
+function G.IsSpellKnown(id) return stub.world.knownSpells[id] == true end
 function G.PlaySound() end
 function G.PlaySoundFile() end
 function G.RaidNotice_AddMessage() end

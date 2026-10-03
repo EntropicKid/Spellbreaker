@@ -538,13 +538,13 @@ function SB.Library.UpdateList()
         -- Состояние ВОССТАНАВЛИВАЕТСЯ явно в обеих ветках: строки
         -- переиспользуются при прокрутке, и серость, выставленная
         -- однажды, иначе осталась бы на чужом заклинании.
-        local locked = SB.Data.IsSpellLockedForPlayer(spell)
+        local locked, _, why = SB.Data.IsSpellLockedForPlayer(spell)
         row._locked = locked and true or false
         row.icon:SetDesaturated(locked and true or false)
         if locked then
             row.name:SetTextColor(0.55, 0.55, 0.55)
-            descText = descText .. "  |cFF888888(круг " ..
-                tostring(spell.level or 0) .. ")|r"
+            descText = descText .. ((why == "not_learned") and "  |cFF888888(не изучено)|r"
+                or ("  |cFF888888(круг " .. tostring(spell.level or 0) .. ")|r"))
         else
             -- ВОЗВРАЩАЕМ ЦВЕТ ТЕМЫ, а не свой: строка красится при
             -- создании из C.textMain, и подставить сюда числа значило бы

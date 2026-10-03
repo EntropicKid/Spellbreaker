@@ -800,6 +800,9 @@ end
 SB.Data.Messages = {
     leaderOnlyLongRest      = SB.Theme.MSG_BAD .. "[Spellbreaker]: Только лидер группы может объявлять Долгий Отдых.|r",
     spellNotPrepared        = SB.Theme.MSG_BAD .. "[Spellbreaker] Вы не подготовили это заклинание!|r",
+    -- Привязанное к заклинанию сервера, но не изученное (см. Core/WowSpells.lua).
+    castFromBarInCombat     = SB.Theme.MSG_BAD .. "[Spellbreaker] В бою кнопка не может применить заклинание — примените его с панели или из книги.|r",
+    spellNotLearned         = SB.Theme.MSG_BAD .. "[Spellbreaker] Это заклинание не изучено — найдите свиток или наставника.|r",
     itemNotInBag            = SB.Theme.MSG_BAD .. "[Spellbreaker] Этого предмета нет в сумке — возьмите его в разделе «Ремесло».|r",
     passiveCantActivate     = "|cFFFFCC00[Spellbreaker]|r: Это пассивный эффект — его нельзя активировать вручную.",
     cantRemoveDebuff        = "|cFFFFCC00[Spellbreaker]|r: Дебафф нельзя снять с себя — он спадёт сам или на Долгом Отдыхе.",
@@ -917,4 +920,4 @@ function SB.UI.ScreenNotice(text, quiet)
     else
         pcall(PlaySoundFile, "Sound\\Interface\\RaidWarning.ogg", "Master")
     end
-end
+end

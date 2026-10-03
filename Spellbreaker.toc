@@ -123,6 +123,7 @@ Core\Scenes.lua
 # заклинание и живёт в той же таблице (см. врезку в Core\Items.lua).
 Core\Items.lua
 Core\ClassMechanics.lua
+Core\WowSpells.lua
 
 # ── Интерфейс ────────────────────────────────────────────────
 UI\MainFrame.lua

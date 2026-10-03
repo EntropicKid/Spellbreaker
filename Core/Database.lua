@@ -795,6 +795,12 @@ function SB.Data.IsSpellLockedForPlayer(spell)
     -- служебные классы без школы (потолок по рангу героя). Отдельной
     -- развилки здесь не надо — она была бы копией той, что уже там.
     local maxOrder = PM.GetMaxPrepareOrder(spell.class)
+    -- ПРИВЯЗАННОЕ К ЗАКЛИНАНИЮ СЕРВЕРА, НО НЕ ИЗУЧЕННОЕ — тоже серое:
+    -- взять его нельзя, пока не изучено (см. Core/WowSpells.lua). Третий
+    -- ответ — причина, чтобы строка библиотеки подписала её верно.
+    if SB.WowSpells and not SB.WowSpells.IsKnown(spell) then
+        return true, maxOrder, "not_learned"
+    end
     return (tonumber(spell.level) or 0) > maxOrder, maxOrder
 end
 
