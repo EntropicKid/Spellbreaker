@@ -17,7 +17,7 @@
 -- классу, достаточно добавить одну запись в MECHANICS.
 --
 -- ТРИГГЕРЫ ВОСПОЛНЕНИЯ РЕСУРСА (поле trigger):
---   "cantrip"    — применён приём/заговор (slotLevel == 0)
+--   "cantrip"    — применён приём/заговор (нулевой круг)
 --   "anyCast"    — применена любая способность, любой исход
 --   "damage"     — успешный УРОННЫЙ каст (ПвЕ-бросок, форс ГМа, ПвП-хит)
 --   "failure"    — любой провал (проваленный ПвЕ-бросок, промах в ПвП)
@@ -225,9 +225,11 @@ end
 
 -- Каст состоялся (ресурс, если требовался, уже списан) — но исход ещё
 -- неизвестен. Отсюда работают триггеры, не зависящие от результата.
-SB.Events.On(SB.E.CAST_CONFIRMED, function(spellID, slotLevel)
+SB.Events.On(SB.E.CAST_CONFIRMED, function(spellID)
     FireTrigger("anyCast", nil, spellID)
-    if (tonumber(slotLevel) or 0) == 0 then
+    -- Заговор — нулевой круг (отдельного признака у заклинания нет).
+    local sp = SB.Data.Spells[spellID]
+    if (tonumber(sp and sp.level) or 0) == 0 then
         FireTrigger("cantrip", nil, spellID)
     end
 end)

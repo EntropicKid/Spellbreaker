@@ -86,9 +86,9 @@ SB.E = {
     LOG_MESSAGE_RECEIVED    = "LOG_MESSAGE_RECEIVED",    -- (msg)
 
     -- Каст
-    CAST_REQUEST            = "CAST_REQUEST",            -- (spellID, slotLevel, targetLabel, mod)
+    CAST_REQUEST            = "CAST_REQUEST",            -- (spellID, targetLabel, mod)
     CAST_PENDING            = "CAST_PENDING",            -- (spellID)
-    CAST_CONFIRMED          = "CAST_CONFIRMED",          -- (spellID, slotLevel)
+    CAST_CONFIRMED          = "CAST_CONFIRMED",          -- (spellID)
     CAST_RESOLVED           = "CAST_RESOLVED",           -- (spellID, succeeded, resultStatus, detail)
     CAST_REJECTED           = "CAST_REJECTED",           -- (spellID)
     -- ИСХОД СОБСТВЕННОЙ АТАКИ — по игроку И по существу.
@@ -101,7 +101,7 @@ SB.E = {
     -- демонов. «Печать Света» не лечила, Воин не копил ярость, а
     -- «Незаметность» не спадала — ровно там, где идёт основная игра.
     ATTACK_RESOLVED         = "ATTACK_RESOLVED",         -- (dmg, spellID, landed, targetName)
-    GM_REQUEST_RECEIVED     = "GM_REQUEST_RECEIVED",     -- (caster, spellID, slotLevel, targetLabel)
+    GM_REQUEST_RECEIVED     = "GM_REQUEST_RECEIVED",     -- (caster, spellID, targetLabel, mod)
 
     -- Активные эффекты
     ACTIVE_EFFECTS_CHANGED  = "ACTIVE_EFFECTS_CHANGED",  -- ()

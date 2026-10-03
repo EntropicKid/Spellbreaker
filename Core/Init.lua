@@ -250,9 +250,8 @@ local ACCOUNT_DEFAULTS = {
     -- жизнь события — от него зависит, кого задевает чужая площадь
     -- (см. врезку «Свои и чужие» в Core/Database.lua).
     friends            = {},
-	ignoreCaura        = true,
-    -- Своя галочка у ауры павшего (.caura toggle 150): «Игнорировать
-    -- .caura заклинаний» её не касается (см. OnHealthForDeath).
+    -- Галочка ауры павшего (.caura toggle 150) — единственная оставшаяся
+    -- .caura аддона (см. OnHealthForDeath).
     ignoreDeathCaura   = false,
     -- Порядок хода в пошаговом режиме: "player" | "group" | "all".
     -- Сама очередь лежит в turnState и в дефолтах НЕ объявлена

@@ -41,7 +41,7 @@ end
 -- ============================================================
 -- УДАР
 -- ============================================================
-function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
+function SB.Logic.ResolveNpcAttack(spellID)
     local spell = SB.Data.Spells[spellID]
     local stats = TargetNpcStats()
     if not spell or not stats then return end
@@ -54,10 +54,10 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
     -- наложил, а существа провоцируют чаще всех (см. её источник в
     -- реестре модификаторов).
     local mod, modParts = SB.Logic.GetModifierBreakdown("attack",
-        { spell = spell, slotLevel = slotLevel, versus = UnitName("target") })
+        { spell = spell, versus = UnitName("target") })
     local hitBonus, hitParts = SB.Logic.GetSpellScaling(spell, "hit")
     local critBonus          = SB.Logic.GetSpellScaling(spell, "crit")
-    local dmgBonus           = SB.Logic.GetSpellScaling(spell, "damage", slotLevel)
+    local dmgBonus           = SB.Logic.GetSpellScaling(spell, "damage")
     if SB.ActiveEffects and SB.ActiveEffects.GetDamageMod then
         dmgBonus = dmgBonus + (SB.ActiveEffects.GetDamageMod(spell))
     end
@@ -96,7 +96,7 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
     -- ── Урон ──────────────────────────────────────────────
     local dmg, reduction, resisted = 0, 0, 0
     if landed then
-        local base = SB.Logic.GetCastPower(spell, slotLevel)
+        local base = SB.Logic.GetCastPower(spell)
         -- Тот же пол, что в ПвП: попавший удар не может стоить ноль ещё
         -- до брони.
         local sum = math.max(SB.Data.Config.MinDamageOnHit or 1, base + dmgBonus)
@@ -143,7 +143,7 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
     -- и существо могло стряхнуть чары, уже пропустив удар.
     local debuffLanded = false
     if spell.debuff and landed then
-        local turns = SB.Logic.GetEffectDuration(spell.debuff, spell, slotLevel)
+        local turns = SB.Logic.GetEffectDuration(spell.debuff, spell)
         -- Своё имя в эффект: если дебафф провоцирует, приковано
         -- существо именно к нам (см. SB.NPC.TauntPenaltyOf).
         debuffLanded = SB.NPC.AddEffect("target", spell.debuff, turns,
@@ -171,7 +171,7 @@ function SB.Logic.ResolveNpcAttack(spellID, slotLevel)
     -- руках уже сейчас — в отличие от ПвП, где ответ придёт по сети, и
     -- от площади, где общего исхода нет вовсе. Правило одно на все пять
     -- путей и записано один раз: SB.Logic.ApplyOwnContainer.
-    local ownContainer = SB.Logic.ApplyOwnContainer(spell, slotLevel, landed)
+    local ownContainer = SB.Logic.ApplyOwnContainer(spell, landed)
     -- Добыча ударом («Похищение души») — по тому же исходу и тем же
     -- правилом, что контейнер. Раньше эта ветка сотворение не звала
     -- вовсе: до появления бьющего создателя звать было нечего.
@@ -277,7 +277,7 @@ end
 -- Порог тот же, что у лечения игрока: 60 + уровень цели. Разница ровно
 -- одна — уровень берётся из записи существа, а не у живого клиента.
 -- ============================================================
-function SB.Logic.ResolveNpcHeal(spellID, slotLevel)
+function SB.Logic.ResolveNpcHeal(spellID)
     local spell = SB.Data.Spells[spellID]
     local stats = TargetNpcStats()
     if not spell or not stats then return end
@@ -286,10 +286,10 @@ function SB.Logic.ResolveNpcHeal(spellID, slotLevel)
     local npcName = UnitName("target") or (stats.name or "Существо")
 
     local hitBonus, hitParts = SB.Logic.GetSpellScaling(spell, "hit")
-    local dmgBonus           = SB.Logic.GetSpellScaling(spell, "damage", slotLevel)
+    local dmgBonus           = SB.Logic.GetSpellScaling(spell, "damage")
     local critBonus          = SB.Logic.GetSpellScaling(spell, "crit")
     local mod, modParts = SB.Logic.GetModifierBreakdown("attack",
-        { spell = spell, slotLevel = slotLevel })
+        { spell = spell })
     mod = mod + hitBonus
     for _, p in ipairs(hitParts) do table.insert(modParts, p) end
 
@@ -312,7 +312,7 @@ function SB.Logic.ResolveNpcHeal(spellID, slotLevel)
     local taken = SB.NPC.EffectMod and (SB.NPC.EffectMod("target", "healTaken")) or 0
     effHeal = effHeal + taken
 
-    local amount = SB.Logic.GetHealPower(spell, slotLevel)
+    local amount = SB.Logic.GetHealPower(spell)
                  + (success and (dmgBonus + effHeal) or 0)
     isCrit = isCrit and success
     amount = SB.Logic.ApplyCritHeal(amount, isCrit)
@@ -339,7 +339,7 @@ function SB.Logic.ResolveNpcHeal(spellID, slotLevel)
     --
     -- На успех, а не на факт каста: у лечения исход известен здесь же.
     if success and spell.buff then
-        local turns = SB.Logic.GetEffectDuration(spell.buff, spell, slotLevel)
+        local turns = SB.Logic.GetEffectDuration(spell.buff, spell)
         SB.NPC.AddEffect("target", spell.buff, turns)
     end
 
@@ -410,7 +410,7 @@ function SB.Logic.CanAffectNpc(spell)
     return (spell.debuff or spell.buff) ~= nil
 end
 
-function SB.Logic.ResolveNpcEffect(spellID, slotLevel)
+function SB.Logic.ResolveNpcEffect(spellID)
     local spell = SB.Data.Spells[spellID]
     local stats = TargetNpcStats()
     if not spell or not stats then return end
@@ -427,7 +427,7 @@ function SB.Logic.ResolveNpcEffect(spellID, slotLevel)
 
     local hitBonus, hitParts = SB.Logic.GetSpellScaling(spell, "hit")
     local mod, modParts = SB.Logic.GetModifierBreakdown("attack",
-        { spell = spell, slotLevel = slotLevel })
+        { spell = spell })
     mod = mod + hitBonus
     for _, p in ipairs(hitParts) do table.insert(modParts, p) end
 
@@ -453,7 +453,7 @@ function SB.Logic.ResolveNpcEffect(spellID, slotLevel)
     local success    = guaranteed or (total >= threshold)
 
     if success then
-        local turns = SB.Logic.GetEffectDuration(effectID, spell, slotLevel)
+        local turns = SB.Logic.GetEffectDuration(effectID, spell)
         success = SB.NPC.AddEffect("target", effectID, turns, UnitName("player"))
         -- Дебафф с прерыванием лёг — концентрация существа сорвана.
         if success and spell.debuff then
@@ -501,7 +501,7 @@ function SB.Logic.CanDispelNpc(spell)
     return TargetNpcStats() ~= nil
 end
 
-function SB.Logic.ResolveNpcDispel(spellID, slotLevel)
+function SB.Logic.ResolveNpcDispel(spellID)
     local spell   = SB.Data.Spells[spellID]
     local stats   = TargetNpcStats()
     local schools = spell and SB.Logic.GetDispelSchools(spell)
@@ -514,7 +514,7 @@ function SB.Logic.ResolveNpcDispel(spellID, slotLevel)
     -- не от круга (см. SB.Logic.GetDispelCount). Своя формула здесь
     -- означала бы, что одно и то же «Рассеивание магии» снимает с волка
     -- и с игрока разное число эффектов.
-    local count = SB.Logic.GetDispelCount(spell, slotLevel)
+    local count = SB.Logic.GetDispelCount(spell)
 
     -- ДРУГ ИЛИ НЕТ — ПО ФРАКЦИИ, НАЗНАЧЕННОЙ ВЕДУЩИМ.
     --
@@ -540,7 +540,7 @@ function SB.Logic.ResolveNpcDispel(spellID, slotLevel)
     -- вешаем сами. И независимо от того, было ли что снимать: это часть
     -- каста, а не награда за попадание.
     if spell.buff then
-        local turns = SB.Logic.GetEffectDuration(spell.buff, spell, slotLevel)
+        local turns = SB.Logic.GetEffectDuration(spell.buff, spell)
         SB.NPC.AddEffect("target", spell.buff, turns)
     end
 

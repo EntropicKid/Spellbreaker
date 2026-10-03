@@ -92,20 +92,12 @@ end
 -- UI/GMPanel.lua). Отдельный переключатель здесь означал бы второй
 -- рычаг от того же механизма — и возможность рассинхронизировать их.
 
--- Игнорировать .caura
-local cauraOptChk = MakeCheckRow(content, addHeader, -10,
-    "Игнорировать .caura заклинаний",
-    "ignoreCaura",
-    function(val)
-        if SBIgnoreCauraChk then SBIgnoreCauraChk:SetChecked(val) end
-        -- Ауры висящих эффектов гаснут/зажигаются вместе с галочкой.
-        if SB.ActiveEffects and SB.ActiveEffects.SyncCauras then SB.ActiveEffects.SyncCauras() end
-    end)
+-- «Игнорировать .caura заклинаний» УБРАНА вместе с самими .caura: визуал
+-- заклинаний теперь у заклинаний сервера, аддон аур не переключает.
 
--- Игнорировать анимацию смерти — отдельно от аур заклинаний: павший
--- виден всем по умолчанию, но кому-то эта аура не нужна вовсе
--- (см. OnHealthForDeath в Core/Logic.lua).
-local deathCauraOptChk = MakeCheckRow(content, cauraOptChk, -8,
+-- Игнорировать анимацию смерти: павший виден всем по умолчанию, но кому-то
+-- эта аура не нужна вовсе (см. OnHealthForDeath в Core/Logic.lua).
+local deathCauraOptChk = MakeCheckRow(content, addHeader, -10,
     "Игнорировать анимацию смерти",
     "ignoreDeathCaura")
 
@@ -299,7 +291,6 @@ local function SyncOptionsFromDB()
     end
 
     if not db then return end
-    cauraOptChk:SetChecked(db.ignoreCaura or false)
     deathCauraOptChk:SetChecked(db.ignoreDeathCaura or false)
     hideOptChk:SetChecked(db.hideSystemMessages or false)
     combatLogOptChk:SetChecked(db.combatLogMessages == true and not db.hideSystemMessages)

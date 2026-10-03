@@ -323,14 +323,8 @@ end
 -- ============================================================
 -- КРУГ НЕ ЕЗДИТ ПО СЕТИ
 --
--- В каждом боевом пакете ехало поле slot — «в какой круг применили».
--- Оно имело смысл, пока было вливание ресурса сверх круга: игрок
--- выбирал, сколько влить, и знать об этом мог только его клиент.
--- Вливание убрано (см. врезку о нём в Core/Logic.lua), и круг стал
--- свойством ЗАКЛИНАНИЯ — а id заклинания в пакете и так едет.
---
--- ПОЭТОМУ ПОЛЕ СНЯТО СО ВСЕХ ПАКЕТОВ, а получатель берёт круг из своей
--- библиотеки. Пример: на вас лёг eff_chilling. Если его наложила
+-- Круг — свойство ЗАКЛИНАНИЯ, а id заклинания в пакете и так едет.
+-- Получатель берёт круг из своей библиотеки. Пример: на вас лёг eff_chilling. Если его наложила
 -- «Ледяная стрела» — это первый круг, и срыв Волей стоит одно очко;
 -- если «Конус холода» — третий, и стоит три. Оба числа получатель
 -- находит у себя, не веря на слово никому.
@@ -343,10 +337,6 @@ end
 --- Круг заклинания из СВОЕЙ библиотеки. Панель Ведущего и резолв
 --- по-прежнему хотят число; брать его теперь неоткуда, кроме как
 --- отсюда (см. врезку выше).
-local function SpellLevel(spellID)
-    local sp = spellID and SB.Data.Spells[spellID]
-    return tonumber(sp and sp.level) or 0
-end
 
 -- ============================================================
 -- ПАРСЕРЫ ВХОДЯЩИХ ПАКЕТОВ
@@ -363,21 +353,21 @@ local MarkStatusDirty
 local function ParseREQ(t)
     -- Я получаю REQ если: я лидер группы, ИЛИ я не в группе (тестирую соло).
     if UnitIsGroupLeader("player") or not IsInGroup() then
-        SB.Events.Fire("GM_REQUEST_RECEIVED", t.caster, t.spellID, SpellLevel(t.spellID), t.targetLabel, t.mod)
+        SB.Events.Fire("GM_REQUEST_RECEIVED", t.caster, t.spellID, t.targetLabel, t.mod)
     end
 end
 
 local function ParseRES(sender, t)
     if not IsFromLeader(sender) then return end
     if t.target == UnitName("player") then
-        SB.Logic.ProcessRollAndCast(t.spellID, t.dc, SpellLevel(t.spellID), t.scale == true, true)
+        SB.Logic.ProcessRollAndCast(t.spellID, t.dc, true)
     end
 end
 
 local function ParseFORCE(sender, t)
     if not IsFromLeader(sender) then return end
     if t.target == UnitName("player") then
-        SB.Logic.ExecuteForcedOutcome(t.spellID, t.outcomeIndex, SpellLevel(t.spellID))
+        SB.Logic.ExecuteForcedOutcome(t.spellID, t.outcomeIndex)
     end
 end
 
@@ -660,7 +650,7 @@ local function ParseBUFF(sender, t)
     local shown = ActorOf(sender, t)
     if not shown then return end
     if SB.Logic and SB.Logic.HandleBuffReceived then
-        SB.Logic.HandleBuffReceived(shown, t.spellID, t.effectID, nil,
+        SB.Logic.HandleBuffReceived(shown, t.spellID, t.effectID,
             t.roll, t.mod, t.total, sender, tonumber(t.enc) or 0)
     end
 end
@@ -693,7 +683,7 @@ local function ParseSTEAL(sender, t)
     if not shown then return end
     if not (SB.Logic and SB.Logic.HandleStealReceived) then return end
 
-    SB.Logic.HandleStealReceived(shown, t.spellID, nil,
+    SB.Logic.HandleStealReceived(shown, t.spellID,
         t.roll, t.mod, t.total, sender)
 end
 
@@ -888,7 +878,7 @@ local function ParseDISPEL(t)
     local friend = (t.friend ~= false)
 
     SB.Logic.HandleDispelReceived(t.caster, t.spellID, schools,
-        tonumber(t.count) or 1, t.effectID, nil, friend)
+        tonumber(t.count) or 1, t.effectID, friend)
 end
 
 --- Площадное лечение. Как и площадная атака, уходит всей группе: в
@@ -896,8 +886,7 @@ end
 --- (см. SB.Logic.HandleAoeHealReceived).
 local function ParseAOEHL(t)
     if not SB.Logic or not SB.Logic.HandleAoeHealReceived then return end
-    SB.Logic.HandleAoeHealReceived(t.caster, t.spellID, t.effectID, t.radius,
-        nil, t.roll, t.mod, t.total, t.amount, UnpackEpicenter(t),
+    SB.Logic.HandleAoeHealReceived(t.caster, t.spellID, t.effectID, t.radius, t.roll, t.mod, t.total, t.amount, UnpackEpicenter(t),
         CasterCallsMeFriend(t))
 end
 
@@ -912,7 +901,7 @@ end
 --- Площадной эффект: аура или площадной дебафф.
 local function ParseAOEEFF(t)
     if not SB.Logic or not SB.Logic.HandleAoeEffectReceived then return end
-    SB.Logic.HandleAoeEffectReceived(t.caster, t.spellID, t.effectID, t.radius, nil,
+    SB.Logic.HandleAoeEffectReceived(t.caster, t.spellID, t.effectID, t.radius,
         t.roll, t.mod, t.total, UnpackEpicenter(t), CasterCallsMeFriend(t),
         tonumber(t.enc) or 0)
 end
@@ -1737,10 +1726,9 @@ local function SendREQ(spellID, targetLabel, mod)
     }, "NORMAL")
 end
 
-function SB.Net.SendCastRequest(spellID, slotLevel, targetLabel, mod)
+function SB.Net.SendCastRequest(spellID, targetLabel, mod)
     if not IsInGroup() or UnitIsGroupLeader("player") then
         SB.Events.Fire("GM_REQUEST_RECEIVED", UnitName("player"), spellID,
-            tonumber(SB.Data.Spells[spellID] and SB.Data.Spells[spellID].level) or 0,
             targetLabel, mod)
         return
     end
@@ -1776,7 +1764,7 @@ function SB.Net.ResendPendingRequests(restoreToasts)
         if UnitIsGroupLeader("player") then
             -- Лидером стал я сам: заявка ложится в свою же очередь.
             SB.Events.Fire("GM_REQUEST_RECEIVED", UnitName("player"), r.spellID,
-                tonumber(SB.Data.Spells[r.spellID].level) or 0, r.target, r.mod)
+                r.target, r.mod)
         elseif canSend then
             SendREQ(r.spellID, r.target, r.mod)
         end
@@ -1864,9 +1852,7 @@ end
 function SB.Net.SendGMApproval(targetPlayer, spellID, dc, scaleDamage)
     if RecipientGone(targetPlayer) then ReportGone(targetPlayer); return end
     if targetPlayer == UnitName("player") then
-        SB.Logic.ProcessRollAndCast(spellID, dc,
-            tonumber(SB.Data.Spells[spellID] and SB.Data.Spells[spellID].level) or 0,
-            scaleDamage == "SCALE", true)
+        SB.Logic.ProcessRollAndCast(spellID, dc, true)
         return
     end
     SendToPlayer({
@@ -2149,7 +2135,7 @@ end
 ---
 --- ОТ ЛИЦА СУЩЕСТВА — НЕ СЧИТАЕТСЯ: Ведущий одалживает волку руки, а не
 --- свой навык (то же правило, что в SendBuff).
-function SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, slot, persuade, npcName, aoe)
+function SB.Net.SendPvpAttack(targetName, spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, persuade, npcName, aoe)
     local sp = SB.Data.Spells[spellID]
     if not npcName and sp and sp.debuff and SB.Logic and SB.Logic.EncouragementFor then
         -- С ИМЕНЕМ ЦЕЛИ: бить можно и помеченного своим (двойное
@@ -2190,7 +2176,7 @@ end
 --- площадной удар с дебаффом разрешается у каждого задетого, и срок
 --- чар собирает он же (HandleAoeAttackReceived передаёт число дальше, в
 --- HandlePvpAttackReceived).
-function SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, radius, slot, epi)
+function SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, radius, epi)
     if not IsInGroup() then return end
 
     local sp = SB.Data.Spells[spellID]
@@ -2225,7 +2211,7 @@ end
 --- задетый у себя, и без присланного числа он подставлял бы СВОЙ навык
 --- вместо навыка заклинателя: конус холода держался бы дольше на том,
 --- кто вложился во «Внушение», то есть навык работал бы против хозяина.
-function SB.Net.SendAoeEffect(spellID, effectID, radius, slot, roll, mod, total, epi)
+function SB.Net.SendAoeEffect(spellID, effectID, radius, roll, mod, total, epi)
     if not IsInGroup() then return end
     local enc = (SB.Logic and SB.Logic.EncouragementFor)
         and SB.Logic.EncouragementFor(effectID) or 0
@@ -2257,7 +2243,7 @@ end
 ---        игровое API не читаются, и их пришлось возить отдельным
 ---        полем статуса. Поля больше нет: считает тот, у кого данные.
 ---        nil — пакет со старой сборки, там эффект ложится безусловно.
-function SB.Net.SendBuff(targetName, spellID, effectID, slot, npcName, roll, mod, total)
+function SB.Net.SendBuff(targetName, spellID, effectID, npcName, roll, mod, total)
     if not IsInGroup() then return end
 
     -- «ВООДУШЕВЛЕНИЕ» ПРИЦЕПЛЯЕТСЯ ЗДЕСЬ, А НЕ У КАЖДОГО ОТПРАВИТЕЛЯ.
@@ -2316,7 +2302,7 @@ end
 --- клиент жертвы: порог собран из её стойкости, добыча лежит в её сумке
 --- (см. SB.Logic.HandleStealReceived). Ровно то же разделение, что у
 --- одиночного эффекта, только у кражи оно вдвое очевиднее.
-function SB.Net.SendSteal(targetName, spellID, slotLevel, roll, mod, total)
+function SB.Net.SendSteal(targetName, spellID, roll, mod, total)
     if not IsInGroup() or not targetName or targetName == "" then return end
     SendToPlayer({
         action  = "STEAL",
@@ -2426,7 +2412,7 @@ function SB.Net.SendSacrifice(targetName, effectID, amount)
     }, targetName, "ALERT")
 end
 
-function SB.Net.SendDispel(targetName, spellID, schools, count, effectID, slot, friend)
+function SB.Net.SendDispel(targetName, spellID, schools, count, effectID, friend)
     if not IsInGroup() then return end
     SendToPlayer({
         action   = "DISPEL",
@@ -2445,7 +2431,7 @@ end
 --- (см. SB.Logic.ResolveAoeHeal).
 --- @param effectID string|nil  бафф заклинания: ложится тем, на ком
 ---        лечение сработало (Целительный ливень, Спокойствие)
-function SB.Net.SendAoeHeal(spellID, effectID, radius, slot, roll, mod, total, amount, epi)
+function SB.Net.SendAoeHeal(spellID, effectID, radius, roll, mod, total, amount, epi)
     if not IsInGroup() then return end
     SendToGroup(PackFriends(PackEpicenter({
         action   = "AOEHL",
@@ -3029,12 +3015,11 @@ function SB.Net.SendActiveEffectsTo(playerName)
     if payload then SendToPlayer(payload, playerName, "BULK") end
 end
 
---- slotLevel в подписи остался ради вызывающих; в пакете его нет.
-function SB.Net.SendForceOutcome(targetName, spellID, outcomeIndex, slotLevel)
+function SB.Net.SendForceOutcome(targetName, spellID, outcomeIndex)
     if RecipientGone(targetName) then ReportGone(targetName); return end
     if targetName == UnitName("player") then
         if SB.Logic.ExecuteForcedOutcome then
-            SB.Logic.ExecuteForcedOutcome(spellID, outcomeIndex, slotLevel)
+            SB.Logic.ExecuteForcedOutcome(spellID, outcomeIndex)
         end
         return
     end
@@ -3242,8 +3227,8 @@ SB.Events.On("SB_INIT", function()
     -- моменту, когда игрок наведётся на кого-то, числа уже лежали.
     LoadPeerCache()
 
-    SB.Events.On("CAST_REQUEST", function(spellID, slotLevel, targetLabel, mod)
-        SB.Net.SendCastRequest(spellID, slotLevel, targetLabel, mod)
+    SB.Events.On("CAST_REQUEST", function(spellID, targetLabel, mod)
+        SB.Net.SendCastRequest(spellID, targetLabel, mod)
     end)
 
     SB.Events.On("STATUS_CHANGED", function()

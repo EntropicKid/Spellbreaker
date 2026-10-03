@@ -163,7 +163,6 @@ local function AddEffect(t)
     t.key         = "Effect"
     t.level       = 0
     t.resistable  = false
-    t.isCantrip   = false
     t.isContainer = true
     -- isPassive по умолчанию: эффект не «применяют», он просто действует,
     -- пока висит. ЛКМ по иконке ничего не делает, снять — ПКМ. Тем
@@ -1662,7 +1661,7 @@ AddEffect({
     name = "Устрашающий крик",
     icon = "Interface\\Icons\\Ability_golemthunderclap",
     description = "Пронзивший душу вражеский крик вгонит цель в состояние оцепенения и ужаса.",
-    effect = { kind = "debuff", resist = "Дух", family = "Страх", mods = { attack = -75, movePct = 15 }, stats = { ["Лидерство"] = -3, ["Воля"] = -3 }, breakOn = { damaged = true } },
+    effect = { kind = "debuff", resist = "Дух", family = "Страх", mods = { attack = -75, movePct = 15 }, stats = { ["Резонанс"] = -3, ["Воля"] = -3 }, breakOn = { damaged = true } },
 })
 
 AddEffect({
@@ -1733,7 +1732,7 @@ AddEffect({
     name = "Ментальный крик",
     icon = "Interface\\Icons\\Spell_shadow_psychicscream",
     description = "Тело хочет бежать, а не драться. Разум занят чужими кошмарами.",
-    effect = { kind = "debuff", resist = "Дух", family = "Страх", mods = { attack = -75, movePct = 15 }, stats = { ["Лидерство"] = -3, ["Воля"] = -3 }, breakOn = { damaged = true } },
+    effect = { kind = "debuff", resist = "Дух", family = "Страх", mods = { attack = -75, movePct = 15 }, stats = { ["Резонанс"] = -3, ["Воля"] = -3 }, breakOn = { damaged = true } },
 })
 
 AddEffect({
@@ -2614,7 +2613,7 @@ AddEffect({
     name = "Отпугивание жертвы",
     icon = "Interface\\Icons\\Ability_druid_cower",
     description = "Тело хочет бежать, а не драться. Разум занят чужими кошмарами.",
-    effect = { kind = "debuff", resist = "Дух", stats = { ["Лидерство"] = -3, ["Запугивание"] = -3 }, mods = { attack = -30 }, breakOn = { damaged = true } },
+    effect = { kind = "debuff", resist = "Дух", stats = { ["Резонанс"] = -3, ["Запугивание"] = -3 }, mods = { attack = -30 }, breakOn = { damaged = true } },
 })
 
 AddEffect({
@@ -2972,7 +2971,7 @@ AddEffect({
     name = "Аура рыцаря",
     icon = "Interface\\Icons\\Spell_holy_crusaderaura",
     description = "Тело движется раньше, чем разум успевает испугаться: удары проходят мимо.",
-    effect = { kind = "buff", family = "Аура паладина", mods = { movePct = 15 }, stats = { ["Лидерство"] = 2 } },
+    effect = { kind = "buff", family = "Аура паладина", mods = { movePct = 15 }, stats = { ["Резонанс"] = 2 } },
 })
 
 AddEffect({
@@ -3537,7 +3536,7 @@ AddEffect({
     name = "Боевой крик",
     icon = "Interface\\Icons\\Ability_warrior_battleshout",
     description = "Крик выбивает из головы сомнения. Мышцы наливаются силой, рука перестаёт дрожать.",
-    effect = { kind = "buff", stats = { ["Лидерство"] = 2, ["Сила"] = 1 } },
+    effect = { kind = "buff", stats = { ["Резонанс"] = 2, ["Сила"] = 1 } },
 })
 
 AddEffect({
@@ -3582,7 +3581,7 @@ AddEffect({
     name = "Деморализующий крик",
     icon = "Interface\\Icons\\Ability_warrior_warcry",
     description = "Решимость сменилась сомнением. Рука делает то, что велено, но без веры в исход.",
-    effect = { kind = "debuff", resist = "Характер", mods = { damage = -1 }, stats = { ["Лидерство"] = -2, ["Воля"] = -2 } },
+    effect = { kind = "debuff", resist = "Характер", mods = { damage = -1 }, stats = { ["Резонанс"] = -2, ["Воля"] = -2 } },
 })
 
 AddEffect({
@@ -3676,7 +3675,7 @@ AddEffect({
     name = "Рывок",
     icon = "Interface\\Icons\\Ability_warrior_charge",
     description = "Совершает рывок в сторону цели, полный решимости и воле к победе!",
-    effect = { kind = "buff", suppress = { "Замедление" }, mods = { movePct = 100 }, family = "Передвижение", stats = { ["Лидерство"] = 2 } },
+    effect = { kind = "buff", suppress = { "Замедление" }, mods = { movePct = 100 }, family = "Передвижение", stats = { ["Резонанс"] = 2 } },
 })
 
 AddEffect({
