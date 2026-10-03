@@ -67,9 +67,14 @@ function W.SpellForWow(wowID)
     return id and SB.Data.Spells[id] or nil
 end
 
+local lastCast
+--- Последний каст, о котором сообщил сервер (для «/sb wow»).
+function W.LastCast() return lastCast end
+
 --- Сервер подтвердил каст привязанного заклинания — механика аддона.
 function W.OnServerCast(wowID)
     local sp = W.SpellForWow(wowID)
+    lastCast = { id = tonumber(wowID), mapped = sp and true or false }
     if not sp then return false end
     SB.Logic.ConfirmCast(sp.id)
     return true

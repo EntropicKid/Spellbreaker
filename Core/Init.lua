@@ -447,6 +447,39 @@ initFrame:SetScript("OnEvent", function(self, event, loadedAddon)
             return
         end
 
+        -- «/sb wow» — связь с заклинаниями сервера (см. Core/WowSpells.lua):
+        -- загружен ли модуль, какие заклинания привязаны, изучены ли они и
+        -- доходят ли до аддона касты. Без неё не понять из игры, почему
+        -- привязка «не работает»: нет поля wowSpell, игра не перезапущена
+        -- после обновления или сервер не принял правку заклинания.
+        if cmd == "wow" then
+            local say = function(t) print(SB.Theme.MSG_TAG .. "[Spellbreaker]|r: " .. SB.Theme.MSG_BODY .. t .. "|r") end
+            local W = SB.WowSpells
+            if not W then
+                say("модуль заклинаний сервера НЕ загружен — новые файлы аддона клиент читает только при полном перезапуске игры (не /reload).")
+                return
+            end
+            local list = {}
+            for id, sp in pairs(SB.Data.Spells or {}) do
+                if W.IdOf(sp) then list[#list + 1] = sp end
+            end
+            table.sort(list, function(a, b) return W.IdOf(a) < W.IdOf(b) end)
+            if #list == 0 then
+                say("ни у одного заклинания нет поля wowSpell — добавьте его в Spells/*.lua (например wowSpell = 133,).")
+            end
+            for _, sp in ipairs(list) do
+                local wid = W.IdOf(sp)
+                local wname = GetSpellInfo and GetSpellInfo(wid)
+                say(string.format("%s [%s] → %d (%s): %s", sp.name or "?", sp.id, wid, wname or "сервер не знает",
+                    W.IsKnown(sp) and "|cFF44FF44изучено|r" or "|cFFFF4444не изучено|r"))
+            end
+            local last = W.LastCast and W.LastCast()
+            say(last and string.format("последний каст от сервера: %d%s", last.id,
+                    last.mapped and " (привязан — механика запущена)" or " (не привязан — пропущен)")
+                or "касты от сервера пока не приходили.")
+            return
+        end
+
         -- «/sb marks» — что аддон нашёл под отметки хода и что на этих
         -- рамках собирается показать. Нужна не для отладки, а потому
         -- что иначе это не починить: рамки заводит клиент игрока со
