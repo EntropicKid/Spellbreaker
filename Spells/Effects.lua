@@ -412,15 +412,9 @@ AddEffect({
     name = "Власть крови",
     icon = "Interface\\Icons\\Spell_deathknight_bloodpresence",
     description = "Доспех сам затягивает вмятины, лечение ложится охотнее, а каждый попавший Удар смерти дополнительно исцеляет рыцаря. Крит слабее.",
-    -- ТАНК, КОТОРЫЙ ЛЕЧИТСЯ УДАРОМ. Удар смерти уже пьёт дошедший урон;
-    -- Власть доливает сверху единицу за каждое его попадание — и это
-    -- работает против существ Ведущего тоже, потому что повод живёт на
-    -- рыцаре, а не на цели. Цена — полоса крита: кровь стоит, а не рубит.
     effect = { kind = "buff", family = "Стойка",
-               mods = { healTaken = 1, crit = -3 },
-               tick = { armor = 10 },
-               onAction = { when = "hit", spell = "death_strike",
-                            payload = { heal = 1 } } },
+               mods = { healTaken = 1, },
+               onAction = { when = "hit", melee = true, payload = { heal = 1 } } },
 })
 
 AddEffect({
@@ -428,9 +422,6 @@ AddEffect({
     name = "Власть льда",
     icon = "Interface\\Icons\\Spell_deathknight_frostpresence",
     description = "Холод в каждом ударе злее. Попавший приём ближнего боя с шансом 30% будит «Машину смерти». Защита ниже.",
-    -- РАЗГОН ОТ ПОПАДАНИЙ. Лёд не держит удар — он заканчивает бой
-    -- раньше: каждый попавший выпад может зарядить следующий приём
-    -- широкой полосой крита.
     effect = { kind = "buff", family = "Стойка",
                mods = { damageFrost = 1, healTaken = -1 },
                onAction = { when = "hit", melee = true,
@@ -1539,7 +1530,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_paladin_templarsverdict",
     description = "Свет вынес решение, и оно уже исполняется. Держаться на ногах под этим приговором тяжело.",
     effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение",
-               onRemove = { effect = "eff_stun_immunity", duration = 3 }, mods = { attack = -80, defense = -5 } },
+               onRemove = { effect = "eff_stun_immunity", duration = 3 }, mods = { attack = -50, defence = -50, movePct = -200 } },
 })
 
 -- ==========================================================
@@ -1939,7 +1930,7 @@ AddEffect({
     description = "Мучительная мигрень мешает и сотворять заклинания, и просто держать строй.",
     effect = {
         kind = "debuff", resist = "Выносливость", school = "magic",
-        mods = { attack = -12, crit = -2 },
+        onAction = { when = "cast", magic = true, payload = { mana = -1 } },
         tick = { damage = 1 },
     },
 })
@@ -1953,7 +1944,7 @@ AddEffect({
     effect = {
         kind   = "buff",
         school = "magic",
-        tick = { armor = 15 },
+        tick = { armor = 20 },
     },
 })
 
@@ -1986,10 +1977,7 @@ AddEffect({
     icon = "Interface\\Icons\\Ability_deathknight_asphixiate",
     description = "Внутренний источник обожжён. Черпать из него больно и почти нечего.",
     effect = {
-        -- «СОРВАТЬ ЗАКЛИНАНИЕ ВРАЖЕСКОГО МАГА»: нити на глотке мешают
-        -- именно говорить — значит, платит тот, кто пытается.
-        onAction = { when = "cast", magic = true, payload = { mana = -1 } },
-        kind = "debuff", resist = "Сила", school = "magic", mods = { maxMana = -2 } },
+        tick = { mana = -1 }, kind = "debuff", family = "Контроль", resist = "Сила", school = "magic", mods = { movePct = -200 } },
 })
 
 AddEffect({
