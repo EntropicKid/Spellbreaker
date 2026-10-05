@@ -407,7 +407,7 @@ Add({
     id = "bone_shield",
     name = "Костяной щит",
     key = "Кровь",
-    icon = "Interface\\Icons\\Inv_chest_leather_13",
+    icon = "Interface\\Icons\\Ability_deathknight_boneshield",
     level = 1,
     class = "Рыцарь смерти",
     description = "Вокруг рыцаря начинают кружить обломки костей — чьих именно, лучше не спрашивать. Каждый принимает на себя один удар и рассыпается в пыль. Когда кости кончаются, щита больше нет, и собрать его заново нечем.",
