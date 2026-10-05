@@ -338,17 +338,19 @@ Add({
     name = "Смерть и разложение",
     key = "Нечестивость",
     icon = "Interface\\Icons\\Spell_shadow_deathanddecay",
-    level = 3,
+    level = 2,
     class = "Рыцарь смерти",
     -- caura = 6,
     description = "Осквернение участка земли, превращающее его в увядающую пустошь. Идеальный способ сорвать сельскохозяйственный праздник, мгновенно сгноить урожай на полях неугодного лорда, разрушить деревянные подпорки старого моста или просто очистить территорию от густых зарослей, мешающих обзору.",
     resistable = false,
-    distance = 10,
-    duration = 4,
-    aoe = { radius = 9 },
-    container = "eff_death_and_decay",
+    distance = 30,
+    channel = 2,
+	duration = 1,
+    aoe = { radius = 6 },
+    debuff = "eff_death_and_decay",
 	scaling = {
 		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
+		
 	},
 })
 
