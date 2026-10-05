@@ -25,6 +25,7 @@ Add({
 	scaling = {
 		hit    = { ["Религия"] = 2 },
 		crit   = { ["Рвение"] = 1 },
+		damage = { ["Дух"] = 0.7 },
 	},
 })
 
@@ -42,9 +43,6 @@ Add({
     isConcentration = false,
     distance = 2.5,
 	buff = "eff_blessing_might",
-	scaling = {
-		hit    = { ["Воодушевление"] = 1.5, ["Резонанс"] = 0.5 },
-	},
 })
 
 Add({
@@ -59,10 +57,6 @@ Add({
     resistable = true,
     distance = 10,
 	debuff = "eff_justice_of_light",
-    -- ДВА, А НЕ ЧЕТЫРЕ: «путы божественного суда, которые удерживают
-    -- его В ТЕЧЕНИЕ 2 ХОДОВ». Число названо в описании прямым текстом,
-    -- и держать рядом другое незачем — тем более теперь, когда приговор
-    -- ещё и лечит каждого, кто по цели бьёт.
     duration = 2,
 	scaling = {
 		hit    = { ["Рвение"] = 1, ["Запугивание"] = 0.5 },
@@ -186,7 +180,6 @@ Add({
 Add({
     id = "hummer_of_justice",
     name = "Молот правосудия",
-    -- Попадание срывает концентрацию цели (см. SB.Logic.Interrupts).
     interrupt = true,
     key = "Защита",
     icon = "Interface\\Icons\\Spell_holy_sealofmight",
@@ -199,7 +192,7 @@ Add({
     duration = 1,
     debuff = "eff_hummer_of_justice",
 	scaling = {
-		hit    = { ["Рвение"] = 1.5, ["Воля"] = 0.5 },
+		hit    = { ["Рвение"] = 1, ["Искусность"] = 1 },
 	},
 })
 
@@ -309,9 +302,6 @@ Add({
     isConcentration = false,
     distance = 0,
 	container = "eff_weapon_enchant_seal_of_wrath",
-	scaling = {
-		hit    = { ["Ношение брони"] = 1.5, ["Воля"] = 0.5 },
-	},
 })
 
 Add({
@@ -337,18 +327,11 @@ Add({
     class = "Паладин",
     caura = 400,
     description = "Паладин жертвует собой, чтобы спасти союзника от неминуемой гибели: тот немедленно выходит из боя и на 3 минуты попадает под покровительство божественной воли.\n\nВраги не могут его атаковать, вредоносное его не берёт, но и сам он не действует — заключённый в священном стазисе. Лишь величайшая самоотверженность позволяет паладину отдать свою судьбу за соратника.",
-    -- Помощь не спорят: бафф ложится без броска.
     resistable = false,
     distance = 13,
-    -- 3 минуты = 30 ходов по шесть секунд.
     duration = 30,
     buff = "eff_divine_intervention",
-    -- «Приносит себя в жертву… отдавая собственную судьбу»: паладин
-    -- падает сам. Своя кровь, как у «Жизнеотвода», — сопротивления нет.
     onCast = { damage = 99 },
-	scaling = {
-		hit    = { ["Ношение брони"] = 1.5, ["Воля"] = 0.5 },
-	},
 })
 
 Add({
@@ -364,9 +347,6 @@ Add({
     duration = 600,
     isConcentration = false,
     buff = "eff_aura_against_frost",
-	scaling = {
-		hit    = { ["Ношение брони"] = 2, ["Воля"] = 1 },
-	},
 })
 
 Add({
@@ -382,9 +362,6 @@ Add({
     duration = 600,
     isConcentration = false,
     buff = "eff_aura_against_fire",
-	scaling = {
-		hit    = { ["Ношение брони"] = 2, ["Воля"] = 1 },
-	},
 })
 
 Add({
@@ -399,9 +376,6 @@ Add({
     duration = 2,
     isConcentration = false,
     container = "eff_divineshield",
-	scaling = {
-		hit    = { ["Ношение брони"] = 2, ["Воля"] = 1 },
-	},
 })
 
 Add({
@@ -418,9 +392,6 @@ Add({
     isConcentration = false,
     distance = 2.5,
     buff = "eff_sealofsacrifice",
-	scaling = {
-		hit    = { ["Ношение брони"] = 1.5, ["Воля"] = 1 },
-	},
 })
 
 Add({
@@ -438,7 +409,7 @@ Add({
 	scaling = {
 		hit    = { ["Религия"] = 1, ["Милосердие"] = 0.5 },
 		crit   = { ["Рвение"] = 1 },
-		damage = { ["Дух"] = 0.575 },
+		damage = { ["Дух"] = 1 },
 	},
 })
 
@@ -454,9 +425,6 @@ Add({
     duration = 300,
     isConcentration = false,
 	container = "eff_seal_of_righteousness",
-	scaling = {
-		hit    = { ["Религия"] = 1, ["Милосердие"] = 0.5 },
-	},
 })
 
 Add({
@@ -464,16 +432,13 @@ Add({
     name = "Очищение",
     key = "Свет",
     icon = "Interface\\Icons\\Spell_holy_purify",
-    level = 1,
+    level = 2,
     class = "Паладин",
     caura = 400,
     description = "Вы очищаете дружелюбную цель от одного яда, или болезни. Это заклинание не дает вам иммунитет к болезни.",
     resistable = true,
     distance = 2.5,
     dispel = { "poison", "disease" },
-	scaling = {
-		hit    = { ["Религия"] = 1, ["Милосердие"] = 0.5 },
-	},
 })
 
 Add({
@@ -491,7 +456,7 @@ Add({
 	scaling = {
 		hit    = { ["Религия"] = 1.5, ["Милосердие"] = 1 },
 		crit   = { ["Рвение"] = 2 },
-		damage = { ["Дух"] = 2.175 },
+		damage = { ["Дух"] = 2.2 },
 	},
 })
 
@@ -569,7 +534,7 @@ Add({
 	scaling = {
 		hit    = { ["Религия"] = 2, ["Милосердие"] = 1 },
 		crit   = { ["Религия"] = 1 },
-		damage = { ["Дух"] = 0.4 },
+		damage = { ["Дух"] = 2.4 },
 	},
 })
 
@@ -585,9 +550,6 @@ Add({
     duration = 10,
     isConcentration = false,
     container = "eff_sense_of_undead",
-	scaling = {
-		hit    = { ["Религия"] = 2, ["Милосердие"] = 1 },
-	},
 })
 
 Add({
@@ -637,9 +599,6 @@ Add({
     duration = 300,
     isConcentration = false,
     container = "eff_lightseal",
-	scaling = {
-		hit    = { ["Религия"] = 1.5, ["Милосердие"] = 0.5 },
-	},
 })
 
 Add({
@@ -654,9 +613,6 @@ Add({
     duration = 300,
     isConcentration = false,
     container = "eff_sealwisdom",
-	scaling = {
-		hit    = { ["Религия"] = 1.5, ["Милосердие"] = 1 },
-	},
 })
 
 Add({
@@ -714,9 +670,9 @@ Add({
     canCrit = true,
     distance = 2.5,
 	scaling = {
-		hit    = { ["Рвение"] = 1, ["Искусность"] = 0.5 },
+		hit    = { ["Рвение"] = 1, ["Искусность"] = 1 },
 		crit   = { ["Мощь"] = 1 },
-		damage = { ["Сила"] = 0.75 },
+		damage = { ["Сила"] = 1 },
 	},
 })
 
@@ -737,7 +693,7 @@ Add({
 	scaling = {
 		hit    = { ["Рвение"] = 1, ["Милосердие"] = 1 },
 		crit   = { ["Рвение"] = 1 },
-		damage = { ["Дух"] = 1.17 },
+		damage = { ["Дух"] = 1.5 },
 	},
 })
 
@@ -757,9 +713,9 @@ Add({
     distance = 2.5,
 	aoe = { radius = 5 },
 	scaling = {
-		hit    = { ["Рвение"] = 1.5 },
-		crit   = { ["Мощь"] = 2 },
-		damage = { ["Сила"] = 0.77 },
+		hit    = { ["Рвение"] = 1, ["Искусность"] = 1 },
+		crit   = { ["Мощь"] = 1 },
+		damage = { ["Сила"] = 1 },
 	},
 })
 
@@ -780,9 +736,9 @@ Add({
 	duration = 1,
     debuff = "eff_templars_verdict",
 	scaling = {
-		hit    = { ["Рвение"] = 1 },
-		crit   = { ["Мощь"] = 1.5 },
-		damage = { ["Сила"] = 1.27 },
+		hit    = { ["Рвение"] = 1, ["Искусность"] = 1 },
+		crit   = { ["Мощь"] = 1 },
+		damage = { ["Сила"] = 1.5 },
 	},
 })
 
@@ -797,13 +753,8 @@ Add({
     description = "В момент получения смертельного удара паладином Святой свет ниспосылает на своего заступника исцеляющую силу заклинания «Света Небес», что позволяет с некоторой вероятностью выжить и продолжить своё дело. Подобное чудо случается не слишком часто, поэтому паладин может уповать на него лишь единожды во время сражения.",
     canCrit = false,
     distance = 0,
-    -- ЧУДО НА КРАЮ: эффект ждёт смертельного удара и расходуется на нём
-    -- (см. effect.cheatDeath у eff_ardent_defender). До Долгого отдыха.
     duration = -1,
     container = "eff_ardent_defender",
-	scaling = {
-		hit    = { ["Ношение брони"] = 1.5, ["Воля"] = 1 },
-	},
 })
 Add({
     id = "surgeoflight",
@@ -821,7 +772,7 @@ Add({
 	scaling = {
 		hit    = { ["Религия"] = 1.5, ["Милосердие"] = 0.5 },
 		crit   = { ["Рвение"] = 1.5 },
-		damage = { ["Дух"] = 1.3 },
+		damage = { ["Дух"] = 1.75 },
 	},
 })
 Add({
