@@ -801,6 +801,22 @@ AddEffect({
 })
 
 AddEffect({
+    id   = "eff_spell_blade",
+    name = "Чародейский клинок",
+    icon = "Interface\\Icons\\Inv_weapon_shortblade_79",
+    description = "У пораженной зачарованным лезвием цели подавляется ее магический потенциал.",
+    effect = { kind = "debuff", school = "magic", mods = { damageMagic = -1 } },
+})
+
+AddEffect({
+    id   = "eff_arcane_blast",
+    name = "Чародейская вспышка",
+    icon = "Interface\\Icons\\Spell_arcane_blast",
+    description = "У пораженной зачарованным лезвием цели подавляется ее магический потенциал.",
+    effect = { kind = "debuff", family = "Чародейская вспышка", mods = { damageArcane = 1 }, onAction = { when = "cast", magic = true, payload = { mana = -2 } }, },
+})
+
+AddEffect({
     id   = "eff_polymorph",
     name = "Полиморф",
     icon = "Interface\\Icons\\spell_nature_polymorph",
