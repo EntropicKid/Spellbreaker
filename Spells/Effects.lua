@@ -1798,7 +1798,7 @@ AddEffect({
     name = "Покаяние",
     icon = "Interface\\Icons\\Spell_holy_prayerofhealing",
     description = "Решимость сменилась сомнением. Рука делает то, что велено, но без веры в исход.",
-    effect = { kind = "debuff", resist = "Дух", breakOn = { damaged = true }, school = "magic", mods = { attack = -30, defense = -30 }, stats = { ["Воля"] = -4 } },
+    effect = { kind = "debuff", resist = "Дух", breakOn = { damaged = true }, school = "magic", mods = { attack = -30, damage = -3 }, stats = { ["Воля"] = -4 } },
 })
 
 AddEffect({
