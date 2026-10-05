@@ -11,7 +11,7 @@ Add({
     name = "Удар смерти",
     key = "Кровь",
     icon = "Interface\\Icons\\Spell_deathknight_butcher2",
-    level = 0,
+    level = 1,
     class = "Рыцарь смерти",
     damageType = "physical",
     -- caura = 6,
@@ -21,9 +21,9 @@ Add({
     distance = 2.5,
     leech = 1,
 	scaling = {
-		hit    = { ["Живучесть"] = 1 },
-		crit   = { ["Атлетика"] = 1 },
-		damage = { ["Сила"] = 0.65 },
+		hit    = { ["Запугивание"] = 1 },
+		crit   = { ["Мощь"] = 1 },
+		damage = { ["Выносливость"] = 1 },
 	},
 })
 
@@ -39,14 +39,13 @@ Add({
     description = "Противоестественный призыв, заставляющий кровь в жилах окружающих существ раскаляться. Тайное применение этого заклинания во время светской беседы или званого ужина способно вызвать у оппонента внезапный, мучительный приступ лихорадки, симулируя смертельную болезнь или отравление, что заставит его спешно покинуть зал переговоров.",
     resistable = true,
     canCrit = true,
-	aoe = { radius = 3 },
-    distance = 4,
+	aoe = { radius = 9 },
     debuff = "eff_bleeding_blood_plague",
     duration = 3,
 	scaling = {
-		hit    = { ["Живучесть"] = 1 },
-		crit   = { ["Атлетика"] = 1 },
-		damage = { ["Сила"] = 0.9 },
+		hit    = { ["Запугивание"] = 1 },
+		crit   = { ["Мощь"] = 1 },
+		damage = { ["Выносливость"] = 0.9 },
 	},
 })
 
@@ -75,9 +74,6 @@ Add({
 	container = "eff_fortitude_vampiric_blood",
     distance = 0,
     duration = 5,
-	scaling = {
-		hit    = { ["Мощь"] = 1, ["Живучесть"] = 0.5 },
-	},
 })
 
 
@@ -104,9 +100,9 @@ Add({
     distance = 19,
     duration = 3,
 	scaling = {
-		hit    = { ["Мощь"] = 1 },
-		crit   = { ["Точность"] = 1 },
-		damage = { ["Ловкость"] = 0.85 },
+		hit    = { ["Запугивание"] = 1 },
+		crit   = { ["Мощь"] = 1 },
+		damage = { ["Ловкость"] = 0.6 },
 	},
 })
 
@@ -116,20 +112,17 @@ Add({
     name = "Уничтожение",
     key = "Лёд",
     icon = "Interface\\Icons\\Spell_deathknight_classicon",
-    level = 2,
+    level = 3,
     class = "Рыцарь смерти",
-    -- ЛЁД, А НЕ СТАЛЬ: клинок рыцаря льда покрыт рунной изморозью, и
-    -- только так удар ложится в уязвимость, которую открыла лихорадка.
     damageType = "frost",
-    -- caura = 6,
     description = "Жестокая, хладнокровная атака двумя клинками или тяжелым двуручным оружием, совершаемая без капли сомнения или эмоций. Мощь удара такова, что в не боевых ситуациях им можно крушить запертые дубовые ворота, разрушать каменные завалы в шахтах или демонстративно раскалывать надвое столы на переговорах, ставя точку в споре.",
     resistable = true,
     canCrit = true,
     distance = 2.5,
 	scaling = {
-		hit    = { ["Мощь"] = 1 },
-		crit   = { ["Точность"] = 1 },
-		damage = { ["Ловкость"] = 1.1 },
+		hit    = { ["Запугивание"] = 1 },
+		crit   = { ["Мощь"] = 1 },
+		damage = { ["Ловкость"] = 1.6 },
 	},
 })
 
@@ -169,7 +162,7 @@ Add({
     distance = 19,
     duration = 3,
 	scaling = {
-		hit    = { ["Мощь"] = 1, ["Искусность"] = 0.5 },
+		hit    = { ["Мощь"] = 1.5 },
 	},
 })
 
@@ -180,14 +173,10 @@ Add({
     icon = "Interface\\Icons\\INV_Misc_Horn_02",
     level = 1,
     class = "Рыцарь смерти",
-    -- caura = 6,
     description = "Воспроизведение зловещего, пробирающего до костей гула ледяных ветров Нордскола. Звук этого призрачного горна разносится на мили вокруг, служа идеальным средством для подачи условного сигнала союзным отрядам, нагнетания ужаса на осажденную деревню или как знак начала ночного штурма.",
 	container = "eff_battle_shout_horn_of_winter",
-    distance = 0,
     duration = 10,
-	scaling = {
-		hit    = { ["Исток"] = 1, ["Концентрация"] = 0.5 },
-	},
+	aoe = { radius = 18 },
 })
 
 Add({
@@ -202,9 +191,6 @@ Add({
 	container = "eff_evasion_path_of_frost",
     distance = 0,
     duration = 10,
-	scaling = {
-		hit    = { ["Исток"] = 1, ["Концентрация"] = 0.5 },
-	},
 })
 
 
@@ -229,8 +215,8 @@ Add({
     distance = 2.5,
     duration = 4,
 	scaling = {
-		hit    = { ["Мощь"] = 1 },
-		crit   = { ["Рвение"] = 1 },
+		hit    = { ["Запугивание"] = 1 },
+		crit   = { ["Мощь"] = 1 },
 		damage = { ["Характер"] = 1 },
 	},
 })
@@ -249,8 +235,8 @@ Add({
     isHeal = true,
     distance = 19,
 	scaling = {
-		hit    = { ["Мощь"] = 1 },
-		crit   = { ["Рвение"] = 1 },
+		hit    = { ["Запугивание"] = 1 },
+		crit   = { ["Мощь"] = 1 },
 		damage = { ["Характер"] = 1.3 },
 	},
 })
@@ -270,7 +256,7 @@ Add({
     distance = 19,
     duration = 4,
 	scaling = {
-		hit    = { ["Внушение"] = 1.5, ["Воля"] = 0.5 },
+		hit    = { ["Мощь"] = 1.5 },
 	},
 })
 
@@ -287,15 +273,13 @@ Add({
     resistable = true,
     canCrit = true,
 	aoe = { radius = 6 },
-    distance = 19,
-    -- РАЗНОСЧИК ЧУМЫ. Нечестивость живёт заразой: взорванный труп
-    -- забрызгивает всех вокруг той же чумой, что убила его.
+    distance = 20,
     debuff = "eff_bleeding_plague_strike",
     duration = 3,
 	scaling = {
-		hit    = { ["Мощь"] = 1 },
-		crit   = { ["Рвение"] = 1 },
-		damage = { ["Характер"] = 1.05 },
+		hit    = { ["Запугивание"] = 1 },
+		crit   = { ["Мощь"] = 1 },
+		damage = { ["Характер"] = 1 },
 	},
 })
 
@@ -311,9 +295,6 @@ Add({
     distance = 10,
     duration = 10,
     container = "eff_raise_dead",
-	scaling = {
-		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
-	},
 })
 
 Add({
@@ -328,9 +309,6 @@ Add({
 	container = "eff_armor_magic_anti_magic_shell",
     distance = 0,
     duration = 4,
-	scaling = {
-		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
-	},
 })
 
 Add({
@@ -349,8 +327,7 @@ Add({
     aoe = { radius = 6 },
     debuff = "eff_death_and_decay",
 	scaling = {
-		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
-		
+		hit    = { ["Запугивание"] = 0.5, ["Мощь"] = 1 },	
 	},
 })
 
@@ -366,9 +343,6 @@ Add({
     distance = 19,
     duration = 5,
     container = "eff_army_of_the_dead",
-	scaling = {
-		hit    = { ["Религия"] = 1, ["Воля"] = 0.5 },
-	},
 })
 
 -- ==========================================
@@ -389,9 +363,9 @@ Add({
     canCrit = true,
     distance = 2.5,
     scaling = {
-    	hit    = { ["Живучесть"] = 1 },
-    	crit   = { ["Атлетика"] = 1 },
-    	damage = { ["Сила"] = 1 },
+    	hit    = { ["Запугивание"] = 1 },
+    	crit   = { ["Мощь"] = 1 },
+    	damage = { ["Выносливость"] = 1 },
     },
 })
 
@@ -408,7 +382,7 @@ Add({
     duration = 3,
     debuff = "eff_demoralized_dark_command",
     scaling = {
-    	hit    = { ["Запугивание"] = 1, ["Внушение"] = 1 },
+    	hit    = { ["Запугивание"] = 1, ["Мощь"] = 1 },
     },
 })
 
@@ -425,7 +399,7 @@ Add({
     duration = 5,
     debuff = "eff_bleeding_blood_plague",
     scaling = {
-    	hit    = { ["Живучесть"] = 1.5 },
+    	hit    = { ["Мощь"] = 1.5 },
     },
 })
 
@@ -440,14 +414,11 @@ Add({
     distance = 0,
     duration = 4,
     container = "eff_shield_bone_shield",
-    scaling = {
-    	hit    = { ["Воля"] = 1, ["Ношение брони"] = 0.5 },
-    },
 })
 
 Add({
     id = "howling_blast",
-    name = "Вихрь ветров",
+    name = "hit",
     key = "Лёд",
     icon = "Interface\\Icons\\Spell_frost_arcticwinds",
     level = 1,
@@ -461,9 +432,9 @@ Add({
     debuff = "eff_weakness_frost_fever",
     aoe = { radius = 9 },
     scaling = {
-    	hit    = { ["Мощь"] = 1 },
-    	crit   = { ["Точность"] = 0.5 },
-    	damage = { ["Ловкость"] = 0.6 },
+    	hit    = { ["Запугивание"] = 1 },
+    	crit   = { ["Мощь"] = 0.5 },
+    	damage = { ["Ловкость"] = 0.7 },
     },
 })
 
@@ -473,7 +444,7 @@ Add({
     name = "Жнец души",
     key = "Нечестивость",
     icon = "Interface\\Icons\\Ability_deathknight_soulreaper",
-    level = 2,
+    level = 3,
     class = "Рыцарь смерти",
     damageType = "shadow",
     description = "Клинок отмечает цель и ждёт. Если через несколько мгновений та ещё жива, метка гаснет впустую; если нет — рыцарь забирает не только жизнь, но и то, что должно было уйти дальше. Раненые боятся этой метки сильнее самого удара.",
@@ -483,7 +454,7 @@ Add({
     scaling = {
     	hit    = { ["Мощь"] = 1.5 },
     	crit   = { ["Рвение"] = 1 },
-    	damage = { ["Характер"] = 1.55 },
+    	damage = { ["Характер"] = 1.6 },
     },
 })
 
@@ -509,15 +480,13 @@ Add({
     name = "Беспощадная зима",
     key = "Лёд",
     icon = "Interface\\Icons\\Ability_deathknight_remorselesswinters2",
-    level = 3,
+    level = 2,
     class = "Рыцарь смерти",
     damageType = "frost",
     description = "Вокруг рыцаря встаёт метель, которая не стихает, пока он держит её волей. Внутри метели холодно настолько, что кровь идёт медленнее, а раны перестают чувствоваться. Рыцарь в её центре не мёрзнет: он давно мёртв.",
     resistable = true,
     canCrit = true,
-    isConcentration = true,
-    distance = 7,
-    aoe = { radius = 6 },
+    aoe = { radius = 9 },
     channel = 2,
     scaling = {
     	hit    = { ["Мощь"] = 1, ["Ношение брони"] = 0.5 },
@@ -537,9 +506,6 @@ Add({
     distance = 0,
     duration = 4,
     container = "eff_fortitude_lichborne",
-    scaling = {
-    	hit    = { ["Воля"] = 1, ["Живучесть"] = 0.5 },
-    },
 })
 
 Add({
@@ -657,8 +623,28 @@ Add({
     canCrit = true,
     distance = 2.5,
     scaling = {
-    	hit    = { ["Мощь"] = 1 },
-    	crit   = { ["Рвение"] = 1 },
-    	damage = { ["Характер"] = 1.04 },
+    	hit    = { ["Запугивание"] = 1 },
+    	crit   = { ["Мощь"] = 1 },
+    	damage = { ["Характер"] = 1 },
     },
+})
+
+Add({
+    id = "frost_strike",
+    requirement = "melee",
+    name = "Ледяной удар",
+    key = "Лёд",
+    icon = "Interface\\Icons\\Spell_deathknight_empowerruneblade2",
+    level = 1,
+    class = "Рыцарь смерти",
+    damageType = "frost",
+    description = "Вы обрушиваете на врага стремительный ледяной шквал. Холод стекает по оружию инеем, а каждый взмах оставляет в воздухе сверкающий след. Нанесите две молниеносные атаки подряд, поражая противника физическим уроном и пронизывающей морозной силой. Клинки звучат, словно раскалываемый лёд, а после удара на броне остаются белые узоры инея. Этот приём особенно опасен в руках воина, привыкшего не оставлять врагу времени для ответа.",
+    resistable = true,
+    canCrit = true,
+    distance = 2.5,
+	scaling = {
+		hit    = { ["Мощь"] = 1 },
+		crit   = { ["Точность"] = 1 },
+		damage = { ["Ловкость"] = 1 },
+	},
 })
