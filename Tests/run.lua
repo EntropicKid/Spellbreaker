@@ -12915,6 +12915,52 @@ do
     check("в защите от другого штраф есть", TauntPart("defense", "Ирина"), PEN)
     check("а от провокатора — нет",         TauntPart("defense", "Лайка"), nil)
 
+    -- ── ОДИНОЧНЫЙ КАСТ ЭФФЕКТА НАЗЫВАЕТ ЦЕЛЬ ───────────────
+    -- Дебафф по самому провокатору (Кровопускание по тому, кто
+    -- спровоцировал) получал −50: путь эффекта не передавал versus, и
+    -- провокатор считался «кем-то другим». Урон шёл верно — он versus
+    -- передавал.
+    do
+        local seen
+        local orig = SB.Logic.GetModifierBreakdown
+        SB.Logic.GetModifierBreakdown = function(scope, ctx)
+            local m, parts = orig(scope, ctx)
+            if scope == "attack" then
+                seen = { versus = ctx and ctx.versus, taunt = false }
+                for _, p in ipairs(parts) do
+                    if p.key == "taunt" then seen.taunt = true end
+                end
+            end
+            return m, parts
+        end
+        local savedTarget = stub.world.units["target"]
+        stub.world.units["target"] = { name = "Лайка", level = 25,
+            class = "Жрец", classToken = "PRIEST", race = "Human",
+            pos = { 100, 100, 1 } }
+        SB.Data.Spells["t_bleedcast"] = { id = "t_bleedcast",
+            name = "Проба кровопускания", class = "Маг", level = 1,
+            distance = 9, resistable = true, debuff = "t_notaunt" }
+        SB.Logic.ResolveEffectCast("t_bleedcast")
+        if SB.Logic.ReleaseHeldTurn then SB.Logic.ReleaseHeldTurn() end
+        check("дебафф по провокатору называет цель", seen and seen.versus, "Лайка")
+        check("и штрафа провокации не получает",   seen and seen.taunt, false)
+
+        seen = nil
+        stub.world.units["target"].name = "Ирина"
+        SB.Logic.ResolveEffectCast("t_bleedcast")
+        if SB.Logic.ReleaseHeldTurn then SB.Logic.ReleaseHeldTurn() end
+        check("дебафф по другому — со штрафом", seen and seen.taunt, true)
+
+        check("заявка Ведущему по провокатору без штрафа",
+              SB.Logic.GetCastModifier(SB.Data.Spells["t_bleedcast"], "Лайка")
+              - SB.Logic.GetCastModifier(SB.Data.Spells["t_bleedcast"], "Ирина"),
+              -PEN)
+
+        SB.Logic.GetModifierBreakdown = orig
+        stub.world.units["target"] = savedTarget
+        SB.Data.Spells["t_bleedcast"] = nil
+    end
+
     ResetEffects()
     check("снятая провокация штраф не оставляет", AE.GetTauntPenalty("Ирина"), 0)
 

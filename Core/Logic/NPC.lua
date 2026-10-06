@@ -289,7 +289,7 @@ function SB.Logic.ResolveNpcHeal(spellID)
     local dmgBonus           = SB.Logic.GetSpellScaling(spell, "damage")
     local critBonus          = SB.Logic.GetSpellScaling(spell, "crit")
     local mod, modParts = SB.Logic.GetModifierBreakdown("attack",
-        { spell = spell })
+        { spell = spell, versus = npcName })
     mod = mod + hitBonus
     for _, p in ipairs(hitParts) do table.insert(modParts, p) end
 
@@ -427,7 +427,7 @@ function SB.Logic.ResolveNpcEffect(spellID)
 
     local hitBonus, hitParts = SB.Logic.GetSpellScaling(spell, "hit")
     local mod, modParts = SB.Logic.GetModifierBreakdown("attack",
-        { spell = spell })
+        { spell = spell, versus = npcName })
     mod = mod + hitBonus
     for _, p in ipairs(hitParts) do table.insert(modParts, p) end
 
