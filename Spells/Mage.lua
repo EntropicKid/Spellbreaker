@@ -55,7 +55,7 @@ Add({
     duration = 3,
 	container = "eff_arcane_blast",
 	scaling = {
-		hit    = { ["Наука"] = 2 },
+		hit    = { ["Наука"] = 1.5 },
 		crit   = { ["Анализ"] = 1 },
         damage = { ["Интеллект"] = 1 },
 	},
@@ -244,7 +244,7 @@ Add({
 	distance = 30,
 	aoe = { radius = 6 },
 	scaling = {
-		hit    = { ["Науки"] = 1 },
+		hit    = { ["Науки"] = 1.5 },
 		crit   = { ["Анализ"] = 1 },
 		damage = { ["Интеллект"] = 1 },
 	},
@@ -367,7 +367,7 @@ Add({
 
 Add({
     id = "mana_burst",
-    name = "Чародейская вспышка",
+    name = "Чародейский взрыв",
     key = "Отречение",
     icon = "Interface\\Icons\\Ability_argus_soulburst",
     level = 3,
