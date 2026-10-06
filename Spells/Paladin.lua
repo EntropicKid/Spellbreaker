@@ -499,6 +499,7 @@ Add({
     resistable = true,
     canCrit = true,
     channel = 2,
+	duration = 1,
     isConcentration = false,
 	aoe = { radius = 6 },
     container = "eff_consecration",
