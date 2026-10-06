@@ -1110,7 +1110,7 @@ AddEffect({
     -- броня: +25 к броску защиты рядом с ней были вторым выражением
     -- того же самого.
     effect = { family = "Дух стихии", kind = "buff", school = "magic",
-               mods = { armor = 20 } },
+               tick = { armor = 20 } },
 })
 
 AddEffect({
@@ -2006,8 +2006,7 @@ AddEffect({
     description = "Ярость предков вытесняет осторожность: бьёшь чаще и злее, но забываешь защищаться.",
     effect = {
         kind  = "buff",
-        mods = { attack = 25, damage = 1, defense = -25 },
-        stats = { ["Запугивание"] = 2 },
+        mods = { attack = 25, damage = 1, crit = 5 },
     },
 })
 
@@ -3240,7 +3239,7 @@ AddEffect({
     name = "Каменная кожа",
     icon = "Interface\\Icons\\Spell_nature_skinofearth",
     description = "Плоть покрыта камнем. Держит удар заметно лучше живой, но двигаться в такой шкуре тяжело.",
-    effect = { kind = "buff", school = "magic", mods = { armor = 20, attack = -10, defense = -5 } },
+    effect = { kind = "buff", school = "magic", mods = { armor = 20 } },
 })
 
 AddEffect({
