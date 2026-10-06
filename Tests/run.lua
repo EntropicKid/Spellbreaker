@@ -12929,6 +12929,52 @@ do
     check("в защите от другого штраф есть", TauntPart("defense", "Ирина"), PEN)
     check("а от провокатора — нет",         TauntPart("defense", "Лайка"), nil)
 
+    -- ── ОДИНОЧНЫЙ КАСТ ЭФФЕКТА НАЗЫВАЕТ ЦЕЛЬ ───────────────
+    -- Дебафф по самому провокатору (Кровопускание по тому, кто
+    -- спровоцировал) получал −50: путь эффекта не передавал versus, и
+    -- провокатор считался «кем-то другим». Урон шёл верно — он versus
+    -- передавал.
+    do
+        local seen
+        local orig = SB.Logic.GetModifierBreakdown
+        SB.Logic.GetModifierBreakdown = function(scope, ctx)
+            local m, parts = orig(scope, ctx)
+            if scope == "attack" then
+                seen = { versus = ctx and ctx.versus, taunt = false }
+                for _, p in ipairs(parts) do
+                    if p.key == "taunt" then seen.taunt = true end
+                end
+            end
+            return m, parts
+        end
+        local savedTarget = stub.world.units["target"]
+        stub.world.units["target"] = { name = "Лайка", level = 25,
+            class = "Жрец", classToken = "PRIEST", race = "Human",
+            pos = { 100, 100, 1 } }
+        SB.Data.Spells["t_bleedcast"] = { id = "t_bleedcast",
+            name = "Проба кровопускания", class = "Маг", level = 1,
+            distance = 9, resistable = true, debuff = "t_notaunt" }
+        SB.Logic.ResolveEffectCast("t_bleedcast")
+        if SB.Logic.ReleaseHeldTurn then SB.Logic.ReleaseHeldTurn() end
+        check("дебафф по провокатору называет цель", seen and seen.versus, "Лайка")
+        check("и штрафа провокации не получает",   seen and seen.taunt, false)
+
+        seen = nil
+        stub.world.units["target"].name = "Ирина"
+        SB.Logic.ResolveEffectCast("t_bleedcast")
+        if SB.Logic.ReleaseHeldTurn then SB.Logic.ReleaseHeldTurn() end
+        check("дебафф по другому — со штрафом", seen and seen.taunt, true)
+
+        check("заявка Ведущему по провокатору без штрафа",
+              SB.Logic.GetCastModifier(SB.Data.Spells["t_bleedcast"], "Лайка")
+              - SB.Logic.GetCastModifier(SB.Data.Spells["t_bleedcast"], "Ирина"),
+              -PEN)
+
+        SB.Logic.GetModifierBreakdown = orig
+        stub.world.units["target"] = savedTarget
+        SB.Data.Spells["t_bleedcast"] = nil
+    end
+
     ResetEffects()
     check("снятая провокация штраф не оставляет", AE.GetTauntPenalty("Ирина"), 0)
 
@@ -22778,12 +22824,14 @@ end
 -- ============================================================
 do
     local W, PM = SB.WowSpells, SB.PlayerModel
+    -- Свой ID, которого нет в Spells/: на 133 висит настоящий «Огненный
+    -- шар», и SpellForWow отдавал то его, то пробу — по порядку pairs.
     SB.Data.Spells["t_wow"] = { id = "t_wow", name = "Проба привязки", class = "Маг", level = 0,
-        wowSpell = 133, description = "" }
+        wowSpell = 990133, description = "" }
     SB.Data.Spells["t_plain"] = { id = "t_plain", name = "Без привязки", class = "Маг", level = 0, description = "" }
     stub.world.knownSpells = {}
 
-    check("ID привязки", W.IdOf("t_wow"), 133)
+    check("ID привязки", W.IdOf("t_wow"), 990133)
     checkTrue("без привязки — доступно", W.IsKnown("t_plain"))
     checkTrue("не изучено — недоступно", not W.IsKnown("t_wow"))
     local locked, _, why = SB.Data.IsSpellLockedForPlayer(SB.Data.Spells["t_wow"])
@@ -22793,17 +22841,17 @@ do
     PM.SetLocked(false)
     check("не изученное не готовится", PM.PrepareSpell("t_wow"), "not_learned")
 
-    stub.world.knownSpells[133] = true
+    stub.world.knownSpells[990133] = true
     checkTrue("изучено", W.IsKnown("t_wow"))
     checkTrue("изученное — не серое", not SB.Data.IsSpellLockedForPlayer(SB.Data.Spells["t_wow"]))
-    check("заклинание по ID сервера", W.SpellForWow(133) and W.SpellForWow(133).id, "t_wow")
+    check("заклинание по ID сервера", W.SpellForWow(990133) and W.SpellForWow(990133).id, "t_wow")
 
     -- каст с панели: событие сервера → та же механика, что у кнопки
     local realConfirm, casts = SB.Logic.ConfirmCast, {}
     SB.Logic.ConfirmCast = function(id, opts) casts[#casts + 1] = id end
-    stub.FireEvent("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-guid", 133)
+    stub.FireEvent("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-guid", 990133)
     check("каст с панели запускает механику", casts[1], "t_wow")
-    stub.FireEvent("UNIT_SPELLCAST_SUCCEEDED", "party1", "Cast-guid", 133)
+    stub.FireEvent("UNIT_SPELLCAST_SUCCEEDED", "party1", "Cast-guid", 990133)
     stub.FireEvent("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-guid", 999999)
     check("чужой каст и непривязанное — мимо", #casts, 1)
     SB.Logic.ConfirmCast = realConfirm
@@ -22812,7 +22860,7 @@ do
     local btn = CreateFrame("Button")
     checkTrue("вне боя кнопка ставится", W.AttachCast(btn, SB.Data.Spells["t_wow"]))
     local SpellbreakerCastButton = W.CastButton()
-    check("кастует то самое заклинание", SpellbreakerCastButton:GetAttribute("spell"), 133)
+    check("кастует то самое заклинание", SpellbreakerCastButton:GetAttribute("spell"), 990133)
     check("тип — заклинание", SpellbreakerCastButton:GetAttribute("type"), "spell")
     checkTrue("кнопка видна", SpellbreakerCastButton:IsShown())
     W.DetachCast()
