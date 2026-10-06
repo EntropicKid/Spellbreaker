@@ -1113,7 +1113,7 @@ AddEffect({
     -- броня: +25 к броску защиты рядом с ней были вторым выражением
     -- того же самого.
     effect = { family = "Дух стихии", kind = "buff", school = "magic",
-               mods = { armor = 20 } },
+              tick = { armor = 20 } },
 })
 
 AddEffect({
@@ -2022,11 +2022,10 @@ AddEffect({
     id   = "eff_bloodlust_dancing_rune_weapon",
     name = "Кровавая жажда",
     icon = "Interface\\Icons\\Inv_sword_07",
-    description = "Ярость предков вытесняет осторожность: бьёшь чаще и злее, но забываешь защищаться.",
+    description = "Ярость предков затмевает рассудок: удары проходят чаще и сокрушительные, а глаза заливаются кровью.",
     effect = {
         kind  = "buff",
-        mods = { attack = 25, damage = 1, defense = -25 },
-        stats = { ["Запугивание"] = 2 },
+        mods = { attack = 25, damage = 1, crit = 5 },
     },
 })
 
