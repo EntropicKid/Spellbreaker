@@ -572,6 +572,27 @@ function SB.NpcCast.Confirm()
     local roll, mod, total, isCrit, dmgBonus, baseDmg =
         SB.NpcCast.RollFor(pending.stats, caster, spell, lone)
 
+    -- ПРОВОКАТОР ЗАЛПА — БЕЗ ШТРАФА. Бросок один на всех и штраф в нём
+    -- есть (имени цели у залпа нет, см. выше), но по самому провокатору
+    -- его быть не должно — тем же правилом, что у залпа игрока (см.
+    -- SB.Net.UntauntFor). Существо шлёт числа каждой цели отдельно,
+    -- поэтому провокатору просто уходит свой модификатор и итог.
+    local taunter = (not lone) and SB.NPC.SoleTaunter and SB.NPC.SoleTaunter(caster) or nil
+    local function NumbersFor(name)
+        if taunter and name == taunter then
+            local pen = tonumber(SB.Data.Config.TauntPenalty) or -50
+            return mod - pen, total - pen
+        end
+        return mod, total
+    end
+    -- То же приписью в шапке: иначе попадание по провокатору при общем
+    -- итоге ниже его защиты читалось бы как ошибка.
+    local tauntNote = ""
+    if taunter then
+        local pen = tonumber(SB.Data.Config.TauntPenalty) or -50
+        tauntNote = G .. " (по " .. taunter .. " без провокации: " .. (total - pen) .. ")|r"
+    end
+
     local me         = UnitName("player")
     local guaranteed = SB.Logic.IsGuaranteed(spell)
     local landedOn   = 0
@@ -597,10 +618,10 @@ function SB.NpcCast.Confirm()
             head = head .. G .. "Атака: |r" .. (isCrit
                 and (SB.UI.RollText(roll) .. G .. ". |r" .. SB.Theme.MSG_BAD .. "КРИТ!|r")
                 or  (SB.UI.RollText(roll) .. G .. " + |r" .. SB.UI.ModText(mod) ..
-                     G .. " = " .. total .. ". Защита:|r"))
+                     G .. " = " .. total .. "|r" .. tauntNote .. G .. ". Защита:|r"))
         else
-            head = head .. G .. string.format("Бросок: %d%+d = %d%s.|r",
-                roll, mod, total, isCrit and ", КРИТ" or "")
+            head = head .. G .. string.format("Бросок: %d%+d = %d%s|r",
+                roll, mod, total, isCrit and ", КРИТ" or "") .. tauntNote .. G .. ".|r"
         end
         local report = SB.Logic.OpenAoeReport(head, reportKind)
         if report then report.crit = isCrit and true or false end
@@ -668,6 +689,7 @@ function SB.NpcCast.Confirm()
     end
 
     for _, name in ipairs(names) do
+        local mod, total = NumbersFor(name)
         if kind == "attack" then
             -- УДАР. Целиком чужой путь: получатель бросает защиту сам,
             -- сам считает броню и сам отвечает в лог (см. ParsePVPATK).
@@ -781,6 +803,7 @@ function SB.NpcCast.Confirm()
     -- набор тех же правил разошёлся бы с первым на первой же правке.
     for _, t in ipairs(npcs) do
         local unit, nm = t.unit, t.name
+        local mod, total = NumbersFor(nm)
         local st = SB.NPC.GetState and SB.NPC.GetState(unit)
         -- Живой юнит — свежие характеристики; по ключу — запомненные при
         -- отметке (шаблонному нужен уровень живого юнита).

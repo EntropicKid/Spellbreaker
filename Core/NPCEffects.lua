@@ -187,6 +187,14 @@ function SB.NPC.TauntPenalty(unit, versus)
     return SB.NPC.TauntPenaltyOf(SB.NPC.GetState(unit), versus)
 end
 
+--- Единственный провокатор существа — для залпа по нескольким целям
+--- (см. SB.ActiveEffects.SoleTaunterOf).
+function SB.NPC.SoleTaunter(unit)
+    local AE = SB.ActiveEffects
+    if not (AE and AE.SoleTaunterOf) then return nil end
+    return AE.SoleTaunterOf(ListOf(SB.NPC.GetState(unit)))
+end
+
 --- Сдвиг ЗНАЧЕНИЯ навыка или атрибута — тот же канал stats, что у игрока.
 function SB.NPC.EffectStatMod(unit, statKey)
     local total = 0
