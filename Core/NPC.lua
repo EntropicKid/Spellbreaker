@@ -455,7 +455,7 @@ SB.NPC.Templates = {
         level = 12, maxHealth = 12, resourceName = "Энергия", maxResource = 4,
         attributes = { ["Выносливость"] = 2, ["Характер"] = 0 },
         skills     = { ["Ношение брони"] = 3, ["Живучесть"] = 1 },
-        spells     = { "shield_block", "fire_bolt", "electric_shock" },
+        spells     = { "shield_block", "fire_bolt", "mage_lightning" },
         description = "Не устаёт, не пугается, не думает. Ломается — и только.",
     },
     other = {
