@@ -3003,8 +3003,7 @@ AddEffect({
     -- считает получатель по источнику: у печати своего срока нет —
     -- значит ровно один ход.
     effect = { kind = "buff", family = "Печать паладина", school = "magic",
-               onAction = { when = "hit", melee = true, chance = 40,
-                            toTarget = "eff_seal_of_justice_daze" } },
+               onAction = { when = "hit", melee = true, toTarget = "eff_seal_of_justice_daze" } },
 })
 
 AddEffect({
