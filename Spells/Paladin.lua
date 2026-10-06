@@ -734,7 +734,7 @@ Add({
 
 Add({
     id = "templars_verdict",
-    requirement = "melee",
+    requirement = "twohanded",
     name = "Вердикт Храмовника",
     key = "Воздаяние",
     icon = "Interface\\Icons\\Spell_paladin_templarsverdict",
@@ -749,7 +749,7 @@ Add({
 	scaling = {
 		hit    = { ["Рвение"] = 1, ["Искусность"] = 1 },
 		crit   = { ["Мощь"] = 1 },
-		damage = { ["Сила"] = 1.77 },
+		damage = { ["Сила"] = 1.6 },
 	},
 })
 
@@ -779,7 +779,7 @@ Add({
     resistable = true,
     isHeal = true,
     isConcentration = false,
-    distance = 2.5,
+    distance = 30,
 	scaling = {
 		hit    = { ["Религия"] = 1.5, ["Милосердие"] = 0.5 },
 		crit   = { ["Рвение"] = 1.5 },
