@@ -1773,7 +1773,7 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_holy_sealofmight",
     description = "Мерцающая преграда отводит слабые удары и сбивает прицел стрелкам.",
     effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение",
-               onRemove = { effect = "eff_stun_immunity", duration = 3 }, mods = { attack = -50, defence = -50, movePct = -200 } },
+               onRemove = { effect = "eff_stun_immunity", duration = 3 }, mods = { attack = -50, defense = -50, movePct = -200 } },
 })
 
 AddEffect({

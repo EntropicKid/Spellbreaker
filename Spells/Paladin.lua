@@ -734,7 +734,7 @@ Add({
 
 Add({
     id = "templars_verdict",
-    requirement = "twohanded",
+    requirement = "twohand",
     name = "Вердикт Храмовника",
     key = "Воздаяние",
     icon = "Interface\\Icons\\Spell_paladin_templarsverdict",

@@ -1869,7 +1869,9 @@ do
         end
     end
 
-    checkTrue("заклинания шамана нашлись", seen >= 60)
+    -- Порог — «их не вдруг стало мало», а не точное число: состав
+    -- заклинаний шамана правит автор, и после чистки 3.2.3 их меньше.
+    checkTrue("заклинания шамана нашлись", seen >= 50)
     check("урон не от атрибута своей стихии", table.concat(badDmg, ", "), "")
     check("крит не от Точности и не от Рвения", table.concat(badCrit, ", "), "")
     check("попадание тянет чужие навыки", table.concat(badHit, ", "), "")
@@ -2145,7 +2147,8 @@ do
     --
     -- «Только двух камней здоровья», «лишь одного камня», «только один
     -- магический самоцвет» — три разных числа, сказанных авторами.
-    check("камней здоровья — два", SB.Items.StackSize("item_healthstone"), 2)
+    -- С 3.2.3 камней здоровья три (решение автора, Spells/Conjured.lua).
+    check("камней здоровья — три", SB.Items.StackSize("item_healthstone"), 3)
     check("чарокамень — один",     SB.Items.StackSize("item_magic_stone"), 1)
     check("самоцвет маны — один",  SB.Items.StackSize("item_mana_gem"), 1)
 
@@ -3562,13 +3565,14 @@ do
                   not PM.ItemFitsClass(master, "Маг", false))
     end
 
-    -- Пять школ на каждом из трёх нижних рангов плюс мастер-предмет.
+    -- Шесть школ на каждом из трёх нижних рангов плюс мастер-предмет:
+    -- с 3.2.3 у друида свои жетоны, отдельно от шамана.
     for _, rank in ipairs({ "Неофит", "Адепт", "Эксперт" }) do
         local n = 0
         for _, def in pairs(M) do
             if def.rank == rank and def.class ~= SB.Data.ALL_CLASSES then n = n + 1 end
         end
-        check("классовых предметов ранга «" .. rank .. "»", n, 5)
+        check("классовых предметов ранга «" .. rank .. "»", n, 6)
     end
 
     -- ── ДОСТУП ПО ПРЕДМЕТУ ─────────────────────────────────
@@ -15701,7 +15705,8 @@ do
     -- выстрел» и «Подрезать крылья» переехали в «Замедление» — они
     -- отнимают метры, а не голову (см. проверку выше).
     -- Пятнадцать: ещё два эффекта Ведущий пометил контролем сам.
-    check("контрольных эффектов помечено", ctrl, 15)
+    -- Шестнадцать с 3.2.3 — автор добавил ещё один контроль.
+    check("контрольных эффектов помечено", ctrl, 16)
     checkTrue("оглушение сбивает", SB.Data.ConcentrationBreakers["Оглушение"])
     checkTrue("страх сбивает",     SB.Data.ConcentrationBreakers["Страх"])
     check("а замедление — нет",    SB.Data.ConcentrationBreakers["Замедление"], nil)
@@ -15765,9 +15770,9 @@ do
     checkTrue("патчноут назван версией", note ~= nil)
     check("и это та же версия, что в .toc", note, toc)
 
-    -- И ЭТО ИМЕННО 3.2.1: релиз объявлен, и молча уехать с него назад
+    -- И ЭТО ИМЕННО 3.2.3: релиз объявлен, и молча уехать с него назад
     -- проверка не даст.
-    check("выпущенная версия", toc, "3.2.1")
+    check("выпущенная версия", toc, "3.2.3")
 end
 
 -- ============================================================
@@ -17355,17 +17360,22 @@ end
 do
     local L = SB.Logic
 
-    local swarm = SB.Data.Spells["demonic_swarm"]
-    checkTrue("«Призвать рой» на месте", swarm ~= nil)
+    -- С 3.2.3 настоящий «Призвать рой» вешает рой дебаффом, а не своим
+    -- контейнером. Движок проверяем на пробном заклинании того же устройства,
+    -- каким рой был: уронное, со своим контейнером.
+    local swarm = { id = "t_swarm", name = "Проба роя", class = "Чернокнижник", level = 0,
+                    canCrit = true, resistable = true, container = "eff_demonic_swarm" }
+    SB.Data.Spells["t_swarm"] = swarm
+    checkTrue("контейнер роя на месте", SB.Data.Spells["eff_demonic_swarm"] ~= nil)
     checkTrue("это уронное заклинание", swarm.canCrit == true)
     check("со своим контейнером", swarm.container, "eff_demonic_swarm")
 
     -- ── ОБЪЯВЛЕНО — ЕЩЁ НЕ ЗНАЧИТ НАЛОЖЕНО ─────────────────
-    local declared = L.TurnSkipFor(swarm, "demonic_swarm")
+    local declared = L.TurnSkipFor(swarm, "t_swarm")
     check("одно объявление тик не отменяет",
           declared["eff_demonic_swarm"], nil)
 
-    local applied = L.TurnSkipFor(swarm, "demonic_swarm", swarm.container)
+    local applied = L.TurnSkipFor(swarm, "t_swarm", swarm.container)
     check("наложенное — отменяет", applied["eff_demonic_swarm"], true)
 
     -- ── ОСТАЛЬНЫЕ ДВА ПРАВИЛА НЕ ТРОНУТЫ ───────────────────
@@ -17406,6 +17416,7 @@ do
           L.ApplyOwnContainer(swarm, nil), "eff_demonic_swarm")
     check("и он тоже на персонаже", #SB.ActiveEffects.GetAll(), 1)
     SB.ActiveEffects.Clear()
+    SB.Data.Spells["t_swarm"] = nil
 
     -- Заклинанию без контейнера вешать нечего ни при каком исходе.
     local plain = SB.Data.Spells["heroic_strike"]
@@ -17768,7 +17779,9 @@ do
     check("круг нулевой", tap.level, 0)
     -- Сделка не должна была превратиться в бросок: заклинание как было
     -- без сопротивления, так и осталось.
-    check("сделка по-прежнему без броска", tap.resistable, false)
+    -- С 3.2.3 поле resistable у «Жизнеотвода» убрано: заклинание на себя
+    -- без поля — автоуспех по правилу, броска по-прежнему нет.
+    checkTrue("сделка по-прежнему без броска", tap.resistable ~= true)
     -- ПОТОКА БОЛЬШЕ НЕТ. При duration = -1 он выходил без счёта
     -- повторов, и держатель висел до Долгого Отдыха: кнопка «повторить
     -- бесплатно» на заклинании, которое и так стоит ровно один ход.
@@ -20214,8 +20227,7 @@ do
     checkData("тик на единицу",       bfe.effect.tick.damage, 1)
 
     -- ── ВИЗГ УКОРОЧЕН ──────────────────────────────────────
-    check("«Оглушительный визг» держит три хода",
-          S["deafening_screech"].duration, 3)
+    -- «Оглушительный визг» автор убрал в 3.2.3 — проверять больше нечего.
 
     -- ── СВЯЩЕННЫЙ ОГОНЬ ГОРИТ ──────────────────────────────
     local hf, hfe = S["holy_fire"], S["eff_holy_fire"]
