@@ -746,12 +746,10 @@ Add({
     resistable = true,
     canCrit = true,
     distance = 2.5,
-	duration = 1,
-    debuff = "eff_templars_verdict",
 	scaling = {
 		hit    = { ["Рвение"] = 1, ["Искусность"] = 1 },
 		crit   = { ["Мощь"] = 1 },
-		damage = { ["Сила"] = 1.5 },
+		damage = { ["Сила"] = 1.77 },
 	},
 })
 
