@@ -1687,10 +1687,10 @@ AddEffect({
 
 AddEffect({
     id   = "eff_mage_shield",
-    name = "Щит",
+    name = "Магический доспех",
     icon = "Interface\\Icons\\Spell_magearmor",
     description = "Невидимая преграда в виде щита отводит слабые удары и сбивает прицел стрелкам.",
-    effect = { kind = "buff", school = "magic", mods = { resistMagic = 1 } },
+    effect = { kind = "buff", family = "Доспех мага", school = "magic", mods = { resistMagic = 1 } },
 })
 
 AddEffect({
@@ -2728,6 +2728,7 @@ AddEffect({
     effect = {
         kind   = "buff",
         school = "magic",
+	    family = "Доспех мага",
         mods   = { armor = 20 },
         onAction = { when = "damaged", melee = true,
                      toAttacker = "eff_chilling" },
