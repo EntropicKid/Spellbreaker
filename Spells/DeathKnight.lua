@@ -418,7 +418,7 @@ Add({
 
 Add({
     id = "howling_blast",
-    name = "hit",
+    name = "Воющий ветер",
     key = "Лёд",
     icon = "Interface\\Icons\\Spell_frost_arcticwinds",
     level = 1,
