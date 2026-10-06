@@ -2001,12 +2001,12 @@ AddEffect({
 AddEffect({
     -- Пляшущее рунное оружие (Рыцарь смерти, круг 3). Из гнезда eff_bloodlust_*.
     id   = "eff_bloodlust_dancing_rune_weapon",
-    name = "Кровавая жажда",
+    name = "Танцующее руническое оружие",
     icon = "Interface\\Icons\\Inv_sword_07",
     description = "Ярость предков вытесняет осторожность: бьёшь чаще и злее, но забываешь защищаться.",
     effect = {
         kind  = "buff",
-        mods = { attack = 25, damage = 1, crit = 5 },
+        mods = { attack = 25, damage = 1, crit = 5, defense = -25 },
     },
 })
 
@@ -3388,8 +3388,7 @@ AddEffect({
     description = "Ярость предков вытесняет осторожность: бьёшь чаще и злее, но забываешь защищаться.",
     effect = {
         kind  = "buff", school = "magic",
-        mods = { attack = 25, damage = 1, defense = -25 },
-        stats = { ["Запугивание"] = 2 },
+        mods = { attack = 25, damage = 1, crit = 5 },
     },
 })
 
