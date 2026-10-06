@@ -254,9 +254,8 @@ AddEffect({
     description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
     effect = {
         kind  = "debuff", family = "Ослепление", resist = "Выносливость",
-        mods  = { attack = -33, defense = -33, range = -18 },
+        mods  = { attack = -15, defense = -15, range = -40 },
         stats = { ["Точность"] = -4 },
-		breakOn = { damaged = true },
     },
 })
 
@@ -498,7 +497,7 @@ AddEffect({
     name = "Освящённая земля",
     icon = "Interface\\Icons\\Spell_holy_innerfire",
     description = "Земля под паладином светится и жжёт всё нечистое. На своей земле он стоит твёрже.",
-    effect = { kind = "buff", school = "magic", mods = { attack = 5, defense = 5 } },
+    effect = { kind = "buff", mods = { resistAll = 1 } },
 })
 
 AddEffect({
@@ -964,13 +963,11 @@ AddEffect({
     name = "Ослеплён Светом",
     icon = "Interface\\Icons\\Spell_holy_blindingheal",
     description = "Луч выжег всё перед глазами. Мир вернётся, но не сразу.",
-    -- САМЫЙ МЯГКИЙ ТАРИФ ОГЛУШЕНИЯ, и это не скидка: «Святой гнев»
-    -- накрывает ЛИНИЮ, то есть сразу нескольких, и берёт своё уроном.
-    -- Числа «Молота правосудия» (-80 к атаке) на площади означали бы,
-    -- что круг 3 в одиночку выключает бой.
-    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение",
-               onRemove = { effect = "eff_stun_immunity", duration = 3 },
-               mods = { attack = -18, defense = -8, movePct = -35 } },
+    effect = {
+        kind  = "debuff", family = "Ослепление", resist = "Выносливость",
+        mods  = { attack = -15, defense = -15, range = -40 },
+        stats = { ["Точность"] = -4 },
+    },
 })
 
 AddEffect({
@@ -2199,8 +2196,7 @@ AddEffect({
     description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
     effect = {
         kind  = "debuff", family = "Ослепление", resist = "Выносливость",
-        school = "magic",
-        mods = { attack = -33, defense = -33 },
+        mods  = { attack = -15, defense = -15, range = -40 },
         stats = { ["Точность"] = -4 },
     },
 })
@@ -2300,7 +2296,8 @@ AddEffect({
     description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
     effect = {
         kind  = "debuff", family = "Ослепление", resist = "Выносливость",
-        mods = { attack = -5, defense = -5 },
+        mods  = { attack = -15, defense = -15, range = -40 },
+        stats = { ["Точность"] = -4 },
     },
 })
 
@@ -2986,14 +2983,8 @@ AddEffect({
     name = "Печать справедливости",
     icon = "Interface\\Icons\\Spell_holy_sealofwrath",
     description = "Каждый удар в ближнем бою несёт отголосок небесного суда: с шансом 20% противник дезориентирован на ход.",
-    -- «Каждый его удар в ближнем бою … может дезориентировать противника
-    -- на 1 ход (1d100, должно выпасть меньше 20)». Удар — повод "hit",
-    -- ближний бой — melee, шанс — chance, эффект цели — toTarget. Срок
-    -- считает получатель по источнику: у печати своего срока нет —
-    -- значит ровно один ход.
-    effect = { kind = "buff", family = "Печать паладина", school = "magic",
-               onAction = { when = "hit", melee = true, chance = 40,
-                            toTarget = "eff_seal_of_justice_daze" } },
+    effect = { kind = "debuff", resist = "Выносливость", family = "Оглушение",
+               onRemove = { effect = "eff_stun_immunity", duration = 3 }, mods = { attack = -50, defence = -50, movePct = -200 } },
 })
 
 AddEffect({
@@ -3002,7 +2993,7 @@ AddEffect({
     name = "Суд справедливости",
     icon = "Interface\\Icons\\Ability_paladin_judgementred",
     description = "Доспех тяжелеет, оружие держится без уверенности. Удары выходят вялыми.",
-    effect = { kind = "debuff", resist = "Дух", school = "magic",
+    effect = { kind = "debuff", resist = "Дух",
                family = "Правосудие", mods = { movePct = -75 } },
 })
 
@@ -3128,8 +3119,8 @@ AddEffect({
     description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
     effect = {
         kind  = "debuff", family = "Ослепление", resist = "Выносливость",
-        mods = { attack = -40, defense = -40 },
-        stats = { ["Точность"] = -5 },
+        mods  = { attack = -15, defense = -15, range = -40 },
+        stats = { ["Точность"] = -4 },
     },
 })
 
@@ -3389,8 +3380,8 @@ AddEffect({
     icon = "Interface\\Icons\\Inv_misc_dust",
     description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
     effect = {
-        kind  = "debuff", family = "Ослепление", resist = "Выносливость", school = "magic",
-        mods = { attack = -33, defense = -33 },
+        kind  = "debuff", family = "Ослепление", resist = "Выносливость",
+        mods  = { attack = -15, defense = -15, range = -40 },
         stats = { ["Точность"] = -4 },
     },
 })
