@@ -1496,8 +1496,12 @@ function SB.UI.UpdateGMPlayers()
 
     -- Скрыть «лишние» при уменьшении состава
     for i = #allPlayers + 1, #playerRows do playerRows[i]:Hide() end
-    for i = #allPlayers + 1, #playerSubs do
-        if playerSubs[i] then playerSubs[i]:Hide() end
+    -- ПОДСТРОКИ — ЧЕРЕЗ pairs, А НЕ ДО #playerSubs. Подстрока создаётся
+    -- только тому, у кого заклинания раскрывали, и таблица идёт с дырами:
+    -- {[3] = …} даёт # = 0. Вышел из группы — строки ушли, а раскрытая
+    -- подстрока третьего игрока так и висела посреди пустого списка.
+    for i, sub in pairs(playerSubs) do
+        if i > #allPlayers then sub:Hide() end
     end
 	
 	    -- Перестроить обратный индекс unitId → row index
@@ -1509,7 +1513,17 @@ function SB.UI.UpdateGMPlayers()
         end
     end
 
-    playersChild:SetHeight(math.max(yOff, 10))
+    local listH = math.max(yOff, 10)
+    playersChild:SetHeight(listH)
+    -- Список стал короче — прокрутку возвращаем в его пределы. Сама она
+    -- не сжимается: был длинный список, прокрученный вниз, остался один
+    -- игрок — и он стоял выше окна, а панель выглядела пустой.
+    if playersPanel and playersPanel.GetVerticalScroll then
+        local maxScroll = math.max(0, listH - (playersPanel:GetHeight() or 0))
+        if (playersPanel:GetVerticalScroll() or 0) > maxScroll then
+            playersPanel:SetVerticalScroll(maxScroll)
+        end
+    end
 end
 
 -- ============================================================
