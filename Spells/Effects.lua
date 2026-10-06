@@ -207,6 +207,14 @@ AddEffect({
 })
 
 AddEffect({
+    id   = "eff_shieldofvengeance",
+    name = "Блок щитом",
+    icon = "Interface\\Icons\\Ability_paladin_shieldofvengeance",
+    description = "Мерцающая преграда отводит слабые удары и сбивает прицел стрелкам.",
+    effect = { kind = "debuff", mods = { armor = 30 }, stats = { ["Мощь"] = -5 } },
+})
+
+AddEffect({
     id   = "eff_blessing_might",
     name = "Благословение мощи",
     icon = "Interface\\Icons\\Spell_holy_fistofjustice",
