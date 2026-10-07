@@ -3432,7 +3432,6 @@ AddEffect({
     -- Проклятие агонии (Чернокнижник, круг 2). Из гнезда eff_bleeding_*.
     id   = "eff_bleeding_curse_of_agony",
     name = "Проклятие агонии",
-    damageType = "fire",
     icon = "Interface\\Icons\\Spell_shadow_curseofsargeras",
     description = "Рана не закрывается. Сил становится меньше с каждым движением.",
     effect = { family = "Проклятие",
