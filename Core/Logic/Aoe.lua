@@ -473,6 +473,11 @@ function SB.Logic.InitiateAoeAttack(spellID)
 
     SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, radius, epi)
 
+    -- Существо в цели — тем же броском (см. SB.Logic.AoeTargetsNpc).
+    if SB.Logic.AoeTargetsNpc(spell) then
+        SB.Logic.AoeHitNpcAttack(spell, spellID, total, isCrit, dmgBonus)
+    end
+
     -- Тот же собственный контейнер, что и у одиночной атаки, и той же
     -- функцией: правило про него живёт в одном месте на все пять путей
     -- (см. SB.Logic.ApplyOwnContainer).
@@ -604,6 +609,11 @@ function SB.Logic.ResolveAoeEffectCast(spellID)
     end
 
     SB.Net.SendAoeEffect(spell.id, effectID, radius, roll, mod, total, epi)
+
+    -- Существо в цели — тем же броском (см. SB.Logic.AoeTargetsNpc).
+    if SB.Logic.AoeTargetsNpc(spell) then
+        SB.Logic.AoeHitNpcEffect(spell, total)
+    end
 
     SB.Logic.HoldTurnUntilResult(SB.Logic.TurnSkipFor(spell, spellID, landedOnSelf), true)
 end
