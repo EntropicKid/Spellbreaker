@@ -59,7 +59,16 @@ end
 --- Тридцать задетых давали тридцать почти одинаковых строк, из которых
 --- отличались только имя и числа. Группировка оставляет от них три-четыре
 --- строки, не теряя ни одного итога броска.
-local function FormatAttackEntries(entries, crit)
+--- Приписка к провокатору в сводке: по нему залп шёл БЕЗ штрафа
+--- провокации, и его защиту сравнивали с другим числом, чем у остальных
+--- (см. SB.Net.UntauntFor). Без приписки «Отражено: Вфа [129]» рядом с
+--- «Атака: 54» не говорит, с чем именно сравнивали.
+local function TauntMark(e, taunt)
+    if not (taunt and e and e.name == taunt.name) then return "" end
+    return SB.Theme.MSG_BODY .. " против " .. taunt.total .. "|r"
+end
+
+local function FormatAttackEntries(entries, crit, taunt)
     local buckets, order = {}, {}
     for _, e in ipairs(entries) do
         local tag
@@ -123,7 +132,7 @@ local function FormatAttackEntries(entries, crit)
             local s = crit and (G .. e.name .. "|r") or (G .. e.name .. " |r" ..
                 SB.UI.ModText(e.mod or 0, tostring(e.total or 0)))
             -- Без «→ 15/29»: здоровье задетого видно на его рамке.
-            items[#items + 1] = s
+            items[#items + 1] = s .. TauntMark(e, taunt)
         end
         out[#out + 1] = ReportBullet(
             b.landed and SB.Theme.MSG_BAD or SB.Theme.MSG_GOOD,
@@ -135,7 +144,7 @@ end
 --- То же для площадного ЛЕЧЕНИЯ. Ближе к атаке, чем к эффекту: важно не
 --- только «подействовало ли», но и сколько восстановлено и с чем человек
 --- остался, — поэтому строки группируются по объёму исцеления.
-local function FormatHealEntries(entries)
+local function FormatHealEntries(entries, taunt)
     local buckets, order = {}, {}
     for _, e in ipairs(entries) do
         local tag = e.ok and ("Исцелено " .. (e.healed or 0) .. " ХП")
@@ -163,10 +172,10 @@ local function FormatHealEntries(entries)
         local b, items = buckets[tag], {}
         for _, e in ipairs(b.list) do
             if b.ok then
-                items[#items + 1] = G .. e.name .. "|r"
+                items[#items + 1] = G .. e.name .. "|r" .. TauntMark(e, taunt)
             else
                 items[#items + 1] = G .. e.name ..
-                    " (порог " .. (e.threshold or 0) .. ")|r"
+                    " (порог " .. (e.threshold or 0) .. ")|r" .. TauntMark(e, taunt)
             end
         end
         out[#out + 1] = ReportBullet(
@@ -176,7 +185,7 @@ local function FormatHealEntries(entries)
 end
 
 --- То же для площадного ЭФФЕКТА: две группы вместо строки на каждого.
-local function FormatEffectEntries(entries)
+local function FormatEffectEntries(entries, taunt)
     local G, ok, fail = SB.Theme.MSG_BODY, {}, {}
     for _, e in ipairs(entries) do
         if e.ok then
@@ -209,11 +218,11 @@ local function FlushAoeReport(report)
     else
         local lines
         if report.kind == "eff" then
-            lines = FormatEffectEntries(report.entries)
+            lines = FormatEffectEntries(report.entries, report.taunt)
         elseif report.kind == "heal" then
-            lines = FormatHealEntries(report.entries)
+            lines = FormatHealEntries(report.entries, report.taunt)
         else
-            lines = FormatAttackEntries(report.entries, report.crit)
+            lines = FormatAttackEntries(report.entries, report.crit, report.taunt)
         end
         for _, line in ipairs(lines) do out[#out + 1] = line end
     end
@@ -262,12 +271,20 @@ end
 --- Приписка к шапке залпа: по провокатору бросок идёт без штрафа (см.
 --- SB.Net.UntauntFor), и без неё строка «Атака: 21», а рядом попадание
 --- по провокатору с защитой 60, читалась бы как ошибка.
+local pendingTaunt = nil   -- провокатор этого залпа: шапка → OpenAoeReport
+
+--- «(с провокацией -50; по провокатору Вфа — 104)». Итог в шапке уже со
+--- штрафом, и это надо сказать прямо: иначе «+5» выглядит как обычный
+--- модификатор, а 104 — как ошибка. Число по провокатору повторяется и в
+--- его строке сводки (см. TauntMark).
 local function TauntNote(total)
+    pendingTaunt = nil
     local who = SB.ActiveEffects.SoleTaunter and SB.ActiveEffects.SoleTaunter()
     if not who then return "" end
     local pen = tonumber(SB.Data.Config.TauntPenalty) or -50
-    return SB.Theme.MSG_BODY .. " (по " .. who .. " без провокации: " ..
-           (total - pen) .. ")|r"
+    pendingTaunt = { name = who, total = total - pen }
+    return SB.Theme.MSG_BODY .. " (с провокацией " .. pen .. "; по провокатору " ..
+           who .. " — " .. (total - pen) .. ")|r"
 end
 
 local function OpenAoeReport(header, kind)
@@ -276,7 +293,9 @@ local function OpenAoeReport(header, kind)
     if aoeReport and not aoeReport.flushed then FlushAoeReport(aoeReport) end
 
     local report = { header = header, kind = kind or "atk", entries = {},
-                     flushed = false, deadline = GetTime() + REPORT_MAX }
+                     flushed = false, deadline = GetTime() + REPORT_MAX,
+                     taunt = pendingTaunt }
+    pendingTaunt = nil
     aoeReport = report
     ArmReportTimer(report, REPORT_WINDOW)
     return report
@@ -300,11 +319,11 @@ function SB.Logic.AoeReportAdd(entry)
         -- «• Урон 2 ХП (1): Имя [38] → 5/14», просто отдельным сообщением.
         local lines
         if entry.kind == "eff" then
-            lines = FormatEffectEntries({ entry })
+            lines = FormatEffectEntries({ entry }, aoeReport and aoeReport.taunt)
         elseif entry.kind == "heal" then
-            lines = FormatHealEntries({ entry })
+            lines = FormatHealEntries({ entry }, aoeReport and aoeReport.taunt)
         else
-            lines = FormatAttackEntries({ entry })
+            lines = FormatAttackEntries({ entry }, nil, aoeReport and aoeReport.taunt)
         end
         for _, line in ipairs(lines) do
             SB.Events.Fire(SB.E.BROADCAST_LOG, line, SB.LogRank.ACTION)

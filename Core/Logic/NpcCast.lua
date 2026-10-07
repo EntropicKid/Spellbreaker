@@ -590,7 +590,8 @@ function SB.NpcCast.Confirm()
     local tauntNote = ""
     if taunter then
         local pen = tonumber(SB.Data.Config.TauntPenalty) or -50
-        tauntNote = G .. " (по " .. taunter .. " без провокации: " .. (total - pen) .. ")|r"
+        tauntNote = G .. " (с провокацией " .. pen .. "; по провокатору " .. taunter ..
+                    " — " .. (total - pen) .. ")|r"
     end
 
     local me         = UnitName("player")
@@ -625,6 +626,10 @@ function SB.NpcCast.Confirm()
         end
         local report = SB.Logic.OpenAoeReport(head, reportKind)
         if report then report.crit = isCrit and true or false end
+        if report and taunter then
+            local pen = tonumber(SB.Data.Config.TauntPenalty) or -50
+            report.taunt = { name = taunter, total = total - pen }
+        end
     end
 
     -- ОДНА ЦЕЛЬ — ОДНА СТРОКА, тем же видом, что у игрока. Раньше шапка
