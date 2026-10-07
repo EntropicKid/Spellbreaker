@@ -1366,10 +1366,11 @@ AddEffect({
     name = "Рой паразитов",
     icon = "Interface\\Icons\\Spell_nature_insect_swarm2",
     description = "Вокруг чернокнижника кружит мелкая демоническая мошкара. Она не живёт долго, но кусает больно.",
-    -- КАНАЛ МАГИИ, А НЕ ОБЩИЙ: мошкара кусает чарами, и прибавка не
-    -- должна доставаться удару посохом по темени. Общий damage её туда
-    -- и отдавал.
-    effect = { kind = "buff", school = "magic", mods = { attack = 8, damageMagic = 1 } },
+    effect = {
+        kind  = "debuff", family = "Ослепление", resist = "Выносливость",
+        mods  = { attack = -15, defense = -15, range = -40 },
+        stats = { ["Точность"] = -4 },
+    },
 })
 
 AddEffect({
@@ -2280,19 +2281,6 @@ AddEffect({
     icon = "Interface\\Icons\\Spell_shadow_possession",
     description = "Тело хочет бежать, а не драться. Разум занят чужими кошмарами.",
     effect = { kind = "debuff", resist = "Дух", mods = { attack = -40, defense = -26 } },
-})
-
-AddEffect({
-    -- Рой насекомых (Друид, круг 0). Отщеплён от «eff_blinded».
-    id   = "eff_blinded_insect_swarm",
-    name = "Рой насекомых",
-    icon = "Interface\\Icons\\Spell_nature_insectswarm",
-    description = "Перед глазами резь и мутные пятна. Бить приходится наугад.",
-    effect = {
-        kind  = "debuff", family = "Ослепление", resist = "Выносливость",
-        mods  = { attack = -15, defense = -15, range = -40 },
-        stats = { ["Точность"] = -4 },
-    },
 })
 
 AddEffect({
