@@ -39,35 +39,16 @@ function SB.Logic.CanHitNpc(spell)
 end
 
 -- ============================================================
--- УДАР
+-- РАЗМЕН С СУЩЕСТВОМ ПОСЛЕ БРОСКА АТАКИ
+--
+-- Защита существа, урон, здоровье, срыв концентрации и дебафф от попадания
+-- — одним куском, потому что их считают два вызывающих: одиночный удар
+-- (ResolveNpcAttack) и площадной залп, накрывший существо в цели (см.
+-- SB.Logic.AoeHitNpcAttack). Бросок атаки у них свой, а всё, что идёт
+-- после него, обязано быть одинаковым: второй набор тех же правил
+-- разошёлся бы с первым на первой же правке.
 -- ============================================================
-function SB.Logic.ResolveNpcAttack(spellID)
-    local spell = SB.Data.Spells[spellID]
-    local stats = TargetNpcStats()
-    if not spell or not stats then return end
-
-    local G       = SB.Theme.MSG_BODY
-    local npcName = UnitName("target") or (stats.name or "Существо")
-
-    -- ── Бросок атакующего: ровно как в ПвП ────────────────
-    -- versus — имя существа: провокация не мешает бить того, кто её
-    -- наложил, а существа провоцируют чаще всех (см. её источник в
-    -- реестре модификаторов).
-    local mod, modParts = SB.Logic.GetModifierBreakdown("attack",
-        { spell = spell, versus = UnitName("target") })
-    local hitBonus, hitParts = SB.Logic.GetSpellScaling(spell, "hit")
-    local critBonus          = SB.Logic.GetSpellScaling(spell, "crit")
-    local dmgBonus           = SB.Logic.GetSpellScaling(spell, "damage")
-    if SB.ActiveEffects and SB.ActiveEffects.GetDamageMod then
-        dmgBonus = dmgBonus + (SB.ActiveEffects.GetDamageMod(spell))
-    end
-    mod = mod + hitBonus
-    for _, p in ipairs(hitParts) do table.insert(modParts, p) end
-
-    local roll, rollMin, rollMax = SB.Logic.Roll()
-    local total  = roll + mod
-    local isCrit = roll >= SB.Logic.GetCritThreshold(critBonus, rollMax, rollMin)
-
+local function NpcExchange(spell, stats, total, isCrit, dmgBonus, npcName)
     -- ── Бросок защиты существа ────────────────────────────
     -- «Без сопротивления» действует и здесь: заклинание, которому нельзя
     -- сопротивляться, попадает и по существу (см. SB.Logic.IsGuaranteed).
@@ -149,6 +130,49 @@ function SB.Logic.ResolveNpcAttack(spellID)
         debuffLanded = SB.NPC.AddEffect("target", spell.debuff, turns,
                                         UnitName("player"))
     end
+
+    return { guaranteed = guaranteed, skipDefense = skipDefense,
+             defMod = defMod, defRoll = defRoll, defTotal = defTotal,
+             landed = landed, dmg = dmg, reduction = reduction,
+             resisted = resisted, debuffLanded = debuffLanded }
+end
+
+-- ============================================================
+-- УДАР
+-- ============================================================
+function SB.Logic.ResolveNpcAttack(spellID)
+    local spell = SB.Data.Spells[spellID]
+    local stats = TargetNpcStats()
+    if not spell or not stats then return end
+
+    local G       = SB.Theme.MSG_BODY
+    local npcName = UnitName("target") or (stats.name or "Существо")
+
+    -- ── Бросок атакующего: ровно как в ПвП ────────────────
+    -- versus — имя существа: провокация не мешает бить того, кто её
+    -- наложил, а существа провоцируют чаще всех (см. её источник в
+    -- реестре модификаторов).
+    local mod, modParts = SB.Logic.GetModifierBreakdown("attack",
+        { spell = spell, versus = UnitName("target") })
+    local hitBonus, hitParts = SB.Logic.GetSpellScaling(spell, "hit")
+    local critBonus          = SB.Logic.GetSpellScaling(spell, "crit")
+    local dmgBonus           = SB.Logic.GetSpellScaling(spell, "damage")
+    if SB.ActiveEffects and SB.ActiveEffects.GetDamageMod then
+        dmgBonus = dmgBonus + (SB.ActiveEffects.GetDamageMod(spell))
+    end
+    mod = mod + hitBonus
+    for _, p in ipairs(hitParts) do table.insert(modParts, p) end
+
+    local roll, rollMin, rollMax = SB.Logic.Roll()
+    local total  = roll + mod
+    local isCrit = roll >= SB.Logic.GetCritThreshold(critBonus, rollMax, rollMin)
+
+    local ex = NpcExchange(spell, stats, total, isCrit, dmgBonus, npcName)
+    local guaranteed, skipDefense = ex.guaranteed, ex.skipDefense
+    local defMod, defRoll, defTotal = ex.defMod, ex.defRoll, ex.defTotal
+    local landed, dmg = ex.landed, ex.dmg
+    local reduction, resisted = ex.reduction, ex.resisted
+    local debuffLanded = ex.debuffLanded
 
     -- ── Собственный контейнер заклинателя ─────────────────
     --
@@ -269,6 +293,81 @@ function SB.Logic.ResolveNpcAttack(spellID)
     if landed and SB.Logic.SendOutcomeEmote then
         SB.Logic.SendOutcomeEmote(spellID)
     end
+end
+
+-- ============================================================
+-- ПЛОЩАДЬ ПО СУЩЕСТВУ В ЦЕЛИ
+--
+-- Площадной залп игрока рассылается группе, и каждый задетый считает свой
+-- исход у себя. У существа клиента нет, ответить за него некому, поэтому
+-- ловушка, «Смерть и разложение» или «Взрывная ловушка», брошенные в
+-- существо, шли мимо него: попадали по игрокам рядом (если они в группе),
+-- а по самому существу — никак. Вне группы чистый эффект (без урона) не
+-- уходил вовсе: «Неподходящая цель».
+--
+-- ЗАДЕВАЕТСЯ ТО СУЩЕСТВО, ВОКРУГ КОТОРОГО ГРЕМИТ ПЛОЩАДЬ, — то есть цель
+-- (у заклинания есть дальность, см. SB.Logic.IsAoeAtTarget). Других
+-- существ в радиусе аддон не найдёт: UnitPosition по ним молчит, а
+-- списка «кто стоит рядом» у клиента нет. Остальных отмечает Ведущий.
+--
+-- БРОСОК ОДИН НА ВСЕХ: итог уже брошен залпом, здесь он только
+-- сравнивается с защитой (или порогом) существа. Исход идёт строкой в
+-- общую сводку залпа, как у игрока.
+-- ============================================================
+
+--- Бьёт ли площадь этого заклинания по существу в цели.
+function SB.Logic.AoeTargetsNpc(spell)
+    if not spell or type(spell.aoe) ~= "table" then return false end
+    if (tonumber(spell.distance) or 0) <= 0 then return false end   -- вокруг себя
+    if UnitIsUnit("target", "player") then return false end
+    return TargetNpcStats() ~= nil
+end
+
+--- Итог залпа против существа: провокатор бьётся без штрафа, как и у
+--- игроков (см. SB.Net.UntauntFor).
+local function TotalVersusNpc(total, npcName)
+    local AE = SB.ActiveEffects
+    local who = AE and AE.SoleTaunter and AE.SoleTaunter()
+    if who and who == npcName then
+        return total - (tonumber(SB.Data.Config.TauntPenalty) or -50)
+    end
+    return total
+end
+
+--- Площадная АТАКА по существу в цели.
+function SB.Logic.AoeHitNpcAttack(spell, spellID, total, isCrit, dmgBonus)
+    local stats = TargetNpcStats()
+    if not (spell and stats) then return end
+    local npcName = UnitName("target") or (stats.name or "Существо")
+    local ex = NpcExchange(spell, stats, TotalVersusNpc(total, npcName), isCrit, dmgBonus, npcName)
+    SB.Logic.AoeReportAdd({ kind = "atk", name = npcName, roll = ex.defRoll,
+                            mod = ex.defMod, total = ex.defTotal, landed = ex.landed,
+                            dmg = ex.dmg, debuff = ex.debuffLanded })
+    SB.Logic.AoeReportSound(ex.landed)
+    SB.Events.Fire(SB.E.ATTACK_RESOLVED, ex.dmg, spellID, ex.landed, nil)
+    if ex.landed and ex.dmg > 0 then SB.Logic.ApplyLeech(spell, ex.dmg, true) end
+end
+
+--- Площадной ЭФФЕКТ без урона по существу в цели. Правила те же, что у
+--- одиночного (см. ResolveNpcEffect): порог 60 + уровень, «Воля» против
+--- дебаффа, «без сопротивления» — без броска.
+function SB.Logic.AoeHitNpcEffect(spell, total)
+    local stats = TargetNpcStats()
+    local effectID = spell and (spell.debuff or spell.buff)
+    if not (stats and effectID and SB.Data.Spells[effectID]) then return end
+    local isDebuff = spell.debuff ~= nil
+    local npcName  = UnitName("target") or (stats.name or "Существо")
+    local threshold = SB.Logic.BaseThresholdFor(stats.level)
+    if isDebuff then threshold = threshold + SB.NPC.WillBonus(stats, "target") end
+    local ok = SB.Logic.IsGuaranteed(spell)
+               or (TotalVersusNpc(total or 0, npcName) >= threshold)
+    if ok then
+        local turns = SB.Logic.GetEffectDuration(effectID, spell)
+        ok = SB.NPC.AddEffect("target", effectID, turns, UnitName("player"))
+        if ok and isDebuff then SB.Logic.ApplyInterruptToNpc("target", spell, npcName) end
+    end
+    SB.Logic.AoeReportAdd({ kind = "eff", name = npcName, threshold = threshold, ok = ok })
+    SB.Logic.AoeReportSound(ok)
 end
 
 -- ============================================================

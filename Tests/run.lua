@@ -14202,6 +14202,43 @@ do
         checkTrue("и урон существо получило",
                   N.GetState("target").hp < hpBefore)
 
+        -- ── ПЛОЩАДЬ ПО СУЩЕСТВУ В ЦЕЛИ ─────────────────────
+        -- Ловушки охотника и «Смерть и разложение» уходили залпом в
+        -- группу и существо в цели обходили: ответить за него некому.
+        -- Теперь существо, вокруг которого гремит площадь, считается
+        -- задетым тем же броском.
+        SB.Data.Spells["t_npc_trap"] = { id = "t_npc_trap", name = "Ловушка",
+            class = "Проверка", level = 1, distance = 20, aoe = { radius = 6 },
+            resistable = false, debuff = "t_npc_slow", duration = 3 }
+        SB.Data.Spells["t_npc_blast"] = { id = "t_npc_blast", name = "Взрыв",
+            class = "Проверка", level = 1, distance = 20, aoe = { radius = 6 },
+            canCrit = true, damage = 3, debuff = "t_npc_slow" }
+        SB.Data.Spells["t_npc_whirl"] = { id = "t_npc_whirl", name = "Вихрь",
+            class = "Проверка", level = 1, distance = 0, aoe = { radius = 6 },
+            resistable = false, debuff = "t_npc_slow" }
+        check("площадь с дальностью бьёт по существу в цели",
+              SB.Logic.AoeTargetsNpc(SB.Data.Spells["t_npc_trap"]), true)
+        check("вихрь вокруг себя — нет (существа вокруг аддон не видит)",
+              SB.Logic.AoeTargetsNpc(SB.Data.Spells["t_npc_whirl"]), false)
+        check("одиночное заклинание — не площадь",
+              SB.Logic.AoeTargetsNpc(SB.Data.Spells["t_npc_bolt"]), false)
+
+        N.ClearEffects("target")
+        SB.Logic.ResolveAoeEffectCast("t_npc_trap")
+        checkTrue("ловушка навесила эффект на существо в цели",
+                  N.HasEffect("target", "t_npc_slow"))
+
+        N.ClearEffects("target")
+        hpBefore = N.GetState("target").hp
+        SB.Logic.Roll = function() return 100, 1, 100 end
+        SB.Logic.RollPlain = function() return 1 end
+        SB.Logic.InitiateAoeAttack("t_npc_blast")
+        SB.Logic.Roll, SB.Logic.RollPlain = realRoll, realPlain
+        checkTrue("площадной удар ранил существо в цели",
+                  N.GetState("target").hp < hpBefore)
+        checkTrue("и повесил дебафф",
+                  N.HasEffect("target", "t_npc_slow"))
+
         -- КРИТ ПО СУЩЕСТВУ: ни защиты в строке, ни приписки об исходе
         -- чар. Та же правка, что в ПвП (см. «КРИТ В СТРОКЕ БОЯ»): куб
         -- против крита не катится, а закреплять дебафф броском больше

@@ -3271,7 +3271,8 @@ function SB.Logic.ConfirmCast(spellID, opts)
             return function()
                 SB.Logic.ResolveAoeHeal(spellID)
             end
-        elseif spell.aoe and spell.canCrit and IsInGroup() then
+        elseif spell.aoe and spell.canCrit
+               and (IsInGroup() or (aimed and SB.Logic.AoeTargetsNpc(spell))) then
             -- ПЛОЩАДНАЯ атака — цель не нужна вовсе: бросок уходит всей
             -- группе, и каждый сам проверяет, попал ли он в радиус.
             -- Вне группы рассылать некуда, поэтому там заклинание идёт
@@ -3279,7 +3280,8 @@ function SB.Logic.ConfirmCast(spellID, opts)
             return function()
                 SB.Logic.InitiateAoeAttack(spellID)
             end
-        elseif spell.aoe and IsInGroup() and not spell.isHeal
+        elseif spell.aoe and not spell.isHeal
+               and (IsInGroup() or (aimed and SB.Logic.AoeTargetsNpc(spell)))
                and (spell.buff or spell.debuff) then
             -- ПЛОЩАДНОЙ бафф/дебафф БЕЗ урона — тоже минуя ГМа. Цель ему,
             -- как и площадной атаке, не нужна: бросок уходит группе, а порог
