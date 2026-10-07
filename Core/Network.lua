@@ -702,9 +702,39 @@ end
 --- получатель сам по дистанции (см. SB.Logic.HandleAoeAttackReceived).
 --- Проверки на лидера нет по той же причине, что и у PVPATK: атакует
 --- игрок игрока, а не Ведущий раздаёт команды.
+--- ПРОВОКАТОР ЗАЛПА — БЕЗ ШТРАФА. Бросок площади один на всех, и штраф
+--- провокации в нём уже есть (целей заранее не знает никто). Залп везёт
+--- имя единственного провокатора (поле tnt, см. TauntField), и он один
+--- возвращает штраф обратно — тем же правилом, что одиночный каст по
+--- провокатору (см. SB.ActiveEffects.GetTauntPenalty).
+---
+--- ВЕЛИЧИНУ НЕ ВЕЗЁМ, берём свою: чужой пакет не должен решать, сколько
+--- прибавить. Модификатор поднимается вместе с итогом, и сверка
+--- (SB.Logic.VerifyIncomingCast) видит обычный бросок без провокации.
+--- @return number|nil mod, number|nil total
+function SB.Net.UntauntFor(me, t)
+    local mod, total = tonumber(t.mod), tonumber(t.total)
+    if not (mod and total) or t.tnt == nil or t.tnt ~= me then
+        return t.mod, t.total
+    end
+    local pen = tonumber(SB.Data.Config.TauntPenalty) or -50
+    return mod - pen, total - pen
+end
+
+--- Поле tnt для залпа: имя провокатора, если бросок есть и провокатор
+--- один (см. SB.ActiveEffects.SoleTaunter).
+local function TauntField(t)
+    if t.total ~= nil and SB.ActiveEffects and SB.ActiveEffects.SoleTaunter then
+        t.tnt = SB.ActiveEffects.SoleTaunter()
+    end
+    return t
+end
+SB.Net.TauntField = TauntField
+
 local function ParseAOEATK(sender, t)
     if not SB.Logic or not SB.Logic.HandleAoeAttackReceived then return end
-    SB.Logic.HandleAoeAttackReceived(sender or t.caster, t.spellID, t.roll, t.mod, t.total,
+    local mod, total = SB.Net.UntauntFor(UnitName("player"), t)
+    SB.Logic.HandleAoeAttackReceived(sender or t.caster, t.spellID, t.roll, mod, total,
         t.isCrit == true, t.dmgBonus or 0, t.baseDmg, t.radius, nil,
         UnpackEpicenter(t), CasterCallsMeFriend(t), t.persuade)
 end
@@ -886,7 +916,8 @@ end
 --- (см. SB.Logic.HandleAoeHealReceived).
 local function ParseAOEHL(t)
     if not SB.Logic or not SB.Logic.HandleAoeHealReceived then return end
-    SB.Logic.HandleAoeHealReceived(t.caster, t.spellID, t.effectID, t.radius, t.roll, t.mod, t.total, t.amount, UnpackEpicenter(t),
+    local mod, total = SB.Net.UntauntFor(UnitName("player"), t)
+    SB.Logic.HandleAoeHealReceived(t.caster, t.spellID, t.effectID, t.radius, t.roll, mod, total, t.amount, UnpackEpicenter(t),
         CasterCallsMeFriend(t))
 end
 
@@ -901,8 +932,9 @@ end
 --- Площадной эффект: аура или площадной дебафф.
 local function ParseAOEEFF(t)
     if not SB.Logic or not SB.Logic.HandleAoeEffectReceived then return end
+    local mod, total = SB.Net.UntauntFor(UnitName("player"), t)
     SB.Logic.HandleAoeEffectReceived(t.caster, t.spellID, t.effectID, t.radius,
-        t.roll, t.mod, t.total, UnpackEpicenter(t), CasterCallsMeFriend(t),
+        t.roll, mod, total, UnpackEpicenter(t), CasterCallsMeFriend(t),
         tonumber(t.enc) or 0)
 end
 
@@ -2196,7 +2228,7 @@ function SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseD
         radius   = radius or 0,
     }
     if (tonumber(persuade) or 0) > 0 then t.persuade = persuade end
-    SendToGroup(PackFriends(PackEpicenter(t, epi)), "NORMAL")
+    SendToGroup(PackFriends(PackEpicenter(TauntField(t), epi)), "NORMAL")
 end
 
 --- Площадной эффект (аура / площадной дебафф).
@@ -2215,7 +2247,7 @@ function SB.Net.SendAoeEffect(spellID, effectID, radius, roll, mod, total, epi)
     if not IsInGroup() then return end
     local enc = (SB.Logic and SB.Logic.EncouragementFor)
         and SB.Logic.EncouragementFor(effectID) or 0
-    SendToGroup(PackFriends(PackEpicenter({
+    SendToGroup(PackFriends(PackEpicenter(TauntField({
         action   = "AOEEFF",
         caster   = UnitName("player"),
         spellID  = spellID,
@@ -2227,7 +2259,7 @@ function SB.Net.SendAoeEffect(spellID, effectID, radius, roll, mod, total, epi)
         -- Ноль не везём: лишнее поле в каждом пакете ради навыка,
         -- которого у большинства нет.
         enc      = (enc > 0) and enc or nil,
-    }, epi)), "NORMAL")
+    }), epi)), "NORMAL")
 end
 
 --- Наложить эффект на союзника (spell.buff, см. SB.Logic.ApplyBuffToTarget).
@@ -2433,7 +2465,7 @@ end
 ---        лечение сработало (Целительный ливень, Спокойствие)
 function SB.Net.SendAoeHeal(spellID, effectID, radius, roll, mod, total, amount, epi)
     if not IsInGroup() then return end
-    SendToGroup(PackFriends(PackEpicenter({
+    SendToGroup(PackFriends(PackEpicenter(TauntField({
         action   = "AOEHL",
         caster   = UnitName("player"),
         spellID  = spellID,
@@ -2443,7 +2475,7 @@ function SB.Net.SendAoeHeal(spellID, effectID, radius, roll, mod, total, amount,
         mod      = mod,
         total    = total,
         amount   = amount or 0,
-    }, epi)), "NORMAL")
+    }), epi)), "NORMAL")
 end
 
 --- Ответ исцелённого: свой порог, исход и с чем остался. Строку собирает

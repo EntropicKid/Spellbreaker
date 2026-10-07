@@ -828,6 +828,34 @@ function SB.ActiveEffects.GetTauntPenalty(versus)
     return 0, nil
 end
 
+--- ЕДИНСТВЕННЫЙ ПРОВОКАТОР — для бросков, у которых целей много.
+---
+--- Площадь бросает ОДИН раз на всех, и цель броска заранее неизвестна:
+--- штраф провокации входит в него целиком. Но по самому провокатору
+--- штрафа быть не должно — ровно как у одиночного каста. Поэтому залп
+--- везёт имя провокатора, и тот, получив его, сравнивает со своей
+--- защитой бросок БЕЗ штрафа (см. SB.Net.UntauntFor).
+---
+--- Провокаторов двое и больше — имени нет: по каждому из них штраф всё
+--- равно есть, его даёт провокация второго (см. GetTauntPenalty).
+--- @param list table|nil  записи эффектов { spellID, src }
+--- @return string|nil
+function SB.ActiveEffects.SoleTaunterOf(list)
+    local who
+    for _, e in ipairs(list or {}) do
+        if SB.ActiveEffects.IsTaunt(e.spellID) then
+            if not e.src or (who and who ~= e.src) then return nil end
+            who = e.src
+        end
+    end
+    return who
+end
+
+--- То же по своим эффектам.
+function SB.ActiveEffects.SoleTaunter()
+    return SB.ActiveEffects.SoleTaunterOf(effects)
+end
+
 --- Кто наложил этот висящий эффект.
 ---
 --- ОТВЕЧАЕТ ВСЕГДА, пока эффект висит: имя ставится при наложении, и

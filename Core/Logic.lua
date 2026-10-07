@@ -578,9 +578,11 @@ end
 --- потому что число нужно ЗАРАНЕЕ, ещё до броска: заявка везёт его
 --- Ведущему, чтобы тот увидел справедливую СЛ (см. SB.Logic.FairDC).
 --- @return number
-function SB.Logic.GetCastModifier(spell)
+--- versus — имя цели: провокация не штрафует бросок против самого
+--- провокатора (см. SB.ActiveEffects.GetTauntPenalty).
+function SB.Logic.GetCastModifier(spell, versus)
     local mod = SB.Logic.GetModifierBreakdown("attack",
-        { spell = spell })
+        { spell = spell, versus = versus })
     return mod + (SB.Logic.GetSpellScaling(spell, "hit"))
 end
 
@@ -2268,7 +2270,7 @@ function SB.Logic.GetSpellScalingLines(spell)
     if SB.Logic.IsGuaranteed(spell) then
         Line("Атака", SB.Theme.MSG_GOOD .. "Автоуспех|r")
     else
-        local atk = SB.Logic.GetCastModifier(spell)
+        local atk = SB.Logic.GetCastModifier(spell, UnitName("target"))
         Line("Атака", tostring(atk), ScalingSourceNames(spell, "hit"))
     end
 
@@ -3176,7 +3178,8 @@ function SB.Logic.ConfirmCast(spellID, opts)
             or (pendingTargetName ~= "" and pendingTargetName or "Неопознанная цель")
         SB.Events.Fire("CAST_PENDING", spellID)
         SB.Events.Fire("CAST_REQUEST", spellID, targetLabel,
-            SB.Logic.GetCastModifier(spell))
+            SB.Logic.GetCastModifier(spell,
+                pendingTargetName ~= "" and pendingTargetName or nil))
         SB.Logic.SpendTurn(SB.Logic.TurnSkipFor(spell, spellID))
     end
 
@@ -3268,7 +3271,8 @@ function SB.Logic.ConfirmCast(spellID, opts)
             return function()
                 SB.Logic.ResolveAoeHeal(spellID)
             end
-        elseif spell.aoe and spell.canCrit and IsInGroup() then
+        elseif spell.aoe and spell.canCrit
+               and (IsInGroup() or (aimed and SB.Logic.AoeTargetsNpc(spell))) then
             -- ПЛОЩАДНАЯ атака — цель не нужна вовсе: бросок уходит всей
             -- группе, и каждый сам проверяет, попал ли он в радиус.
             -- Вне группы рассылать некуда, поэтому там заклинание идёт
@@ -3276,7 +3280,8 @@ function SB.Logic.ConfirmCast(spellID, opts)
             return function()
                 SB.Logic.InitiateAoeAttack(spellID)
             end
-        elseif spell.aoe and IsInGroup() and not spell.isHeal
+        elseif spell.aoe and not spell.isHeal
+               and (IsInGroup() or (aimed and SB.Logic.AoeTargetsNpc(spell)))
                and (spell.buff or spell.debuff) then
             -- ПЛОЩАДНОЙ бафф/дебафф БЕЗ урона — тоже минуя ГМа. Цель ему,
             -- как и площадной атаке, не нужна: бросок уходит группе, а порог
@@ -4978,7 +4983,7 @@ function SB.Logic.ResolveHeal(spellID)
     local baseHeal = SB.Logic.GetHealPower(spell)
 
     local mod, modParts = SB.Logic.GetModifierBreakdown("attack",
-        { spell = spell })
+        { spell = spell, versus = healName })
     mod = mod + hitBonus
     for _, p in ipairs(hitParts) do table.insert(modParts, p) end
     local roll, rollMin, rollMax = SB.Logic.Roll()
@@ -5477,7 +5482,7 @@ function SB.Logic.ResolveEffectCast(spellID)
 
     local hitBonus, hitParts = SB.Logic.GetSpellScaling(spell, "hit")
     local mod, modParts = SB.Logic.GetModifierBreakdown("attack",
-        { spell = spell })
+        { spell = spell, versus = targetName })
     mod = mod + hitBonus
     for _, p in ipairs(hitParts) do table.insert(modParts, p) end
 
@@ -5747,7 +5752,7 @@ function SB.Logic.ResolveSteal(spellID)
 
     local hitBonus, hitParts = SB.Logic.GetSpellScaling(spell, "hit")
     local mod, modParts = SB.Logic.GetModifierBreakdown("attack",
-        { spell = spell })
+        { spell = spell, versus = UnitName("target") })
     mod = mod + hitBonus
     for _, p in ipairs(hitParts) do table.insert(modParts, p) end
 

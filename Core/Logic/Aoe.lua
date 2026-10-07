@@ -259,6 +259,17 @@ local function PayloadTxt(spellID)
     return p and ("; себе: " .. p) or ""
 end
 
+--- Приписка к шапке залпа: по провокатору бросок идёт без штрафа (см.
+--- SB.Net.UntauntFor), и без неё строка «Атака: 21», а рядом попадание
+--- по провокатору с защитой 60, читалась бы как ошибка.
+local function TauntNote(total)
+    local who = SB.ActiveEffects.SoleTaunter and SB.ActiveEffects.SoleTaunter()
+    if not who then return "" end
+    local pen = tonumber(SB.Data.Config.TauntPenalty) or -50
+    return SB.Theme.MSG_BODY .. " (по " .. who .. " без провокации: " ..
+           (total - pen) .. ")|r"
+end
+
 local function OpenAoeReport(header, kind)
     -- Предыдущий залп мог ещё ждать ответов — закрываем его сейчас,
     -- иначе два блока перемешались бы между собой.
@@ -444,7 +455,7 @@ function SB.Logic.InitiateAoeAttack(spellID)
         (isCrit
             and (SB.UI.RollText(roll) .. G .. ". |r" .. SB.Theme.MSG_BAD .. "КРИТ!|r")
             or  (SB.UI.RollText(roll) .. G .. " + |r" .. SB.UI.ModText(mod) ..
-                 G .. " = " .. total .. ". Защита:|r")))
+                 G .. " = " .. total .. "|r" .. TauntNote(total) .. G .. ". Защита:|r")))
     aoeReport.crit = isCrit and true or false
 
     -- Эпицентр без координат — цель не член группы (обычно НПС). Точно
@@ -461,6 +472,11 @@ function SB.Logic.InitiateAoeAttack(spellID)
     end
 
     SB.Net.SendAoeAttack(spellID, roll, mod, total, isCrit, dmgBonus, baseDmg, radius, epi)
+
+    -- Существо в цели — тем же броском (см. SB.Logic.AoeTargetsNpc).
+    if SB.Logic.AoeTargetsNpc(spell) then
+        SB.Logic.AoeHitNpcAttack(spell, spellID, total, isCrit, dmgBonus)
+    end
 
     -- Тот же собственный контейнер, что и у одиночной атаки, и той же
     -- функцией: правило про него живёт в одном месте на все пять путей
@@ -567,7 +583,7 @@ function SB.Logic.ResolveAoeEffectCast(spellID)
         -- который и так виден в его карточке.
         -- Цена каста — в шапку, а не строкой над ней (см. TakeCastPayload).
         PayloadTxt(spellID) ..
-        "): |r" .. SB.UI.RollLine(roll, mod, total, G) ..
+        "): |r" .. SB.UI.RollLine(roll, mod, total, G) .. TauntNote(total) ..
         G .. ". Пороги:|r", "eff")
 
     -- На себя — по тому же броску и своему порогу. Дебафф на себя не
@@ -593,6 +609,11 @@ function SB.Logic.ResolveAoeEffectCast(spellID)
     end
 
     SB.Net.SendAoeEffect(spell.id, effectID, radius, roll, mod, total, epi)
+
+    -- Существо в цели — тем же броском (см. SB.Logic.AoeTargetsNpc).
+    if SB.Logic.AoeTargetsNpc(spell) then
+        SB.Logic.AoeHitNpcEffect(spell, total)
+    end
 
     SB.Logic.HoldTurnUntilResult(SB.Logic.TurnSkipFor(spell, spellID, landedOnSelf), true)
 end
@@ -765,7 +786,7 @@ function SB.Logic.ResolveAoeHeal(spellID)
         -- который и так виден в его карточке.
         -- Цена каста — в шапку, а не строкой над ней (см. TakeCastPayload).
         PayloadTxt(spellID) ..
-        "): |r" .. SB.UI.RollLine(roll, mod, total, G) ..
+        "): |r" .. SB.UI.RollLine(roll, mod, total, G) .. TauntNote(total) ..
         G .. ", исцеление |r" .. SB.UI.AmountText("heal", amount) ..
         G .. ". Пороги:|r", "heal")
 

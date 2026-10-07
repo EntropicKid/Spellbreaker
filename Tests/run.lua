@@ -12915,6 +12915,106 @@ do
     check("в защите от другого штраф есть", TauntPart("defense", "Ирина"), PEN)
     check("а от провокатора — нет",         TauntPart("defense", "Лайка"), nil)
 
+    -- ── ОДИНОЧНЫЙ КАСТ ЭФФЕКТА НАЗЫВАЕТ ЦЕЛЬ ───────────────
+    -- Дебафф по самому провокатору (Кровопускание по тому, кто
+    -- спровоцировал) получал −50: путь эффекта не передавал versus, и
+    -- провокатор считался «кем-то другим». Урон шёл верно — он versus
+    -- передавал.
+    do
+        local seen
+        local orig = SB.Logic.GetModifierBreakdown
+        SB.Logic.GetModifierBreakdown = function(scope, ctx)
+            local m, parts = orig(scope, ctx)
+            if scope == "attack" then
+                seen = { versus = ctx and ctx.versus, taunt = false }
+                for _, p in ipairs(parts) do
+                    if p.key == "taunt" then seen.taunt = true end
+                end
+            end
+            return m, parts
+        end
+        local savedTarget = stub.world.units["target"]
+        stub.world.units["target"] = { name = "Лайка", level = 25,
+            class = "Жрец", classToken = "PRIEST", race = "Human",
+            pos = { 100, 100, 1 } }
+        SB.Data.Spells["t_bleedcast"] = { id = "t_bleedcast",
+            name = "Проба кровопускания", class = "Маг", level = 1,
+            distance = 9, resistable = true, debuff = "t_notaunt" }
+        SB.Logic.ResolveEffectCast("t_bleedcast")
+        if SB.Logic.ReleaseHeldTurn then SB.Logic.ReleaseHeldTurn() end
+        check("дебафф по провокатору называет цель", seen and seen.versus, "Лайка")
+        check("и штрафа провокации не получает",   seen and seen.taunt, false)
+
+        seen = nil
+        stub.world.units["target"].name = "Ирина"
+        SB.Logic.ResolveEffectCast("t_bleedcast")
+        if SB.Logic.ReleaseHeldTurn then SB.Logic.ReleaseHeldTurn() end
+        check("дебафф по другому — со штрафом", seen and seen.taunt, true)
+
+        check("заявка Ведущему по провокатору без штрафа",
+              SB.Logic.GetCastModifier(SB.Data.Spells["t_bleedcast"], "Лайка")
+              - SB.Logic.GetCastModifier(SB.Data.Spells["t_bleedcast"], "Ирина"),
+              -PEN)
+
+        SB.Logic.GetModifierBreakdown = orig
+        stub.world.units["target"] = savedTarget
+        SB.Data.Spells["t_bleedcast"] = nil
+    end
+
+    -- ── ЗАЛП ПО ПРОВОКАТОРУ — БЕЗ ШТРАФА ───────────────────
+    -- Бросок площади один на всех и штраф в нём есть, но провокатор,
+    -- получив залп, сравнивает со своей защитой бросок без штрафа: залп
+    -- везёт его имя (tnt), а величину каждый берёт свою.
+    check("единственный провокатор назван",  AE.SoleTaunter(), "Лайка")
+    check("двое провокаторов — имени нет",
+          AE.SoleTaunterOf({ { spellID = "t_taunt", src = "Лайка" },
+                             { spellID = "t_taunt", src = "Ирина" } }), nil)
+    check("провокация без имени — имени нет",
+          AE.SoleTaunterOf({ { spellID = "t_taunt" } }), nil)
+    check("обычные эффекты не в счёт",
+          AE.SoleTaunterOf({ { spellID = "t_notaunt", src = "Ирина" },
+                             { spellID = "t_taunt",   src = "Лайка" } }), "Лайка")
+    check("без провокации — никого",          AE.SoleTaunterOf({}), nil)
+
+    local m, t = SB.Net.UntauntFor("Лайка", { mod = -9, total = 41, tnt = "Лайка" })
+    check("провокатор снимает штраф с модификатора", m, -9 - PEN)
+    check("и с итога",                                t, 41 - PEN)
+    m, t = SB.Net.UntauntFor("Ирина", { mod = -9, total = 41, tnt = "Лайка" })
+    check("остальные — с прежним итогом",             t, 41)
+    m, t = SB.Net.UntauntFor("Лайка", { mod = -9, total = 41 })
+    check("пакет без имени (старый клиент) — как был", t, 41)
+    m, t = SB.Net.UntauntFor("Лайка", { tnt = "Лайка" })
+    check("без броска снимать нечего",                t, nil)
+
+    -- Сами Send* в прогоне подменены писцом (см. начало файла), поэтому
+    -- поле залпа проверяем там, где оно собирается.
+    check("залп спровоцированного везёт имя провокатора",
+          SB.Net.TauntField({ total = 41 }).tnt, "Лайка")
+    check("залп без броска имени не везёт",
+          SB.Net.TauntField({}).tnt, nil)
+
+    -- Приём: провокатору обработчик залпа получает числа без штрафа.
+    do
+        local handler, prefix = SB.Net.__commHandler, SB.Net.__commPrefix
+        local realDes, realAoe = SB.Net.Deserialize, SB.Logic.HandleAoeAttackReceived
+        local got
+        SB.Net.Deserialize = function(_, x) return true, x end
+        SB.Logic.HandleAoeAttackReceived = function(_, _, _, mod, total) got = { mod, total } end
+        local me = UnitName("player")
+        handler(prefix, { action = "AOEATK", caster = "Злюка", spellID = "t_notaunt",
+                          roll = 50, mod = -9, total = 41, radius = 8, tnt = me },
+                "PARTY", "Злюка")
+        stub.RunTimers()
+        check("провокатору залп приходит без штрафа", got and got[2], 41 - PEN)
+        got = nil
+        handler(prefix, { action = "AOEATK", caster = "Злюка", spellID = "t_notaunt",
+                          roll = 50, mod = -9, total = 41, radius = 8, tnt = "Кто-то" },
+                "PARTY", "Злюка")
+        stub.RunTimers()
+        check("не провокатору — как прислали", got and got[2], 41)
+        SB.Net.Deserialize, SB.Logic.HandleAoeAttackReceived = realDes, realAoe
+    end
+
     ResetEffects()
     check("снятая провокация штраф не оставляет", AE.GetTauntPenalty("Ирина"), 0)
 
@@ -14101,6 +14201,43 @@ do
                   N.HasEffect("target", "t_npc_slow"))
         checkTrue("и урон существо получило",
                   N.GetState("target").hp < hpBefore)
+
+        -- ── ПЛОЩАДЬ ПО СУЩЕСТВУ В ЦЕЛИ ─────────────────────
+        -- Ловушки охотника и «Смерть и разложение» уходили залпом в
+        -- группу и существо в цели обходили: ответить за него некому.
+        -- Теперь существо, вокруг которого гремит площадь, считается
+        -- задетым тем же броском.
+        SB.Data.Spells["t_npc_trap"] = { id = "t_npc_trap", name = "Ловушка",
+            class = "Проверка", level = 1, distance = 20, aoe = { radius = 6 },
+            resistable = false, debuff = "t_npc_slow", duration = 3 }
+        SB.Data.Spells["t_npc_blast"] = { id = "t_npc_blast", name = "Взрыв",
+            class = "Проверка", level = 1, distance = 20, aoe = { radius = 6 },
+            canCrit = true, damage = 3, debuff = "t_npc_slow" }
+        SB.Data.Spells["t_npc_whirl"] = { id = "t_npc_whirl", name = "Вихрь",
+            class = "Проверка", level = 1, distance = 0, aoe = { radius = 6 },
+            resistable = false, debuff = "t_npc_slow" }
+        check("площадь с дальностью бьёт по существу в цели",
+              SB.Logic.AoeTargetsNpc(SB.Data.Spells["t_npc_trap"]), true)
+        check("вихрь вокруг себя — нет (существа вокруг аддон не видит)",
+              SB.Logic.AoeTargetsNpc(SB.Data.Spells["t_npc_whirl"]), false)
+        check("одиночное заклинание — не площадь",
+              SB.Logic.AoeTargetsNpc(SB.Data.Spells["t_npc_bolt"]), false)
+
+        N.ClearEffects("target")
+        SB.Logic.ResolveAoeEffectCast("t_npc_trap")
+        checkTrue("ловушка навесила эффект на существо в цели",
+                  N.HasEffect("target", "t_npc_slow"))
+
+        N.ClearEffects("target")
+        hpBefore = N.GetState("target").hp
+        SB.Logic.Roll = function() return 100, 1, 100 end
+        SB.Logic.RollPlain = function() return 1 end
+        SB.Logic.InitiateAoeAttack("t_npc_blast")
+        SB.Logic.Roll, SB.Logic.RollPlain = realRoll, realPlain
+        checkTrue("площадной удар ранил существо в цели",
+                  N.GetState("target").hp < hpBefore)
+        checkTrue("и повесил дебафф",
+                  N.HasEffect("target", "t_npc_slow"))
 
         -- КРИТ ПО СУЩЕСТВУ: ни защиты в строке, ни приписки об исходе
         -- чар. Та же правка, что в ПвП (см. «КРИТ В СТРОКЕ БОЯ»): куб
