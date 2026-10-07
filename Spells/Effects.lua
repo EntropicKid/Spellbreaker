@@ -1456,7 +1456,7 @@ AddEffect({
     damageType = "fire",
     icon = "Interface\\Icons\\Spell_shadow_rainoffire",
     description = "С неба льётся огонь на выбранное место и не гаснет, пока чернокнижник платит кровью.",
-    effect = { kind = "debuff", resist = "Выносливость", tick = { damage = 2 } },
+    effect = { kind = "debuff", school = "magic", resist = "Выносливость", tick = { damage = 2 } },
 })
 
 AddEffect({
