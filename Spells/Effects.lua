@@ -820,7 +820,7 @@ AddEffect({
     name = "Чародейская вспышка",
     icon = "Interface\\Icons\\Spell_arcane_blast",
     description = "У пораженной зачарованным лезвием цели подавляется ее магический потенциал.",
-    effect = { kind = "debuff", family = "Чародейская вспышка", mods = { damageArcane = 1 }, onAction = { when = "cast", magic = true, payload = { mana = -2 } }, },
+    effect = { kind = "debuff", family = "Чародейская вспышка", mods = { damageArcane = 1 }, onAction = { when = "cast", magic = true, payload = { resource = -2 } }, },
 })
 
 AddEffect({
