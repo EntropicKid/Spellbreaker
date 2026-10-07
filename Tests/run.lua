@@ -12993,6 +12993,52 @@ do
     check("залп без броска имени не везёт",
           SB.Net.TauntField({}).tnt, nil)
 
+    -- СВОДКА ЗАЛПА ГОВОРИТ, ЧТО ПРОИЗОШЛО. Было: «Атака: [49] + [+5] = 54
+    -- (по Вфа без провокации: 104). Защита:» и «Отражено (1): Вфа [129]»
+    -- — откуда +5, причём тут 104 и с чем сравнивали защиту Вфа, не
+    -- понять. Теперь в шапке сказано, что итог уже со штрафом, а у
+    -- провокатора в сводке — число, с которым сравнивали его защиту.
+    do
+        local lines = {}
+        local function grab(msg)
+            if type(msg) == "string" then
+                lines[#lines + 1] = (msg:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+            end
+        end
+        SB.Events.On("LOG_MESSAGE_RECEIVED", grab)
+        SB.Data.Spells["t_fan"] = { id = "t_fan", name = "Веер", class = "Маг", level = 1,
+            canCrit = true, aoe = { radius = 7 }, damage = 1 }
+        local realRoll, realThr = SB.Logic.Roll, SB.Logic.GetCritThreshold
+        SB.Logic.Roll = function() return 49, 1, 100 end
+        SB.Logic.GetCritThreshold = function() return 1000 end
+        SB.Logic.InitiateAoeAttack("t_fan")
+        SB.Logic.AoeReportAdd({ kind = "atk", name = "Лайка", roll = 99, mod = 30,
+                                total = 129, landed = false })
+        SB.Logic.AoeReportAdd({ kind = "atk", name = "Ирина", roll = 10, mod = 0,
+                                total = 10, landed = true, dmg = 2 })
+        stub.RunTimers()
+        SB.Logic.Roll, SB.Logic.GetCritThreshold = realRoll, realThr
+        SB.Events.Off("LOG_MESSAGE_RECEIVED", grab)
+        if SB.Logic.ReleaseHeldTurn then SB.Logic.ReleaseHeldTurn() end
+        local all = table.concat(lines, "\n")
+        checkTrue("шапка: итог уже с провокацией",
+                  all:find("с провокацией " .. PEN, 1, true) ~= nil)
+        checkTrue("шапка: по провокатору — своё число",
+                  all:find("по провокатору Лайка", 1, true) ~= nil)
+        local fanLine
+        for _, l in ipairs(lines) do
+            if l:find("Отражено", 1, true) and l:find("Лайка", 1, true) then fanLine = l end
+        end
+        checkTrue("у провокатора в сводке — против какого числа",
+                  fanLine ~= nil and fanLine:find("против", 1, true) ~= nil)
+        local hitLine
+        for _, l in ipairs(lines) do
+            if l:find("Урон", 1, true) and l:find("Ирина", 1, true) then hitLine = l end
+        end
+        checkTrue("у остальных приписки нет",
+                  hitLine ~= nil and hitLine:find("против", 1, true) == nil)
+    end
+
     -- Приём: провокатору обработчик залпа получает числа без штрафа.
     do
         local handler, prefix = SB.Net.__commHandler, SB.Net.__commPrefix
@@ -15909,7 +15955,7 @@ do
 
     -- И ЭТО ИМЕННО 3.2.3: релиз объявлен, и молча уехать с него назад
     -- проверка не даст.
-    check("выпущенная версия", toc, "3.2.3")
+    check("выпущенная версия", toc, "3.2.4")
 end
 
 -- ============================================================
