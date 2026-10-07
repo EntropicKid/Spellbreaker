@@ -186,14 +186,12 @@ Add({
 	icon = "Interface\\Icons\\Spell_nature_insectswarm",
     level = 0,
     class = "Друид",
-    damageType = "nature",
+    damageType = "physical",
     caura = 658,
 	description = "Друид может наслать на неприятеля рой насекомых обитающий поблизости, будь это мухи, комары, мошки и прочая мерзость, таким образом дезориентировав своего врага или немного подпортив ему кровь. Данное заклинание не позволяет влиять на гигантских насекомых: они считаются чудовищами.",
     resistable = true,
     canCrit = true,
 	distance = 30,
-	debuff = "eff_blinded_insect_swarm",
-    duration = 4,
 	scaling = {
 		hit    = { ["Исток"] = 1, ["Интуиция"] = 0.5 },
 		crit   = { ["Рвение"] = 1 },
@@ -213,8 +211,6 @@ Add({
     resistable = true,
     canCrit = true,
 	distance = 30,
-    -- ГОРИТ ДАЛЬШЕ: «их тела страдают и сгорают в холодном ночном
-    -- пламени» — до сих пор заклинание било разом и на этом кончалось.
 	debuff = "eff_bleeding_lunar_flame",
     duration = 3,
 	scaling = {
