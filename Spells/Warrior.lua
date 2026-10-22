@@ -171,7 +171,7 @@ Add({
 
 Add({
     id = "disarm",
-    name = "Разоружение",
+    name = "Обезоруживание",
 	requirement = "melee",
 	wowSpell = 236077,
     key = "Защита",
@@ -510,9 +510,10 @@ Add({
 
 Add({
     id = "shield_wall",
-    name = "Стена щитов",
+    name = "Глухая оборона",
     requirement = "shield",
     key = "Защита",
+	wowSpell = 871,
     icon = "Interface\\Icons\\Ability_warrior_shieldwall",
     level = 3,
     class = "Воин",
@@ -547,6 +548,7 @@ Add({
     id = "last_stand",
     name = "Последний рубеж",
     key = "Защита",
+	wowSpell = 12975,
     icon = "Interface\\Icons\\Spell_nature_focusedmind",
     level = 3,
     class = "Воин",
@@ -619,6 +621,7 @@ Add({
     id = "battle_stance",
     name = "Боевая стойка",
     key = "Воинский дух",
+	wowSpell = 7165,
     icon = "Interface\\Icons\\Ability_warrior_offensivestance",
     level = 0,
     class = "Воин",
@@ -632,6 +635,7 @@ Add({
     id = "defensive_stance",
     name = "Оборонительная стойка",
     key = "Воинский дух",
+	wowSpell = 7164,
     icon = "Interface\\Icons\\Ability_warrior_defensivestance",
     level = 0,
     class = "Воин",
@@ -645,6 +649,7 @@ Add({
     id = "berserker_stance",
     name = "Стойка берсерка",
     key = "Воинский дух",
+	wowSpell = 143594,
     icon = "Interface\\Icons\\Ability_racial_avatar",
     level = 0,
     class = "Воин",
