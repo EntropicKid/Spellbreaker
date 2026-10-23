@@ -705,7 +705,7 @@ Add({
     id = "anti_shadow",
     name = "Защита от темной магии",
     key = "Слово Тьмы",
-	wowSpell = 10598,
+	wowSpell = 10958,
     icon = "Interface\\Icons\\Spell_shadow_antishadow",
     level = 2,
     class = "Жрец",
