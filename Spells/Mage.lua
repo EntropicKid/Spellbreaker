@@ -611,6 +611,7 @@ Add({
     id = "summon_familiar",
     name = "Волшебный фамилиар",
     key = "Воплощение",
+	wowSpell = 205022,
     icon = "Interface\\Icons\\Ability_socererking_arcanemines",
     level = 2,
     class = "Маг",
